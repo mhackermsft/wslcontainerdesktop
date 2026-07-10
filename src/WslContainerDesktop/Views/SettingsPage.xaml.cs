@@ -37,5 +37,6 @@ public sealed partial class SettingsPage : Page
     {
         base.OnNavigatedTo(e);
         await ViewModel.LoadVersionAsync();
+        await ViewModel.LoadStartupStateAsync();
     }
 }

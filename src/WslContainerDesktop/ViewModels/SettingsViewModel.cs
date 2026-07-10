@@ -25,6 +25,9 @@ public partial class SettingsViewModel : ObservableObject
     private readonly ISettingsService _settings;
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
+    private readonly StartupService _startup;
+
+    private bool _suppressStartupWrite;
 
     [ObservableProperty]
     private string _wslcPath;
@@ -39,6 +42,16 @@ public partial class SettingsViewModel : ObservableObject
     private bool _startMinimized;
 
     [ObservableProperty]
+    private bool _runAtLogin;
+
+    [ObservableProperty]
+    private bool _runAtLoginEnabled = true;
+
+    [ObservableProperty]
+    private string _runAtLoginNote =
+        "Automatically launch WSL Container Desktop when you sign in to Windows.";
+
+    [ObservableProperty]
     private int _selectedThemeIndex;
 
     [ObservableProperty]
@@ -49,11 +62,12 @@ public partial class SettingsViewModel : ObservableObject
 
     public string AppVersion { get; } = "1.0.0";
 
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs)
+    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup)
     {
         _settings = settings;
         _wslc = wslc;
         _dialogs = dialogs;
+        _startup = startup;
 
         _wslcPath = settings.WslcPath;
         _refreshIntervalSeconds = settings.RefreshIntervalSeconds;
@@ -89,6 +103,82 @@ public partial class SettingsViewModel : ObservableObject
     {
         _settings.StartMinimized = value;
         _settings.Save();
+    }
+
+    partial void OnRunAtLoginChanged(bool value)
+    {
+        if (_suppressStartupWrite)
+        {
+            return;
+        }
+
+        _ = ApplyRunAtLoginAsync(value);
+    }
+
+    private async Task ApplyRunAtLoginAsync(bool value)
+    {
+        var result = await _startup.SetEnabledAsync(value);
+        switch (result)
+        {
+            case StartupToggleResult.Applied:
+                RunAtLoginNote = value
+                    ? "WSL Container Desktop will launch when you sign in to Windows."
+                    : "Automatically launch WSL Container Desktop when you sign in to Windows.";
+                break;
+
+            case StartupToggleResult.BlockedByUser:
+                // The user disabled startup in Task Manager; only they can change it there.
+                SetRunAtLoginSilently(false);
+                RunAtLoginEnabled = false;
+                RunAtLoginNote =
+                    "Startup is turned off for this app in Windows Task Manager (Startup apps). " +
+                    "Re-enable it there to allow launching at sign-in.";
+                await _dialogs.ShowMessageAsync("Managed by Windows",
+                    "This app's startup is controlled in Task Manager → Startup apps. " +
+                    "Please enable it there.");
+                break;
+
+            case StartupToggleResult.BlockedByPolicy:
+                SetRunAtLoginSilently(!value);
+                RunAtLoginEnabled = false;
+                RunAtLoginNote = "This setting is managed by your organization's policy.";
+                break;
+
+            case StartupToggleResult.Unavailable:
+                SetRunAtLoginSilently(!value);
+                RunAtLoginNote = "Run at sign-in isn't available for this installation.";
+                break;
+        }
+    }
+
+    /// <summary>Loads the current run-at-login state without triggering a write.</summary>
+    public async Task LoadStartupStateAsync()
+    {
+        var enabled = await _startup.IsEnabledAsync();
+        var canToggle = await _startup.CanToggleAsync();
+
+        SetRunAtLoginSilently(enabled);
+        RunAtLoginEnabled = canToggle || enabled;
+
+        if (!canToggle && !enabled)
+        {
+            RunAtLoginNote =
+                "Startup for this app is turned off in Windows Task Manager (Startup apps). " +
+                "Enable it there to allow launching at sign-in.";
+        }
+        else
+        {
+            RunAtLoginNote = enabled
+                ? "WSL Container Desktop will launch when you sign in to Windows."
+                : "Automatically launch WSL Container Desktop when you sign in to Windows.";
+        }
+    }
+
+    private void SetRunAtLoginSilently(bool value)
+    {
+        _suppressStartupWrite = true;
+        RunAtLogin = value;
+        _suppressStartupWrite = false;
     }
 
     partial void OnSelectedThemeIndexChanged(int value)

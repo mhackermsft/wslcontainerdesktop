@@ -71,13 +71,31 @@ public partial class App : Application
         _window = new MainWindow();
         _window.ApplyTheme(settings.Theme);
 
-        if (settings.StartMinimized)
+        // When Windows launches us at sign-in (via the StartupTask), start quietly in the
+        // tray so we don't steal focus on login; otherwise honor the StartMinimized setting.
+        var launchedAtLogin = WasActivatedByStartupTask();
+
+        if (settings.StartMinimized || launchedAtLogin)
         {
             _window.HideToTray();
         }
         else
         {
             _window.Activate();
+        }
+    }
+
+    private static bool WasActivatedByStartupTask()
+    {
+        try
+        {
+            var kind = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent()
+                .GetActivatedEventArgs().Kind;
+            return kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.StartupTask;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -153,6 +171,7 @@ public partial class App : Application
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<RegistryAuthRefresher>();
+        services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();
 
         services.AddSingleton(_ => StatusMonitorAccessor.Instance
