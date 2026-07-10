@@ -51,7 +51,23 @@ public partial class DashboardStatRow : ObservableObject
     [ObservableProperty]
     private string _blockIO = "-";
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GpuTooltip))]
+    private bool _hasGpu;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GpuTooltip))]
+    private string? _gpuName;
+
     public string Id { get; set; } = string.Empty;
+
+    /// <summary>True once GPU access has been probed for this row.</summary>
+    public bool GpuChecked { get; set; }
+
+    /// <summary>Tooltip for the GPU badge.</summary>
+    public string GpuTooltip => string.IsNullOrWhiteSpace(GpuName)
+        ? "GPU passthrough enabled"
+        : $"GPU: {GpuName}";
 
     public void Update(ContainerStats s)
     {
@@ -220,6 +236,27 @@ public partial class DashboardViewModel : ObservableObject
         var totalCpu = stats.Sum(s => s.CpuValue);
         TotalCpuValue = Math.Min(totalCpu, 100);
         TotalCpu = $"{totalCpu:0.#}%";
+
+        // Probe GPU passthrough once per row (cheap exec check), like the Containers page.
+        foreach (var row in LiveStats.Where(r => !r.GpuChecked))
+        {
+            _ = ProbeGpuAsync(row);
+        }
+    }
+
+    private async Task ProbeGpuAsync(DashboardStatRow row)
+    {
+        row.GpuChecked = true;
+        try
+        {
+            var (hasGpu, gpuName) = await _wslc.GetGpuInfoAsync(row.Id);
+            row.HasGpu = hasGpu;
+            row.GpuName = gpuName;
+        }
+        catch
+        {
+            // best-effort; leave GpuChecked true to avoid hammering exec
+        }
     }
 
     public void StopStatsPolling()

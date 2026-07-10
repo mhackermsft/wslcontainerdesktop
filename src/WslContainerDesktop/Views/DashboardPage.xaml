@@ -188,12 +188,29 @@
                                         <ColumnDefinition Width="1.4*" MinWidth="110" />
                                     </Grid.ColumnDefinitions>
 
-                                    <TextBlock
+                                    <StackPanel
                                         Grid.Column="0"
                                         VerticalAlignment="Center"
-                                        FontWeight="SemiBold"
-                                        Text="{x:Bind Name, Mode=OneWay}"
-                                        TextTrimming="CharacterEllipsis" />
+                                        Orientation="Horizontal"
+                                        Spacing="6">
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            FontWeight="SemiBold"
+                                            Text="{x:Bind Name, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <Border
+                                            Padding="5,1"
+                                            VerticalAlignment="Center"
+                                            Background="#1F7A3D"
+                                            CornerRadius="4"
+                                            ToolTipService.ToolTip="{x:Bind GpuTooltip, Mode=OneWay}"
+                                            Visibility="{x:Bind HasGpu, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                                <FontIcon FontSize="10" Foreground="White" Glyph="&#xE950;" />
+                                                <TextBlock FontSize="10" Foreground="White" Text="GPU" />
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
 
                                     <StackPanel
                                         Grid.Column="1"
