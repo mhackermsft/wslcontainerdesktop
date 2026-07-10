@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 
@@ -34,10 +35,10 @@ public sealed partial class KubernetesPage : Page
 
     public KubernetesViewModel ViewModel { get; }
 
-    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        await ViewModel.InitializeAsync();
+        UiSafe.Run(() => ViewModel.InitializeAsync());
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
@@ -94,43 +95,43 @@ public sealed partial class KubernetesPage : Page
         }
     }
 
-    private async void DeleteResource_Click(object sender, RoutedEventArgs e)
+    private void DeleteResource_Click(object sender, RoutedEventArgs e)
     {
         if (RowModel(sender) is { } model)
         {
-            await ViewModel.DeleteResourceAsync(K8sRef.For(model));
+            UiSafe.Run(() => ViewModel.DeleteResourceAsync(K8sRef.For(model)));
         }
     }
 
-    private async void ScaleDeployment_Click(object sender, RoutedEventArgs e)
+    private void ScaleDeployment_Click(object sender, RoutedEventArgs e)
     {
         if (RowModel(sender) is { } model)
         {
-            await ViewModel.ScaleDeploymentAsync(K8sRef.For(model));
+            UiSafe.Run(() => ViewModel.ScaleDeploymentAsync(K8sRef.For(model)));
         }
     }
 
-    private async void RestartDeployment_Click(object sender, RoutedEventArgs e)
+    private void RestartDeployment_Click(object sender, RoutedEventArgs e)
     {
         if (RowModel(sender) is { } model)
         {
-            await ViewModel.RestartDeploymentAsync(K8sRef.For(model));
+            UiSafe.Run(() => ViewModel.RestartDeploymentAsync(K8sRef.For(model)));
         }
     }
 
-    private async void RunCron_Click(object sender, RoutedEventArgs e)
+    private void RunCron_Click(object sender, RoutedEventArgs e)
     {
         if (RowModel(sender) is { } model)
         {
-            await ViewModel.TriggerCronAsync(K8sRef.For(model));
+            UiSafe.Run(() => ViewModel.TriggerCronAsync(K8sRef.For(model)));
         }
     }
 
-    private async void ToggleCron_Click(object sender, RoutedEventArgs e)
+    private void ToggleCron_Click(object sender, RoutedEventArgs e)
     {
         if (RowModel(sender) is K8sCronJob cron)
         {
-            await ViewModel.SetCronSuspendAsync(K8sRef.For(cron), !cron.Suspended);
+            UiSafe.Run(() => ViewModel.SetCronSuspendAsync(K8sRef.For(cron), !cron.Suspended));
         }
     }
 }

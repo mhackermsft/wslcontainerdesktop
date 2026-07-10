@@ -17,6 +17,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -86,6 +87,7 @@ public partial class DashboardViewModel : ObservableObject
 {
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
+    private readonly ILogger<DashboardViewModel> _logger;
     private readonly DispatcherQueue _dispatcher;
 
     private CancellationTokenSource? _statsCts;
@@ -122,10 +124,11 @@ public partial class DashboardViewModel : ObservableObject
 
     public ObservableCollection<DashboardStatRow> LiveStats { get; } = new();
 
-    public DashboardViewModel(IWslcService wslc, StatusMonitor monitor)
+    public DashboardViewModel(IWslcService wslc, StatusMonitor monitor, ILogger<DashboardViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
+        _logger = logger;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _monitor.StatusChanged += OnStatusChanged;
 
@@ -164,9 +167,10 @@ public partial class DashboardViewModel : ObservableObject
             var volumes = await _wslc.ListVolumesAsync();
             VolumeCount = volumes.Count;
         }
-        catch
+        catch (Exception ex)
         {
             // best effort
+            _logger.LogDebug(ex, "Dashboard counts refresh failed.");
         }
     }
 
@@ -189,9 +193,10 @@ public partial class DashboardViewModel : ObservableObject
                 {
                     break;
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // ignore
+                    // ignore transient stats errors
+                    _logger.LogDebug(ex, "Transient dashboard stats poll error.");
                 }
 
                 try

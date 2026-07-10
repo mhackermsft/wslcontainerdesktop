@@ -17,6 +17,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using WslContainerDesktop.Dialogs;
 using WslContainerDesktop.Models;
@@ -31,6 +32,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private readonly DialogService _dialogs;
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
+    private readonly ILogger<ContainersViewModel> _logger;
     private readonly DispatcherQueue _dispatcher;
     private readonly LogStreamer _logStreamer;
 
@@ -108,13 +110,14 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<ContainerRowViewModel> Containers { get; } = new();
 
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher)
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
         _dialogs = dialogs;
         _settings = settings;
         _authRefresher = authRefresher;
+        _logger = logger;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _logStreamer = new LogStreamer(settings, _dispatcher);
         _logStreamer.LineReceived += line => LogLineReceived?.Invoke(line);
@@ -188,9 +191,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 DetailMounts.Add(m);
             }
         }
-        catch
+        catch (Exception ex)
         {
             // ignore inspect failures for detail panel
+            _logger.LogDebug(ex, "Container inspect for the detail panel failed.");
         }
     }
 
@@ -265,9 +269,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 {
                     break;
                 }
-                catch
+                catch (Exception ex)
                 {
                     // ignore transient stats errors
+                    _logger.LogDebug(ex, "Transient container stats poll error.");
                 }
 
                 try
