@@ -35,6 +35,9 @@ public enum RegistryLoginState
 
     /// <summary>Could not reach the registry (network/DNS).</summary>
     Unreachable,
+
+    /// <summary>Reachable anonymously; no credentials supplied (used for Docker Hub by default).</summary>
+    Anonymous,
 }
 
 /// <summary>
@@ -84,6 +87,7 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
                 OnPropertyChanged(nameof(LoginStateGlyph));
                 OnPropertyChanged(nameof(LoginStateColor));
                 OnPropertyChanged(nameof(ShowLoginButton));
+                OnPropertyChanged(nameof(ShowLogoutButton));
             }
         }
     }
@@ -96,6 +100,7 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
         RegistryLoginState.LoggedOut => "Not logged in",
         RegistryLoginState.Checking => "Checking…",
         RegistryLoginState.Unreachable => "Unreachable",
+        RegistryLoginState.Anonymous => "Anonymous",
         _ => "Unknown",
     };
 
@@ -106,6 +111,7 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
         RegistryLoginState.LoggedIn => "\uE73E",       // checkmark
         RegistryLoginState.LoggedOut => "\uE711",      // cancel
         RegistryLoginState.Unreachable => "\uE783",    // error/info
+        RegistryLoginState.Anonymous => "\uE77B",      // contact (anonymous)
         _ => "\uE9CE",                                   // unknown / help
     };
 
@@ -117,12 +123,32 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
         RegistryLoginState.LoggedOut => "#9AA0A6",     // grey
         RegistryLoginState.Unreachable => "#E6A23C",   // amber
         RegistryLoginState.Checking => "#5B9BD5",      // blue
+        RegistryLoginState.Anonymous => "#9AA0A6",     // grey
         _ => "#9AA0A6",
     };
 
     /// <summary>Whether to offer the "Log in" button — hidden once we know we're logged in.</summary>
     [JsonIgnore]
-    public bool ShowLoginButton => !IsDefault && _loginState != RegistryLoginState.LoggedIn;
+    public bool ShowLoginButton => _loginState != RegistryLoginState.LoggedIn;
+
+    /// <summary>
+    /// Whether to offer a "Log out" button. Only the built-in Docker Hub entry (which can't be
+    /// removed) needs this; for user-added registries, removing the entry logs out.
+    /// </summary>
+    [JsonIgnore]
+    public bool ShowLogoutButton => IsDefault && _loginState == RegistryLoginState.LoggedIn;
+
+    /// <summary>Whether the row can be removed. The built-in Docker Hub entry is permanent.</summary>
+    [JsonIgnore]
+    public bool ShowRemoveButton => !IsDefault;
+
+    /// <summary>
+    /// The server passed to `wslc login`/`logout`. For the built-in Docker Hub entry (whose
+    /// <see cref="Host"/> is intentionally empty so bare image names pass through) this is the
+    /// canonical Docker Hub endpoint; otherwise it is the registry host.
+    /// </summary>
+    [JsonIgnore]
+    public string LoginServer => IsDefault ? "docker.io" : Host;
 
     /// <summary>True when this registry has a host that qualifies image references.</summary>
     public bool HasHost => !string.IsNullOrWhiteSpace(Host);
@@ -170,6 +196,7 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
         Name = "Docker Hub",
         Host = string.Empty,
         IsDefault = true,
+        LoginState = RegistryLoginState.Anonymous,
     };
 }
 

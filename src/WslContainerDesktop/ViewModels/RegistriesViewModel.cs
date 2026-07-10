@@ -226,7 +226,7 @@ public partial class RegistriesViewModel : ObservableObject
         StatusMessage = $"Logging in to {registry.Name}…";
         try
         {
-            var result = await _wslc.LoginRegistryAsync(registry.Host, username, password);
+            var result = await _wslc.LoginRegistryAsync(registry.LoginServer, username, password);
             if (result.Success)
             {
                 // Remember the username for convenience (never the password).
@@ -244,6 +244,41 @@ public partial class RegistriesViewModel : ObservableObject
                 await _dialogs.ShowMessageAsync("Login failed", result.ErrorText);
                 StatusMessage = $"Login to {registry.Name} failed.";
                 registry.LoginState = Models.RegistryLoginState.LoggedOut;
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task LogoutAsync(RegistryEntry? registry)
+    {
+        if (registry is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = $"Logging out of {registry.Name}…";
+        try
+        {
+            var result = await _wslc.LogoutRegistryAsync(registry.LoginServer);
+            if (result.Success)
+            {
+                // Docker Hub reverts to anonymous access; user-added registries become "not logged in".
+                registry.LoginState = registry.IsDefault
+                    ? Models.RegistryLoginState.Anonymous
+                    : Models.RegistryLoginState.LoggedOut;
+                registry.Username = null;
+                _settings.Save();
+                StatusMessage = $"Logged out of {registry.Name}.";
+            }
+            else
+            {
+                await _dialogs.ShowMessageAsync("Logout failed", result.ErrorText);
+                StatusMessage = $"Logout of {registry.Name} failed.";
             }
         }
         finally

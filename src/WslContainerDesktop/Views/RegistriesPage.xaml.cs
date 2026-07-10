@@ -50,6 +50,14 @@ public sealed partial class RegistriesPage : Page
         }
     }
 
+    private void Logout_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            ViewModel.LogoutCommand.Execute(row);
+        }
+    }
+
     private void Remove_Click(object sender, RoutedEventArgs e)
     {
         if (RowOf(sender) is { } row)

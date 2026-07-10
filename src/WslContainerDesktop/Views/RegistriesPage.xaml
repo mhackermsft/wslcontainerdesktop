@@ -67,8 +67,8 @@
             CornerRadius="6,6,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2*" MinWidth="140" />
-                    <ColumnDefinition Width="2.2*" MinWidth="160" />
+                    <ColumnDefinition Width="2.4*" MinWidth="200" />
+                    <ColumnDefinition Width="2*" MinWidth="150" />
                     <ColumnDefinition Width="1.2*" MinWidth="100" />
                     <ColumnDefinition Width="150" />
                     <ColumnDefinition Width="200" />
@@ -107,25 +107,35 @@
                     <DataTemplate x:DataType="models:RegistryEntry">
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="2*" MinWidth="140" />
-                                <ColumnDefinition Width="2.2*" MinWidth="160" />
+                                <ColumnDefinition Width="2.4*" MinWidth="200" />
+                                <ColumnDefinition Width="2*" MinWidth="150" />
                                 <ColumnDefinition Width="1.2*" MinWidth="100" />
                                 <ColumnDefinition Width="150" />
                                 <ColumnDefinition Width="200" />
                             </Grid.ColumnDefinitions>
 
-                            <StackPanel
+                            <Grid
                                 Grid.Column="0"
                                 VerticalAlignment="Center"
-                                Orientation="Horizontal"
-                                Spacing="8">
-                                <FontIcon FontSize="15" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE753;" />
+                                ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon
+                                    Grid.Column="0"
+                                    FontSize="15"
+                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                    Glyph="&#xE753;" />
                                 <TextBlock
+                                    Grid.Column="1"
                                     VerticalAlignment="Center"
                                     FontWeight="SemiBold"
                                     Text="{x:Bind Name}"
                                     TextTrimming="CharacterEllipsis" />
                                 <Border
+                                    Grid.Column="2"
                                     Padding="8,1"
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
@@ -133,7 +143,7 @@
                                     Visibility="{x:Bind IsDefault, Converter={StaticResource BoolToVis}}">
                                     <TextBlock FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="default" />
                                 </Border>
-                            </StackPanel>
+                            </Grid>
 
                             <TextBlock
                                 Grid.Column="1"
@@ -151,13 +161,12 @@
                                 Text="{x:Bind Username}"
                                 TextTrimming="CharacterEllipsis" />
 
-                            <!--  Status: only meaningful for non-default registries  -->
+                            <!--  Status  -->
                             <StackPanel
                                 Grid.Column="3"
                                 VerticalAlignment="Center"
                                 Orientation="Horizontal"
-                                Spacing="7"
-                                Visibility="{x:Bind IsDefault, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+                                Spacing="7">
                                 <FontIcon
                                     FontSize="13"
                                     Foreground="{x:Bind LoginStateColor, Mode=OneWay, Converter={StaticResource HexToBrush}}"
@@ -169,21 +178,26 @@
                                     Text="{x:Bind LoginStateText, Mode=OneWay}" />
                             </StackPanel>
 
-                            <!--  Actions: only for non-default registries  -->
+                            <!--  Actions  -->
                             <StackPanel
                                 Grid.Column="4"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center"
                                 Orientation="Horizontal"
-                                Spacing="4"
-                                Visibility="{x:Bind IsDefault, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+                                Spacing="4">
                                 <Button Click="Login_Click" AutomationProperties.Name="Log in" ToolTipService.ToolTip="Log in / re-authenticate" Visibility="{x:Bind ShowLoginButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <FontIcon FontSize="13" Glyph="&#xE77B;" />
                                         <TextBlock FontSize="13" Text="Log in" />
                                     </StackPanel>
                                 </Button>
-                                <Button Click="Remove_Click" AutomationProperties.Name="Remove" ToolTipService.ToolTip="Remove">
+                                <Button Click="Logout_Click" AutomationProperties.Name="Log out" ToolTipService.ToolTip="Log out" Visibility="{x:Bind ShowLogoutButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon FontSize="13" Glyph="&#xE7E8;" />
+                                        <TextBlock FontSize="13" Text="Log out" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Click="Remove_Click" AutomationProperties.Name="Remove" ToolTipService.ToolTip="Remove" Visibility="{x:Bind ShowRemoveButton, Converter={StaticResource BoolToVis}}">
                                     <FontIcon FontSize="13" Glyph="&#xE74D;" />
                                 </Button>
                             </StackPanel>
