@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Text.Json.Serialization;
+
 namespace WslContainerDesktop.Models;
 
 /// <summary>Known authentication state of a registry, determined by a cheap probe.</summary>
@@ -70,7 +72,7 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
     public bool IsDefault { get; set; }
 
     /// <summary>Transient (not persisted) authentication state shown in the UI.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
+    [JsonIgnore]
     public RegistryLoginState LoginState
     {
         get => _loginState;
@@ -87,7 +89,7 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
     }
 
     /// <summary>Human-readable status label for the list.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
+    [JsonIgnore]
     public string LoginStateText => _loginState switch
     {
         RegistryLoginState.LoggedIn => "Logged in",
@@ -98,7 +100,7 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
     };
 
     /// <summary>Segoe Fluent glyph for the status dot/icon.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
+    [JsonIgnore]
     public string LoginStateGlyph => _loginState switch
     {
         RegistryLoginState.LoggedIn => "\uE73E",       // checkmark
@@ -108,7 +110,7 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
     };
 
     /// <summary>Status color (hex ARGB) for the dot/icon.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
+    [JsonIgnore]
     public string LoginStateColor => _loginState switch
     {
         RegistryLoginState.LoggedIn => "#2DC85F",      // green
@@ -119,7 +121,7 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
     };
 
     /// <summary>Whether to offer the "Log in" button — hidden once we know we're logged in.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
+    [JsonIgnore]
     public bool ShowLoginButton => !IsDefault && _loginState != RegistryLoginState.LoggedIn;
 
     /// <summary>True when this registry has a host that qualifies image references.</summary>
@@ -170,3 +172,4 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
         IsDefault = true,
     };
 }
+

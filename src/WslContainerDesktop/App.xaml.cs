@@ -174,6 +174,10 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _tray?.Dispose();
         _window?.ForceClose();
 
+        // Dispose the DI container so IDisposable singletons (e.g. ContainersViewModel's
+        // LogStreamer and its wsl.exe child) are torn down deterministically.
+        (Services as IDisposable)?.Dispose();
+
         Exit();
     }
 

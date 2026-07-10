@@ -24,15 +24,8 @@ namespace WslContainerDesktop.Services;
 /// and resolves version tags from the k3s release channels. The installer script is downloaded to
 /// a file and integrity-verified before it runs (see <see cref="RunInstallerAsync"/>).
 /// </summary>
-public sealed class K8sInstaller
+public sealed class K8sInstaller(WslRootShell shell)
 {
-    private readonly WslRootShell _shell;
-
-    public K8sInstaller(WslRootShell shell)
-    {
-        _shell = shell;
-    }
-
     public Task<K3sInstallResult> InstallAsync(string? expectedInstallerHash, Action<string> onOutput, CancellationToken ct = default) =>
         RunInstallerAsync(version: null, expectedInstallerHash, onOutput, ct);
 
@@ -94,7 +87,7 @@ public sealed class K8sInstaller
             "if [ -n \"$EXPECTED\" ] && [ \"$ACTUAL\" != \"$EXPECTED\" ]; then echo '@@INSTALLER_HASH_MISMATCH'; rm -f \"$TMP\"; exit 3; fi; " +
             $"{runLine}; rc=$?; rm -f \"$TMP\"; exit $rc";
 
-        var result = await _shell.RunStreamingAsync(script, Filter, ct).ConfigureAwait(false);
+        var result = await shell.RunStreamingAsync(script, Filter, ct).ConfigureAwait(false);
         return new K3sInstallResult
         {
             Result = result,
@@ -105,7 +98,7 @@ public sealed class K8sInstaller
 
     public async Task<string?> GetInstalledVersionAsync(CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync("k3s --version 2>/dev/null | head -n1", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync("k3s --version 2>/dev/null | head -n1", ct).ConfigureAwait(false);
         if (!r.Success)
         {
             return null;
@@ -122,7 +115,7 @@ public sealed class K8sInstaller
     public async Task<string?> GetChannelVersionAsync(string channel, CancellationToken ct = default)
     {
         // The channel server 302-redirects to the GitHub release for the channel's current tag.
-        var r = await _shell.RunAsync(
+        var r = await shell.RunAsync(
             $"curl -s -o /dev/null -w '%{{redirect_url}}' https://update.k3s.io/v1-release/channels/{WslRootShell.ShellEscape(channel)}", ct)
             .ConfigureAwait(false);
         if (!r.Success)
@@ -135,13 +128,14 @@ public sealed class K8sInstaller
     }
 
     public Task<CommandResult> UninstallAsync(Action<string> onOutput, CancellationToken ct = default) =>
-        _shell.RunStreamingAsync(
+        shell.RunStreamingAsync(
             "if [ -f /usr/local/bin/k3s-uninstall.sh ]; then /usr/local/bin/k3s-uninstall.sh; else echo 'k3s already removed'; fi",
             onOutput, ct);
 
     public Task<CommandResult> StartAsync(CancellationToken ct = default) =>
-        _shell.RunAsync("systemctl start k3s", ct);
+        shell.RunAsync("systemctl start k3s", ct);
 
     public Task<CommandResult> StopAsync(CancellationToken ct = default) =>
-        _shell.RunAsync("systemctl stop k3s", ct);
+        shell.RunAsync("systemctl stop k3s", ct);
 }
+

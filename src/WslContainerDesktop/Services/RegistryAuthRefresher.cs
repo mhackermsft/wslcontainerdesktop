@@ -23,21 +23,8 @@ namespace WslContainerDesktop.Services;
 /// Keeps Azure-backed registry logins fresh. Shared by the view models (refresh right before
 /// an app-initiated pull/run) and the background monitor (periodic refresh).
 /// </summary>
-public sealed class RegistryAuthRefresher
+public sealed class RegistryAuthRefresher(IWslcService wslc, IAzureCliService azure, ISettingsService settings, ILogger<RegistryAuthRefresher> logger)
 {
-    private readonly IWslcService _wslc;
-    private readonly IAzureCliService _azure;
-    private readonly ISettingsService _settings;
-    private readonly ILogger<RegistryAuthRefresher> _logger;
-
-    public RegistryAuthRefresher(IWslcService wslc, IAzureCliService azure, ISettingsService settings, ILogger<RegistryAuthRefresher> logger)
-    {
-        _wslc = wslc;
-        _azure = azure;
-        _settings = settings;
-        _logger = logger;
-    }
-
     /// <summary>
     /// If the given image reference targets an Azure-backed registry, silently re-mints its
     /// token from the cached az session and re-logs the engine in. No-ops for non-Azure
@@ -58,7 +45,7 @@ public sealed class RegistryAuthRefresher
         }
 
         var host = reference[..slash];
-        var registry = _settings.Registries.FirstOrDefault(r =>
+        var registry = settings.Registries.FirstOrDefault(r =>
             r.IsAzure && string.Equals(r.Host, host, StringComparison.OrdinalIgnoreCase));
         if (registry is not null)
         {
@@ -77,26 +64,27 @@ public sealed class RegistryAuthRefresher
 
         try
         {
-            if (string.IsNullOrWhiteSpace(await _azure.GetSignedInUserAsync(ct).ConfigureAwait(false)))
+            if (string.IsNullOrWhiteSpace(await azure.GetSignedInUserAsync(ct).ConfigureAwait(false)))
             {
                 return false; // az session gone; needs interactive sign-in.
             }
 
-            var token = await _azure.GetAcrTokenAsync(registry.AzureAcrName, registry.SubscriptionId, ct)
+            var token = await azure.GetAcrTokenAsync(registry.AzureAcrName, registry.SubscriptionId, ct)
                 .ConfigureAwait(false);
             if (token is null)
             {
                 return false;
             }
 
-            var login = await _wslc.LoginRegistryAsync(registry.Host, registry.Username ?? string.Empty, token.Value.Token, ct)
+            var login = await wslc.LoginRegistryAsync(registry.Host, registry.Username ?? string.Empty, token.Value.Token, ct)
                 .ConfigureAwait(false);
             return login.Success;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to refresh Azure registry login for {Host}.", registry.Host);
+            logger.LogWarning(ex, "Failed to refresh Azure registry login for {Host}.", registry.Host);
             return false;
         }
     }
 }
+

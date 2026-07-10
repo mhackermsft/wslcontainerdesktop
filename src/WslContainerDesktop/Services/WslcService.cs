@@ -20,32 +20,23 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class WslcService : IWslcService
+public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logger) : IWslcService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
     };
 
-    private readonly ProcessRunner _runner;
-    private readonly ILogger<WslcService> _logger;
-
-    public WslcService(ProcessRunner runner, ILogger<WslcService> logger)
-    {
-        _runner = runner;
-        _logger = logger;
-    }
-
     // ---- Engine ---------------------------------------------------------
 
     public Task<CommandResult> GetVersionAsync(CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "version" }, ct);
+        runner.RunAsync(["version"], ct);
 
     public async Task<bool> IsEngineAvailableAsync(CancellationToken ct = default)
     {
         try
         {
-            var result = await _runner.RunAsync(new[] { "version" }, ct).ConfigureAwait(false);
+            var result = await runner.RunAsync(["version"], ct).ConfigureAwait(false);
             return result.Success;
         }
         catch
@@ -64,21 +55,21 @@ public sealed class WslcService : IWslcService
             args.Add("--all");
         }
 
-        var result = await _runner.RunAsync(args, ct).ConfigureAwait(false);
+        var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
         return Deserialize<ContainerInfo>(result);
     }
 
     public Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "start", id }, ct);
+        runner.RunAsync(["start", id], ct);
 
     public Task<CommandResult> StopContainerAsync(string id, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "stop", id }, ct);
+        runner.RunAsync(["stop", id], ct);
 
     public async Task<CommandResult> RestartContainerAsync(string id, CancellationToken ct = default)
     {
-        var stop = await _runner.RunAsync(new[] { "stop", id }, ct).ConfigureAwait(false);
+        var stop = await runner.RunAsync(["stop", id], ct).ConfigureAwait(false);
         // Ignore stop failures (container may already be stopped) and attempt start.
-        var start = await _runner.RunAsync(new[] { "start", id }, ct).ConfigureAwait(false);
+        var start = await runner.RunAsync(["start", id], ct).ConfigureAwait(false);
         if (!start.Success && !stop.Success)
         {
             return stop;
@@ -88,7 +79,7 @@ public sealed class WslcService : IWslcService
     }
 
     public Task<CommandResult> KillContainerAsync(string id, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "kill", id }, ct);
+        runner.RunAsync(["kill", id], ct);
 
     public Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default)
     {
@@ -99,35 +90,35 @@ public sealed class WslcService : IWslcService
         }
 
         args.Add(id);
-        return _runner.RunAsync(args, ct);
+        return runner.RunAsync(args, ct);
     }
 
     public Task<CommandResult> PruneContainersAsync(CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "container", "prune" }, ct);
+        runner.RunAsync(["container", "prune"], ct);
 
     public Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default) =>
-        _runner.RunAsync(options.ToArguments(), ct);
+        runner.RunAsync(options.ToArguments(), ct);
 
     public Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "logs", "--tail", tail.ToString(), id }, ct);
+        runner.RunAsync(["logs", "--tail", tail.ToString(), id], ct);
 
     public Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "inspect", "--type", "container", id }, ct);
+        runner.RunAsync(["inspect", "--type", "container", id], ct);
 
     public async Task<IReadOnlyList<ContainerStats>> GetStatsAsync(CancellationToken ct = default)
     {
-        var result = await _runner.RunAsync(new[] { "stats", "--all", "--format", "json" }, ct).ConfigureAwait(false);
+        var result = await runner.RunAsync(["stats", "--all", "--format", "json"], ct).ConfigureAwait(false);
         return Deserialize<ContainerStats>(result);
     }
 
     public async Task<ContainerStats?> GetStatsAsync(string id, CancellationToken ct = default)
     {
-        var result = await _runner.RunAsync(new[] { "stats", "--format", "json", id }, ct).ConfigureAwait(false);
+        var result = await runner.RunAsync(["stats", "--format", "json", id], ct).ConfigureAwait(false);
         return Deserialize<ContainerStats>(result).FirstOrDefault();
     }
 
     public void OpenTerminal(string id) =>
-        _runner.RunInteractive(new[] { "exec", "-it", id, "/bin/sh", "-c", "clear; (bash || sh)" });
+        runner.RunInteractive(["exec", "-it", id, "/bin/sh", "-c", "clear; (bash || sh)"]);
 
     /// <summary>
     /// Detects whether a running container has GPU passthrough by checking for the WSL
@@ -142,7 +133,7 @@ public sealed class WslcService : IWslcService
             "/usr/lib/wsl/lib/nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1; " +
             "else echo NOGPU; fi";
 
-        var result = await _runner.RunAsync(new[] { "exec", id, "sh", "-c", probe }, ct).ConfigureAwait(false);
+        var result = await runner.RunAsync(["exec", id, "sh", "-c", probe], ct).ConfigureAwait(false);
         if (!result.Success)
         {
             return (false, null);
@@ -160,18 +151,18 @@ public sealed class WslcService : IWslcService
     }
 
     public void FollowLogs(string id) =>
-        _runner.RunInteractive(new[] { "logs", "-f", "--tail", "200", id });
+        runner.RunInteractive(["logs", "-f", "--tail", "200", id]);
 
     // ---- Images ---------------------------------------------------------
 
     public async Task<IReadOnlyList<ImageInfo>> ListImagesAsync(CancellationToken ct = default)
     {
-        var result = await _runner.RunAsync(new[] { "images", "--format", "json" }, ct).ConfigureAwait(false);
+        var result = await runner.RunAsync(["images", "--format", "json"], ct).ConfigureAwait(false);
         return Deserialize<ImageInfo>(result);
     }
 
     public Task<CommandResult> PullImageAsync(string reference, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "pull", reference }, ct);
+        runner.RunAsync(["pull", reference], ct);
 
     public Task<CommandResult> LoginRegistryAsync(string server, string username, string password, CancellationToken ct = default)
     {
@@ -188,7 +179,7 @@ public sealed class WslcService : IWslcService
             args.Add(server);
         }
 
-        return _runner.RunWithStdinAsync(args, password, ct);
+        return runner.RunWithStdinAsync(args, password, ct);
     }
 
     public Task<CommandResult> LogoutRegistryAsync(string server, CancellationToken ct = default)
@@ -199,11 +190,11 @@ public sealed class WslcService : IWslcService
             args.Add(server);
         }
 
-        return _runner.RunAsync(args, ct);
+        return runner.RunAsync(args, ct);
     }
 
     public Task<CommandResult> PushImageAsync(string reference, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "push", reference }, ct);
+        runner.RunAsync(["push", reference], ct);
 
     public async Task<Models.RegistryLoginState> ProbeRegistryLoginAsync(string host, string repository, CancellationToken ct = default)
     {
@@ -216,7 +207,7 @@ public sealed class WslcService : IWslcService
         // registry's manifest endpoint, which exercises the stored credentials.
         var probeTag = "wslcd-login-probe-0000";
         var reference = $"{host.Trim().TrimEnd('/')}/{repository}:{probeTag}";
-        var result = await _runner.RunAsync(new[] { "pull", reference }, ct).ConfigureAwait(false);
+        var result = await runner.RunAsync(["pull", reference], ct).ConfigureAwait(false);
 
         // Prefer stable, locale-independent signals over the CLI's prose:
         //   1. the process exit code,
@@ -282,17 +273,17 @@ public sealed class WslcService : IWslcService
         }
 
         args.Add(id);
-        return _runner.RunAsync(args, ct);
+        return runner.RunAsync(args, ct);
     }
 
     public Task<CommandResult> TagImageAsync(string source, string target, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "tag", source, target }, ct);
+        runner.RunAsync(["tag", source, target], ct);
 
     public Task<CommandResult> PruneImagesAsync(CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "image", "prune" }, ct);
+        runner.RunAsync(["image", "prune"], ct);
 
     public Task<CommandResult> InspectImageAsync(string id, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "inspect", "--type", "image", id }, ct);
+        runner.RunAsync(["inspect", "--type", "image", id], ct);
 
     public Task<CommandResult> BuildImageAsync(string contextPath, string tag, string? dockerfile, CancellationToken ct = default)
     {
@@ -304,48 +295,48 @@ public sealed class WslcService : IWslcService
         }
 
         args.Add(contextPath);
-        return _runner.RunAsync(args, ct);
+        return runner.RunAsync(args, ct);
     }
 
     // ---- Volumes --------------------------------------------------------
 
     public async Task<IReadOnlyList<VolumeInfo>> ListVolumesAsync(CancellationToken ct = default)
     {
-        var result = await _runner.RunAsync(new[] { "volume", "list", "--format", "json" }, ct).ConfigureAwait(false);
+        var result = await runner.RunAsync(["volume", "list", "--format", "json"], ct).ConfigureAwait(false);
         return Deserialize<VolumeInfo>(result);
     }
 
     public Task<CommandResult> CreateVolumeAsync(string name, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "volume", "create", name }, ct);
+        runner.RunAsync(["volume", "create", name], ct);
 
     public Task<CommandResult> RemoveVolumeAsync(string name, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "volume", "remove", name }, ct);
+        runner.RunAsync(["volume", "remove", name], ct);
 
     public Task<CommandResult> PruneVolumesAsync(CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "volume", "prune", "--all" }, ct);
+        runner.RunAsync(["volume", "prune", "--all"], ct);
 
     public Task<CommandResult> InspectVolumeAsync(string name, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "volume", "inspect", name }, ct);
+        runner.RunAsync(["volume", "inspect", name], ct);
 
     // ---- Networks -------------------------------------------------------
 
     public async Task<IReadOnlyList<NetworkInfo>> ListNetworksAsync(CancellationToken ct = default)
     {
-        var result = await _runner.RunAsync(new[] { "network", "list", "--format", "json" }, ct).ConfigureAwait(false);
+        var result = await runner.RunAsync(["network", "list", "--format", "json"], ct).ConfigureAwait(false);
         return Deserialize<NetworkInfo>(result);
     }
 
     public Task<CommandResult> CreateNetworkAsync(string name, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "network", "create", name }, ct);
+        runner.RunAsync(["network", "create", name], ct);
 
     public Task<CommandResult> RemoveNetworkAsync(string name, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "network", "remove", name }, ct);
+        runner.RunAsync(["network", "remove", name], ct);
 
     public Task<CommandResult> PruneNetworksAsync(CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "network", "prune" }, ct);
+        runner.RunAsync(["network", "prune"], ct);
 
     public Task<CommandResult> InspectNetworkAsync(string name, CancellationToken ct = default) =>
-        _runner.RunAsync(new[] { "network", "inspect", name }, ct);
+        runner.RunAsync(["network", "inspect", name], ct);
 
     // ---- Helpers --------------------------------------------------------
 
@@ -375,8 +366,10 @@ public sealed class WslcService : IWslcService
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Failed to parse wslc JSON output as {Type}. Raw output: {Output}", typeof(T).Name, json);
+            logger.LogWarning(ex, "Failed to parse wslc JSON output as {Type}. Raw output: {Output}", typeof(T).Name, json);
             return Array.Empty<T>();
         }
     }
 }
+
+

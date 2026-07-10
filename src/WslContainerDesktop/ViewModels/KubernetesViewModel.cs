@@ -354,8 +354,8 @@ public partial class KubernetesViewModel : ObservableObject
         var latestTask = _k8s.GetLatestStableVersionAsync();
         await Task.WhenAll(currentTask, latestTask);
 
-        var currentStr = currentTask.Result ?? (KubernetesVersion == "-" ? "unknown" : KubernetesVersion);
-        var latest = latestTask.Result;
+        var currentStr = await currentTask ?? (KubernetesVersion == "-" ? "unknown" : KubernetesVersion);
+        var latest = await latestTask;
 
         var dialog = new UpgradeK3sDialog(currentStr, latest);
         var result = await _dialogs.ShowDialogAsync(dialog);
@@ -772,16 +772,16 @@ public partial class KubernetesViewModel : ObservableObject
             await Task.WhenAll(nodesT, depsT, podsT, svcsT, ingsT, pvcsT, cmsT, secsT, jobsT, cronsT)
                 .ConfigureAwait(false);
 
-            var nodes = nodesT.Result;
-            var deps = depsT.Result;
-            var pods = podsT.Result;
-            var svcs = svcsT.Result;
-            var ings = ingsT.Result;
-            var pvcs = pvcsT.Result;
-            var cms = cmsT.Result;
-            var secs = secsT.Result;
-            var jobs = jobsT.Result;
-            var crons = cronsT.Result;
+            var nodes = await nodesT;
+            var deps = await depsT;
+            var pods = await podsT;
+            var svcs = await svcsT;
+            var ings = await ingsT;
+            var pvcs = await pvcsT;
+            var cms = await cmsT;
+            var secs = await secsT;
+            var jobs = await jobsT;
+            var crons = await cronsT;
 
             _dispatcher.TryEnqueue(() =>
             {

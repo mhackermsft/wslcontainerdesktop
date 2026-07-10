@@ -24,7 +24,7 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
-public partial class ContainersViewModel : ObservableObject
+public partial class ContainersViewModel : ObservableObject, IDisposable
 {
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
@@ -295,6 +295,16 @@ public partial class ContainersViewModel : ObservableObject
 
         _statsCts?.Dispose();
         _statsCts = null;
+    }
+
+    /// <summary>
+    /// Tears down the log stream (and its wsl.exe child) and any stats polling. Invoked when the
+    /// DI container is disposed at app shutdown, since this view model is a singleton.
+    /// </summary>
+    public void Dispose()
+    {
+        StopStatsPolling();
+        _logStreamer.Dispose();
     }
 
     private void OnStatusChanged(object? sender, EngineStatusSnapshot e)

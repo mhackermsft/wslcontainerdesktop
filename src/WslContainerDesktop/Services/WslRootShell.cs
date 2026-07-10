@@ -27,16 +27,9 @@ namespace WslContainerDesktop.Services;
 /// UTF-8 handling, and shell-argument escaping used by the Kubernetes collaborators
 /// (<see cref="K8sInstaller"/>, <see cref="K8sResourceClient"/>, <see cref="PortForwardManager"/>).
 /// </summary>
-public sealed class WslRootShell
+public sealed class WslRootShell(ISettingsService settings)
 {
-    private readonly ISettingsService _settings;
-
-    public WslRootShell(ISettingsService settings)
-    {
-        _settings = settings;
-    }
-
-    private string? Distro => string.IsNullOrWhiteSpace(_settings.WslDistro) ? null : _settings.WslDistro;
+    private string? Distro => string.IsNullOrWhiteSpace(settings.WslDistro) ? null : settings.WslDistro;
 
     /// <summary>The configured distro name, or "default" when none is pinned (for display only).</summary>
     public string DistroLabel => Distro ?? "default";

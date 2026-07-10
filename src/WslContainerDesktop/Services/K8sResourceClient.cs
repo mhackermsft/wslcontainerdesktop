@@ -24,17 +24,8 @@ namespace WslContainerDesktop.Services;
 /// Covers status probes, list queries for each resource kind, apply, and the
 /// delete/scale/restart/cron/yaml/describe/logs operations.
 /// </summary>
-public sealed class K8sResourceClient
+public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceClient> logger)
 {
-    private readonly WslRootShell _shell;
-    private readonly ILogger<K8sResourceClient> _logger;
-
-    public K8sResourceClient(WslRootShell shell, ILogger<K8sResourceClient> logger)
-    {
-        _shell = shell;
-        _logger = logger;
-    }
-
     // ---- Status ---------------------------------------------------------
 
     public async Task<ClusterStatus> GetStatusAsync(CancellationToken ct = default)
@@ -51,7 +42,7 @@ public sealed class K8sResourceClient
                 "if [ \"$a\" != active ]; then echo '@@STATE=stopped'; exit 0; fi; " +
                 "echo '@@STATE=running'; echo '@@NODES'; k3s kubectl get nodes -o json 2>/dev/null";
 
-            var r = await _shell.RunAsync(script, ct).ConfigureAwait(false);
+            var r = await shell.RunAsync(script, ct).ConfigureAwait(false);
             var output = r.StandardOutput;
 
             if (!r.Success && string.IsNullOrWhiteSpace(output))
@@ -61,7 +52,7 @@ public sealed class K8sResourceClient
 
             if (output.Contains("@@STATE=notinstalled", StringComparison.Ordinal))
             {
-                return new ClusterStatus { State = ClusterState.NotInstalled, Distro = _shell.DistroLabel };
+                return new ClusterStatus { State = ClusterState.NotInstalled, Distro = shell.DistroLabel };
             }
 
             if (output.Contains("@@STATE=stopped", StringComparison.Ordinal))
@@ -69,7 +60,7 @@ public sealed class K8sResourceClient
                 return new ClusterStatus
                 {
                     State = ClusterState.Stopped,
-                    Distro = _shell.DistroLabel,
+                    Distro = shell.DistroLabel,
                     Message = "k3s is installed but not running.",
                 };
             }
@@ -83,14 +74,14 @@ public sealed class K8sResourceClient
             return new ClusterStatus
             {
                 State = ClusterState.Running,
-                Distro = _shell.DistroLabel,
+                Distro = shell.DistroLabel,
                 NodeName = node?.Name ?? "-",
                 KubernetesVersion = node?.Version ?? "-",
             };
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Kubernetes cluster status probe failed.");
+            logger.LogWarning(ex, "Kubernetes cluster status probe failed.");
             return new ClusterStatus { State = ClusterState.Unknown, Message = ex.Message };
         }
     }
@@ -108,7 +99,7 @@ public sealed class K8sResourceClient
                 "if [ \"$a\" != active ]; then echo '@@STATE=stopped'; exit 0; fi; " +
                 "echo '@@STATE=running'; echo '@@PODS'; k3s kubectl get pods -A -o json 2>/dev/null";
 
-            var r = await _shell.RunAsync(script, ct).ConfigureAwait(false);
+            var r = await shell.RunAsync(script, ct).ConfigureAwait(false);
             var output = r.StandardOutput;
 
             if (output.Contains("@@STATE=notinstalled", StringComparison.Ordinal))
@@ -140,7 +131,7 @@ public sealed class K8sResourceClient
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Kubernetes footer status probe failed.");
+            logger.LogDebug(ex, "Kubernetes footer status probe failed.");
             return new K8sFooterStatus { State = ClusterState.Unknown };
         }
     }
@@ -149,101 +140,101 @@ public sealed class K8sResourceClient
 
     public async Task<IReadOnlyList<K8sNode>> GetNodesAsync(CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync("k3s kubectl get nodes -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync("k3s kubectl get nodes -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.Nodes(r.StandardOutput) : Array.Empty<K8sNode>();
     }
 
     public async Task<IReadOnlyList<K8sPod>> GetPodsAsync(string? ns = null, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get pods {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync($"k3s kubectl get pods {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.Pods(r.StandardOutput) : Array.Empty<K8sPod>();
     }
 
     public async Task<IReadOnlyList<K8sDeployment>> GetDeploymentsAsync(string? ns = null, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get deployments {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync($"k3s kubectl get deployments {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.Deployments(r.StandardOutput) : Array.Empty<K8sDeployment>();
     }
 
     public async Task<IReadOnlyList<K8sService>> GetServicesAsync(string? ns = null, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get services {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync($"k3s kubectl get services {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.Services(r.StandardOutput) : Array.Empty<K8sService>();
     }
 
     public async Task<IReadOnlyList<K8sIngress>> GetIngressesAsync(string? ns = null, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get ingress {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync($"k3s kubectl get ingress {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.Ingresses(r.StandardOutput) : Array.Empty<K8sIngress>();
     }
 
     public async Task<IReadOnlyList<K8sPvc>> GetPvcsAsync(string? ns = null, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get pvc {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync($"k3s kubectl get pvc {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.Pvcs(r.StandardOutput) : Array.Empty<K8sPvc>();
     }
 
     public async Task<IReadOnlyList<K8sConfigMap>> GetConfigMapsAsync(string? ns = null, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get configmaps {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync($"k3s kubectl get configmaps {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.ConfigMaps(r.StandardOutput) : Array.Empty<K8sConfigMap>();
     }
 
     public async Task<IReadOnlyList<K8sSecret>> GetSecretsAsync(string? ns = null, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get secrets {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync($"k3s kubectl get secrets {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.Secrets(r.StandardOutput) : Array.Empty<K8sSecret>();
     }
 
     public async Task<IReadOnlyList<K8sJob>> GetJobsAsync(string? ns = null, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get jobs {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync($"k3s kubectl get jobs {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.Jobs(r.StandardOutput) : Array.Empty<K8sJob>();
     }
 
     public async Task<IReadOnlyList<K8sCronJob>> GetCronJobsAsync(string? ns = null, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get cronjobs {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync($"k3s kubectl get cronjobs {WslRootShell.NsSelector(ns)} -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.CronJobs(r.StandardOutput) : Array.Empty<K8sCronJob>();
     }
 
     public async Task<IReadOnlyList<string>> GetNamespacesAsync(CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync("k3s kubectl get namespaces -o json", ct).ConfigureAwait(false);
+        var r = await shell.RunAsync("k3s kubectl get namespaces -o json", ct).ConfigureAwait(false);
         return r.Success ? K8sParser.Namespaces(r.StandardOutput) : Array.Empty<string>();
     }
 
     public Task<CommandResult> ApplyManifestAsync(string yaml, CancellationToken ct = default) =>
-        _shell.RunWithStdinAsync("k3s kubectl apply -f -", yaml, ct);
+        shell.RunWithStdinAsync("k3s kubectl apply -f -", yaml, ct);
 
     // ---- Single-object actions ------------------------------------------
 
     public Task<CommandResult> DeleteResourceAsync(string kind, string ns, string name, CancellationToken ct = default) =>
-        _shell.RunAsync($"k3s kubectl delete {WslRootShell.SafeKind(kind)} {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)}", ct);
+        shell.RunAsync($"k3s kubectl delete {WslRootShell.SafeKind(kind)} {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)}", ct);
 
     public Task<CommandResult> ScaleDeploymentAsync(string ns, string name, int replicas, CancellationToken ct = default) =>
-        _shell.RunAsync($"k3s kubectl scale deployment {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)} --replicas={replicas}", ct);
+        shell.RunAsync($"k3s kubectl scale deployment {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)} --replicas={replicas}", ct);
 
     public Task<CommandResult> RestartDeploymentAsync(string ns, string name, CancellationToken ct = default) =>
-        _shell.RunAsync($"k3s kubectl rollout restart deployment {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)}", ct);
+        shell.RunAsync($"k3s kubectl rollout restart deployment {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)}", ct);
 
     public Task<CommandResult> SetCronJobSuspendAsync(string ns, string name, bool suspend, CancellationToken ct = default)
     {
         var patch = suspend ? "{\"spec\":{\"suspend\":true}}" : "{\"spec\":{\"suspend\":false}}";
-        return _shell.RunAsync($"k3s kubectl patch cronjob {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)} -p {WslRootShell.ShellEscape(patch)}", ct);
+        return shell.RunAsync($"k3s kubectl patch cronjob {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)} -p {WslRootShell.ShellEscape(patch)}", ct);
     }
 
     public Task<CommandResult> TriggerCronJobAsync(string ns, string name, CancellationToken ct = default)
     {
         var stamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var jobName = $"{name}-manual-{stamp}";
-        return _shell.RunAsync(
+        return shell.RunAsync(
             $"k3s kubectl create job {WslRootShell.ShellEscape(jobName)} --from=cronjob/{WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)}", ct);
     }
 
     public async Task<CommandResult> GetResourceYamlAsync(string kind, string ns, string name, CancellationToken ct = default)
     {
-        var r = await _shell.RunAsync($"k3s kubectl get {WslRootShell.SafeKind(kind)} {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)} -o yaml", ct)
+        var r = await shell.RunAsync($"k3s kubectl get {WslRootShell.SafeKind(kind)} {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)} -o yaml", ct)
             .ConfigureAwait(false);
 
         if (!r.Success)
@@ -263,8 +254,9 @@ public sealed class K8sResourceClient
     }
 
     public Task<CommandResult> DescribeResourceAsync(string kind, string ns, string name, CancellationToken ct = default) =>
-        _shell.RunAsync($"k3s kubectl describe {WslRootShell.SafeKind(kind)} {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)}", ct);
+        shell.RunAsync($"k3s kubectl describe {WslRootShell.SafeKind(kind)} {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)}", ct);
 
     public Task<CommandResult> GetPodLogsAsync(string ns, string name, int tailLines, CancellationToken ct = default) =>
-        _shell.RunAsync($"k3s kubectl logs {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)} --all-containers=true --tail={tailLines}", ct);
+        shell.RunAsync($"k3s kubectl logs {WslRootShell.ShellEscape(name)}{WslRootShell.NsArg(ns)} --all-containers=true --tail={tailLines}", ct);
 }
+

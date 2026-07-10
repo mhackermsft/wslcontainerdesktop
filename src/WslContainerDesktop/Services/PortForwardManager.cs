@@ -24,23 +24,17 @@ namespace WslContainerDesktop.Services;
 /// <c>wsl.exe</c> child process tracked by id; the manager keeps them drained (so the pipe doesn't
 /// block) and tears them down individually or all at once on shutdown.
 /// </summary>
-public sealed class PortForwardManager
+public sealed class PortForwardManager(WslRootShell shell)
 {
-    private readonly WslRootShell _shell;
     private readonly Dictionary<string, Process> _portForwards = new();
     private readonly object _pfLock = new();
-
-    public PortForwardManager(WslRootShell shell)
-    {
-        _shell = shell;
-    }
 
     public bool StartPortForward(PortForward forward)
     {
         var cmd = $"k3s kubectl port-forward --address 127.0.0.1 -n {WslRootShell.ShellEscape(forward.Namespace)} " +
                   $"{WslRootShell.ShellEscape(forward.TargetRef)} {forward.LocalPort}:{forward.RemotePort}";
 
-        var psi = _shell.BaseStartInfo(cmd);
+        var psi = shell.BaseStartInfo(cmd);
         var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
 
         try

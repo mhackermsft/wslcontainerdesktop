@@ -112,14 +112,18 @@ public partial class K8sDetailViewModel : ObservableObject
 
             await Task.WhenAll(yamlT, descT, logsT);
 
-            Yaml = yamlT.Result.Success ? yamlT.Result.StandardOutput.TrimEnd() : yamlT.Result.ErrorText;
-            DescribeText = descT.Result.Success ? descT.Result.StandardOutput.TrimEnd() : descT.Result.ErrorText;
+            var yaml = await yamlT;
+            var desc = await descT;
+            var logs = await logsT;
+
+            Yaml = yaml.Success ? yaml.StandardOutput.TrimEnd() : yaml.ErrorText;
+            DescribeText = desc.Success ? desc.StandardOutput.TrimEnd() : desc.ErrorText;
 
             if (SupportsLogs)
             {
-                LogsText = logsT.Result.Success
-                    ? logsT.Result.StandardOutput.TrimEnd()
-                    : logsT.Result.ErrorText;
+                LogsText = logs.Success
+                    ? logs.StandardOutput.TrimEnd()
+                    : logs.ErrorText;
                 if (string.IsNullOrWhiteSpace(LogsText))
                 {
                     LogsText = "(no logs)";

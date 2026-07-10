@@ -23,14 +23,8 @@ namespace WslContainerDesktop.Services;
 /// <summary>
 /// Runs the wslc.exe CLI and captures its output. All members are thread-safe and async.
 /// </summary>
-public sealed class ProcessRunner
+public sealed class ProcessRunner(ISettingsService settings)
 {
-    private readonly ISettingsService _settings;
-
-    public ProcessRunner(ISettingsService settings)
-    {
-        _settings = settings;
-    }
 
     /// <summary>Runs wslc with the given arguments and returns captured output.</summary>
     public Task<CommandResult> RunAsync(
@@ -39,7 +33,7 @@ public sealed class ProcessRunner
     {
         var psi = new ProcessStartInfo
         {
-            FileName = _settings.WslcPath,
+            FileName = settings.WslcPath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -55,7 +49,7 @@ public sealed class ProcessRunner
 
         return ProcessExecutor.RunAsync(
             psi,
-            launchErrorContext: $"Could not launch '{_settings.WslcPath}'.",
+            launchErrorContext: $"Could not launch '{settings.WslcPath}'.",
             ct: cancellationToken);
     }
 
@@ -74,7 +68,7 @@ public sealed class ProcessRunner
     {
         var psi = new ProcessStartInfo
         {
-            FileName = _settings.WslcPath,
+            FileName = settings.WslcPath,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -92,7 +86,7 @@ public sealed class ProcessRunner
         return ProcessExecutor.RunAsync(
             psi,
             stdin: stdin,
-            launchErrorContext: $"Could not launch '{_settings.WslcPath}'.",
+            launchErrorContext: $"Could not launch '{settings.WslcPath}'.",
             ct: cancellationToken);
     }
 
@@ -107,7 +101,7 @@ public sealed class ProcessRunner
     {
         var psi = new ProcessStartInfo
         {
-            FileName = _settings.WslcPath,
+            FileName = settings.WslcPath,
             UseShellExecute = false,
             CreateNoWindow = false,
         };
@@ -120,3 +114,4 @@ public sealed class ProcessRunner
         Process.Start(psi);
     }
 }
+

@@ -40,16 +40,9 @@ public enum StartupToggleResult
 /// task declared in the app manifest, so the state stays in sync with Windows' Startup apps
 /// control and survives package updates.
 /// </summary>
-public sealed class StartupService
+public sealed class StartupService(ILogger<StartupService> logger)
 {
     private const string TaskId = "WslContainerDesktopStartupTask";
-
-    private readonly ILogger<StartupService> _logger;
-
-    public StartupService(ILogger<StartupService> logger)
-    {
-        _logger = logger;
-    }
 
     /// <summary>Whether run-at-login is currently enabled (including enabled-by-policy).</summary>
     public async Task<bool> IsEnabledAsync()
@@ -61,7 +54,7 @@ public sealed class StartupService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to read startup task state.");
+            logger.LogWarning(ex, "Failed to read startup task state.");
             return false;
         }
     }
@@ -79,7 +72,7 @@ public sealed class StartupService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to query whether the startup task can be toggled.");
+            logger.LogWarning(ex, "Failed to query whether the startup task can be toggled.");
             return false;
         }
     }
@@ -117,8 +110,9 @@ public sealed class StartupService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to {Action} the startup task.", enabled ? "enable" : "disable");
+            logger.LogWarning(ex, "Failed to {Action} the startup task.", enabled ? "enable" : "disable");
             return StartupToggleResult.Unavailable;
         }
     }
 }
+
