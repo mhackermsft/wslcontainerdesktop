@@ -79,6 +79,18 @@
                                 FontSize="12"
                                 Text="{x:Bind ViewModel.Selected.State, Mode=OneWay, Converter={StaticResource StateToString}}" />
                         </Border>
+                        <Border
+                            Padding="8,2"
+                            VerticalAlignment="Center"
+                            Background="#1F7A3D"
+                            CornerRadius="10"
+                            ToolTipService.ToolTip="{x:Bind ViewModel.Selected.GpuTooltip, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.Selected.HasGpu, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon FontSize="12" Foreground="White" Glyph="&#xE950;" />
+                                <TextBlock FontSize="12" Foreground="White" Text="GPU" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                     <TextBlock
                         FontSize="13"

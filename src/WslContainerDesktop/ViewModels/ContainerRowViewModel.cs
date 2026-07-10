@@ -45,8 +45,24 @@ public partial class ContainerRowViewModel : ObservableObject
     [ObservableProperty]
     private DateTimeOffset _created;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GpuTooltip))]
+    private bool _hasGpu;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GpuTooltip))]
+    private string? _gpuName;
+
     /// <summary>True once the network has been resolved (via inspect), so we don't refetch every poll.</summary>
     public bool NetworkResolved { get; set; }
+
+    /// <summary>True once GPU access has been probed for the current running instance.</summary>
+    public bool GpuChecked { get; set; }
+
+    /// <summary>Tooltip text for the GPU badge.</summary>
+    public string GpuTooltip => string.IsNullOrWhiteSpace(GpuName)
+        ? "GPU passthrough enabled"
+        : $"GPU: {GpuName}";
 
     public ContainerRowViewModel(ContainerInfo model)
     {
@@ -77,5 +93,14 @@ public partial class ContainerRowViewModel : ObservableObject
             ? "-"
             : string.Join(", ", model.Ports.Select(p => p.Display));
         Created = model.CreatedUtc;
+
+        // GPU access is a property of the running instance; clear it when not running so it
+        // is re-probed on the next start.
+        if (State != ContainerState.Running)
+        {
+            GpuChecked = false;
+            HasGpu = false;
+            GpuName = null;
+        }
     }
 }

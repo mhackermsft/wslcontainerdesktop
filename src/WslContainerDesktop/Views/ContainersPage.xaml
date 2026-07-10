@@ -145,10 +145,25 @@
                                     Margin="10,0,8,0"
                                     VerticalAlignment="Center"
                                     Spacing="2">
-                                    <TextBlock
-                                        FontWeight="SemiBold"
-                                        Text="{Binding Name}"
-                                        TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            FontWeight="SemiBold"
+                                            Text="{Binding Name}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <Border
+                                            Padding="5,1"
+                                            VerticalAlignment="Center"
+                                            Background="#1F7A3D"
+                                            CornerRadius="4"
+                                            ToolTipService.ToolTip="{Binding GpuTooltip}"
+                                            Visibility="{Binding HasGpu, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                                <FontIcon FontSize="10" Foreground="White" Glyph="&#xE950;" />
+                                                <TextBlock FontSize="10" Foreground="White" Text="GPU" />
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
                                     <TextBlock
                                         FontFamily="Consolas"
                                         FontSize="11"

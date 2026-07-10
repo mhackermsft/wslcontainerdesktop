@@ -353,6 +353,27 @@ public partial class ContainersViewModel : ObservableObject
         {
             _ = ResolveNetworkAsync(row);
         }
+
+        // Probe GPU passthrough once per running container (via a cheap exec check).
+        foreach (var row in Containers.Where(r => r.IsRunning && !r.GpuChecked))
+        {
+            _ = ResolveGpuAsync(row);
+        }
+    }
+
+    private async Task ResolveGpuAsync(ContainerRowViewModel row)
+    {
+        row.GpuChecked = true;
+        try
+        {
+            var (hasGpu, gpuName) = await _wslc.GetGpuInfoAsync(row.Id);
+            row.HasGpu = hasGpu;
+            row.GpuName = gpuName;
+        }
+        catch
+        {
+            // leave GpuChecked true; a transient failure shouldn't hammer exec every poll
+        }
     }
 
     private async Task ResolveNetworkAsync(ContainerRowViewModel row)

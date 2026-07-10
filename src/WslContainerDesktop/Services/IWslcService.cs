@@ -40,6 +40,9 @@ public interface IWslcService
     void OpenTerminal(string id);
     void FollowLogs(string id);
 
+    /// <summary>Detects GPU passthrough for a running container (checks /dev/dxg), and the GPU name if available.</summary>
+    Task<(bool HasGpu, string? GpuName)> GetGpuInfoAsync(string id, CancellationToken ct = default);
+
     // Images
     Task<IReadOnlyList<ImageInfo>> ListImagesAsync(CancellationToken ct = default);
     Task<CommandResult> PullImageAsync(string reference, CancellationToken ct = default);

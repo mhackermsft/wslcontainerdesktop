@@ -126,6 +126,36 @@ public sealed class WslcService : IWslcService
     public void OpenTerminal(string id) =>
         _runner.RunInteractive(new[] { "exec", "-it", id, "/bin/sh", "-c", "clear; (bash || sh)" });
 
+    /// <summary>
+    /// Detects whether a running container has GPU passthrough by checking for the WSL
+    /// DirectX kernel device (/dev/dxg), which is only mounted when the container was started
+    /// with --gpus. Also returns the GPU name when NVIDIA's WSL nvidia-smi is available.
+    /// </summary>
+    public async Task<(bool HasGpu, string? GpuName)> GetGpuInfoAsync(string id, CancellationToken ct = default)
+    {
+        var probe =
+            "if [ -e /dev/dxg ]; then " +
+            "echo HASGPU; " +
+            "/usr/lib/wsl/lib/nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1; " +
+            "else echo NOGPU; fi";
+
+        var result = await _runner.RunAsync(new[] { "exec", id, "sh", "-c", probe }, ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            return (false, null);
+        }
+
+        var lines = result.StandardOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (lines.Length == 0 || !lines[0].Equals("HASGPU", StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, null);
+        }
+
+        var name = lines.Length > 1 ? lines[1] : null;
+        return (true, string.IsNullOrWhiteSpace(name) ? null : name);
+    }
+
     public void FollowLogs(string id) =>
         _runner.RunInteractive(new[] { "logs", "-f", "--tail", "200", id });
 
