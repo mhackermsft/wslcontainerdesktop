@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using Microsoft.Extensions.Logging;
 using Windows.ApplicationModel;
 
 namespace WslContainerDesktop.Services;
@@ -43,6 +44,13 @@ public sealed class StartupService
 {
     private const string TaskId = "WslContainerDesktopStartupTask";
 
+    private readonly ILogger<StartupService> _logger;
+
+    public StartupService(ILogger<StartupService> logger)
+    {
+        _logger = logger;
+    }
+
     /// <summary>Whether run-at-login is currently enabled (including enabled-by-policy).</summary>
     public async Task<bool> IsEnabledAsync()
     {
@@ -51,8 +59,9 @@ public sealed class StartupService
             var task = await StartupTask.GetAsync(TaskId);
             return task.State is StartupTaskState.Enabled or StartupTaskState.EnabledByPolicy;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to read startup task state.");
             return false;
         }
     }
@@ -68,8 +77,9 @@ public sealed class StartupService
             var task = await StartupTask.GetAsync(TaskId);
             return task.State is StartupTaskState.Enabled or StartupTaskState.Disabled;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to query whether the startup task can be toggled.");
             return false;
         }
     }
@@ -105,8 +115,9 @@ public sealed class StartupService
                     return StartupToggleResult.Applied;
             }
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to {Action} the startup task.", enabled ? "enable" : "disable");
             return StartupToggleResult.Unavailable;
         }
     }

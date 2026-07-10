@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
@@ -28,6 +29,13 @@ public sealed class SettingsService : ISettingsService
         "WslContainerDesktop");
 
     private static readonly string SettingsFile = Path.Combine(SettingsDirectory, "settings.json");
+
+    private readonly ILogger<SettingsService> _logger;
+
+    public SettingsService(ILogger<SettingsService> logger)
+    {
+        _logger = logger;
+    }
 
     public string WslcPath { get; set; } = ResolveDefaultWslcPath();
     public int RefreshIntervalSeconds { get; set; } = 5;
@@ -91,9 +99,10 @@ public sealed class SettingsService : ISettingsService
 
             Registries = registries;
         }
-        catch
+        catch (Exception ex)
         {
             // Corrupt settings should never crash the app; fall back to defaults.
+            _logger.LogWarning(ex, "Failed to load settings from {Path}; using defaults.", SettingsFile);
         }
     }
 
@@ -128,9 +137,10 @@ public sealed class SettingsService : ISettingsService
             var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(SettingsFile, json);
         }
-        catch
+        catch (Exception ex)
         {
             // Best effort; ignore persistence failures.
+            _logger.LogWarning(ex, "Failed to save settings to {Path}.", SettingsFile);
         }
     }
 

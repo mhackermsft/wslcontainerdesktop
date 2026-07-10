@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
@@ -27,12 +28,14 @@ public sealed class RegistryAuthRefresher
     private readonly IWslcService _wslc;
     private readonly IAzureCliService _azure;
     private readonly ISettingsService _settings;
+    private readonly ILogger<RegistryAuthRefresher> _logger;
 
-    public RegistryAuthRefresher(IWslcService wslc, IAzureCliService azure, ISettingsService settings)
+    public RegistryAuthRefresher(IWslcService wslc, IAzureCliService azure, ISettingsService settings, ILogger<RegistryAuthRefresher> logger)
     {
         _wslc = wslc;
         _azure = azure;
         _settings = settings;
+        _logger = logger;
     }
 
     /// <summary>
@@ -90,8 +93,9 @@ public sealed class RegistryAuthRefresher
                 .ConfigureAwait(false);
             return login.Success;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to refresh Azure registry login for {Host}.", registry.Host);
             return false;
         }
     }

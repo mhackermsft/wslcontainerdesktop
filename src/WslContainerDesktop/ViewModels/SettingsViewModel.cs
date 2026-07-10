@@ -26,6 +26,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
     private readonly StartupService _startup;
+    private readonly FileLoggerProvider _fileLogger;
 
     private bool _suppressStartupWrite;
 
@@ -62,12 +63,13 @@ public partial class SettingsViewModel : ObservableObject
 
     public string AppVersion { get; } = "1.0.0";
 
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup)
+    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger)
     {
         _settings = settings;
         _wslc = wslc;
         _dialogs = dialogs;
         _startup = startup;
+        _fileLogger = fileLogger;
 
         _wslcPath = settings.WslcPath;
         _refreshIntervalSeconds = settings.RefreshIntervalSeconds;
@@ -194,6 +196,30 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     public event EventHandler<string>? ThemeChangeRequested;
+
+    /// <summary>Opens the folder that holds the rolling diagnostic logs in File Explorer.</summary>
+    [RelayCommand]
+    private void OpenLogsFolder()
+    {
+        try
+        {
+            var dir = _fileLogger.Directory;
+            System.IO.Directory.CreateDirectory(dir);
+
+            // Launch explorer.exe with the folder as an argument. This is more reliable than
+            // shell-executing a bare directory path, especially from a packaged (MSIX) process.
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{dir}\"",
+                UseShellExecute = true,
+            });
+        }
+        catch
+        {
+            // Opening the folder is a convenience; ignore failures (e.g. no shell handler).
+        }
+    }
 
     [RelayCommand]
     private async Task TestConnectionAsync()

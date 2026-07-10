@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using WslContainerDesktop.Services;
@@ -28,27 +29,46 @@ public partial class App : Application
     private MainWindow? _window;
     private TrayIcon? _tray;
     private StatusMonitor? _monitor;
-    private bool _isExiting;
+private ILogger<App>? _logger;
+private bool _isExiting;
 
-    public App()
+public App()
+{
+    InitializeComponent();
+    Services = ConfigureServices();
+
+    // Route otherwise-fatal, unobserved failures to the log so a crash leaves a breadcrumb.
+    UnhandledException += OnUnhandledException;
+    AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        _logger?.LogCritical(e.ExceptionObject as Exception, "Unhandled AppDomain exception (terminating: {Terminating}).", e.IsTerminating);
+    TaskScheduler.UnobservedTaskException += (_, e) =>
     {
-        InitializeComponent();
-        Services = ConfigureServices();
-    }
+        _logger?.LogError(e.Exception, "Unobserved task exception.");
+        e.SetObserved();
+    };
+}
 
-    public new static App Current => (App)Application.Current;
+public new static App Current => (App)Application.Current;
 
-    public IServiceProvider Services { get; }
+public IServiceProvider Services { get; }
 
-    public MainWindow? MainWindow => _window;
+public MainWindow? MainWindow => _window;
 
-    /// <summary>True while a real shutdown is in progress (lets the window close for good).</summary>
-    public bool IsExiting => _isExiting;
+/// <summary>True while a real shutdown is in progress (lets the window close for good).</summary>
+public bool IsExiting => _isExiting;
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
-    {
-        var settings = Services.GetRequiredService<ISettingsService>();
-        settings.Load();
+private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+{
+    _logger?.LogCritical(e.Exception, "Unhandled UI exception: {Message}", e.Message);
+}
+
+protected override void OnLaunched(LaunchActivatedEventArgs args)
+{
+    _logger = Services.GetRequiredService<ILogger<App>>();
+    _logger.LogInformation("WSL Container Desktop starting.");
+
+    var settings = Services.GetRequiredService<ISettingsService>();
+    settings.Load();
 
         // The status monitor needs the UI DispatcherQueue, so it is created here and
         // published for the DI container to hand to view models.
@@ -57,7 +77,8 @@ public partial class App : Application
             Services.GetRequiredService<IKubernetesService>(),
             Services.GetRequiredService<RegistryAuthRefresher>(),
             settings,
-            DispatcherQueue.GetForCurrentThread());
+            DispatcherQueue.GetForCurrentThread(),
+            Services.GetRequiredService<ILogger<StatusMonitor>>());
         StatusMonitorAccessor.Instance = _monitor;
 
         _tray = new TrayIcon();
@@ -143,15 +164,16 @@ public partial class App : Application
         }
 
         _isExiting = true;
+        _logger?.LogInformation("WSL Container Desktop exiting.");
 
         // Tear down any running port-forwards so no wsl.exe processes are orphaned.
         try
         {
             Services.GetRequiredService<IKubernetesService>().StopAllPortForwards();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            _logger?.LogWarning(ex, "Failed to stop port-forwards during shutdown.");
         }
 
         _monitor?.Dispose();
@@ -164,6 +186,27 @@ public partial class App : Application
     private static ServiceProvider ConfigureServices()
     {
         var services = new ServiceCollection();
+
+        // Diagnostics: a rolling file log under %LOCALAPPDATA%\WslContainerDesktop\logs plus the
+        // debugger output window. This is the single logging seam the rest of the app writes to so
+        // previously-swallowed failures leave a breadcrumb. The provider is also registered as a
+        // singleton so the Settings page can offer "open logs folder".
+#if DEBUG
+        var fileLogger = new FileLoggerProvider(LogLevel.Debug);
+#else
+        var fileLogger = new FileLoggerProvider(LogLevel.Information);
+#endif
+        services.AddSingleton(fileLogger);
+        services.AddLogging(builder =>
+        {
+#if DEBUG
+            builder.SetMinimumLevel(LogLevel.Debug);
+            builder.AddDebug();
+#else
+            builder.SetMinimumLevel(LogLevel.Information);
+#endif
+            builder.AddProvider(fileLogger);
+        });
 
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<ProcessRunner>();

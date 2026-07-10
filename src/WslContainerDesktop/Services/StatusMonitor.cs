@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Tray;
@@ -54,6 +55,7 @@ public sealed class StatusMonitor : IDisposable
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
     private readonly DispatcherQueue _dispatcher;
+    private readonly ILogger<StatusMonitor> _logger;
 
     private CancellationTokenSource? _cts;
     private Task? _loop;
@@ -69,13 +71,14 @@ public sealed class StatusMonitor : IDisposable
 
     public DispatcherQueue Dispatcher => _dispatcher;
 
-    public StatusMonitor(IWslcService wslc, IKubernetesService k8s, RegistryAuthRefresher authRefresher, ISettingsService settings, DispatcherQueue dispatcher)
+    public StatusMonitor(IWslcService wslc, IKubernetesService k8s, RegistryAuthRefresher authRefresher, ISettingsService settings, DispatcherQueue dispatcher, ILogger<StatusMonitor> logger)
     {
         _wslc = wslc;
         _k8s = k8s;
         _authRefresher = authRefresher;
         _settings = settings;
         _dispatcher = dispatcher;
+        _logger = logger;
     }
 
     public void Start()
@@ -147,8 +150,9 @@ public sealed class StatusMonitor : IDisposable
                 _ => new K8sStatusSnapshot { State = ClusterState.Unknown, Summary = "Kubernetes: unknown" },
             };
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(ex, "Kubernetes footer status poll failed.");
             snapshot = new K8sStatusSnapshot { State = ClusterState.Unknown, Summary = "Kubernetes: unknown" };
         }
 
@@ -183,9 +187,10 @@ public sealed class StatusMonitor : IDisposable
                 await _authRefresher.RefreshAsync(r).ConfigureAwait(false);
             }
         }
-        catch
+        catch (Exception ex)
         {
             // background best-effort; ignore
+            _logger.LogDebug(ex, "Background Azure token refresh failed.");
         }
     }
 

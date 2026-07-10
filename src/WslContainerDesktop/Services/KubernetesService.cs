@@ -17,6 +17,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
@@ -29,10 +30,12 @@ namespace WslContainerDesktop.Services;
 public sealed class KubernetesService : IKubernetesService
 {
     private readonly ISettingsService _settings;
+    private readonly ILogger<KubernetesService> _logger;
 
-    public KubernetesService(ISettingsService settings)
+    public KubernetesService(ISettingsService settings, ILogger<KubernetesService> logger)
     {
         _settings = settings;
+        _logger = logger;
     }
 
     private string? Distro => string.IsNullOrWhiteSpace(_settings.WslDistro) ? null : _settings.WslDistro;
@@ -92,6 +95,7 @@ public sealed class KubernetesService : IKubernetesService
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Kubernetes cluster status probe failed.");
             return new ClusterStatus { State = ClusterState.Unknown, Message = ex.Message };
         }
     }
@@ -139,8 +143,9 @@ public sealed class KubernetesService : IKubernetesService
                 PodsTotal = pods.Count,
             };
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(ex, "Kubernetes footer status probe failed.");
             return new K8sFooterStatus { State = ClusterState.Unknown };
         }
     }

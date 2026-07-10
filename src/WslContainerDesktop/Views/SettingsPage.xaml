@@ -176,6 +176,33 @@
                 </Grid>
             </Border>
 
+            <!--  Diagnostics  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="Diagnostics" />
+            <Border Style="{StaticResource Card}">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="Application logs" />
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="Rolling diagnostic logs for troubleshooting. Share these when reporting an issue."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Command="{x:Bind ViewModel.OpenLogsFolderCommand}"
+                        Content="Open logs folder" />
+                </Grid>
+            </Border>
+
             <!--  About  -->
             <TextBlock
                 Margin="2,4,0,0"

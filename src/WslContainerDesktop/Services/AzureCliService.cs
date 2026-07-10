@@ -17,6 +17,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
@@ -27,8 +28,14 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class AzureCliService : IAzureCliService
 {
+    private readonly ILogger<AzureCliService> _logger;
     private string? _resolvedPath;
     private bool _resolved;
+
+    public AzureCliService(ILogger<AzureCliService> logger)
+    {
+        _logger = logger;
+    }
 
     public async Task<bool> IsAvailableAsync(CancellationToken ct = default) =>
         await ResolveAzPathAsync(ct).ConfigureAwait(false) is not null;
@@ -79,8 +86,9 @@ public sealed class AzureCliService : IAzureCliService
 
             return list.OrderByDescending(s => s.IsDefault).ThenBy(s => s.Name).ToList();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse `az account list` output.");
             return Array.Empty<AzureSubscription>();
         }
     }
@@ -117,8 +125,9 @@ public sealed class AzureCliService : IAzureCliService
 
             return list.OrderBy(r => r.Name).ToList();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse `az acr list` output for subscription {SubscriptionId}.", subscriptionId);
             return Array.Empty<AzureRegistry>();
         }
     }
@@ -145,8 +154,10 @@ public sealed class AzureCliService : IAzureCliService
 
             return (server!, token!);
         }
-        catch
+        catch (Exception ex)
         {
+            // Note: never log the response body here — it contains the ACR access token.
+            _logger.LogWarning(ex, "Failed to parse `az acr login --expose-token` output for registry {AcrName}.", acrName);
             return null;
         }
     }

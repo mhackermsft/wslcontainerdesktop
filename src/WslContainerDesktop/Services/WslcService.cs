@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
@@ -27,10 +28,12 @@ public sealed class WslcService : IWslcService
     };
 
     private readonly ProcessRunner _runner;
+    private readonly ILogger<WslcService> _logger;
 
-    public WslcService(ProcessRunner runner)
+    public WslcService(ProcessRunner runner, ILogger<WslcService> logger)
     {
         _runner = runner;
+        _logger = logger;
     }
 
     // ---- Engine ---------------------------------------------------------
@@ -346,7 +349,7 @@ public sealed class WslcService : IWslcService
 
     // ---- Helpers --------------------------------------------------------
 
-    private static IReadOnlyList<T> Deserialize<T>(CommandResult result)
+    private IReadOnlyList<T> Deserialize<T>(CommandResult result)
     {
         if (!result.Success)
         {
@@ -370,8 +373,9 @@ public sealed class WslcService : IWslcService
             var items = JsonSerializer.Deserialize<List<T>>(json, JsonOptions);
             return items ?? new List<T>();
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            _logger.LogWarning(ex, "Failed to parse wslc JSON output as {Type}. Raw output: {Output}", typeof(T).Name, json);
             return Array.Empty<T>();
         }
     }
