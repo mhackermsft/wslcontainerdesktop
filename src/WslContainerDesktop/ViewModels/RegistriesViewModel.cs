@@ -34,6 +34,7 @@ public partial class RegistriesViewModel : ObservableObject
     private readonly ISettingsService _settings;
     private readonly DialogService _dialogs;
     private readonly RegistryAuthRefresher _authRefresher;
+    private readonly IRegistryCredentialStore _credentials;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -43,13 +44,14 @@ public partial class RegistriesViewModel : ObservableObject
 
     public ObservableCollection<RegistryEntry> Registries { get; } = new();
 
-    public RegistriesViewModel(IWslcService wslc, IAzureCliService azure, ISettingsService settings, DialogService dialogs, RegistryAuthRefresher authRefresher)
+    public RegistriesViewModel(IWslcService wslc, IAzureCliService azure, ISettingsService settings, DialogService dialogs, RegistryAuthRefresher authRefresher, IRegistryCredentialStore credentials)
     {
         _wslc = wslc;
         _azure = azure;
         _settings = settings;
         _dialogs = dialogs;
         _authRefresher = authRefresher;
+        _credentials = credentials;
     }
 
     public void Load()
@@ -64,10 +66,15 @@ public partial class RegistriesViewModel : ObservableObject
     }
 
     /// <summary>Probes each non-default registry's login state and updates the row indicators.
-    /// Azure-backed registries that have lapsed are silently re-authenticated when possible.</summary>
+    /// Azure-backed registries that have lapsed are silently re-authenticated when possible. The
+    /// built-in Docker Hub entry reflects the engine's stored credential (logged in vs anonymous).</summary>
     [RelayCommand]
     private async Task RefreshLoginStatesAsync()
     {
+        // Docker Hub: read the engine's stored credential directly (an anonymous pull can't be
+        // distinguished from an authenticated one, so probing wouldn't reveal the login state).
+        ReconcileDockerHubState();
+
         foreach (var r in Registries.Where(x => x.HasHost))
         {
             r.LoginState = Models.RegistryLoginState.Checking;
@@ -88,6 +95,30 @@ public partial class RegistriesViewModel : ObservableObject
             }
 
             r.LoginState = state;
+        }
+    }
+
+    /// <summary>
+    /// Sets the Docker Hub row to "Logged in" (with the stored username) or "Anonymous" based on
+    /// whether the engine has a stored credential for it.
+    /// </summary>
+    private void ReconcileDockerHubState()
+    {
+        var dockerHub = Registries.FirstOrDefault(r => r.IsDefault);
+        if (dockerHub is null)
+        {
+            return;
+        }
+
+        if (_credentials.IsLoggedIn(dockerHub.LoginServer, out var user))
+        {
+            dockerHub.Username = user;
+            dockerHub.LoginState = Models.RegistryLoginState.LoggedIn;
+        }
+        else
+        {
+            dockerHub.Username = null;
+            dockerHub.LoginState = Models.RegistryLoginState.Anonymous;
         }
     }
 
