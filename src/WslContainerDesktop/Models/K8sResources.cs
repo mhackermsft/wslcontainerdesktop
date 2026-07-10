@@ -19,7 +19,7 @@ using System.Text.Json;
 namespace WslContainerDesktop.Models;
 
 /// <summary>Simplified Kubernetes resource rows parsed from `kubectl get ... -o json`.</summary>
-public sealed class K8sNode
+public sealed record K8sNode
 {
     public string Name { get; init; } = string.Empty;
     public string Status { get; init; } = "-";
@@ -28,7 +28,7 @@ public sealed class K8sNode
     public bool IsReady => string.Equals(Status, "Ready", StringComparison.OrdinalIgnoreCase);
 }
 
-public sealed class K8sPod
+public sealed record K8sPod
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = "-";
@@ -40,7 +40,7 @@ public sealed class K8sPod
         || string.Equals(Status, "Succeeded", StringComparison.OrdinalIgnoreCase);
 }
 
-public sealed class K8sDeployment
+public sealed record K8sDeployment
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = "-";
@@ -50,7 +50,7 @@ public sealed class K8sDeployment
     public bool IsHealthy => Desired > 0 && Available >= Desired;
 }
 
-public sealed class K8sService
+public sealed record K8sService
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = "-";
@@ -59,7 +59,7 @@ public sealed class K8sService
     public string Ports { get; init; } = "-";
 }
 
-public sealed class K8sIngress
+public sealed record K8sIngress
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = "-";
@@ -67,7 +67,7 @@ public sealed class K8sIngress
     public string Hosts { get; init; } = "-";
 }
 
-public sealed class K8sPvc
+public sealed record K8sPvc
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = "-";
@@ -77,14 +77,14 @@ public sealed class K8sPvc
     public bool IsBound => string.Equals(Status, "Bound", StringComparison.OrdinalIgnoreCase);
 }
 
-public sealed class K8sConfigMap
+public sealed record K8sConfigMap
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = "-";
     public int Keys { get; init; }
 }
 
-public sealed class K8sSecret
+public sealed record K8sSecret
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = "-";
@@ -92,7 +92,7 @@ public sealed class K8sSecret
     public int Keys { get; init; }
 }
 
-public sealed class K8sJob
+public sealed record K8sJob
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = "-";
@@ -100,7 +100,7 @@ public sealed class K8sJob
     public bool Complete { get; init; }
 }
 
-public sealed class K8sCronJob
+public sealed record K8sCronJob
 {
     public string Name { get; init; } = string.Empty;
     public string Namespace { get; init; } = "-";

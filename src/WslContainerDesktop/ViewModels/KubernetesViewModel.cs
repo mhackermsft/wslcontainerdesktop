@@ -227,6 +227,11 @@ public partial class KubernetesViewModel : ObservableObject
             {
                 await _dialogs.ShowMessageAsync("Install failed", result.ErrorText);
             }
+            else
+            {
+                // Hide the op-log on success so it doesn't overlap the running view.
+                ShowOperationLog = false;
+            }
         }
         finally
         {
@@ -265,6 +270,11 @@ public partial class KubernetesViewModel : ObservableObject
             if (!result.Success)
             {
                 await _dialogs.ShowMessageAsync("Uninstall failed", result.ErrorText);
+            }
+            else
+            {
+                // Hide the op-log on success so it doesn't overlap the not-installed view.
+                ShowOperationLog = false;
             }
 
             Nodes.Clear();
@@ -366,6 +376,7 @@ public partial class KubernetesViewModel : ObservableObject
             {
                 AppendLog(string.Empty);
                 AppendLog("Upgrade complete.");
+                ShowOperationLog = false;
             }
         }
         finally
@@ -763,12 +774,64 @@ public partial class KubernetesViewModel : ObservableObject
         _pollCts = null;
     }
 
+    /// <summary>
+    /// Reconciles <paramref name="target"/> to match <paramref name="source"/> in place,
+    /// touching only rows that actually changed. This avoids the full Clear()+re-add churn
+    /// that made the Kubernetes lists visibly flicker on every poll. Requires value equality
+    /// on T (the K8s row models are records), so identical rows compare equal and are skipped.
+    /// </summary>
     private static void Sync<T>(ObservableCollection<T> target, IReadOnlyList<T> source)
     {
-        target.Clear();
-        foreach (var item in source)
+        // Remove rows that are no longer present.
+        for (var i = target.Count - 1; i >= 0; i--)
         {
-            target.Add(item);
+            if (!source.Contains(target[i]))
+            {
+                target.RemoveAt(i);
+            }
+        }
+
+        // Insert / move / no-op so target matches source order and content.
+        for (var i = 0; i < source.Count; i++)
+        {
+            var desired = source[i];
+
+            if (i >= target.Count)
+            {
+                target.Add(desired);
+                continue;
+            }
+
+            if (Equals(target[i], desired))
+            {
+                continue; // unchanged — leave the row untouched (no flicker).
+            }
+
+            // If the desired item already exists further down, move it up; otherwise insert.
+            var existing = -1;
+            for (var j = i + 1; j < target.Count; j++)
+            {
+                if (Equals(target[j], desired))
+                {
+                    existing = j;
+                    break;
+                }
+            }
+
+            if (existing >= 0)
+            {
+                target.Move(existing, i);
+            }
+            else
+            {
+                target.Insert(i, desired);
+            }
+        }
+
+        // Trim any trailing leftovers.
+        while (target.Count > source.Count)
+        {
+            target.RemoveAt(target.Count - 1);
         }
     }
 }
