@@ -70,16 +70,10 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
     var settings = Services.GetRequiredService<ISettingsService>();
     settings.Load();
 
-        // The status monitor needs the UI DispatcherQueue, so it is created here and
-        // published for the DI container to hand to view models.
-        _monitor = new StatusMonitor(
-            Services.GetRequiredService<IWslcService>(),
-            Services.GetRequiredService<IKubernetesService>(),
-            Services.GetRequiredService<RegistryAuthRefresher>(),
-            settings,
-            DispatcherQueue.GetForCurrentThread(),
-            Services.GetRequiredService<ILogger<StatusMonitor>>());
-        StatusMonitorAccessor.Instance = _monitor;
+        // The status monitor needs the UI DispatcherQueue. It's resolved here (on the UI thread)
+        // so its DI factory can capture the dispatcher; the same singleton is later injected into
+        // the view models.
+        _monitor = Services.GetRequiredService<StatusMonitor>();
 
         _tray = new TrayIcon();
         _tray.OpenRequested += () => _monitor!.Dispatcher.TryEnqueue(ShowMainWindow);
@@ -217,8 +211,17 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();
 
-        services.AddSingleton(_ => StatusMonitorAccessor.Instance
-            ?? throw new InvalidOperationException("StatusMonitor not initialized."));
+        // StatusMonitor needs the UI DispatcherQueue. Because the singleton is first resolved from
+        // OnLaunched (which runs on the UI thread), the factory can capture the dispatcher directly
+        // here — no static bridge required. GetForCurrentThread must be non-null at that point.
+        services.AddSingleton(sp => new StatusMonitor(
+            sp.GetRequiredService<IWslcService>(),
+            sp.GetRequiredService<IKubernetesService>(),
+            sp.GetRequiredService<RegistryAuthRefresher>(),
+            sp.GetRequiredService<ISettingsService>(),
+            DispatcherQueue.GetForCurrentThread()
+                ?? throw new InvalidOperationException("StatusMonitor must first be resolved on the UI thread."),
+            sp.GetRequiredService<ILogger<StatusMonitor>>()));
 
         services.AddSingleton<ContainersViewModel>();
         services.AddSingleton<ImagesViewModel>();
@@ -233,13 +236,4 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         return services.BuildServiceProvider();
     }
-}
-
-/// <summary>
-/// Bridges the StatusMonitor (created in OnLaunched because it needs the UI
-/// DispatcherQueue) into the DI container.
-/// </summary>
-internal static class StatusMonitorAccessor
-{
-    public static StatusMonitor? Instance { get; set; }
 }
