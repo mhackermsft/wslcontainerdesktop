@@ -211,23 +211,25 @@ public sealed class ProcessRunner
 
     /// <summary>
     /// Starts wslc detached in its own console window (used for interactive
-    /// sessions such as `exec -it ... bash` or streaming `logs -f`).
+    /// sessions such as `exec -it ... bash` or streaming `logs -f`). Launched with
+    /// UseShellExecute=false and ArgumentList so arguments are passed as an argv vector
+    /// (no hand-rolled command-line quoting); a console-subsystem child spawned from this
+    /// GUI process is given its own console window automatically.
     /// </summary>
     public void RunInteractive(IEnumerable<string> arguments)
     {
-        var argLine = string.Join(' ', arguments.Select(Quote));
-
         var psi = new ProcessStartInfo
         {
             FileName = _settings.WslcPath,
-            Arguments = argLine,
-            UseShellExecute = true,
+            UseShellExecute = false,
             CreateNoWindow = false,
         };
 
+        foreach (var arg in arguments)
+        {
+            psi.ArgumentList.Add(arg);
+        }
+
         Process.Start(psi);
     }
-
-    private static string Quote(string arg) =>
-        arg.Contains(' ') || arg.Contains('"') ? $"\"{arg.Replace("\"", "\\\"")}\"" : arg;
 }

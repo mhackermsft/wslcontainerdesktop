@@ -29,6 +29,7 @@ public partial class KubernetesViewModel : ObservableObject
     private readonly IKubernetesService _k8s;
     private readonly DialogService _dialogs;
     private readonly StatusMonitor _monitor;
+    private readonly ISettingsService _settings;
     private readonly DispatcherQueue _dispatcher;
 
     private CancellationTokenSource? _pollCts;
@@ -136,15 +137,67 @@ public partial class KubernetesViewModel : ObservableObject
 
     public event Action? OperationLogUpdated;
 
-    public KubernetesViewModel(IKubernetesService k8s, DialogService dialogs, StatusMonitor monitor)
+    public KubernetesViewModel(IKubernetesService k8s, DialogService dialogs, StatusMonitor monitor, ISettingsService settings)
     {
         _k8s = k8s;
         _dialogs = dialogs;
         _monitor = monitor;
+        _settings = settings;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
 
         // Seed the default namespace option so the ComboBox shows a selection immediately.
         Namespaces.Add("All namespaces");
+    }
+
+    /// <summary>
+    /// Runs the k3s installer (fresh install or in-place upgrade) with installer-script
+    /// integrity verification. The first ever run trusts and records the script's SHA-256
+    /// (trust-on-first-use); later runs verify against that pin and only prompt if the remote
+    /// script has changed, so ordinary installs and upgrades add no extra steps.
+    /// </summary>
+    private async Task<K3sInstallResult> RunInstallerTrustedAsync(bool isUpgrade, string? version)
+    {
+        var previousPin = _settings.K3sInstallerSha256;
+
+        async Task<K3sInstallResult> InvokeAsync(string? expected) => isUpgrade
+            ? await _k8s.UpgradeAsync(version, expected, AppendLog)
+            : await _k8s.InstallAsync(expected, AppendLog);
+
+        var result = await InvokeAsync(previousPin);
+
+        if (result.HashMismatch)
+        {
+            // The remote installer changed since it was last approved. Surface both hashes and
+            // let the user decide; a legitimate upstream update is expected to land here.
+            var approve = await _dialogs.ShowConfirmAsync(
+                "k3s installer script changed",
+                "The installer downloaded from https://get.k3s.io no longer matches the script you " +
+                "previously approved on this machine.\n\n" +
+                $"Previously approved SHA-256:\n{previousPin}\n\n" +
+                $"Newly downloaded SHA-256:\n{result.InstallerHash}\n\n" +
+                "This is normal when the k3s project updates its installer, but only continue if you " +
+                "trust the source. Approve the new script and continue?",
+                "Approve and continue");
+            if (!approve)
+            {
+                AppendLog(string.Empty);
+                AppendLog("Cancelled: the changed installer script was not approved.");
+                return result;
+            }
+
+            // Re-run trusting the freshly-downloaded script.
+            result = await InvokeAsync(result.InstallerHash);
+        }
+
+        // Persist the pin on success (first-use trust, or refreshed after approval).
+        if (result.Success && !string.IsNullOrWhiteSpace(result.InstallerHash) &&
+            !string.Equals(previousPin, result.InstallerHash, StringComparison.OrdinalIgnoreCase))
+        {
+            _settings.K3sInstallerSha256 = result.InstallerHash;
+            _settings.Save();
+        }
+
+        return result;
     }
 
     partial void OnSelectedNamespaceChanged(string value)
@@ -222,10 +275,14 @@ public partial class KubernetesViewModel : ObservableObject
 
         try
         {
-            var result = await _k8s.InstallAsync(AppendLog);
-            if (!result.Success)
+            var result = await RunInstallerTrustedAsync(isUpgrade: false, version: null);
+            if (result.HashMismatch)
             {
-                await _dialogs.ShowMessageAsync("Install failed", result.ErrorText);
+                // User declined the changed installer; message already logged. Leave the log up.
+            }
+            else if (!result.Success)
+            {
+                await _dialogs.ShowMessageAsync("Install failed", result.Result.ErrorText);
             }
             else
             {
@@ -367,10 +424,14 @@ public partial class KubernetesViewModel : ObservableObject
 
         try
         {
-            var upgrade = await _k8s.UpgradeAsync(installVersion, AppendLog);
-            if (!upgrade.Success)
+            var upgrade = await RunInstallerTrustedAsync(isUpgrade: true, version: installVersion);
+            if (upgrade.HashMismatch)
             {
-                await _dialogs.ShowMessageAsync("Upgrade failed", upgrade.ErrorText);
+                // User declined the changed installer; message already logged. Leave the log up.
+            }
+            else if (!upgrade.Success)
+            {
+                await _dialogs.ShowMessageAsync("Upgrade failed", upgrade.Result.ErrorText);
             }
             else
             {

@@ -209,30 +209,62 @@ public sealed class WslcService : IWslcService
             return Models.RegistryLoginState.Unknown;
         }
 
-        // A HEAD on a nonexistent tag never transfers image data but exercises auth.
+        // Pulling a nonexistent tag never transfers image data but forces the engine to reach the
+        // registry's manifest endpoint, which exercises the stored credentials.
         var probeTag = "wslcd-login-probe-0000";
         var reference = $"{host.Trim().TrimEnd('/')}/{repository}:{probeTag}";
         var result = await _runner.RunAsync(new[] { "pull", reference }, ct).ConfigureAwait(false);
 
-        var text = (result.StandardError + "\n" + result.StandardOutput).ToLowerInvariant();
+        // Prefer stable, locale-independent signals over the CLI's prose:
+        //   1. the process exit code,
+        //   2. wslc's own structured "Error code: WSLC_E_*" token,
+        //   3. registry/OCI protocol codes (unauthorized/denied/manifest unknown) and Go net
+        //      errors (dial tcp/no such host), which the engine passes through verbatim from the
+        //      wire and does not localize.
+        // Order matters: reachability is checked before auth (a network failure must not read as
+        // "logged out"), and the strong 401 signal is checked before the weaker/ambiguous 403.
+        // Anything we cannot classify confidently returns Unknown rather than a wrong answer.
 
-        if (text.Contains("unauthorized") || text.Contains("authentication required") ||
-            text.Contains("forbidden") || text.Contains("denied"))
-        {
-            return Models.RegistryLoginState.LoggedOut;
-        }
-
-        if (text.Contains("not found") || text.Contains("manifest unknown") ||
-            text.Contains("not be found") || result.Success)
+        if (result.Success)
         {
             return Models.RegistryLoginState.LoggedIn;
         }
 
-        if (text.Contains("no such host") || text.Contains("timeout") ||
-            text.Contains("dial tcp") || text.Contains("connection") ||
-            text.Contains("could not resolve") || text.Contains("network"))
+        var text = (result.StandardError + "\n" + result.StandardOutput).ToLowerInvariant();
+
+        // Reachability first: these are Go standard-library network errors, emitted in a stable
+        // (non-localized) form regardless of the user's UI language.
+        if (text.Contains("no such host") || text.Contains("dial tcp") ||
+            text.Contains("could not resolve") || text.Contains("server misbehaving") ||
+            text.Contains("connection refused") || text.Contains("no route to host") ||
+            text.Contains("i/o timeout") || text.Contains("timeout") ||
+            text.Contains("tls handshake") || text.Contains("x509") || text.Contains("certificate"))
         {
             return Models.RegistryLoginState.Unreachable;
+        }
+
+        // Strong auth-required signal (HTTP 401 / OCI "unauthorized"): the registry demanded
+        // credentials we did not (successfully) supply.
+        if (text.Contains("unauthorized") || text.Contains("authentication required") ||
+            text.Contains(" 401") || text.Contains("http 401"))
+        {
+            return Models.RegistryLoginState.LoggedOut;
+        }
+
+        // Reached the registry and got far enough to conclude the tag/repo is simply absent, which
+        // means authentication was accepted. wslc's own WSLC_E_IMAGE_NOT_FOUND is the most reliable
+        // token here; the OCI "manifest unknown"/"name unknown" codes are equivalent fallbacks.
+        if (text.Contains("wslc_e_image_not_found") || text.Contains("manifest unknown") ||
+            text.Contains("name unknown") || text.Contains("not found") || text.Contains("not be found"))
+        {
+            return Models.RegistryLoginState.LoggedIn;
+        }
+
+        // Weaker auth signal (HTTP 403 / OCI "denied") checked last: on some registries this means
+        // "authenticated but forbidden" and on others "anonymous access to a private resource".
+        if (text.Contains("denied") || text.Contains("forbidden") || text.Contains(" 403"))
+        {
+            return Models.RegistryLoginState.LoggedOut;
         }
 
         return Models.RegistryLoginState.Unknown;

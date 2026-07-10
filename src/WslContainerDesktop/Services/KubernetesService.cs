@@ -147,20 +147,74 @@ public sealed class KubernetesService : IKubernetesService
 
     // ---- Install / uninstall (streaming) --------------------------------
 
-    public Task<CommandResult> InstallAsync(Action<string> onOutput, CancellationToken ct = default) =>
-        RunRootStreamingAsync("curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true sh -", onOutput, ct);
+    public Task<K3sInstallResult> InstallAsync(string? expectedInstallerHash, Action<string> onOutput, CancellationToken ct = default) =>
+        RunInstallerAsync(version: null, expectedInstallerHash, onOutput, ct);
 
-    public Task<CommandResult> UpgradeAsync(string? version, Action<string> onOutput, CancellationToken ct = default)
-    {
+    public Task<K3sInstallResult> UpgradeAsync(string? version, string? expectedInstallerHash, Action<string> onOutput, CancellationToken ct = default) =>
         // Re-running the install script performs an in-place upgrade: it swaps the k3s
         // binary and restarts the service, preserving cluster data and workloads. Omitting
         // INSTALL_K3S_VERSION tracks the latest stable channel; setting it pins a version.
-        var versionEnv = string.IsNullOrWhiteSpace(version)
-            ? string.Empty
-            : $"INSTALL_K3S_VERSION={ShellEscape(version)} ";
-        return RunRootStreamingAsync(
-            $"curl -sfL https://get.k3s.io | {versionEnv}INSTALL_K3S_SKIP_SELINUX_RPM=true sh -",
-            onOutput, ct);
+        RunInstallerAsync(version, expectedInstallerHash, onOutput, ct);
+
+    /// <summary>
+    /// Downloads the get.k3s.io installer to a temp file, prints and verifies its SHA-256, and
+    /// only executes it when it matches <paramref name="expectedHash"/> (or when no pin was
+    /// supplied). Downloading to a file first avoids the "curl | sh" hazard where a truncated
+    /// download can execute a partial script, and lets us pin the installer logic while leaving
+    /// the k3s version a free parameter so install and upgrade behave exactly as before.
+    /// </summary>
+    private async Task<K3sInstallResult> RunInstallerAsync(
+        string? version, string? expectedHash, Action<string> onOutput, CancellationToken ct)
+    {
+        string? actualHash = null;
+        var mismatch = false;
+
+        // Intercept internal markers so they never reach the user-visible operation log.
+        void Filter(string line)
+        {
+            if (line.StartsWith("@@INSTALLER_SHA=", StringComparison.Ordinal))
+            {
+                actualHash = line["@@INSTALLER_SHA=".Length..].Trim().ToLowerInvariant();
+                return;
+            }
+
+            if (line.StartsWith("@@INSTALLER_HASH_MISMATCH", StringComparison.Ordinal))
+            {
+                mismatch = true;
+                return;
+            }
+
+            if (line.StartsWith("@@DOWNLOAD_FAILED", StringComparison.Ordinal))
+            {
+                onOutput("Failed to download the k3s installer from https://get.k3s.io. Check your network and try again.");
+                return;
+            }
+
+            onOutput(line);
+        }
+
+        var expected = string.IsNullOrWhiteSpace(expectedHash) ? string.Empty : expectedHash.Trim().ToLowerInvariant();
+        var runLine = string.IsNullOrWhiteSpace(version)
+            ? "INSTALL_K3S_SKIP_SELINUX_RPM=true sh \"$TMP\""
+            : $"INSTALL_K3S_VERSION={ShellEscape(version)} INSTALL_K3S_SKIP_SELINUX_RPM=true sh \"$TMP\"";
+
+        // Single root shell: download -> hash -> verify -> run the SAME file -> clean up.
+        var script =
+            "TMP=$(mktemp) || { echo '@@DOWNLOAD_FAILED'; exit 4; }; " +
+            "if ! curl -sfL https://get.k3s.io -o \"$TMP\"; then echo '@@DOWNLOAD_FAILED'; rm -f \"$TMP\"; exit 4; fi; " +
+            "ACTUAL=$(sha256sum \"$TMP\" | awk '{print $1}'); " +
+            "echo \"@@INSTALLER_SHA=$ACTUAL\"; " +
+            $"EXPECTED={ShellEscape(expected)}; " +
+            "if [ -n \"$EXPECTED\" ] && [ \"$ACTUAL\" != \"$EXPECTED\" ]; then echo '@@INSTALLER_HASH_MISMATCH'; rm -f \"$TMP\"; exit 3; fi; " +
+            $"{runLine}; rc=$?; rm -f \"$TMP\"; exit $rc";
+
+        var result = await RunRootStreamingAsync(script, Filter, ct).ConfigureAwait(false);
+        return new K3sInstallResult
+        {
+            Result = result,
+            InstallerHash = actualHash,
+            HashMismatch = mismatch,
+        };
     }
 
     public async Task<string?> GetInstalledVersionAsync(CancellationToken ct = default)
@@ -214,6 +268,18 @@ public sealed class KubernetesService : IKubernetesService
             : $"-n {ShellEscape(ns)}";
 
     private static string ShellEscape(string value) => "'" + value.Replace("'", "'\\''") + "'";
+
+    /// <summary>
+    /// Validates a resource kind (a closed, app-supplied set such as "pod"/"deployment") against a
+    /// conservative allow-list and returns it shell-escaped. Escaping alone already neutralizes
+    /// shell metacharacters; the allow-list is defense in depth so an unexpected value can never
+    /// be interpolated into the root shell. A malformed kind is replaced with an empty argument
+    /// that kubectl rejects harmlessly rather than being passed through.
+    /// </summary>
+    private static string SafeKind(string kind) =>
+        !string.IsNullOrWhiteSpace(kind) && Regex.IsMatch(kind, @"^[A-Za-z][A-Za-z0-9.\-]*$")
+            ? ShellEscape(kind)
+            : "''";
 
     public async Task<IReadOnlyList<K8sNode>> GetNodesAsync(CancellationToken ct = default)
     {
@@ -291,7 +357,7 @@ public sealed class KubernetesService : IKubernetesService
         string.IsNullOrWhiteSpace(ns) ? string.Empty : $" -n {ShellEscape(ns)}";
 
     public Task<CommandResult> DeleteResourceAsync(string kind, string ns, string name, CancellationToken ct = default) =>
-        RunRootAsync($"k3s kubectl delete {kind} {ShellEscape(name)}{NsArg(ns)}", ct);
+        RunRootAsync($"k3s kubectl delete {SafeKind(kind)} {ShellEscape(name)}{NsArg(ns)}", ct);
 
     public Task<CommandResult> ScaleDeploymentAsync(string ns, string name, int replicas, CancellationToken ct = default) =>
         RunRootAsync($"k3s kubectl scale deployment {ShellEscape(name)}{NsArg(ns)} --replicas={replicas}", ct);
@@ -315,7 +381,7 @@ public sealed class KubernetesService : IKubernetesService
 
     public async Task<CommandResult> GetResourceYamlAsync(string kind, string ns, string name, CancellationToken ct = default)
     {
-        var r = await RunRootAsync($"k3s kubectl get {kind} {ShellEscape(name)}{NsArg(ns)} -o yaml", ct)
+        var r = await RunRootAsync($"k3s kubectl get {SafeKind(kind)} {ShellEscape(name)}{NsArg(ns)} -o yaml", ct)
             .ConfigureAwait(false);
 
         if (!r.Success)
@@ -395,7 +461,7 @@ public sealed class KubernetesService : IKubernetesService
     }
 
     public Task<CommandResult> DescribeResourceAsync(string kind, string ns, string name, CancellationToken ct = default) =>
-        RunRootAsync($"k3s kubectl describe {kind} {ShellEscape(name)}{NsArg(ns)}", ct);
+        RunRootAsync($"k3s kubectl describe {SafeKind(kind)} {ShellEscape(name)}{NsArg(ns)}", ct);
 
     public Task<CommandResult> GetPodLogsAsync(string ns, string name, int tailLines, CancellationToken ct = default) =>
         RunRootAsync($"k3s kubectl logs {ShellEscape(name)}{NsArg(ns)} --all-containers=true --tail={tailLines}", ct);
@@ -408,7 +474,7 @@ public sealed class KubernetesService : IKubernetesService
     public bool StartPortForward(PortForward forward)
     {
         var cmd = $"k3s kubectl port-forward --address 127.0.0.1 -n {ShellEscape(forward.Namespace)} " +
-                  $"{forward.TargetRef} {forward.LocalPort}:{forward.RemotePort}";
+                  $"{ShellEscape(forward.TargetRef)} {forward.LocalPort}:{forward.RemotePort}";
 
         var psi = BaseStartInfo(cmd);
         var process = new Process { StartInfo = psi, EnableRaisingEvents = true };

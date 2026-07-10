@@ -37,6 +37,13 @@ public interface ISettingsService
     string? WslDistro { get; set; }
 
     /// <summary>
+    /// SHA-256 (lowercase hex) of the last k3s installer script (get.k3s.io) the user has
+    /// approved. Used to detect if the remote installer changes between installs/upgrades.
+    /// Null until the first install establishes the trust-on-first-use pin.
+    /// </summary>
+    string? K3sInstallerSha256 { get; set; }
+
+    /// <summary>
     /// User-registered container registries (Docker Hub is always present as the default).
     /// Credentials are never stored here; login is delegated to `wslc login`.
     /// </summary>

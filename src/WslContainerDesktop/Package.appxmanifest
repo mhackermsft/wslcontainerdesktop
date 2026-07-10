@@ -6,19 +6,18 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
-  xmlns:systemai="http://schemas.microsoft.com/appx/manifest/systemai/windows10"
-  IgnorableNamespaces="uap rescap desktop systemai">
+  IgnorableNamespaces="uap rescap desktop">
 
   <Identity
     Name="393193CD-4A5B-4502-BC94-7C6AF142CD28"
-    Publisher="CN=AppPublisher"
+    Publisher="CN=Michael Hacker"
     Version="1.0.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="393193CD-4A5B-4502-BC94-7C6AF142CD28" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>WslContainerDesktop</DisplayName>
-    <PublisherDisplayName>AppPublisher</PublisherDisplayName>
+    <DisplayName>WSL Container Desktop</DisplayName>
+    <PublisherDisplayName>Michael Hacker</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
@@ -36,8 +35,8 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="WslContainerDesktop"
-        Description="WslContainerDesktop"
+        DisplayName="WSL Container Desktop"
+        Description="Manage WSL container images, running containers, and a local k3s Kubernetes cluster."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
@@ -60,6 +59,5 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
-    <systemai:Capability Name="systemAIModels"/>
   </Capabilities>
 </Package>

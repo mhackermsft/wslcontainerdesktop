@@ -26,15 +26,23 @@ public interface IKubernetesService
     /// <summary>Lightweight single-call probe (state + pod counts) for the nav footer indicator.</summary>
     Task<K8sFooterStatus> GetFooterStatusAsync(CancellationToken ct = default);
 
-    /// <summary>Installs k3s in the WSL distro. Streams progress lines via <paramref name="onOutput"/>.</summary>
-    Task<CommandResult> InstallAsync(Action<string> onOutput, CancellationToken ct = default);
+    /// <summary>
+    /// Installs k3s in the WSL distro. Streams progress lines via <paramref name="onOutput"/>.
+    /// The installer script is downloaded to a file and its SHA-256 verified against
+    /// <paramref name="expectedInstallerHash"/> before it runs; pass null to trust and record
+    /// the current script (trust-on-first-use). On mismatch the script is not executed and the
+    /// result's <see cref="K3sInstallResult.HashMismatch"/> is set.
+    /// </summary>
+    Task<K3sInstallResult> InstallAsync(string? expectedInstallerHash, Action<string> onOutput, CancellationToken ct = default);
 
     /// <summary>
     /// Upgrades (or downgrades) k3s in place by re-running the install script. A null or empty
     /// <paramref name="version"/> tracks the latest stable channel; otherwise pins an exact tag
-    /// (e.g. "v1.36.2+k3s1"). Cluster data and workloads are preserved.
+    /// (e.g. "v1.36.2+k3s1"). Cluster data and workloads are preserved. The installer script is
+    /// integrity-checked against <paramref name="expectedInstallerHash"/> exactly as in
+    /// <see cref="InstallAsync"/>.
     /// </summary>
-    Task<CommandResult> UpgradeAsync(string? version, Action<string> onOutput, CancellationToken ct = default);
+    Task<K3sInstallResult> UpgradeAsync(string? version, string? expectedInstallerHash, Action<string> onOutput, CancellationToken ct = default);
 
     /// <summary>Returns the installed k3s version tag (e.g. "v1.36.2+k3s1"), or null if unknown.</summary>
     Task<string?> GetInstalledVersionAsync(CancellationToken ct = default);

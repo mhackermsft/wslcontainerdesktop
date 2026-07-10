@@ -246,6 +246,7 @@
                                         Width="34"
                                         Height="34"
                                         Padding="0"
+                                        AutomationProperties.Name="Terminal"
                                         Background="Transparent"
                                         BorderThickness="0"
                                         Click="TerminalButton_Click"

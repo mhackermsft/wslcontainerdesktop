@@ -35,6 +35,7 @@ public sealed class SettingsService : ISettingsService
     public bool StartMinimized { get; set; }
     public string Theme { get; set; } = "Default";
     public string? WslDistro { get; set; }
+    public string? K3sInstallerSha256 { get; set; }
     public List<RegistryEntry> Registries { get; set; } = new() { RegistryEntry.DockerHub() };
 
     public void Load()
@@ -63,6 +64,7 @@ public sealed class SettingsService : ISettingsService
             StartMinimized = dto.StartMinimized;
             Theme = string.IsNullOrWhiteSpace(dto.Theme) ? "Default" : dto.Theme;
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
+            K3sInstallerSha256 = string.IsNullOrWhiteSpace(dto.K3sInstallerSha256) ? null : dto.K3sInstallerSha256.Trim().ToLowerInvariant();
 
             // Load registries, always keeping a single Docker Hub default at the top.
             var registries = new List<RegistryEntry> { RegistryEntry.DockerHub() };
@@ -108,6 +110,7 @@ public sealed class SettingsService : ISettingsService
                 StartMinimized = StartMinimized,
                 Theme = Theme,
                 WslDistro = WslDistro,
+                K3sInstallerSha256 = K3sInstallerSha256,
                 Registries = Registries
                     .Where(r => !r.IsDefault && !string.IsNullOrWhiteSpace(r.Host))
                     .Select(r => new RegistryDto
@@ -150,6 +153,7 @@ public sealed class SettingsService : ISettingsService
         public bool StartMinimized { get; set; }
         public string? Theme { get; set; }
         public string? WslDistro { get; set; }
+        public string? K3sInstallerSha256 { get; set; }
         public List<RegistryDto>? Registries { get; set; }
     }
 

@@ -63,9 +63,11 @@ public interface IWslcService
     Task<CommandResult> PushImageAsync(string reference, CancellationToken ct = default);
 
     /// <summary>
-    /// Probes whether the engine is authenticated to a registry by attempting a cheap
-    /// manifest HEAD for a nonexistent tag: "unauthorized" means logged out, "not found"
-    /// means logged in, and a connection error means unreachable.
+    /// Probes whether the engine is authenticated to a registry by pulling a nonexistent tag,
+    /// which forces the engine to reach the manifest endpoint. Classification prefers stable,
+    /// locale-independent signals (the process exit code, wslc's structured WSLC_E_* error code,
+    /// and registry/network protocol tokens) over the CLI's prose, and returns Unknown when the
+    /// outcome is ambiguous rather than guessing.
     /// </summary>
     Task<Models.RegistryLoginState> ProbeRegistryLoginAsync(string host, string repository, CancellationToken ct = default);
 
