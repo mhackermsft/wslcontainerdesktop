@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="WslContainerDesktop.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    x:Name="Root"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="16,12" />
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer>
+        <StackPanel
+            MaxWidth="880"
+            Margin="24,16,24,24"
+            HorizontalAlignment="Stretch"
+            Spacing="16">
+
+            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Settings" />
+
+            <!--  Engine  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="Container engine" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel Spacing="12">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            Grid.Column="0"
+                            Header="Path to wslc.exe"
+                            Text="{x:Bind ViewModel.WslcPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button
+                            Grid.Column="1"
+                            VerticalAlignment="Bottom"
+                            Command="{x:Bind ViewModel.TestConnectionCommand}"
+                            Content="Test connection" />
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="Engine version:" />
+                        <TextBlock FontWeight="SemiBold" Text="{x:Bind ViewModel.EngineVersion, Mode=OneWay}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!--  Behavior  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="Behavior" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel Spacing="4">
+                    <Grid Padding="0,8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Minimize to system tray on close" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Keep the app running in the tray instead of exiting." />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            IsOn="{x:Bind ViewModel.CloseToTray, Mode=TwoWay}" />
+                    </Grid>
+                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                    <Grid Padding="0,8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Start minimized to tray" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Launch into the tray without showing the window." />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            IsOn="{x:Bind ViewModel.StartMinimized, Mode=TwoWay}" />
+                    </Grid>
+                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                    <Grid Padding="0,8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Auto-refresh interval" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="How often container status is polled (seconds)." />
+                        </StackPanel>
+                        <NumberBox
+                            Grid.Column="1"
+                            MinWidth="120"
+                            Maximum="120"
+                            Minimum="2"
+                            SpinButtonPlacementMode="Inline"
+                            Value="{x:Bind ViewModel.RefreshIntervalSeconds, Mode=TwoWay}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!--  Appearance  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="Appearance" />
+            <Border Style="{StaticResource Card}">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="Theme" />
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="Applies immediately." />
+                    </StackPanel>
+                    <ComboBox
+                        Grid.Column="1"
+                        MinWidth="160"
+                        SelectedIndex="{x:Bind ViewModel.SelectedThemeIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="Use system default" />
+                        <ComboBoxItem Content="Light" />
+                        <ComboBoxItem Content="Dark" />
+                    </ComboBox>
+                </Grid>
+            </Border>
+
+            <!--  About  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="About" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel Spacing="6">
+                    <TextBlock FontWeight="SemiBold" Text="WSL Container Desktop" />
+                    <TextBlock
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind ViewModel.AppVersion}" />
+                    <TextBlock
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="A native WinUI 3 manager for WSL containers (wslc)." />
+                    <HyperlinkButton
+                        Margin="-12,0,0,0"
+                        Content="Learn about WSL containers"
+                        NavigateUri="https://aka.ms/wslc" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,27 @@
+## .NET / build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM64/
+*.user
+*.suo
+*.cache
+
+## Visual Studio
+.vs/
+*.vspscc
+
+## Rider
+.idea/
+
+## App SDK / MSIX
+AppPackages/
+BundleArtifacts/
+*.appx
+*.msix
+*.appxbundle
+GeneratedArtifacts/
+_pkginfo.txt

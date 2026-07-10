@@ -1,0 +1,522 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="WslContainerDesktop.Views.ContainerDetailPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    x:Name="Root"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:StateToBrushConverter x:Key="StateToBrush" />
+        <converters:StateToStringConverter x:Key="StateToString" />
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
+    </Page.Resources>
+
+    <Grid Margin="24,14,24,16" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--  Breadcrumb / header  -->
+        <Grid Grid.Row="0" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Button
+                Grid.Column="0"
+                Width="40"
+                Height="40"
+                Padding="0"
+                VerticalAlignment="Center"
+                Click="Back_Click"
+                ToolTipService.ToolTip="Back to containers">
+                <FontIcon FontSize="15" Glyph="&#xE72B;" />
+            </Button>
+
+            <StackPanel
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="12">
+                <Border
+                    Width="42"
+                    Height="42"
+                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                    <FontIcon
+                        FontSize="19"
+                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                        Glyph="&#xE7F4;" />
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse
+                            Width="12"
+                            Height="12"
+                            VerticalAlignment="Center"
+                            Fill="{x:Bind ViewModel.Selected.State, Mode=OneWay, Converter={StaticResource StateToBrush}}" />
+                        <TextBlock
+                            FontSize="20"
+                            FontWeight="SemiBold"
+                            Text="{x:Bind ViewModel.Selected.Name, Mode=OneWay}" />
+                        <Border
+                            Padding="8,2"
+                            VerticalAlignment="Center"
+                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                            CornerRadius="10">
+                            <TextBlock
+                                FontSize="12"
+                                Text="{x:Bind ViewModel.Selected.State, Mode=OneWay, Converter={StaticResource StateToString}}" />
+                        </Border>
+                    </StackPanel>
+                    <TextBlock
+                        FontSize="13"
+                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                        Text="{x:Bind ViewModel.Selected.Image, Mode=OneWay}"
+                        TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </StackPanel>
+
+            <!--  Actions  -->
+            <StackPanel
+                Grid.Column="2"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="6">
+                <Button
+                    Command="{x:Bind ViewModel.StartCommand}"
+                    CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
+                    Style="{ThemeResource AccentButtonStyle}"
+                    ToolTipService.ToolTip="Start"
+                    Visibility="{x:Bind ViewModel.Selected.IsStopped, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <FontIcon FontSize="14" Glyph="&#xE768;" />
+                </Button>
+                <Button
+                    Command="{x:Bind ViewModel.StopCommand}"
+                    CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
+                    ToolTipService.ToolTip="Stop"
+                    Visibility="{x:Bind ViewModel.Selected.IsRunning, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <FontIcon FontSize="14" Glyph="&#xE71A;" />
+                </Button>
+                <Button
+                    Command="{x:Bind ViewModel.RestartCommand}"
+                    CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
+                    ToolTipService.ToolTip="Restart"
+                    Visibility="{x:Bind ViewModel.Selected.IsRunning, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                </Button>
+                <Button
+                    Command="{x:Bind ViewModel.KillCommand}"
+                    CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
+                    ToolTipService.ToolTip="Kill (force stop)"
+                    Visibility="{x:Bind ViewModel.Selected.IsRunning, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <FontIcon FontSize="14" Glyph="&#xE8BB;" />
+                </Button>
+                <Button
+                    Command="{x:Bind ViewModel.TerminalCommand}"
+                    CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
+                    ToolTipService.ToolTip="Open terminal"
+                    Visibility="{x:Bind ViewModel.Selected.IsRunning, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <FontIcon FontSize="14" Glyph="&#xE756;" />
+                </Button>
+                <Button
+                    Command="{x:Bind ViewModel.OpenPortCommand}"
+                    CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
+                    ToolTipService.ToolTip="Open published port in browser">
+                    <FontIcon FontSize="14" Glyph="&#xE774;" />
+                </Button>
+                <Button ToolTipService.ToolTip="Remove" Click="Remove_Click">
+                    <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <Border
+            Grid.Row="1"
+            Height="1"
+            Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+        <!--  Tabs  -->
+        <SelectorBar
+            x:Name="DetailTabs"
+            Grid.Row="2"
+            SelectionChanged="DetailTabs_SelectionChanged">
+            <SelectorBarItem
+                x:Name="TabLogs"
+                IsSelected="True"
+                Text="Logs">
+                <SelectorBarItem.Icon>
+                    <FontIcon Glyph="&#xE9D9;" />
+                </SelectorBarItem.Icon>
+            </SelectorBarItem>
+            <SelectorBarItem x:Name="TabSummary" Text="Summary">
+                <SelectorBarItem.Icon>
+                    <FontIcon Glyph="&#xE946;" />
+                </SelectorBarItem.Icon>
+            </SelectorBarItem>
+            <SelectorBarItem x:Name="TabStats" Text="Stats">
+                <SelectorBarItem.Icon>
+                    <FontIcon Glyph="&#xE9D9;" />
+                </SelectorBarItem.Icon>
+            </SelectorBarItem>
+            <SelectorBarItem x:Name="TabInspect" Text="Inspect">
+                <SelectorBarItem.Icon>
+                    <FontIcon Glyph="&#xE943;" />
+                </SelectorBarItem.Icon>
+            </SelectorBarItem>
+        </SelectorBar>
+
+        <!--  Tab content  -->
+        <Grid Grid.Row="3">
+            <!--  ===== Logs (default, full height) =====  -->
+            <Grid x:Name="LogsPanel" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel
+                    Grid.Row="0"
+                    HorizontalAlignment="Right"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <ToggleButton
+                        x:Name="WrapToggle"
+                        Click="WrapToggle_Click"
+                        Content="Wrap" />
+                    <Button Click="ClearLogs_Click" Content="Clear" />
+                </StackPanel>
+
+                <Border
+                    Grid.Row="1"
+                    Background="#0C0C0F"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6">
+                    <ScrollViewer
+                        x:Name="LogScroll"
+                        Padding="14,10"
+                        HorizontalScrollBarVisibility="Auto"
+                        HorizontalScrollMode="Auto"
+                        VerticalScrollBarVisibility="Auto">
+                        <TextBlock
+                            x:Name="LogText"
+                            FontFamily="Cascadia Mono, Consolas"
+                            FontSize="13"
+                            Foreground="#E4E4E8"
+                            IsTextSelectionEnabled="True"
+                            LineHeight="19"
+                            TextWrapping="NoWrap" />
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+
+            <!--  ===== Summary =====  -->
+            <ScrollViewer x:Name="SummaryPanel" Visibility="Collapsed">
+                <StackPanel MaxWidth="900" Spacing="12">
+                    <Border
+                        Padding="16"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                        <Grid ColumnSpacing="24" RowSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock
+                                Grid.Row="0"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Container ID" />
+                            <TextBlock
+                                Grid.Row="0"
+                                Grid.Column="1"
+                                FontFamily="Consolas"
+                                IsTextSelectionEnabled="True"
+                                Text="{x:Bind ViewModel.Selected.ShortId, Mode=OneWay}" />
+
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="State" />
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                Text="{x:Bind ViewModel.Selected.State, Mode=OneWay, Converter={StaticResource StateToString}}" />
+
+                            <TextBlock
+                                Grid.Row="2"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Image" />
+                            <TextBlock
+                                Grid.Row="2"
+                                Grid.Column="1"
+                                IsTextSelectionEnabled="True"
+                                Text="{x:Bind ViewModel.Selected.Image, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+
+                            <TextBlock
+                                Grid.Row="3"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Ports" />
+                            <TextBlock
+                                Grid.Row="3"
+                                Grid.Column="1"
+                                IsTextSelectionEnabled="True"
+                                Text="{x:Bind ViewModel.Selected.PortsDisplay, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+
+                            <TextBlock
+                                Grid.Row="4"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="IP address" />
+                            <TextBlock
+                                Grid.Row="4"
+                                Grid.Column="1"
+                                FontFamily="Consolas"
+                                IsTextSelectionEnabled="True"
+                                Text="{x:Bind ViewModel.DetailIp, Mode=OneWay}" />
+
+                            <TextBlock
+                                Grid.Row="5"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Network" />
+                            <TextBlock
+                                Grid.Row="5"
+                                Grid.Column="1"
+                                Text="{x:Bind ViewModel.DetailNetwork, Mode=OneWay}" />
+
+                            <TextBlock
+                                Grid.Row="6"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Started" />
+                            <TextBlock
+                                Grid.Row="6"
+                                Grid.Column="1"
+                                Text="{x:Bind ViewModel.DetailStarted, Mode=OneWay}" />
+
+                            <TextBlock
+                                Grid.Row="7"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Command" />
+                            <TextBlock
+                                Grid.Row="7"
+                                Grid.Column="1"
+                                FontFamily="Consolas"
+                                FontSize="12"
+                                IsTextSelectionEnabled="True"
+                                Text="{x:Bind ViewModel.DetailCommand, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                        </Grid>
+                    </Border>
+
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Environment variables">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.DetailEnvironment, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock
+                                        Margin="0,2"
+                                        FontFamily="Consolas"
+                                        FontSize="12"
+                                        IsTextSelectionEnabled="True"
+                                        Text="{x:Bind}"
+                                        TextWrapping="Wrap" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Expander>
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Mounts">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.DetailMounts, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock
+                                        Margin="0,2"
+                                        FontFamily="Consolas"
+                                        FontSize="12"
+                                        IsTextSelectionEnabled="True"
+                                        Text="{x:Bind}"
+                                        TextWrapping="Wrap" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Expander>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!--  ===== Stats =====  -->
+            <ScrollViewer x:Name="StatsPanel" Visibility="Collapsed">
+                <StackPanel MaxWidth="900" Spacing="14">
+                    <!--  CPU + Memory big meters  -->
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border
+                            Grid.Column="0"
+                            Padding="16"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <StackPanel Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon
+                                        FontSize="16"
+                                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                        Glyph="&#xE950;" />
+                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="CPU" />
+                                </StackPanel>
+                                <TextBlock FontSize="30" FontWeight="SemiBold" Text="{x:Bind ViewModel.StatCpu, Mode=OneWay}" />
+                                <ProgressBar Maximum="100" Value="{x:Bind ViewModel.StatCpuValue, Mode=OneWay}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border
+                            Grid.Column="1"
+                            Padding="16"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <StackPanel Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon
+                                        FontSize="16"
+                                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                        Glyph="&#xEEA0;" />
+                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Memory" />
+                                </StackPanel>
+                                <TextBlock FontSize="30" FontWeight="SemiBold" Text="{x:Bind ViewModel.StatMem, Mode=OneWay}" />
+                                <ProgressBar Maximum="100" Value="{x:Bind ViewModel.StatMemValue, Mode=OneWay}" />
+                                <TextBlock
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{x:Bind ViewModel.StatMemUsage, Mode=OneWay}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!--  I/O + PIDs  -->
+                    <Border
+                        Padding="16"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                        <Grid ColumnSpacing="24" RowSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock
+                                Grid.Row="0"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Network I/O" />
+                            <TextBlock
+                                Grid.Row="0"
+                                Grid.Column="1"
+                                FontFamily="Consolas"
+                                Text="{x:Bind ViewModel.StatNetIO, Mode=OneWay}" />
+
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Block I/O" />
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                FontFamily="Consolas"
+                                Text="{x:Bind ViewModel.StatBlockIO, Mode=OneWay}" />
+
+                            <TextBlock
+                                Grid.Row="2"
+                                Grid.Column="0"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Processes (PIDs)" />
+                            <TextBlock
+                                Grid.Row="2"
+                                Grid.Column="1"
+                                FontFamily="Consolas"
+                                Text="{x:Bind ViewModel.StatPids, Mode=OneWay}" />
+                        </Grid>
+                    </Border>
+
+                    <TextBlock
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        Text="Updates every 2 seconds. Stats are only available while the container is running." />
+                </StackPanel>
+            </ScrollViewer>
+
+            <!--  ===== Inspect =====  -->
+            <Border
+                x:Name="InspectPanel"
+                Background="#0C0C0F"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="6"
+                Visibility="Collapsed">
+                <ScrollViewer
+                    Padding="14,10"
+                    HorizontalScrollBarVisibility="Auto"
+                    HorizontalScrollMode="Auto"
+                    VerticalScrollBarVisibility="Auto">
+                    <TextBlock
+                        FontFamily="Cascadia Mono, Consolas"
+                        FontSize="12"
+                        Foreground="#E4E4E8"
+                        IsTextSelectionEnabled="True"
+                        Text="{x:Bind ViewModel.DetailInspectJson, Mode=OneWay}"
+                        TextWrapping="NoWrap" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

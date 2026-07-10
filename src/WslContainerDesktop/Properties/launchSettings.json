@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "WslContainerDesktop (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "WslContainerDesktop (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

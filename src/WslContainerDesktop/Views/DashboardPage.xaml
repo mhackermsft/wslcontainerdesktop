@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="WslContainerDesktop.Views.DashboardPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:WslContainerDesktop.ViewModels"
+    x:Name="Root"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
+        <converters:BoolToStatusBrushConverter x:Key="BoolToStatusBrush" />
+        <Style x:Key="StatCard" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="18,16" />
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer>
+        <StackPanel Margin="24,16,24,24" Spacing="16">
+
+            <!--  Header  -->
+            <StackPanel Spacing="2">
+                <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Dashboard" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{ThemeResource CaptionTextBlockStyle}"
+                    Text="Overview and live performance of your WSL containers" />
+            </StackPanel>
+
+            <!--  Summary cards  -->
+            <Grid ColumnSpacing="14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Style="{StaticResource StatCard}">
+                    <StackPanel Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                Glyph="&#xE7F4;" />
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Containers" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock
+                                FontSize="30"
+                                FontWeight="SemiBold"
+                                Text="{x:Bind ViewModel.RunningContainers, Mode=OneWay}" />
+                            <TextBlock
+                                Margin="0,0,0,4"
+                                VerticalAlignment="Bottom"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="running" />
+                        </StackPanel>
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Text="{x:Bind ViewModel.TotalContainers, Mode=OneWay}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Style="{StaticResource StatCard}">
+                    <StackPanel Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                Glyph="&#xEB9F;" />
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Images" />
+                        </StackPanel>
+                        <TextBlock
+                            FontSize="30"
+                            FontWeight="SemiBold"
+                            Text="{x:Bind ViewModel.ImageCount, Mode=OneWay}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Style="{StaticResource StatCard}">
+                    <StackPanel Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                Glyph="&#xE8B7;" />
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Volumes" />
+                        </StackPanel>
+                        <TextBlock
+                            FontSize="30"
+                            FontWeight="SemiBold"
+                            Text="{x:Bind ViewModel.VolumeCount, Mode=OneWay}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="3" Style="{StaticResource StatCard}">
+                    <StackPanel Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse
+                                Width="12"
+                                Height="12"
+                                VerticalAlignment="Center"
+                                Fill="{x:Bind ViewModel.EngineHealthy, Mode=OneWay, Converter={StaticResource BoolToStatusBrush}}" />
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Engine" />
+                        </StackPanel>
+                        <TextBlock
+                            FontSize="24"
+                            FontWeight="SemiBold"
+                            Text="{x:Bind ViewModel.EngineStatus, Mode=OneWay}" />
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Text="{x:Bind ViewModel.EngineVersion, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!--  Aggregate CPU  -->
+            <Border Style="{StaticResource StatCard}">
+                <StackPanel Spacing="8">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                Glyph="&#xE950;" />
+                            <TextBlock FontWeight="SemiBold" Text="Total CPU usage" />
+                        </StackPanel>
+                        <TextBlock
+                            HorizontalAlignment="Right"
+                            FontWeight="SemiBold"
+                            Text="{x:Bind ViewModel.TotalCpu, Mode=OneWay}" />
+                    </Grid>
+                    <ProgressBar Maximum="100" Value="{x:Bind ViewModel.TotalCpuValue, Mode=OneWay}" />
+                </StackPanel>
+            </Border>
+
+            <!--  Live per-container stats  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="Live container performance" />
+
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <Grid>
+                    <!--  Column header  -->
+                    <Grid Padding="16,10" VerticalAlignment="Top">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" MinWidth="120" />
+                            <ColumnDefinition Width="1.4*" MinWidth="120" />
+                            <ColumnDefinition Width="1.4*" MinWidth="120" />
+                            <ColumnDefinition Width="1.4*" MinWidth="110" />
+                            <ColumnDefinition Width="1.4*" MinWidth="110" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="NAME" />
+                        <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="CPU" />
+                        <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="MEMORY" />
+                        <TextBlock Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" Text="NET I/O" />
+                        <TextBlock Grid.Column="4" Style="{ThemeResource CaptionTextBlockStyle}" Text="BLOCK I/O" />
+                    </Grid>
+
+                    <ItemsControl
+                        Margin="0,40,0,6"
+                        ItemsSource="{x:Bind ViewModel.LiveStats, Mode=OneWay}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DashboardStatRow">
+                                <Grid Padding="16,8" ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*" MinWidth="120" />
+                                        <ColumnDefinition Width="1.4*" MinWidth="120" />
+                                        <ColumnDefinition Width="1.4*" MinWidth="120" />
+                                        <ColumnDefinition Width="1.4*" MinWidth="110" />
+                                        <ColumnDefinition Width="1.4*" MinWidth="110" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock
+                                        Grid.Column="0"
+                                        VerticalAlignment="Center"
+                                        FontWeight="SemiBold"
+                                        Text="{x:Bind Name, Mode=OneWay}"
+                                        TextTrimming="CharacterEllipsis" />
+
+                                    <StackPanel
+                                        Grid.Column="1"
+                                        Margin="0,0,10,0"
+                                        VerticalAlignment="Center"
+                                        Spacing="3">
+                                        <TextBlock FontSize="13" Text="{x:Bind Cpu, Mode=OneWay}" />
+                                        <ProgressBar
+                                            Maximum="100"
+                                            Minimum="0"
+                                            Value="{x:Bind CpuValue, Mode=OneWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel
+                                        Grid.Column="2"
+                                        Margin="0,0,10,0"
+                                        VerticalAlignment="Center"
+                                        Spacing="3">
+                                        <TextBlock
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind MemUsage, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <ProgressBar
+                                            Maximum="100"
+                                            Minimum="0"
+                                            Value="{x:Bind MemValue, Mode=OneWay}" />
+                                    </StackPanel>
+
+                                    <TextBlock
+                                        Grid.Column="3"
+                                        VerticalAlignment="Center"
+                                        FontFamily="Consolas"
+                                        FontSize="12"
+                                        Text="{x:Bind NetIO, Mode=OneWay}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Grid.Column="4"
+                                        VerticalAlignment="Center"
+                                        FontFamily="Consolas"
+                                        FontSize="12"
+                                        Text="{x:Bind BlockIO, Mode=OneWay}"
+                                        TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <StackPanel
+                        Margin="0,70,0,20"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Top"
+                        Spacing="8"
+                        Visibility="{x:Bind ViewModel.LiveStats.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}">
+                        <FontIcon
+                            HorizontalAlignment="Center"
+                            FontSize="36"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Glyph="&#xE9D9;" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="No running containers to report stats for." />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,183 @@
+// WSL Container Desktop - a WinUI 3 manager for WSL containers.
+// Copyright (C) 2026 Michael Hacker
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using WslContainerDesktop.Services;
+using WslContainerDesktop.Tray;
+using WslContainerDesktop.ViewModels;
+
+namespace WslContainerDesktop;
+
+public partial class App : Application
+{
+    private MainWindow? _window;
+    private TrayIcon? _tray;
+    private StatusMonitor? _monitor;
+    private bool _isExiting;
+
+    public App()
+    {
+        InitializeComponent();
+        Services = ConfigureServices();
+    }
+
+    public new static App Current => (App)Application.Current;
+
+    public IServiceProvider Services { get; }
+
+    public MainWindow? MainWindow => _window;
+
+    /// <summary>True while a real shutdown is in progress (lets the window close for good).</summary>
+    public bool IsExiting => _isExiting;
+
+    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        var settings = Services.GetRequiredService<ISettingsService>();
+        settings.Load();
+
+        // The status monitor needs the UI DispatcherQueue, so it is created here and
+        // published for the DI container to hand to view models.
+        _monitor = new StatusMonitor(
+            Services.GetRequiredService<IWslcService>(),
+            Services.GetRequiredService<IKubernetesService>(),
+            Services.GetRequiredService<RegistryAuthRefresher>(),
+            settings,
+            DispatcherQueue.GetForCurrentThread());
+        StatusMonitorAccessor.Instance = _monitor;
+
+        _tray = new TrayIcon();
+        _tray.OpenRequested += () => _monitor!.Dispatcher.TryEnqueue(ShowMainWindow);
+        _tray.QuitRequested += () => _monitor!.Dispatcher.TryEnqueue(ExitApplication);
+        _tray.Initialize();
+
+        _monitor.StatusChanged += OnEngineStatusChanged;
+        _monitor.Start();
+
+        _window = new MainWindow();
+        _window.ApplyTheme(settings.Theme);
+
+        if (settings.StartMinimized)
+        {
+            _window.HideToTray();
+        }
+        else
+        {
+            _window.Activate();
+        }
+    }
+
+    private void OnEngineStatusChanged(object? sender, EngineStatusSnapshot e)
+    {
+        var tooltip = e.Health switch
+        {
+            EngineHealth.Healthy => $"WSL Container Desktop — {e.Summary}",
+            EngineHealth.Down => "WSL Container Desktop — engine unreachable",
+            _ => "WSL Container Desktop",
+        };
+
+        _tray?.UpdateStatus(e.Health, tooltip, e.Summary);
+    }
+
+    public void ShowMainWindow()
+    {
+        _window ??= new MainWindow();
+        _window.ShowFromTray();
+    }
+
+    /// <summary>
+    /// Brings the app's window forward. Called when a second instance redirects its
+    /// activation here. Marshals to the UI thread since the redirect fires on a
+    /// background thread.
+    /// </summary>
+    public void BringToForeground()
+    {
+        var dispatcher = _monitor?.Dispatcher;
+        if (dispatcher is not null)
+        {
+            dispatcher.TryEnqueue(ShowMainWindow);
+        }
+        else
+        {
+            ShowMainWindow();
+        }
+    }
+
+    public void ExitApplication()
+    {
+        if (_isExiting)
+        {
+            return;
+        }
+
+        _isExiting = true;
+
+        // Tear down any running port-forwards so no wsl.exe processes are orphaned.
+        try
+        {
+            Services.GetRequiredService<IKubernetesService>().StopAllPortForwards();
+        }
+        catch
+        {
+            // ignore
+        }
+
+        _monitor?.Dispose();
+        _tray?.Dispose();
+        _window?.ForceClose();
+
+        Exit();
+    }
+
+    private static ServiceProvider ConfigureServices()
+    {
+        var services = new ServiceCollection();
+
+        services.AddSingleton<ISettingsService, SettingsService>();
+        services.AddSingleton<ProcessRunner>();
+        services.AddSingleton<IWslcService, WslcService>();
+        services.AddSingleton<IKubernetesService, KubernetesService>();
+        services.AddSingleton<IAzureCliService, AzureCliService>();
+        services.AddSingleton<RegistryAuthRefresher>();
+        services.AddSingleton<DialogService>();
+
+        services.AddSingleton(_ => StatusMonitorAccessor.Instance
+            ?? throw new InvalidOperationException("StatusMonitor not initialized."));
+
+        services.AddSingleton<ContainersViewModel>();
+        services.AddSingleton<ImagesViewModel>();
+        services.AddSingleton<VolumesViewModel>();
+        services.AddSingleton<NetworksViewModel>();
+        services.AddSingleton<RegistriesViewModel>();
+        services.AddSingleton<SettingsViewModel>();
+        services.AddSingleton<ShellViewModel>();
+        services.AddSingleton<DashboardViewModel>();
+        services.AddSingleton<KubernetesViewModel>();
+        services.AddTransient<K8sDetailViewModel>();
+
+        return services.BuildServiceProvider();
+    }
+}
+
+/// <summary>
+/// Bridges the StatusMonitor (created in OnLaunched because it needs the UI
+/// DispatcherQueue) into the DI container.
+/// </summary>
+internal static class StatusMonitorAccessor
+{
+    public static StatusMonitor? Instance { get; set; }
+}
