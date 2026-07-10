@@ -39,7 +39,7 @@ public sealed partial class K8sDetailPage : Page
         base.OnNavigatedTo(e);
 
         // Hide the Logs tab for kinds that don't produce logs.
-        TabLogs.Visibility = ViewModel is { } && e.Parameter is K8sResourceRef { SupportsLogs: true }
+        TabLogs.Visibility = e.Parameter is K8sResourceRef { SupportsLogs: true }
             ? Visibility.Visible
             : Visibility.Collapsed;
 

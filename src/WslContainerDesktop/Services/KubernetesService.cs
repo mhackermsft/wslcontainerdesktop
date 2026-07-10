@@ -592,115 +592,23 @@ public sealed class KubernetesService : IKubernetesService
         return psi;
     }
 
-    private async Task<CommandResult> RunRootAsync(string bashCommand, CancellationToken ct)
-    {
-        using var process = new Process { StartInfo = BaseStartInfo(bashCommand) };
-        var stdout = new StringBuilder();
-        var stderr = new StringBuilder();
+    private Task<CommandResult> RunRootAsync(string bashCommand, CancellationToken ct) =>
+        ProcessExecutor.RunAsync(
+            BaseStartInfo(bashCommand),
+            launchErrorContext: "Could not launch wsl.exe.",
+            ct: ct);
 
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
+    private Task<CommandResult> RunRootWithStdinAsync(string bashCommand, string stdin, CancellationToken ct) =>
+        ProcessExecutor.RunAsync(
+            BaseStartInfo(bashCommand),
+            stdin: stdin,
+            launchErrorContext: "Could not launch wsl.exe.",
+            ct: ct);
 
-        try
-        {
-            process.Start();
-        }
-        catch (Exception ex)
-        {
-            return new CommandResult { ExitCode = -1, StandardError = $"Could not launch wsl.exe. {ex.Message}" };
-        }
-
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        process.StandardInput.Close();
-
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
-
-        return new CommandResult
-        {
-            ExitCode = process.ExitCode,
-            StandardOutput = stdout.ToString(),
-            StandardError = stderr.ToString(),
-        };
-    }
-
-    private async Task<CommandResult> RunRootWithStdinAsync(string bashCommand, string stdin, CancellationToken ct)
-    {
-        using var process = new Process { StartInfo = BaseStartInfo(bashCommand) };
-        var stdout = new StringBuilder();
-        var stderr = new StringBuilder();
-
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
-
-        try
-        {
-            process.Start();
-        }
-        catch (Exception ex)
-        {
-            return new CommandResult { ExitCode = -1, StandardError = $"Could not launch wsl.exe. {ex.Message}" };
-        }
-
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        await process.StandardInput.WriteAsync(stdin).ConfigureAwait(false);
-        process.StandardInput.Close();
-
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
-
-        return new CommandResult
-        {
-            ExitCode = process.ExitCode,
-            StandardOutput = stdout.ToString(),
-            StandardError = stderr.ToString(),
-        };
-    }
-
-    private async Task<CommandResult> RunRootStreamingAsync(string bashCommand, Action<string> onOutput, CancellationToken ct)
-    {
-        using var process = new Process { StartInfo = BaseStartInfo(bashCommand) };
-        var stdout = new StringBuilder();
-        var stderr = new StringBuilder();
-
-        process.OutputDataReceived += (_, e) =>
-        {
-            if (e.Data is not null)
-            {
-                stdout.AppendLine(e.Data);
-                onOutput(e.Data);
-            }
-        };
-        process.ErrorDataReceived += (_, e) =>
-        {
-            if (e.Data is not null)
-            {
-                stderr.AppendLine(e.Data);
-                onOutput(e.Data);
-            }
-        };
-
-        try
-        {
-            process.Start();
-        }
-        catch (Exception ex)
-        {
-            return new CommandResult { ExitCode = -1, StandardError = $"Could not launch wsl.exe. {ex.Message}" };
-        }
-
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        process.StandardInput.Close();
-
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
-
-        return new CommandResult
-        {
-            ExitCode = process.ExitCode,
-            StandardOutput = stdout.ToString(),
-            StandardError = stderr.ToString(),
-        };
-    }
+    private Task<CommandResult> RunRootStreamingAsync(string bashCommand, Action<string> onOutput, CancellationToken ct) =>
+        ProcessExecutor.RunAsync(
+            BaseStartInfo(bashCommand),
+            onLine: onOutput,
+            launchErrorContext: "Could not launch wsl.exe.",
+            ct: ct);
 }

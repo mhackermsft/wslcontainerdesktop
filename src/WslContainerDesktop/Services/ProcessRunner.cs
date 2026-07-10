@@ -33,7 +33,7 @@ public sealed class ProcessRunner
     }
 
     /// <summary>Runs wslc with the given arguments and returns captured output.</summary>
-    public async Task<CommandResult> RunAsync(
+    public Task<CommandResult> RunAsync(
         IEnumerable<string> arguments,
         CancellationToken cancellationToken = default)
     {
@@ -53,74 +53,10 @@ public sealed class ProcessRunner
             psi.ArgumentList.Add(arg);
         }
 
-        using var process = new Process { StartInfo = psi };
-
-        var stdout = new StringBuilder();
-        var stderr = new StringBuilder();
-
-        process.OutputDataReceived += (_, e) =>
-        {
-            if (e.Data is not null)
-            {
-                stdout.AppendLine(e.Data);
-            }
-        };
-        process.ErrorDataReceived += (_, e) =>
-        {
-            if (e.Data is not null)
-            {
-                stderr.AppendLine(e.Data);
-            }
-        };
-
-        try
-        {
-            if (!process.Start())
-            {
-                return new CommandResult
-                {
-                    ExitCode = -1,
-                    StandardError = "Failed to start the wslc process.",
-                };
-            }
-        }
-        catch (Exception ex)
-        {
-            return new CommandResult
-            {
-                ExitCode = -1,
-                StandardError =
-                    $"Could not launch '{_settings.WslcPath}'. {ex.Message}",
-            };
-        }
-
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch
-            {
-                // ignore
-            }
-
-            throw;
-        }
-
-        return new CommandResult
-        {
-            ExitCode = process.ExitCode,
-            StandardOutput = stdout.ToString(),
-            StandardError = stderr.ToString(),
-        };
+        return ProcessExecutor.RunAsync(
+            psi,
+            launchErrorContext: $"Could not launch '{_settings.WslcPath}'.",
+            ct: cancellationToken);
     }
 
     /// <summary>Convenience overload accepting a params array.</summary>
@@ -131,7 +67,7 @@ public sealed class ProcessRunner
     /// Runs wslc with the given arguments, writing <paramref name="stdin"/> to the process's
     /// standard input (used for `login --password-stdin` so secrets never appear on a command line).
     /// </summary>
-    public async Task<CommandResult> RunWithStdinAsync(
+    public Task<CommandResult> RunWithStdinAsync(
         IEnumerable<string> arguments,
         string stdin,
         CancellationToken cancellationToken = default)
@@ -153,60 +89,11 @@ public sealed class ProcessRunner
             psi.ArgumentList.Add(arg);
         }
 
-        using var process = new Process { StartInfo = psi };
-
-        var stdout = new StringBuilder();
-        var stderr = new StringBuilder();
-
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
-
-        try
-        {
-            if (!process.Start())
-            {
-                return new CommandResult { ExitCode = -1, StandardError = "Failed to start the wslc process." };
-            }
-        }
-        catch (Exception ex)
-        {
-            return new CommandResult
-            {
-                ExitCode = -1,
-                StandardError = $"Could not launch '{_settings.WslcPath}'. {ex.Message}",
-            };
-        }
-
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        try
-        {
-            await process.StandardInput.WriteAsync(stdin).ConfigureAwait(false);
-            process.StandardInput.Close();
-        }
-        catch
-        {
-            // If the process already exited, the pipe write can throw; the exit code still tells the story.
-        }
-
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            try { process.Kill(entireProcessTree: true); }
-            catch { /* ignore */ }
-            throw;
-        }
-
-        return new CommandResult
-        {
-            ExitCode = process.ExitCode,
-            StandardOutput = stdout.ToString(),
-            StandardError = stderr.ToString(),
-        };
+        return ProcessExecutor.RunAsync(
+            psi,
+            stdin: stdin,
+            launchErrorContext: $"Could not launch '{_settings.WslcPath}'.",
+            ct: cancellationToken);
     }
 
     /// <summary>

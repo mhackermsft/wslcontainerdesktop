@@ -292,45 +292,10 @@ public sealed class AzureCliService : IAzureCliService
             psi.ArgumentList.Add(a);
         }
 
-        using var process = new Process { StartInfo = psi };
-        var stdout = new StringBuilder();
-        var stderr = new StringBuilder();
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
-
-        try
-        {
-            if (!process.Start())
-            {
-                return new CommandResult { ExitCode = -1, StandardError = "Failed to start az." };
-            }
-        }
-        catch (Exception ex)
-        {
-            return new CommandResult { ExitCode = -1, StandardError = $"Could not launch az. {ex.Message}" };
-        }
-
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
-
-        try
-        {
-            await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
-            return new CommandResult { ExitCode = -1, StandardError = "az command timed out." };
-        }
-
-        return new CommandResult
-        {
-            ExitCode = process.ExitCode,
-            StandardOutput = stdout.ToString(),
-            StandardError = stderr.ToString(),
-        };
+        return await ProcessExecutor.RunAsync(
+            psi,
+            timeout: TimeSpan.FromSeconds(timeoutSeconds),
+            launchErrorContext: "Could not launch az.",
+            ct: ct).ConfigureAwait(false);
     }
 }
