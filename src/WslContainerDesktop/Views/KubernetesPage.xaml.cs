@@ -59,14 +59,6 @@ public sealed partial class KubernetesPage : Page
         ViewModel.ShowOperationLog = false;
     }
 
-    private void DashboardCard_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is string section)
-        {
-            ViewModel.SelectedSection = section;
-        }
-    }
-
     private void OpenForward_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is Models.PortForward pf)

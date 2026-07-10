@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:k8s="using:WslContainerDesktop.Models"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -36,17 +37,6 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Padding" Value="16,4,12,4" />
             <Setter Property="MinHeight" Value="48" />
-        </Style>
-        <Style x:Key="CardButton" TargetType="Button">
-            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="10" />
-            <Setter Property="Padding" Value="18,16" />
-            <Setter Property="HorizontalAlignment" Value="Stretch" />
-            <Setter Property="VerticalAlignment" Value="Stretch" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="VerticalContentAlignment" Value="Stretch" />
         </Style>
     </Page.Resources>
 
@@ -356,199 +346,9 @@
                     <Grid Grid.Row="1">
 
                         <!--  Dashboard  -->
-                        <ScrollViewer Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Dashboard}">
-                            <Grid ColumnSpacing="12" RowSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-
-                                    <Button
-                                        Grid.Row="0"
-                                        Grid.Column="0"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="Nodes"
-                                        ToolTipService.ToolTip="View nodes">
-                                        <StackPanel Spacing="6">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE968;" />
-                                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Nodes" />
-                                            </StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="14">
-                                                <StackPanel>
-                                                    <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="Ready" />
-                                                    <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.NodeActiveCount, Mode=OneWay}" />
-                                                </StackPanel>
-                                                <StackPanel>
-                                                    <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="Total" />
-                                                    <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.NodeCount, Mode=OneWay}" />
-                                                </StackPanel>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Button>
-
-                                    <Button
-                                        Grid.Row="0"
-                                        Grid.Column="1"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="Deployments"
-                                        ToolTipService.ToolTip="View deployments">
-                                        <StackPanel Spacing="6">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE7B8;" />
-                                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Deployments" />
-                                            </StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="14">
-                                                <StackPanel>
-                                                    <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="Healthy" />
-                                                    <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.DeploymentActiveCount, Mode=OneWay}" />
-                                                </StackPanel>
-                                                <StackPanel>
-                                                    <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="Total" />
-                                                    <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.DeploymentCount, Mode=OneWay}" />
-                                                </StackPanel>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Button>
-
-                                    <Button
-                                        Grid.Row="0"
-                                        Grid.Column="2"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="Pods"
-                                        ToolTipService.ToolTip="View pods">
-                                        <StackPanel Spacing="6">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE7F4;" />
-                                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Pods" />
-                                            </StackPanel>
-                                            <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.PodCount, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Button>
-
-                                    <Button
-                                        Grid.Row="0"
-                                        Grid.Column="3"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="Services"
-                                        ToolTipService.ToolTip="View services">
-                                        <StackPanel Spacing="6">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE9D2;" />
-                                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Services" />
-                                            </StackPanel>
-                                            <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.ServiceCount, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Button>
-
-                                    <Button
-                                        Grid.Row="1"
-                                        Grid.Column="0"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="Ingresses"
-                                        ToolTipService.ToolTip="View ingresses">
-                                        <StackPanel Spacing="6">
-                                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Ingresses" />
-                                            <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.IngressCount, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <Button
-                                        Grid.Row="1"
-                                        Grid.Column="1"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="Persistent Volume Claims"
-                                        ToolTipService.ToolTip="View persistent volume claims">
-                                        <StackPanel Spacing="6">
-                                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Persistent Volume Claims" />
-                                            <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.PvcCount, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <Button
-                                        Grid.Row="1"
-                                        Grid.Column="2"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="ConfigMaps"
-                                        ToolTipService.ToolTip="View config maps">
-                                        <StackPanel Spacing="6">
-                                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="ConfigMaps" />
-                                            <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.ConfigMapCount, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <Button
-                                        Grid.Row="1"
-                                        Grid.Column="3"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="Secrets"
-                                        ToolTipService.ToolTip="View secrets">
-                                        <StackPanel Spacing="6">
-                                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Secrets" />
-                                            <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.SecretCount, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Button>
-
-                                    <Button
-                                        Grid.Row="2"
-                                        Grid.Column="0"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="Jobs"
-                                        ToolTipService.ToolTip="View jobs">
-                                        <StackPanel Spacing="6">
-                                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Jobs" />
-                                            <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.JobCount, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <Button
-                                        Grid.Row="2"
-                                        Grid.Column="1"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="CronJobs"
-                                        ToolTipService.ToolTip="View cronjobs">
-                                        <StackPanel Spacing="6">
-                                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="CronJobs" />
-                                            <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.CronJobCount, Mode=OneWay}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <Button
-                                        Grid.Row="2"
-                                        Grid.Column="2"
-                                        Click="DashboardCard_Click"
-                                        Style="{StaticResource CardButton}"
-                                        Tag="Port Forwarding"
-                                        ToolTipService.ToolTip="View port forwarding">
-                                        <StackPanel Spacing="6">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE71B;" />
-                                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Port Forwarding" />
-                                            </StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.PortForwards.Count, Mode=OneWay}" />
-                                                <TextBlock
-                                                    Margin="0,0,0,4"
-                                                    VerticalAlignment="Bottom"
-                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                    Text="active" />
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Button>
-                            </Grid>
-                        </ScrollViewer>
+                        <controls:K8sDashboardSection
+                            ViewModel="{x:Bind ViewModel}"
+                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Dashboard}" />
 
                         <!--  Nodes  -->
                         <Border
