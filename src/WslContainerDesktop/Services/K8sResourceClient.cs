@@ -32,15 +32,8 @@ public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceCli
     {
         try
         {
-            // Do the whole status probe in ONE wsl.exe invocation. Each separate wsl.exe
-            // call pays cold-start/distro-attach overhead, so chaining install-check +
-            // service-state + node JSON in a single shell script dramatically speeds up the
-            // first load of the Kubernetes page.
-            const string script =
-                "if [ ! -f /usr/local/bin/k3s-uninstall.sh ]; then echo '@@STATE=notinstalled'; exit 0; fi; " +
-                "a=$(systemctl is-active k3s 2>/dev/null || true); " +
-                "if [ \"$a\" != active ]; then echo '@@STATE=stopped'; exit 0; fi; " +
-                "echo '@@STATE=running'; echo '@@NODES'; k3s kubectl get nodes -o json 2>/dev/null";
+            var script = K8sStatusProtocol.BuildProbeScript(
+                K8sStatusProtocol.NodesMarker, "k3s kubectl get nodes -o json");
 
             var r = await shell.RunAsync(script, ct).ConfigureAwait(false);
             var output = r.StandardOutput;
@@ -50,12 +43,12 @@ public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceCli
                 return new ClusterStatus { State = ClusterState.Unknown, Message = r.ErrorText };
             }
 
-            if (output.Contains("@@STATE=notinstalled", StringComparison.Ordinal))
+            if (K8sStatusProtocol.Contains(output, K8sStatusProtocol.StateNotInstalled))
             {
                 return new ClusterStatus { State = ClusterState.NotInstalled, Distro = shell.DistroLabel };
             }
 
-            if (output.Contains("@@STATE=stopped", StringComparison.Ordinal))
+            if (K8sStatusProtocol.Contains(output, K8sStatusProtocol.StateStopped))
             {
                 return new ClusterStatus
                 {
@@ -65,11 +58,9 @@ public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceCli
                 };
             }
 
-            // Running: parse the node JSON that followed the @@NODES marker.
-            var idx = output.IndexOf("@@NODES", StringComparison.Ordinal);
-            var node = idx >= 0
-                ? K8sParser.Nodes(output[(idx + "@@NODES".Length)..]).FirstOrDefault()
-                : null;
+            // Running: parse the node JSON that followed the nodes marker.
+            var nodeJson = K8sStatusProtocol.SectionAfter(output, K8sStatusProtocol.NodesMarker);
+            var node = K8sParser.Nodes(nodeJson).FirstOrDefault();
 
             return new ClusterStatus
             {
@@ -90,37 +81,31 @@ public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceCli
     {
         try
         {
-            // Single-call lightweight probe for the nav footer indicator: install state and,
-            // when running, pod counts. Kept separate from GetStatusAsync so the shared
-            // StatusMonitor can poll it cheaply on its cadence (and warm the WSL distro early).
-            const string script =
-                "if [ ! -f /usr/local/bin/k3s-uninstall.sh ]; then echo '@@STATE=notinstalled'; exit 0; fi; " +
-                "a=$(systemctl is-active k3s 2>/dev/null || true); " +
-                "if [ \"$a\" != active ]; then echo '@@STATE=stopped'; exit 0; fi; " +
-                "echo '@@STATE=running'; echo '@@PODS'; k3s kubectl get pods -A -o json 2>/dev/null";
+            // Kept separate from GetStatusAsync so the shared StatusMonitor can poll it cheaply on
+            // its cadence (and warm the WSL distro early).
+            var script = K8sStatusProtocol.BuildProbeScript(
+                K8sStatusProtocol.PodsMarker, "k3s kubectl get pods -A -o json");
 
             var r = await shell.RunAsync(script, ct).ConfigureAwait(false);
             var output = r.StandardOutput;
 
-            if (output.Contains("@@STATE=notinstalled", StringComparison.Ordinal))
+            if (K8sStatusProtocol.Contains(output, K8sStatusProtocol.StateNotInstalled))
             {
                 return new K8sFooterStatus { State = ClusterState.NotInstalled };
             }
 
-            if (output.Contains("@@STATE=stopped", StringComparison.Ordinal))
+            if (K8sStatusProtocol.Contains(output, K8sStatusProtocol.StateStopped))
             {
                 return new K8sFooterStatus { State = ClusterState.Stopped };
             }
 
-            if (!output.Contains("@@STATE=running", StringComparison.Ordinal))
+            if (!K8sStatusProtocol.Contains(output, K8sStatusProtocol.StateRunning))
             {
                 return new K8sFooterStatus { State = ClusterState.Unknown };
             }
 
-            var idx = output.IndexOf("@@PODS", StringComparison.Ordinal);
-            var pods = idx >= 0
-                ? K8sParser.Pods(output[(idx + "@@PODS".Length)..])
-                : new List<K8sPod>();
+            var podJson = K8sStatusProtocol.SectionAfter(output, K8sStatusProtocol.PodsMarker);
+            var pods = K8sParser.Pods(podJson);
 
             return new K8sFooterStatus
             {

@@ -22,6 +22,9 @@ namespace WslContainerDesktop.Dialogs;
 /// <summary>Collects a target (pod or service) and local/remote ports for a port-forward.</summary>
 public sealed class PortForwardDialog : ContentDialog
 {
+    private const int MinPort = 1;
+    private const int MaxPort = 65535;
+
     private readonly ComboBox _kindBox;
     private readonly ComboBox _targetBox;
     private readonly TextBox _localPortBox;
@@ -91,8 +94,8 @@ public sealed class PortForwardDialog : ContentDialog
     private void OnPrimary(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
         if (_targetBox.SelectedItem is not string target ||
-            !int.TryParse(_localPortBox.Text.Trim(), out var local) || local <= 0 || local > 65535 ||
-            !int.TryParse(_remotePortBox.Text.Trim(), out var remote) || remote <= 0 || remote > 65535)
+            !int.TryParse(_localPortBox.Text.Trim(), out var local) || local < MinPort || local > MaxPort ||
+            !int.TryParse(_remotePortBox.Text.Trim(), out var remote) || remote < MinPort || remote > MaxPort)
         {
             args.Cancel = true;
             return;

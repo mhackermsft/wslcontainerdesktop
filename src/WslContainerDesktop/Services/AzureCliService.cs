@@ -28,6 +28,9 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class AzureCliService : IAzureCliService
 {
+    private const int DefaultTimeoutSeconds = 90;
+    private const int InteractiveLoginTimeoutSeconds = 300;
+
     private readonly ILogger<AzureCliService> _logger;
     private string? _resolvedPath;
     private bool _resolved;
@@ -55,7 +58,7 @@ public sealed class AzureCliService : IAzureCliService
 
     public async Task<CommandResult> LoginAsync(CancellationToken ct = default)
     {
-        var result = await RunAsync(new[] { "login", "--only-show-errors", "-o", "none" }, ct, timeoutSeconds: 300)
+        var result = await RunAsync(new[] { "login", "--only-show-errors", "-o", "none" }, ct, timeoutSeconds: InteractiveLoginTimeoutSeconds)
             .ConfigureAwait(false);
         return result ?? new CommandResult { ExitCode = -1, StandardError = "Azure CLI is not installed." };
     }
@@ -279,7 +282,7 @@ public sealed class AzureCliService : IAzureCliService
         }
     }
 
-    private async Task<CommandResult?> RunAsync(IEnumerable<string> args, CancellationToken ct, int timeoutSeconds = 90)
+    private async Task<CommandResult?> RunAsync(IEnumerable<string> args, CancellationToken ct, int timeoutSeconds = DefaultTimeoutSeconds)
     {
         var az = await ResolveAzPathAsync(ct).ConfigureAwait(false);
         if (az is null)

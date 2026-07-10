@@ -60,7 +60,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 WslcPath = dto.WslcPath;
             }
 
-            RefreshIntervalSeconds = Math.Clamp(dto.RefreshIntervalSeconds, 2, 120);
+            RefreshIntervalSeconds = Math.Clamp(dto.RefreshIntervalSeconds, AppConstants.RefreshIntervalMinSeconds, AppConstants.RefreshIntervalMaxSeconds);
             CloseToTray = dto.CloseToTray;
             StartMinimized = dto.StartMinimized;
             Theme = string.IsNullOrWhiteSpace(dto.Theme) ? "Default" : dto.Theme;

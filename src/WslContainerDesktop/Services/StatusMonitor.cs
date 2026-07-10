@@ -110,7 +110,7 @@ public sealed class StatusMonitor : IDisposable
             // working. Runs on a slow cadence since ACR tokens last a few hours.
             await MaybeRefreshAzureTokensAsync().ConfigureAwait(false);
 
-            var interval = Math.Clamp(_settings.RefreshIntervalSeconds, 2, 120);
+            var interval = Math.Clamp(_settings.RefreshIntervalSeconds, AppConstants.RefreshIntervalMinSeconds, AppConstants.RefreshIntervalMaxSeconds);
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(interval), ct).ConfigureAwait(false);
@@ -173,7 +173,7 @@ public sealed class StatusMonitor : IDisposable
             return;
         }
 
-        if (DateTimeOffset.UtcNow - _lastAzureRefresh < TimeSpan.FromMinutes(30))
+        if (DateTimeOffset.UtcNow - _lastAzureRefresh < AppConstants.AzureTokenRefreshInterval)
         {
             return;
         }

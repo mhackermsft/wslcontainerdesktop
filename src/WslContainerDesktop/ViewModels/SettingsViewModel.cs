@@ -91,7 +91,7 @@ public partial class SettingsViewModel : ObservableObject
 
     partial void OnRefreshIntervalSecondsChanged(int value)
     {
-        _settings.RefreshIntervalSeconds = Math.Clamp(value, 2, 120);
+        _settings.RefreshIntervalSeconds = Math.Clamp(value, AppConstants.RefreshIntervalMinSeconds, AppConstants.RefreshIntervalMaxSeconds);
         _settings.Save();
     }
 
