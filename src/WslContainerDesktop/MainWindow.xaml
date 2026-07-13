@@ -61,6 +61,11 @@
                         <FontIcon Glyph="&#xE8B7;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Reclaim space" Tag="reclaim">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9D2;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Networks" Tag="networks">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE968;" />

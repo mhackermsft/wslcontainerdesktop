@@ -231,6 +231,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ContainersViewModel>();
         services.AddSingleton<ImagesViewModel>();
         services.AddSingleton<VolumesViewModel>();
+        services.AddSingleton<ReclaimSpaceViewModel>();
         services.AddSingleton<NetworksViewModel>();
         services.AddSingleton<RegistriesViewModel>();
         services.AddSingleton<SettingsViewModel>();
