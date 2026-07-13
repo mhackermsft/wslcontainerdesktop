@@ -119,18 +119,49 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
 
     public Task<CommandResult> DeletePathAsync(string id, string path, CancellationToken ct = default)
     {
-        var normalized = string.IsNullOrWhiteSpace(path) ? "/" : path.Trim();
-        if (normalized == "/")
+        if (string.IsNullOrEmpty(path) || path == "/" || ContainsPathTraversal(path))
         {
             return Task.FromResult(new CommandResult
             {
                 ExitCode = -1,
-                StandardError = "Refusing to delete the container root directory.",
+                StandardError = "Refusing to delete: path is the container root, empty, or contains path traversal segments.",
             });
         }
 
-        return ExecShellAsync(id, $"rm -rf -- {WslRootShell.ShellEscape(normalized)}", ct);
+        return ExecShellAsync(id, $"rm -rf -- {WslRootShell.ShellEscape(path)}", ct);
     }
+
+    public Task<CommandResult> RenamePathAsync(string id, string oldPath, string newPath, CancellationToken ct = default)
+    {
+        if (ContainsPathTraversal(oldPath) || ContainsPathTraversal(newPath))
+        {
+            return Task.FromResult(new CommandResult
+            {
+                ExitCode = -1,
+                StandardError = "Path must not contain '.' or '..' segments.",
+            });
+        }
+
+        return ExecShellAsync(id,
+            $"mv -- {WslRootShell.ShellEscape(oldPath)} {WslRootShell.ShellEscape(newPath)}", ct);
+    }
+
+    public Task<CommandResult> CreateDirectoryAsync(string id, string path, CancellationToken ct = default)
+    {
+        if (ContainsPathTraversal(path))
+        {
+            return Task.FromResult(new CommandResult
+            {
+                ExitCode = -1,
+                StandardError = "Path must not contain '.' or '..' segments.",
+            });
+        }
+
+        return ExecShellAsync(id, $"mkdir -p -- {WslRootShell.ShellEscape(path)}", ct);
+    }
+
+    private static bool ContainsPathTraversal(string path) =>
+        path.Split('/').Any(s => s == "." || s == "..");
 
     public async Task<IReadOnlyList<ContainerStats>> GetStatsAsync(CancellationToken ct = default)
     {

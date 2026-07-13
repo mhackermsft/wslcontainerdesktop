@@ -40,6 +40,8 @@ public interface IWslcService
     Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default);
     Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default);
     Task<CommandResult> DeletePathAsync(string id, string path, CancellationToken ct = default);
+    Task<CommandResult> RenamePathAsync(string id, string oldPath, string newPath, CancellationToken ct = default);
+    Task<CommandResult> CreateDirectoryAsync(string id, string path, CancellationToken ct = default);
     Task<IReadOnlyList<ContainerStats>> GetStatsAsync(CancellationToken ct = default);
     Task<ContainerStats?> GetStatsAsync(string id, CancellationToken ct = default);
     void OpenTerminal(string id);

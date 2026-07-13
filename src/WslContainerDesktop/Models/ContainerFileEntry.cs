@@ -44,6 +44,17 @@ public sealed class ContainerFileEntry
             ? "\uE71B"
             : "\uE8A5";
 
+    public string TypeDisplay
+    {
+        get
+        {
+            if (IsDirectory) return "Folder";
+            if (IsSymlink) return "Shortcut";
+            var ext = System.IO.Path.GetExtension(Name);
+            return string.IsNullOrEmpty(ext) ? "File" : ext.TrimStart('.').ToUpperInvariant() + " File";
+        }
+    }
+
     public string OwnerDisplay => string.IsNullOrWhiteSpace(Group) || string.Equals(Owner, Group, StringComparison.Ordinal)
         ? Owner
         : $"{Owner}:{Group}";

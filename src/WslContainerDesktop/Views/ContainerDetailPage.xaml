@@ -516,204 +516,272 @@
             <!--  ===== Files =====  -->
             <Grid
                 x:Name="FilesPanel"
-                RowSpacing="10"
+                RowSpacing="8"
                 Visibility="Collapsed">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="220" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Border
-                    Padding="12"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8">
-                    <StackPanel Spacing="8">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button
-                                Click="FilesUp_Click"
-                                Content="Up"
-                                IsEnabled="{x:Bind ViewModel.CanNavigateUp, Mode=OneWay}" />
-                            <Button Click="FilesRefresh_Click" Content="Refresh" />
-                            <Button Click="CopyInFile_Click" Content="Copy file in" />
-                            <Button Click="CopyInFolder_Click" Content="Copy folder in" />
-                            <Button
-                                Click="CopyOut_Click"
-                                Content="Copy out"
-                                IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}" />
-                            <Button
-                                Click="PreviewFile_Click"
-                                Content="View"
-                                IsEnabled="{x:Bind ViewModel.CanPreviewSelectedFile, Mode=OneWay}" />
-                            <Button
-                                Click="DeleteFile_Click"
-                                Content="Delete"
-                                IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}" />
-                        </StackPanel>
+                <!--  Navigation toolbar  -->
+                <Grid
+                    Grid.Row="0"
+                    ColumnSpacing="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button
+                        Grid.Column="0"
+                        Height="32"
+                        Padding="10,0"
+                        Click="FilesUp_Click"
+                        IsEnabled="{x:Bind ViewModel.CanNavigateUp, Mode=OneWay}"
+                        ToolTipService.ToolTip="Navigate up">
+                        <FontIcon FontSize="13" Glyph="&#xE74A;" />
+                    </Button>
+                    <Button
+                        Grid.Column="1"
+                        Height="32"
+                        Padding="10,0"
+                        Click="FilesRefresh_Click"
+                        ToolTipService.ToolTip="Refresh">
+                        <FontIcon FontSize="13" Glyph="&#xE72C;" />
+                    </Button>
+                    <Border
+                        Grid.Column="2"
+                        Height="32"
+                        Padding="10,0"
+                        Background="{ThemeResource ControlFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4">
                         <TextBlock
                             FontFamily="Consolas"
-                            FontSize="13"
-                            IsTextSelectionEnabled="True"
-                            Text="{x:Bind ViewModel.FilesCurrentPath, Mode=OneWay}" />
-                        <TextBlock
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="{x:Bind ViewModel.FilesStatusMessage, Mode=OneWay}"
-                            TextWrapping="Wrap" />
-                        <TextBlock
                             FontSize="12"
-                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                            Text="Click a folder to drill down. Preview supports small files up to 64 KiB." />
-                    </StackPanel>
-                </Border>
+                            IsTextSelectionEnabled="True"
+                            Text="{x:Bind ViewModel.FilesCurrentPath, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis"
+                            VerticalAlignment="Center" />
+                    </Border>
+                    <Button
+                        Grid.Column="3"
+                        Height="32"
+                        Padding="10,0"
+                        Click="FilesNewFolder_Click"
+                        ToolTipService.ToolTip="New folder">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <FontIcon FontSize="13" Glyph="&#xE8F4;" />
+                            <TextBlock
+                                FontSize="12"
+                                Text="New folder"
+                                VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Grid.Column="4"
+                        Height="32"
+                        Padding="10,0"
+                        Click="CopyInFile_Click"
+                        ToolTipService.ToolTip="Upload files from host to current directory">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <FontIcon FontSize="13" Glyph="&#xE898;" />
+                            <TextBlock
+                                FontSize="12"
+                                Text="Upload"
+                                VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Grid.Column="5"
+                        Height="32"
+                        Padding="10,0"
+                        Click="CopyInFolder_Click"
+                        ToolTipService.ToolTip="Upload folder from host to current directory">
+                        <FontIcon FontSize="13" Glyph="&#xE8DA;" />
+                    </Button>
+                </Grid>
 
+                <!--  File list area with drag-drop  -->
                 <Border
+                    x:Name="DropZoneBorder"
                     Grid.Row="1"
+                    AllowDrop="True"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1"
-                    CornerRadius="8">
+                    CornerRadius="8"
+                    DragEnter="DropZone_DragEnter"
+                    DragLeave="DropZone_DragLeave"
+                    DragOver="DropZone_DragOver"
+                    Drop="DropZone_Drop">
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
 
-                        <Grid
-                            Padding="12,10"
-                            ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="36" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="110" />
-                                <ColumnDefinition Width="140" />
-                                <ColumnDefinition Width="150" />
-                                <ColumnDefinition Width="90" />
-                            </Grid.ColumnDefinitions>
+                            <!--  Column headers  -->
+                            <Grid
+                                Grid.Row="0"
+                                Padding="16,8"
+                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                BorderThickness="0,0,0,1"
+                                ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="28" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="72" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="128" />
+                                    <ColumnDefinition Width="100" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    Grid.Column="1"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Text="Name" />
+                                <TextBlock
+                                    Grid.Column="2"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Text="Type" />
+                                <TextBlock
+                                    Grid.Column="3"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Text="Size" />
+                                <TextBlock
+                                    Grid.Column="4"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Text="Modified" />
+                                <TextBlock
+                                    Grid.Column="5"
+                                    FontSize="12"
+                                    FontWeight="SemiBold"
+                                    Text="Permissions" />
+                            </Grid>
 
-                            <TextBlock
-                                Grid.Column="1"
-                                FontWeight="SemiBold"
-                                Text="Name" />
-                            <TextBlock
-                                Grid.Column="2"
-                                FontWeight="SemiBold"
-                                Text="Permissions" />
-                            <TextBlock
-                                Grid.Column="3"
-                                FontWeight="SemiBold"
-                                Text="Owner" />
-                            <TextBlock
-                                Grid.Column="4"
-                                FontWeight="SemiBold"
-                                Text="Modified" />
-                            <TextBlock
-                                Grid.Column="5"
-                                FontWeight="SemiBold"
-                                Text="Size" />
+                            <!--  File list  -->
+                            <ListView
+                                x:Name="FilesList"
+                                Grid.Row="1"
+                                CanDragItems="True"
+                                DragItemsStarting="FilesList_DragItemsStarting"
+                                DoubleTapped="FilesList_DoubleTapped"
+                                ItemsSource="{x:Bind ViewModel.DetailFiles, Mode=OneWay}"
+                                RightTapped="FilesList_RightTapped"
+                                SelectedItem="{x:Bind ViewModel.SelectedFile, Mode=TwoWay}"
+                                SelectionMode="Single">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="MinHeight" Value="0" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="models:ContainerFileEntry">
+                                        <Grid
+                                            Padding="16,6"
+                                            ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="28" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="72" />
+                                                <ColumnDefinition Width="76" />
+                                                <ColumnDefinition Width="128" />
+                                                <ColumnDefinition Width="100" />
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon
+                                                Grid.Column="0"
+                                                FontSize="15"
+                                                Glyph="{x:Bind IconGlyph}"
+                                                VerticalAlignment="Center" />
+                                            <TextBlock
+                                                Grid.Column="1"
+                                                Text="{x:Bind Name}"
+                                                TextTrimming="CharacterEllipsis"
+                                                ToolTipService.ToolTip="{x:Bind Name}"
+                                                VerticalAlignment="Center" />
+                                            <TextBlock
+                                                Grid.Column="2"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{x:Bind TypeDisplay}"
+                                                VerticalAlignment="Center" />
+                                            <TextBlock
+                                                Grid.Column="3"
+                                                FontSize="12"
+                                                Text="{x:Bind SizeDisplay}"
+                                                VerticalAlignment="Center" />
+                                            <TextBlock
+                                                Grid.Column="4"
+                                                FontSize="12"
+                                                Text="{x:Bind ModifiedDisplay}"
+                                                VerticalAlignment="Center" />
+                                            <TextBlock
+                                                Grid.Column="5"
+                                                FontFamily="Consolas"
+                                                FontSize="11"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{x:Bind Permissions}"
+                                                VerticalAlignment="Center" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
                         </Grid>
 
-                        <ListView
-                            x:Name="FilesList"
-                            Grid.Row="1"
-                            IsItemClickEnabled="True"
-                            ItemsSource="{x:Bind ViewModel.DetailFiles, Mode=OneWay}"
-                            ItemClick="FilesList_ItemClick"
-                            SelectedItem="{x:Bind ViewModel.SelectedFile, Mode=TwoWay}"
-                            SelectionMode="Single">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="models:ContainerFileEntry">
-                                    <Grid
-                                        Padding="12,8"
-                                        ColumnSpacing="12">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="36" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="110" />
-                                            <ColumnDefinition Width="140" />
-                                            <ColumnDefinition Width="150" />
-                                            <ColumnDefinition Width="90" />
-                                        </Grid.ColumnDefinitions>
-
-                                        <FontIcon
-                                            Grid.Column="0"
-                                            VerticalAlignment="Center"
-                                            Glyph="{x:Bind IconGlyph}" />
-                                        <TextBlock
-                                            Grid.Column="1"
-                                            VerticalAlignment="Center"
-                                            Text="{x:Bind Name}"
-                                            TextTrimming="CharacterEllipsis" />
-                                        <TextBlock
-                                            Grid.Column="2"
-                                            FontFamily="Consolas"
-                                            FontSize="12"
-                                            VerticalAlignment="Center"
-                                            Text="{x:Bind Permissions}" />
-                                        <TextBlock
-                                            Grid.Column="3"
-                                            FontFamily="Consolas"
-                                            FontSize="12"
-                                            VerticalAlignment="Center"
-                                            Text="{x:Bind OwnerDisplay}" />
-                                        <TextBlock
-                                            Grid.Column="4"
-                                            FontSize="12"
-                                            VerticalAlignment="Center"
-                                            Text="{x:Bind ModifiedDisplay}" />
-                                        <TextBlock
-                                            Grid.Column="5"
-                                            FontSize="12"
-                                            VerticalAlignment="Center"
-                                            Text="{x:Bind SizeDisplay}" />
-                                    </Grid>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                        <!--  Drop overlay (shown when files are dragged over the panel)  -->
+                        <Border
+                            x:Name="DropOverlay"
+                            Background="#220078D4"
+                            BorderBrush="#780078D4"
+                            BorderThickness="2"
+                            CornerRadius="8"
+                            IsHitTestVisible="False"
+                            Visibility="Collapsed">
+                            <StackPanel
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="8">
+                                <FontIcon
+                                    FontSize="40"
+                                    Foreground="#0078D4"
+                                    Glyph="&#xE898;" />
+                                <TextBlock
+                                    FontSize="16"
+                                    FontWeight="SemiBold"
+                                    Foreground="#0078D4"
+                                    HorizontalAlignment="Center"
+                                    Text="Drop to upload" />
+                                <TextBlock
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    HorizontalAlignment="Center"
+                                    Text="Files and folders will be copied into the current directory" />
+                            </StackPanel>
+                        </Border>
                     </Grid>
                 </Border>
 
-                <Border
+                <!--  Status bar  -->
+                <TextBlock
                     Grid.Row="2"
-                    Background="#0C0C0F"
-                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-
-                        <StackPanel
-                            Padding="12,10,12,0"
-                            Spacing="4">
-                            <TextBlock FontWeight="SemiBold" Text="Preview" />
-                            <TextBlock
-                                FontFamily="Consolas"
-                                FontSize="12"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="{x:Bind ViewModel.FilePreviewTitle, Mode=OneWay}"
-                                TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-
-                        <ScrollViewer
-                            Grid.Row="1"
-                            Padding="12,8,12,12"
-                            HorizontalScrollBarVisibility="Auto"
-                            HorizontalScrollMode="Auto"
-                            VerticalScrollBarVisibility="Auto">
-                            <TextBlock
-                                FontFamily="Cascadia Mono, Consolas"
-                                FontSize="12"
-                                Foreground="#E4E4E8"
-                                IsTextSelectionEnabled="True"
-                                Text="{x:Bind ViewModel.FilePreviewText, Mode=OneWay}"
-                                TextWrapping="NoWrap" />
-                        </ScrollViewer>
-                    </Grid>
-                </Border>
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind ViewModel.FilesStatusMessage, Mode=OneWay}"
+                    TextTrimming="CharacterEllipsis" />
             </Grid>
 
             <!--  ===== Inspect =====  -->

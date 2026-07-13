@@ -20,6 +20,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
+using Windows.ApplicationModel.DataTransfer;
 using WslContainerDesktop.Dialogs;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -82,14 +83,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelectedFile))]
-    [NotifyPropertyChangedFor(nameof(CanPreviewSelectedFile))]
     private ContainerFileEntry? _selectedFile;
-
-    [ObservableProperty]
-    private string _filePreviewTitle = "Select a small text file to preview.";
-
-    [ObservableProperty]
-    private string _filePreviewText = string.Empty;
 
     // ---- Live stats (Stats tab) ----
     [ObservableProperty]
@@ -118,6 +112,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     private bool _hasAttemptedFilesLoad;
 
+    // Staging task for drag-out: when a file is selected, a background copy to a temp folder begins.
+    private Task<string?>? _dragStagingTask;
+    private ContainerFileEntry? _dragStagingEntry;
+
     public ObservableCollection<string> DetailEnvironment { get; } = new();
 
     public ObservableCollection<string> DetailMounts { get; } = new();
@@ -128,9 +126,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     public bool HasSelectedFile => SelectedFile is not null;
 
-    public bool CanPreviewSelectedFile => SelectedFile is not null && !SelectedFile.IsDirectory;
-
     public bool CanNavigateUp => FilesCurrentPath != "/";
+
+    /// <summary>Returns the in-progress or completed temp-file staging task for the currently selected file entry.</summary>
+    public Task<string?>? DragStagingTask => _dragStagingTask;
 
     /// <summary>Raised (on the UI thread) for each streamed log line of the selected container.</summary>
     public event Action<string>? LogLineReceived;
@@ -187,6 +186,20 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         _logStreamer.Start(value.Id);
         _ = LoadDetailsAsync(value.Id);
+    }
+
+    partial void OnSelectedFileChanged(ContainerFileEntry? value)
+    {
+        // When a non-directory file is selected, pre-copy it to a temp location so it can be
+        // dragged out to Windows Explorer with minimal delay.
+        _dragStagingTask = null;
+        _dragStagingEntry = null;
+
+        if (value is { IsDirectory: false } && Selected is { } container)
+        {
+            _dragStagingEntry = value;
+            _dragStagingTask = StageDragFileAsync(container.Id, value);
+        }
     }
 
     private async Task LoadDetailsAsync(string id)
@@ -267,10 +280,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        await PreviewFileAsync(entry);
+        await OpenFileAsync(entry);
     }
 
-    public async Task PreviewFileAsync(ContainerFileEntry? entry = null)
+    /// <summary>Copies the file to a temp location and opens it read-only with the OS default handler.</summary>
+    public async Task OpenFileAsync(ContainerFileEntry? entry = null)
     {
         entry ??= SelectedFile;
         if (entry is null || entry.IsDirectory || Selected is null)
@@ -279,28 +293,127 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         IsFilesBusy = true;
-        FilePreviewTitle = entry.Path;
+        FilesStatusMessage = $"Opening {entry.Name}…";
         try
         {
-            var result = await _wslc.ReadTextFileAsync(Selected.Id, entry.Path, MaxInlinePreviewBytes);
+            var tempDir = GetTempDir(Selected.Id);
+            var result = await _wslc.CopyFromContainerAsync(Selected.Id, entry.Path, tempDir);
             if (!result.Success)
             {
-                FilePreviewText = DescribeFileCommandFailure(result, "Could not preview this file.");
+                FilesStatusMessage = DescribeFileCommandFailure(result, "Could not open this file.");
                 return;
             }
 
-            FilePreviewText = string.IsNullOrEmpty(result.StandardOutput)
-                ? "(empty file)"
-                : result.StandardOutput.TrimEnd('\r', '\n');
-            FilesStatusMessage = $"Previewing {entry.Name}";
+            var localPath = Path.Combine(tempDir, entry.Name);
+            if (!File.Exists(localPath))
+            {
+                FilesStatusMessage = "File was not found after copy.";
+                return;
+            }
+
+            // Mark read-only to discourage edits that can't be written back.
+            try
+            {
+                new FileInfo(localPath).IsReadOnly = true;
+            }
+            catch
+            {
+                // Ignore; read-only is advisory.
+            }
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = localPath,
+                UseShellExecute = true,
+            });
+
+            FilesStatusMessage = $"Opened {entry.Name}";
         }
         catch (Exception ex)
         {
-            FilePreviewText = ex.Message;
+            FilesStatusMessage = ex.Message;
         }
         finally
         {
             IsFilesBusy = false;
+        }
+    }
+
+    /// <summary>Copies the selected entry's container path to the Windows clipboard.</summary>
+    public void CopyPathToClipboard(ContainerFileEntry? entry = null)
+    {
+        entry ??= SelectedFile;
+        if (entry is null)
+        {
+            return;
+        }
+
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(entry.Path);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        FilesStatusMessage = $"Copied path: {entry.Path}";
+    }
+
+    /// <summary>Prompts for a new name and renames the selected entry.</summary>
+    public async Task RenameAsync(ContainerFileEntry? entry = null)
+    {
+        entry ??= SelectedFile;
+        if (entry is null || Selected is null)
+        {
+            return;
+        }
+
+        var dialog = new Dialogs.SimpleInputDialog("Rename", "New name", entry.Name)
+        {
+            Value = entry.Name,
+        };
+        var dialogResult = await _dialogs.ShowDialogAsync(dialog);
+        if (dialogResult != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var newName = dialog.Value.Trim();
+        if (string.IsNullOrEmpty(newName) || newName == entry.Name)
+        {
+            return;
+        }
+
+        var newPath = CombineContainerPath(FilesCurrentPath, newName);
+        await ExecuteAsync($"Renaming {entry.Name}…",
+            () => _wslc.RenamePathAsync(Selected.Id, entry.Path, newPath));
+
+        await LoadFilesAsync(FilesCurrentPath);
+    }
+
+    /// <summary>Prompts for a folder name and creates a new directory in the current path.</summary>
+    public async Task CreateFolderAsync()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        var dialog = new Dialogs.SimpleInputDialog("New folder", "Folder name", "new-folder");
+        var dialogResult = await _dialogs.ShowDialogAsync(dialog);
+        if (dialogResult != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var name = dialog.Value.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return;
+        }
+
+        var newPath = CombineContainerPath(FilesCurrentPath, name);
+        await ExecuteAsync($"Creating folder {name}…",
+            () => _wslc.CreateDirectoryAsync(Selected.Id, newPath));
+
+        if (Selected.IsRunning)
+        {
+            await LoadFilesAsync(FilesCurrentPath);
         }
     }
 
@@ -313,6 +426,51 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         await ExecuteAsync($"Copying {Path.GetFileName(hostPath)} into {Selected.Name}…",
             () => _wslc.CopyToContainerAsync(Selected.Id, hostPath, FilesCurrentPath));
+
+        if (Selected.IsRunning)
+        {
+            await LoadFilesAsync(FilesCurrentPath);
+        }
+    }
+
+    /// <summary>Copies multiple host paths into the current container directory (used for multi-file drag-in).</summary>
+    public async Task CopyMultipleIntoCurrentDirectoryAsync(IEnumerable<string> hostPaths)
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        var paths = hostPaths.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        IsFilesBusy = true;
+        FilesStatusMessage = $"Uploading {paths.Count} item(s) to {Selected.Name}…";
+        var failed = new List<string>();
+        try
+        {
+            foreach (var path in paths)
+            {
+                var result = await _wslc.CopyToContainerAsync(Selected.Id, path, FilesCurrentPath);
+                if (!result.Success)
+                {
+                    failed.Add(Path.GetFileName(path));
+                }
+            }
+
+            if (failed.Count > 0)
+            {
+                await _dialogs.ShowMessageAsync("Upload incomplete",
+                    $"The following items could not be copied:\n{string.Join('\n', failed)}");
+            }
+        }
+        finally
+        {
+            IsFilesBusy = false;
+        }
 
         if (Selected.IsRunning)
         {
@@ -366,23 +524,26 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         _hasAttemptedFilesLoad = true;
+        var requestedPath = NormalizeContainerPath(path);
+
         if (!selected.IsRunning)
         {
             DetailFiles.Clear();
             SelectedFile = null;
-            FilesCurrentPath = NormalizeContainerPath(path);
+            FilesCurrentPath = requestedPath;
             FilesStatusMessage = "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
-            SetPreviewPlaceholder();
             return;
         }
 
-        var requestedPath = NormalizeContainerPath(path);
         IsFilesBusy = true;
+        FilesCurrentPath = requestedPath;
         FilesStatusMessage = $"Loading {requestedPath}…";
         try
         {
             var result = await _wslc.ListFilesAsync(selected.Id, requestedPath);
-            if (Selected?.Id != selected.Id)
+
+            // Guard against stale responses: verify both the container and the path still match.
+            if (Selected?.Id != selected.Id || FilesCurrentPath != requestedPath)
             {
                 return;
             }
@@ -391,9 +552,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             {
                 DetailFiles.Clear();
                 SelectedFile = null;
-                FilesCurrentPath = requestedPath;
                 FilesStatusMessage = DescribeFileCommandFailure(result, "Could not list this directory.");
-                SetPreviewPlaceholder();
                 return;
             }
 
@@ -406,18 +565,15 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
             FilesCurrentPath = currentPath;
             SelectedFile = null;
-            SetPreviewPlaceholder();
             FilesStatusMessage = entries.Count == 0
                 ? $"No files in {currentPath}"
                 : $"{entries.Count} item(s) in {currentPath}";
         }
         catch (Exception ex)
         {
-            FilesCurrentPath = requestedPath;
             FilesStatusMessage = ex.Message;
             DetailFiles.Clear();
             SelectedFile = null;
-            SetPreviewPlaceholder();
         }
         finally
         {
@@ -428,23 +584,47 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private void ResetFilesState(ContainerRowViewModel? selected)
     {
         _hasAttemptedFilesLoad = false;
+        _dragStagingTask = null;
+        _dragStagingEntry = null;
         DetailFiles.Clear();
         SelectedFile = null;
         FilesCurrentPath = "/";
         FilesStatusMessage = selected?.IsRunning == true
             ? "Open the Files tab to browse the container filesystem."
             : "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
-        SetPreviewPlaceholder();
     }
 
-    private void SetPreviewPlaceholder()
+    /// <summary>Background-copies the selected file to a temp folder for drag-out support.</summary>
+    private async Task<string?> StageDragFileAsync(string containerId, ContainerFileEntry entry)
     {
-        FilePreviewTitle = "Select a small text file to preview.";
-        FilePreviewText = string.Empty;
+        try
+        {
+            var tempDir = GetTempDir(containerId);
+            var result = await _wslc.CopyFromContainerAsync(containerId, entry.Path, tempDir)
+                .ConfigureAwait(false);
+            if (!result.Success)
+            {
+                return null;
+            }
+
+            var localPath = Path.Combine(tempDir, entry.Name);
+            return File.Exists(localPath) ? localPath : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string GetTempDir(string containerId)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "WslContainerDesktop", containerId.Length >= 12 ? containerId[..12] : containerId);
+        Directory.CreateDirectory(dir);
+        return dir;
     }
 
     private static string NormalizeContainerPath(string path) =>
-        string.IsNullOrWhiteSpace(path) ? "/" : path.Trim();
+        string.IsNullOrEmpty(path) ? "/" : path;
 
     private static string GetParentPath(string path)
     {
@@ -456,6 +636,12 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         var slash = normalized.LastIndexOf('/');
         return slash <= 0 ? "/" : normalized[..slash];
+    }
+
+    private static string CombineContainerPath(string directory, string name)
+    {
+        var dir = string.IsNullOrEmpty(directory) ? "/" : directory;
+        return dir == "/" ? "/" + name : dir.TrimEnd('/') + "/" + name;
     }
 
     private static string DescribeFileCommandFailure(CommandResult result, string fallback)
