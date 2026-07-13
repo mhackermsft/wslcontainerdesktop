@@ -117,11 +117,22 @@ public static class ComposeImporter
             var key = KeyOf(children[i].Text);
             var inline = ValueOf(children[i].Text);
 
-            // The nested block belonging to this property (list items or a mapping).
+            // The nested block belonging to this property (list items or a mapping). YAML allows a
+            // block sequence whose "- item" lines sit at the SAME column as the parent key (a very
+            // common docker-compose style), so those same-indent sequence items must be gathered
+            // here too — otherwise the outer loop would mistake each "- item" for its own property
+            // and silently drop ports/volumes/environment.
             var nested = new List<Line>();
             var j = i + 1;
-            for (; j < children.Count && children[j].Indent > propIndent; j++)
+            for (; j < children.Count; j++)
             {
+                var deeper = children[j].Indent > propIndent;
+                var sameIndentSequenceItem = children[j].Indent == propIndent && children[j].Text.StartsWith('-');
+                if (!deeper && !sameIndentSequenceItem)
+                {
+                    break;
+                }
+
                 nested.Add(children[j]);
             }
 
@@ -198,6 +209,13 @@ public static class ComposeImporter
     private static List<string> CollectEnvironment(string inline, List<Line> nested)
     {
         var items = new List<string>();
+
+        // Honor an inline flow list (environment: ["FOO=bar", ...]) the same way CollectSequence
+        // does for ports/volumes; otherwise inline environments are silently dropped.
+        foreach (var value in InlineFlowItems(inline))
+        {
+            items.Add(value);
+        }
 
         foreach (var line in nested)
         {
