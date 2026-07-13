@@ -280,7 +280,8 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         services.AddSingleton<HealthWatchdog>();
 
-        services.AddSingleton<ContainersViewModel>();        services.AddSingleton<ImagesViewModel>();
+        services.AddSingleton<ContainersViewModel>();
+        services.AddSingleton<ImagesViewModel>();
         services.AddSingleton<VolumesViewModel>();
         services.AddSingleton<NetworksViewModel>();
         services.AddSingleton<RegistriesViewModel>();
