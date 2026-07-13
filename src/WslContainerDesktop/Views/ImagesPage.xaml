@@ -61,12 +61,6 @@
                     <TextBlock Text="Prune" />
                 </StackPanel>
             </Button>
-            <Button Command="{x:Bind ViewModel.ImportComposeCommand}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon FontSize="14" Glyph="&#xE8B5;" />
-                    <TextBlock Text="Import compose" />
-                </StackPanel>
-            </Button>
         </StackPanel>
 
         <Border

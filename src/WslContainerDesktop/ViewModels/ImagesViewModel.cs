@@ -182,48 +182,6 @@ public partial class ImagesViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task ImportComposeAsync()
-    {
-        var dialog = new ImportComposeDialog();
-        if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary ||
-            string.IsNullOrWhiteSpace(dialog.Yaml))
-        {
-            return;
-        }
-
-        IReadOnlyList<RunProfile> parsed;
-        try
-        {
-            parsed = ComposeImporter.Parse(dialog.Yaml);
-        }
-        catch (Exception ex)
-        {
-            await _dialogs.ShowMessageAsync("Import failed", ex.Message);
-            return;
-        }
-
-        if (parsed.Count == 0)
-        {
-            await _dialogs.ShowMessageAsync(
-                "Nothing to import",
-                "No services with an image were found in the compose file.");
-            return;
-        }
-
-        foreach (var profile in parsed)
-        {
-            _profiles.Save(profile);
-        }
-
-        StatusMessage = $"Imported {parsed.Count} profile{(parsed.Count == 1 ? "" : "s")}";
-        await _dialogs.ShowMessageAsync(
-            "Compose imported",
-            $"Saved {parsed.Count} run profile{(parsed.Count == 1 ? "" : "s")}: " +
-            string.Join(", ", parsed.Select(p => p.Name)) +
-            ".\n\nRun one from an image's ⋯ menu, or load it in the Run dialog.");
-    }
-
-    [RelayCommand]
     private async Task RemoveAsync(ImageInfo? image)
     {
         image ??= Selected;
