@@ -143,6 +143,13 @@ public sealed class TrayIcon : IDisposable
         }
     }
 
+    /// <summary>
+    /// Immediately updates the cached notifications-enabled flag so the tray menu's "Mute
+    /// notifications" checkmark reflects a toggle before the next status poll rebuilds it.
+    /// </summary>
+    public void SetNotificationsEnabled(bool notificationsEnabled) =>
+        _notificationsEnabled = notificationsEnabled;
+
     private void AddOrUpdateIcon(int message)
     {
         var data = new NativeMethods.NOTIFYICONDATA

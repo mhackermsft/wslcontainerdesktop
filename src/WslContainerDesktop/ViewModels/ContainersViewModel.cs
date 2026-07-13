@@ -442,19 +442,40 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         ExecuteAsync($"Starting {row.Name}…", () => _wslc.StartContainerAsync(row.Id));
 
     [RelayCommand]
-    private Task StopAsync(ContainerRowViewModel? row) =>
-        row is null ? Task.CompletedTask :
-        ExecuteAsync($"Stopping {row.Name}…", () => _wslc.StopContainerAsync(row.Id));
+    private Task StopAsync(ContainerRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _monitor.SuppressExitNotification(row.Id);
+        return ExecuteAsync($"Stopping {row.Name}…", () => _wslc.StopContainerAsync(row.Id));
+    }
 
     [RelayCommand]
-    private Task RestartAsync(ContainerRowViewModel? row) =>
-        row is null ? Task.CompletedTask :
-        ExecuteAsync($"Restarting {row.Name}…", () => _wslc.RestartContainerAsync(row.Id));
+    private Task RestartAsync(ContainerRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _monitor.SuppressExitNotification(row.Id);
+        return ExecuteAsync($"Restarting {row.Name}…", () => _wslc.RestartContainerAsync(row.Id));
+    }
 
     [RelayCommand]
-    private Task KillAsync(ContainerRowViewModel? row) =>
-        row is null ? Task.CompletedTask :
-        ExecuteAsync($"Killing {row.Name}…", () => _wslc.KillContainerAsync(row.Id));
+    private Task KillAsync(ContainerRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _monitor.SuppressExitNotification(row.Id);
+        return ExecuteAsync($"Killing {row.Name}…", () => _wslc.KillContainerAsync(row.Id));
+    }
 
     [RelayCommand]
     private async Task RemoveAsync(ContainerRowViewModel? row)

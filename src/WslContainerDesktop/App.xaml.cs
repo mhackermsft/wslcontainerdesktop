@@ -169,6 +169,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
                 }
                 else
                 {
+                    _monitor?.SuppressExitNotification(action.ContainerId);
                     await wslc.StopContainerAsync(action.ContainerId);
                 }
             }
@@ -188,6 +189,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         var settings = Services.GetRequiredService<ISettingsService>();
         settings.NotificationsEnabled = !settings.NotificationsEnabled;
         settings.Save();
+        _tray?.SetNotificationsEnabled(settings.NotificationsEnabled);
     }
 
     private static bool WasActivatedByStartupTask()
