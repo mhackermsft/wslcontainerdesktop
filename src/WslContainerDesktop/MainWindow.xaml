@@ -78,6 +78,14 @@
                 </NavigationViewItem>
             </NavigationView.MenuItems>
 
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem Content="Disk usage" Tag="reclaim">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xEDA2;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
             <NavigationView.PaneFooter>
                 <StackPanel x:Name="PaneFooterPanel" Margin="12,8,12,12" Spacing="6">
                     <Border
