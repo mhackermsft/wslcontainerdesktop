@@ -107,9 +107,12 @@ jobs:
           Write-Host "Using signtool: $($st.FullName)"
           & $st.FullName sign /fd SHA256 /f "${{ steps.cert.outputs.pfx }}" /p "$env:PFX_PASSWORD" "${{ steps.pkg.outputs.msix }}"
           if ($LASTEXITCODE -ne 0) { Write-Error "Signing failed"; exit 1 }
-          # Informational: a self-signed root is untrusted on the runner, so /pa may report an
-          # untrusted-chain error even though the signature itself is valid.
-          & $st.FullName verify /pa "${{ steps.pkg.outputs.msix }}"
+          # Note: `signtool verify /pa` is intentionally NOT run here. It validates the full
+          # certificate chain, which fails for a self-signed root that isn't trusted on the
+          # runner - even though the signature itself is valid. Users establish trust by
+          # installing the bundled .cer (see Install.ps1).
+          Write-Host "MSIX signed successfully."
+          exit 0
 
       - name: Stage release assets
         id: stage
