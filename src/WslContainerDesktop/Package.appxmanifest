@@ -6,6 +6,7 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
   IgnorableNamespaces="uap rescap desktop">
 
   <Identity
@@ -53,6 +54,20 @@
             Enabled="false"
             DisplayName="WSL Container Desktop" />
         </desktop:Extension>
+
+        <!-- Register the app as a target for app-notification (toast) activation. -->
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="0A09D2E0-BDE4-4315-988E-3E808AC12994" />
+        </desktop:Extension>
+
+        <!-- COM server the Windows App SDK needs so AppNotificationManager.Register() succeeds. -->
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="WslContainerDesktop.exe" DisplayName="WSL Container Desktop" Arguments="----AppNotificationActivated:">
+              <com:Class Id="0A09D2E0-BDE4-4315-988E-3E808AC12994" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
       </Extensions>
     </Application>
   </Applications>

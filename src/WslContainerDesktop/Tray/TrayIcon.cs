@@ -15,12 +15,23 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using WslContainerDesktop.Helpers;
+using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Tray;
 
+/// <summary>Requests a start/stop of a container from the tray quick-actions menu.</summary>
+public sealed class TrayContainerAction
+{
+    public required string ContainerId { get; init; }
+
+    /// <summary>True to start the container; false to stop it.</summary>
+    public required bool Start { get; init; }
+}
+
 /// <summary>
 /// A Win32 system-tray icon backed by a hidden message window. Renders a colored
-/// status dot (green = healthy) and shows a right-click menu with Open / status / Quit.
+/// status dot (green = healthy) and shows a right-click menu with Open, live running
+/// count, per-container quick start/stop actions, a notifications mute toggle, and Quit.
 /// Must be created and disposed on the UI thread (its window shares the app message pump).
 /// </summary>
 public sealed class TrayIcon : IDisposable
@@ -29,11 +40,21 @@ public sealed class TrayIcon : IDisposable
     private const int IdOpen = 100;
     private const int IdQuit = 101;
     private const int IdStatus = 102;
+    private const int IdMute = 103;
+
+    // Dynamic per-container menu items are assigned ids starting here.
+    private const int ContainerActionIdBase = 1000;
+
+    // Cap the number of containers listed so the menu stays manageable.
+    private const int MaxContainerMenuItems = 15;
+
     private const string WindowClassName = "WslContainerDesktopTrayWindow";
 
     private readonly StatusIconFactory _iconFactory = new();
     private readonly NativeMethods.WndProc _wndProcDelegate;
     private readonly uint _taskbarCreatedMessage;
+
+    private readonly Dictionary<int, TrayContainerAction> _containerActions = new();
 
     private nint _hwnd;
     private bool _iconAdded;
@@ -42,9 +63,18 @@ public sealed class TrayIcon : IDisposable
     private EngineHealth _health = EngineHealth.Unknown;
     private string _tooltip = "WSL Container Desktop";
     private string _statusText = "Status: unknown";
+    private int _runningCount;
+    private IReadOnlyList<ContainerInfo> _containers = Array.Empty<ContainerInfo>();
+    private bool _notificationsEnabled = true;
 
     public event Action? OpenRequested;
     public event Action? QuitRequested;
+
+    /// <summary>Raised when the user starts/stops a container from the tray menu.</summary>
+    public event Action<TrayContainerAction>? ContainerActionRequested;
+
+    /// <summary>Raised when the user toggles the notifications mute item in the tray menu.</summary>
+    public event Action? MuteToggleRequested;
 
     public TrayIcon()
     {
@@ -91,18 +121,34 @@ public sealed class TrayIcon : IDisposable
         NativeMethods.Shell_NotifyIconW(NativeMethods.NIM_SETVERSION, ref version);
     }
 
-    /// <summary>Updates the tray icon color, tooltip, and status menu line.</summary>
-    public void UpdateStatus(EngineHealth health, string tooltip, string statusText)
+    /// <summary>Updates the tray icon color, tooltip, status line, and quick-action menu data.</summary>
+    public void UpdateStatus(
+        EngineHealth health,
+        string tooltip,
+        string statusText,
+        int runningCount,
+        IReadOnlyList<ContainerInfo> containers,
+        bool notificationsEnabled)
     {
         _health = health;
         _tooltip = tooltip;
         _statusText = statusText;
+        _runningCount = runningCount;
+        _containers = containers ?? Array.Empty<ContainerInfo>();
+        _notificationsEnabled = notificationsEnabled;
 
         if (_iconAdded)
         {
             AddOrUpdateIcon(NativeMethods.NIM_MODIFY);
         }
     }
+
+    /// <summary>
+    /// Immediately updates the cached notifications-enabled flag so the tray menu's "Mute
+    /// notifications" checkmark reflects a toggle before the next status poll rebuilds it.
+    /// </summary>
+    public void SetNotificationsEnabled(bool notificationsEnabled) =>
+        _notificationsEnabled = notificationsEnabled;
 
     /// <summary>Shows a balloon/toast notification from the tray icon (best effort).</summary>
     public void ShowNotification(string title, string message)
@@ -126,12 +172,6 @@ public sealed class TrayIcon : IDisposable
         };
 
         NativeMethods.Shell_NotifyIconW(NativeMethods.NIM_MODIFY, ref data);
-    }
-
-    private static string Truncate(string? value, int max)
-    {
-        value ??= string.Empty;
-        return value.Length <= max ? value : value[..max];
     }
 
     private void AddOrUpdateIcon(int message)
@@ -206,16 +246,28 @@ public sealed class TrayIcon : IDisposable
             return;
         }
 
+        _containerActions.Clear();
+
         try
         {
             NativeMethods.AppendMenuW(menu, NativeMethods.MF_STRING, IdOpen, "Open WSL Container Desktop");
             NativeMethods.SetMenuDefaultItem(menu, IdOpen, 0);
             NativeMethods.AppendMenuW(menu, NativeMethods.MF_SEPARATOR, 0, null);
+
             NativeMethods.AppendMenuW(
                 menu,
                 NativeMethods.MF_STRING | NativeMethods.MF_GRAYED | NativeMethods.MF_DISABLED,
                 IdStatus,
                 _statusText);
+
+            AppendContainerItems(menu);
+
+            NativeMethods.AppendMenuW(menu, NativeMethods.MF_SEPARATOR, 0, null);
+
+            // Notifications mute toggle. Checked means notifications are muted.
+            var muteFlags = NativeMethods.MF_STRING | (!_notificationsEnabled ? NativeMethods.MF_CHECKED : 0);
+            NativeMethods.AppendMenuW(menu, muteFlags, IdMute, "Mute notifications");
+
             NativeMethods.AppendMenuW(menu, NativeMethods.MF_SEPARATOR, 0, null);
             NativeMethods.AppendMenuW(menu, NativeMethods.MF_STRING, IdQuit, "Quit");
 
@@ -243,16 +295,69 @@ public sealed class TrayIcon : IDisposable
         }
     }
 
+    /// <summary>
+    /// Adds the running-count header and per-container quick start/stop actions. Running
+    /// containers are listed first (each offering Stop); stopped ones offer Start.
+    /// </summary>
+    private void AppendContainerItems(nint menu)
+    {
+        if (_containers.Count == 0)
+        {
+            return;
+        }
+
+        NativeMethods.AppendMenuW(menu, NativeMethods.MF_SEPARATOR, 0, null);
+        NativeMethods.AppendMenuW(
+            menu,
+            NativeMethods.MF_STRING | NativeMethods.MF_GRAYED | NativeMethods.MF_DISABLED,
+            IdStatus,
+            $"Running containers: {_runningCount}");
+
+        var ordered = _containers
+            .OrderByDescending(c => c.State == ContainerState.Running)
+            .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(MaxContainerMenuItems)
+            .ToList();
+
+        var nextId = ContainerActionIdBase;
+        foreach (var container in ordered)
+        {
+            var isRunning = container.State == ContainerState.Running;
+            var name = string.IsNullOrWhiteSpace(container.Name) ? container.ShortId : container.Name;
+            var label = $"{(isRunning ? "Stop" : "Start")}  {Truncate(name, 40)}";
+
+            _containerActions[nextId] = new TrayContainerAction
+            {
+                ContainerId = container.Id,
+                Start = !isRunning,
+            };
+
+            NativeMethods.AppendMenuW(menu, NativeMethods.MF_STRING, (nuint)nextId, label);
+            nextId++;
+        }
+    }
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..(max - 1)] + "…";
+
     private void HandleCommand(int id)
     {
         switch (id)
         {
             case IdOpen:
                 OpenRequested?.Invoke();
-                break;
+                return;
             case IdQuit:
                 QuitRequested?.Invoke();
-                break;
+                return;
+            case IdMute:
+                MuteToggleRequested?.Invoke();
+                return;
+        }
+
+        if (_containerActions.TryGetValue(id, out var action))
+        {
+            ContainerActionRequested?.Invoke(action);
         }
     }
 

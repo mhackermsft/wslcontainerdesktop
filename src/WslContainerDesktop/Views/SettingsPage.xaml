@@ -176,6 +176,90 @@
                 </Grid>
             </Border>
 
+            <!--  Notifications  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="Notifications" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel Spacing="4">
+                    <Grid Padding="0,8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Show notifications" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Master switch for toast notifications. Turn off to mute everything." />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            IsOn="{x:Bind ViewModel.NotificationsEnabled, Mode=TwoWay}" />
+                    </Grid>
+                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                    <Grid Padding="0,8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Image pull &amp; build" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Notify when an image pull or build completes or fails." />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            IsEnabled="{x:Bind ViewModel.NotificationsEnabled, Mode=OneWay}"
+                            IsOn="{x:Bind ViewModel.NotifyImageEvents, Mode=TwoWay}" />
+                    </Grid>
+                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                    <Grid Padding="0,8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Container stopped" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Notify when a running container exits or crashes." />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            IsEnabled="{x:Bind ViewModel.NotificationsEnabled, Mode=OneWay}"
+                            IsOn="{x:Bind ViewModel.NotifyContainerEvents, Mode=TwoWay}" />
+                    </Grid>
+                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                    <Grid Padding="0,8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Engine availability" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Notify when the container engine goes down or recovers." />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            IsEnabled="{x:Bind ViewModel.NotificationsEnabled, Mode=OneWay}"
+                            IsOn="{x:Bind ViewModel.NotifyEngineEvents, Mode=TwoWay}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!--  Diagnostics  -->
             <TextBlock
                 Margin="2,4,0,0"

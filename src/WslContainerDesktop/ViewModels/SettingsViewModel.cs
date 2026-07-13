@@ -56,6 +56,18 @@ public partial class SettingsViewModel : ObservableObject
     private int _selectedThemeIndex;
 
     [ObservableProperty]
+    private bool _notificationsEnabled;
+
+    [ObservableProperty]
+    private bool _notifyImageEvents;
+
+    [ObservableProperty]
+    private bool _notifyContainerEvents;
+
+    [ObservableProperty]
+    private bool _notifyEngineEvents;
+
+    [ObservableProperty]
     private string _engineVersion = "Unknown";
 
     [ObservableProperty]
@@ -93,6 +105,10 @@ public partial class SettingsViewModel : ObservableObject
         _refreshIntervalSeconds = settings.RefreshIntervalSeconds;
         _closeToTray = settings.CloseToTray;
         _startMinimized = settings.StartMinimized;
+        _notificationsEnabled = settings.NotificationsEnabled;
+        _notifyImageEvents = settings.NotifyImageEvents;
+        _notifyContainerEvents = settings.NotifyContainerEvents;
+        _notifyEngineEvents = settings.NotifyEngineEvents;
         _selectedThemeIndex = settings.Theme switch
         {
             "Light" => 1,
@@ -122,6 +138,30 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnStartMinimizedChanged(bool value)
     {
         _settings.StartMinimized = value;
+        _settings.Save();
+    }
+
+    partial void OnNotificationsEnabledChanged(bool value)
+    {
+        _settings.NotificationsEnabled = value;
+        _settings.Save();
+    }
+
+    partial void OnNotifyImageEventsChanged(bool value)
+    {
+        _settings.NotifyImageEvents = value;
+        _settings.Save();
+    }
+
+    partial void OnNotifyContainerEventsChanged(bool value)
+    {
+        _settings.NotifyContainerEvents = value;
+        _settings.Save();
+    }
+
+    partial void OnNotifyEngineEventsChanged(bool value)
+    {
+        _settings.NotifyEngineEvents = value;
         _settings.Save();
     }
 

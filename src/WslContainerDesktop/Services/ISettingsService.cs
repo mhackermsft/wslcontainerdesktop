@@ -33,6 +33,18 @@ public interface ISettingsService
     /// <summary>App theme: "Default", "Light", or "Dark".</summary>
     string Theme { get; set; }
 
+    /// <summary>Master switch for Windows toast notifications. When false, all toasts are muted.</summary>
+    bool NotificationsEnabled { get; set; }
+
+    /// <summary>Emit toasts for image pull/build completion and failures.</summary>
+    bool NotifyImageEvents { get; set; }
+
+    /// <summary>Emit toasts when a container exits/crashes unexpectedly.</summary>
+    bool NotifyContainerEvents { get; set; }
+
+    /// <summary>Emit toasts when the container engine becomes unavailable or recovers.</summary>
+    bool NotifyEngineEvents { get; set; }
+
     /// <summary>WSL distro to host the k3s cluster. Null/empty uses the WSL default distro.</summary>
     string? WslDistro { get; set; }
 
