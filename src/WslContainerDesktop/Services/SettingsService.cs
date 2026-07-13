@@ -38,6 +38,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public string? WslDistro { get; set; }
     public string? K3sInstallerSha256 { get; set; }
     public List<RegistryEntry> Registries { get; set; } = new() { RegistryEntry.DockerHub() };
+    public List<HealthCheckConfig> HealthChecks { get; set; } = new();
 
     public void Load()
     {
@@ -91,6 +92,40 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             }
 
             Registries = registries;
+
+            // Load persisted health-check policies (skip malformed / incomplete entries).
+            var healthChecks = new List<HealthCheckConfig>();
+            if (dto.HealthChecks is not null)
+            {
+                foreach (var h in dto.HealthChecks)
+                {
+                    if (h is null || string.IsNullOrWhiteSpace(h.ContainerName))
+                    {
+                        continue;
+                    }
+
+                    var config = new HealthCheckConfig
+                    {
+                        ContainerName = h.ContainerName!.Trim(),
+                        Kind = h.Kind == (int)HealthProbeKind.Tcp ? HealthProbeKind.Tcp : HealthProbeKind.Command,
+                        Command = h.Command ?? string.Empty,
+                        TcpPort = h.TcpPort,
+                        IntervalSeconds = Math.Clamp(
+                            h.IntervalSeconds <= 0 ? 30 : h.IntervalSeconds,
+                            HealthCheckConfig.MinIntervalSeconds,
+                            HealthCheckConfig.MaxIntervalSeconds),
+                        MaxRestarts = Math.Clamp(h.MaxRestarts, 0, HealthCheckConfig.MaxRestartLimit),
+                        Enabled = h.Enabled,
+                    };
+
+                    if (config.IsValid)
+                    {
+                        healthChecks.Add(config);
+                    }
+                }
+            }
+
+            HealthChecks = healthChecks;
         }
         catch (Exception ex)
         {
@@ -123,6 +158,19 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                         IsAzure = r.IsAzure,
                         SubscriptionId = r.SubscriptionId,
                         AzureAcrName = r.AzureAcrName,
+                    })
+                    .ToList(),
+                HealthChecks = HealthChecks
+                    .Where(h => h.IsValid)
+                    .Select(h => new HealthCheckDto
+                    {
+                        ContainerName = h.ContainerName,
+                        Kind = (int)h.Kind,
+                        Command = h.Command,
+                        TcpPort = h.TcpPort,
+                        IntervalSeconds = h.IntervalSeconds,
+                        MaxRestarts = h.MaxRestarts,
+                        Enabled = h.Enabled,
                     })
                     .ToList(),
             };
@@ -158,6 +206,18 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public string? WslDistro { get; set; }
         public string? K3sInstallerSha256 { get; set; }
         public List<RegistryDto>? Registries { get; set; }
+        public List<HealthCheckDto>? HealthChecks { get; set; }
+    }
+
+    private sealed class HealthCheckDto
+    {
+        public string? ContainerName { get; set; }
+        public int Kind { get; set; }
+        public string? Command { get; set; }
+        public int TcpPort { get; set; }
+        public int IntervalSeconds { get; set; } = 30;
+        public int MaxRestarts { get; set; } = 3;
+        public bool Enabled { get; set; } = true;
     }
 
     private sealed class RegistryDto

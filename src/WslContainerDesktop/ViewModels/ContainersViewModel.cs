@@ -29,6 +29,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 {
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
+    private readonly HealthWatchdog _watchdog;
     private readonly DialogService _dialogs;
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
@@ -110,10 +111,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<ContainerRowViewModel> Containers { get; } = new();
 
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, ILogger<ContainersViewModel> logger)
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
+        _watchdog = watchdog;
         _dialogs = dialogs;
         _settings = settings;
         _authRefresher = authRefresher;
@@ -123,6 +125,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         _logStreamer.LineReceived += line => LogLineReceived?.Invoke(line);
 
         _monitor.StatusChanged += OnStatusChanged;
+        _watchdog.HealthChanged += OnHealthChanged;
 
         if (_monitor.Latest is not null)
         {
@@ -309,6 +312,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         StopStatsPolling();
+        _monitor.StatusChanged -= OnStatusChanged;
+        _watchdog.HealthChanged -= OnHealthChanged;
         _logStreamer.Dispose();
     }
 
@@ -374,7 +379,40 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         {
             _ = ResolveGpuAsync(row);
         }
+
+        RefreshHealth();
     }
+
+    /// <summary>Applies configured-flag and the latest watchdog health state onto each row.</summary>
+    private void RefreshHealth()
+    {
+        var configured = _settings.HealthChecks
+            .Where(h => h.Enabled && h.IsValid)
+            .Select(h => h.ContainerName)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var states = _watchdog.Latest.Containers
+            .ToDictionary(c => c.ContainerName, StringComparer.Ordinal);
+
+        foreach (var row in Containers)
+        {
+            row.HasHealthCheck = configured.Contains(row.Name);
+            if (states.TryGetValue(row.Name, out var snapshot))
+            {
+                row.Health = snapshot.State;
+                row.HealthRestartCount = snapshot.RestartCount;
+                row.HealthMaxRestarts = snapshot.MaxRestarts;
+            }
+            else if (!row.HasHealthCheck)
+            {
+                row.Health = ContainerHealthState.Unknown;
+                row.HealthRestartCount = 0;
+                row.HealthMaxRestarts = 0;
+            }
+        }
+    }
+
+    private void OnHealthChanged(object? sender, HealthSnapshot e) => RefreshHealth();
 
     private async Task ResolveGpuAsync(ContainerRowViewModel row)
     {
@@ -517,6 +555,47 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         _wslc.OpenTerminal(row.Id);
         StatusMessage = $"Opened terminal for {row.Name}";
+    }
+
+    [RelayCommand]
+    private async Task HealthCheckAsync(ContainerRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        var existing = _settings.HealthChecks
+            .FirstOrDefault(h => string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal));
+        var hostPorts = row.Model.Ports
+            .Where(p => p.HostPort > 0)
+            .Select(p => p.HostPort)
+            .Distinct()
+            .ToList();
+
+        var dialog = new HealthCheckDialog(row.Name, hostPorts, existing);
+        var result = await _dialogs.ShowDialogAsync(dialog);
+        if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        // Replace any existing policy for this container.
+        _settings.HealthChecks.RemoveAll(h => string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal));
+        if (dialog.Result is { IsValid: true } config)
+        {
+            _settings.HealthChecks.Add(config);
+            StatusMessage = config.Enabled
+                ? $"Health check configured for {row.Name}"
+                : $"Health check disabled for {row.Name}";
+        }
+        else
+        {
+            StatusMessage = $"Health check removed for {row.Name}";
+        }
+
+        _settings.Save();
+        RefreshHealth();
     }
 
     [RelayCommand]

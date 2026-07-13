@@ -40,6 +40,9 @@ public interface IWslcService
     void OpenTerminal(string id);
     void FollowLogs(string id);
 
+    /// <summary>Runs a shell command inside a container (`wslc exec &lt;id&gt; sh -c &lt;command&gt;`) and returns its result.</summary>
+    Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default);
+
     /// <summary>Detects GPU passthrough for a running container (checks /dev/dxg), and the GPU name if available.</summary>
     Task<(bool HasGpu, string? GpuName)> GetGpuInfoAsync(string id, CancellationToken ct = default);
 

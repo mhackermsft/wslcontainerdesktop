@@ -120,6 +120,9 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public void OpenTerminal(string id) =>
         runner.RunInteractive(["exec", "-it", id, "/bin/sh", "-c", "clear; (bash || sh)"]);
 
+    public Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default) =>
+        runner.RunAsync(["exec", id, "sh", "-c", command], ct);
+
     /// <summary>
     /// Detects whether a running container has GPU passthrough by checking for the WSL
     /// DirectX kernel device (/dev/dxg), which is only mounted when the container was started
