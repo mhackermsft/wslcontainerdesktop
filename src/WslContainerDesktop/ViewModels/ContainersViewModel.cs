@@ -580,11 +580,15 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Replace any existing policy for this container.
-        _settings.HealthChecks.RemoveAll(h => string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal));
+        // Replace any existing policy for this container. Build a new list and swap the reference
+        // atomically so the watchdog's background loop never observes a mid-mutation list.
+        var updated = _settings.HealthChecks
+            .Where(h => !string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal))
+            .ToList();
+
         if (dialog.Result is { IsValid: true } config)
         {
-            _settings.HealthChecks.Add(config);
+            updated.Add(config);
             StatusMessage = config.Enabled
                 ? $"Health check configured for {row.Name}"
                 : $"Health check disabled for {row.Name}";
@@ -594,6 +598,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             StatusMessage = $"Health check removed for {row.Name}";
         }
 
+        _settings.HealthChecks = updated;
         _settings.Save();
         RefreshHealth();
     }

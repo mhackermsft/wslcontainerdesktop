@@ -152,15 +152,25 @@ public sealed class HealthWatchdog : IDisposable
             var container = containers.FirstOrDefault(c =>
                 string.Equals(c.Name, cfg.ContainerName, StringComparison.Ordinal));
 
-            // Not present or not running: the workload probe is meaningless. Preserve a "Down"
-            // state we produced by exhausting the restart budget (so the badge/tray stay red);
-            // otherwise treat it as Unknown.
+            // Not present or not running: the workload probe is meaningless. If we've spent the
+            // restart budget, settle on Down (badge/tray stay red and we notify once); otherwise
+            // treat it as Unknown until it runs again.
             if (container is null || container.State != ContainerState.Running)
             {
-                var gaveUp = rt.State == ContainerHealthState.Down &&
-                    cfg.MaxRestarts > 0 && rt.RestartCount >= cfg.MaxRestarts;
-
-                if (!gaveUp && rt.State != ContainerHealthState.Unknown)
+                var exhausted = cfg.MaxRestarts > 0 && rt.RestartCount >= cfg.MaxRestarts;
+                if (exhausted)
+                {
+                    if (rt.State != ContainerHealthState.Down)
+                    {
+                        rt.State = ContainerHealthState.Down;
+                        rt.MaxRestarts = cfg.MaxRestarts;
+                        rt.Detail = $"Down — not running after {cfg.MaxRestarts} restart attempt(s)";
+                        changed = true;
+                        Notify($"{cfg.ContainerName} is down",
+                            $"Container is not running after {cfg.MaxRestarts} restart attempt(s).");
+                    }
+                }
+                else if (rt.State != ContainerHealthState.Unknown)
                 {
                     rt.State = ContainerHealthState.Unknown;
                     rt.ConsecutiveFailures = 0;
@@ -196,7 +206,7 @@ public sealed class HealthWatchdog : IDisposable
         {
             rt.MaxRestarts = cfg.MaxRestarts;
             var healthy = cfg.Kind == HealthProbeKind.Command
-                ? await ProbeCommandAsync(container.Id, cfg.Command, ct).ConfigureAwait(false)
+                ? await ProbeCommandAsync(container.Id, cfg.Command, cfg.EffectiveIntervalSeconds, ct).ConfigureAwait(false)
                 : await ProbeTcpAsync(cfg.TcpPort, ct).ConfigureAwait(false);
 
             rt.LastCheck = DateTimeOffset.UtcNow;
@@ -218,47 +228,41 @@ public sealed class HealthWatchdog : IDisposable
 
             rt.ConsecutiveFailures++;
 
+            // If the policy was disabled/removed while this probe was in flight, don't enforce it.
+            if (!IsStillActive(cfg))
+            {
+                return;
+            }
+
             if (cfg.MaxRestarts > 0 && rt.RestartCount < cfg.MaxRestarts)
             {
                 rt.RestartCount++;
-                var wasDegraded = rt.State == ContainerHealthState.Degraded;
+                var announce = rt.State != ContainerHealthState.Degraded;
                 rt.State = ContainerHealthState.Degraded;
                 rt.Detail = $"Unhealthy — auto-restarting ({rt.RestartCount}/{cfg.MaxRestarts})";
                 Publish();
 
-                if (!wasDegraded)
+                if (announce)
                 {
                     Notify($"{cfg.ContainerName} is unhealthy",
                         $"Health check failed. Auto-restarting (attempt {rt.RestartCount} of {cfg.MaxRestarts}).");
                 }
 
-                await _wslc.RestartContainerAsync(container.Id, ct).ConfigureAwait(false);
+                var restart = await _wslc.RestartContainerAsync(container.Id, ct).ConfigureAwait(false);
 
                 // Give the container time to come back before the next probe.
                 rt.LastCheck = DateTimeOffset.UtcNow;
+
+                // If the restart itself failed and the budget is now spent, escalate immediately
+                // rather than waiting for a probe against a container that never came back.
+                if (!restart.Success && rt.RestartCount >= cfg.MaxRestarts)
+                {
+                    await EscalateDownAsync(cfg, container, rt, ct).ConfigureAwait(false);
+                }
             }
             else
             {
-                var wasDown = rt.State == ContainerHealthState.Down;
-                rt.State = ContainerHealthState.Down;
-                rt.Detail = cfg.MaxRestarts > 0
-                    ? $"Down — stopped after {cfg.MaxRestarts} failed restart(s)"
-                    : "Down — health check failing";
-                Publish();
-
-                if (!wasDown)
-                {
-                    if (cfg.MaxRestarts > 0)
-                    {
-                        Notify($"{cfg.ContainerName} is down",
-                            $"Still unhealthy after {cfg.MaxRestarts} restart attempt(s). Stopping the container.");
-                        await _wslc.StopContainerAsync(container.Id, ct).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        Notify($"{cfg.ContainerName} is unhealthy", "Health check is failing.");
-                    }
-                }
+                await EscalateDownAsync(cfg, container, rt, ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -276,19 +280,58 @@ public sealed class HealthWatchdog : IDisposable
         }
     }
 
-    private async Task<bool> ProbeCommandAsync(string id, string command, CancellationToken ct)
+    /// <summary>
+    /// Marks the container down after the restart budget is exhausted (or for alert-only policies),
+    /// notifying once per transition but always enforcing the stop while the container is running.
+    /// </summary>
+    private async Task EscalateDownAsync(HealthCheckConfig cfg, ContainerInfo container, Runtime rt, CancellationToken ct)
     {
+        var announce = rt.State != ContainerHealthState.Down;
+        rt.State = ContainerHealthState.Down;
+        rt.Detail = cfg.MaxRestarts > 0
+            ? $"Down — stopped after {cfg.MaxRestarts} failed restart(s)"
+            : "Down — health check failing";
+        Publish();
+
+        if (cfg.MaxRestarts > 0)
+        {
+            if (announce)
+            {
+                Notify($"{cfg.ContainerName} is down",
+                    $"Still unhealthy after {cfg.MaxRestarts} restart attempt(s). Stopping the container.");
+            }
+
+            // Enforce the stop even if we were already Down (e.g. the user manually restarted it).
+            await _wslc.StopContainerAsync(container.Id, ct).ConfigureAwait(false);
+        }
+        else if (announce)
+        {
+            Notify($"{cfg.ContainerName} is unhealthy", "Health check is failing.");
+        }
+    }
+
+    /// <summary>True when an enabled, valid policy for this container still exists in settings.</summary>
+    private bool IsStillActive(HealthCheckConfig cfg) =>
+        _settings.HealthChecks.Any(c =>
+            c.Enabled && c.IsValid &&
+            string.Equals(c.ContainerName, cfg.ContainerName, StringComparison.Ordinal));
+
+    private async Task<bool> ProbeCommandAsync(string id, string command, int timeoutSeconds, CancellationToken ct)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        linked.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 60)));
         try
         {
-            var result = await _wslc.ExecAsync(id, command, ct).ConfigureAwait(false);
+            var result = await _wslc.ExecAsync(id, command, linked.Token).ConfigureAwait(false);
             return result.Success;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
         catch
         {
+            // A timed-out or failed probe counts as unhealthy.
             return false;
         }
     }
