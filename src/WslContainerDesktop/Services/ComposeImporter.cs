@@ -282,7 +282,10 @@ public static class ComposeImporter
             return result;
         }
 
-        foreach (var raw in yaml.Replace("\r\n", "\n").Replace('\t', ' ').Split('\n'))
+        // Normalize every line-ending style to '\n' before splitting. In particular WinUI's TextBox
+        // returns multi-line text with bare '\r' separators, which would otherwise collapse the whole
+        // document into a single line and break parsing.
+        foreach (var raw in yaml.Replace("\r\n", "\n").Replace('\r', '\n').Replace('\t', ' ').Split('\n'))
         {
             var withoutComment = StripComment(raw);
             if (string.IsNullOrWhiteSpace(withoutComment))
