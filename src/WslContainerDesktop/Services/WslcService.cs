@@ -382,7 +382,10 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
                "[ -e \"$entry\" ] || continue; " +
                "kind=f; " +
                "if [ -d \"$entry\" ]; then kind=d; elif [ -L \"$entry\" ]; then kind=l; fi; " +
-               "stat -c \"ENTRY\\t${kind}\\t%A\\t%U\\t%G\\t%s\\t%Y\\t%n\" -- \"$entry\"; " +
+               // Use literal tab characters here rather than "\t" escapes: BusyBox stat (Alpine)
+               // does not interpret backslash escapes in its format string and would emit them
+               // verbatim, breaking the tab-delimited parser.
+               "stat -c \"ENTRY\t${kind}\t%A\t%U\t%G\t%s\t%Y\t%n\" -- \"$entry\"; " +
                "done";
     }
 
