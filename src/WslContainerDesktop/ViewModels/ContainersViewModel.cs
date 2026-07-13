@@ -618,12 +618,14 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    // Matches the "short ID" length displayed elsewhere in the UI and provides
+    // sufficient uniqueness for temp-directory names across containers on the same host.
+    private const int ShortIdLength = 12;
+
     private static string GetTempDir(string containerId)
     {
-        // Use the first 12 hex characters of the container ID as the subfolder name —
-        // this matches the "short ID" length displayed elsewhere in the UI and provides
-        // sufficient uniqueness across containers on the same host.
-        var dir = Path.Combine(Path.GetTempPath(), "WslContainerDesktop", containerId.Length >= 12 ? containerId[..12] : containerId);
+        // Use the first ShortIdLength hex characters of the container ID as the subfolder name.
+        var dir = Path.Combine(Path.GetTempPath(), "WslContainerDesktop", containerId.Length >= ShortIdLength ? containerId[..ShortIdLength] : containerId);
         Directory.CreateDirectory(dir);
         return dir;
     }

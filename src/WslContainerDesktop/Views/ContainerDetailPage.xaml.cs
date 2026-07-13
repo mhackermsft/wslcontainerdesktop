@@ -93,7 +93,7 @@ public sealed partial class ContainerDetailPage : Page
             async t =>
             {
                 var path = t.IsCompletedSuccessfully ? t.Result : null;
-                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                if (!File.Exists(path))
                 {
                     return null;
                 }
