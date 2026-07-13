@@ -622,12 +622,52 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     // sufficient uniqueness for temp-directory names across containers on the same host.
     private const int ShortIdLength = 12;
 
+    private const string TempRootFolderName = "WslContainerDesktop";
+
+    /// <summary>Root of the temp tree used to stage files opened/downloaded from containers.</summary>
+    private static string TempRoot => Path.Combine(Path.GetTempPath(), TempRootFolderName);
+
     private static string GetTempDir(string containerId)
     {
         // Use the first ShortIdLength hex characters of the container ID as the subfolder name.
-        var dir = Path.Combine(Path.GetTempPath(), "WslContainerDesktop", containerId.Length >= ShortIdLength ? containerId[..ShortIdLength] : containerId);
+        var dir = Path.Combine(TempRoot, containerId.Length >= ShortIdLength ? containerId[..ShortIdLength] : containerId);
         Directory.CreateDirectory(dir);
         return dir;
+    }
+
+    /// <summary>
+    /// Best-effort deletion of the temp tree used to stage files opened/downloaded from containers.
+    /// Files staged for a read-only "open" are marked read-only, so their attributes are cleared
+    /// before deletion. Run at startup (rather than only on Dispose) so files left behind by a
+    /// crash or forced exit are still reclaimed.
+    /// </summary>
+    public static void ClearTempFiles(ILogger? logger = null)
+    {
+        try
+        {
+            if (!Directory.Exists(TempRoot))
+            {
+                return;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(TempRoot, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+                catch
+                {
+                    // A locked/open file can't be reset; the delete below will skip it and we retry next launch.
+                }
+            }
+
+            Directory.Delete(TempRoot, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Failed to clear staged container temp files at {Path}.", TempRoot);
+        }
     }
 
     private static string NormalizeContainerPath(string path) =>

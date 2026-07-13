@@ -111,11 +111,114 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public Task<CommandResult> ReadTextFileAsync(string id, string path, int maxBytes = 65_536, CancellationToken ct = default) =>
         ExecShellAsync(id, BuildReadTextFileScript(path, maxBytes), ct);
 
-    public Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default) =>
-        runner.RunAsync(["cp", $"{id}:{containerPath}", hostPath], ct);
+    public async Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default)
+    {
+        // wslc has no `cp` command, so files are streamed out over `exec` using a base64 channel
+        // (binary-safe) for single files and tar+base64 for directories. hostPath is the destination
+        // DIRECTORY; the source's basename is preserved (docker cp-style semantics).
+        var typeProbe = await ExecShellAsync(id,
+            $"p={WslRootShell.ShellEscape(containerPath)}; " +
+            "if [ -d \"$p\" ]; then echo DIR; elif [ -e \"$p\" ]; then echo FILE; else echo NONE; fi", ct)
+            .ConfigureAwait(false);
+        if (!typeProbe.Success)
+        {
+            return typeProbe;
+        }
 
-    public Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default) =>
-        runner.RunAsync(["cp", hostPath, $"{id}:{containerPath}"], ct);
+        var kind = typeProbe.StandardOutput.Trim();
+        if (kind == "NONE")
+        {
+            return new CommandResult { ExitCode = -1, StandardError = $"Path not found in container: {containerPath}" };
+        }
+
+        var name = PosixBaseName(containerPath);
+
+        try
+        {
+            Directory.CreateDirectory(hostPath);
+
+            if (kind == "DIR")
+            {
+                // Stage the archive to a temp file inside the container so tar's exit status is
+                // authoritative: in a `tar | base64` pipeline POSIX sh reports only base64's status,
+                // which would hide a partial/failed tar and let us extract a truncated tree.
+                var script =
+                    $"cd {WslRootShell.ShellEscape(PosixParent(containerPath))} || exit 1; " +
+                    "tmp=$(mktemp) || exit 1; " +
+                    $"if tar -cf \"$tmp\" -- {WslRootShell.ShellEscape(name)}; then base64 \"$tmp\"; s=0; else s=$?; fi; " +
+                    "rm -f \"$tmp\"; exit $s";
+                var res = await ExecShellAsync(id, script, ct).ConfigureAwait(false);
+                if (!res.Success)
+                {
+                    return res;
+                }
+
+                PrepareOverwrite(Path.Combine(hostPath, name));
+                using var ms = new MemoryStream(DecodeBase64(res.StandardOutput));
+                System.Formats.Tar.TarFile.ExtractToDirectory(ms, hostPath, overwriteFiles: true);
+                return res;
+            }
+            else
+            {
+                var res = await ExecShellAsync(id, $"base64 -- {WslRootShell.ShellEscape(containerPath)}", ct)
+                    .ConfigureAwait(false);
+                if (!res.Success)
+                {
+                    return res;
+                }
+
+                var dest = Path.Combine(hostPath, name);
+                // A prior "open" marks the staged file read-only; clear that so re-opening the same
+                // file (which truncates/overwrites) doesn't fail with UnauthorizedAccessException.
+                PrepareOverwrite(dest);
+                await File.WriteAllBytesAsync(dest, DecodeBase64(res.StandardOutput), ct)
+                    .ConfigureAwait(false);
+                return res;
+            }
+        }
+        catch (Exception ex)
+        {
+            return new CommandResult { ExitCode = -1, StandardError = $"Could not copy from container: {ex.Message}" };
+        }
+    }
+
+    public async Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default)
+    {
+        // wslc has no `cp`; upload over `exec -i` by piping a base64 payload to `base64 -d` (files) or
+        // `base64 -d | tar -xf -` (directories). containerPath is the destination DIRECTORY inside the
+        // container; the host source's basename is preserved.
+        try
+        {
+            if (Directory.Exists(hostPath))
+            {
+                using var ms = new MemoryStream();
+                System.Formats.Tar.TarFile.CreateFromDirectory(hostPath, ms, includeBaseDirectory: true);
+                var payload = Convert.ToBase64String(ms.ToArray());
+                var script =
+                    $"mkdir -p -- {WslRootShell.ShellEscape(containerPath)} && " +
+                    $"cd {WslRootShell.ShellEscape(containerPath)} && base64 -d | tar -xf -";
+                return await runner.RunWithStdinAsync(["exec", "-i", id, "sh", "-c", script], payload, ct)
+                    .ConfigureAwait(false);
+            }
+
+            if (File.Exists(hostPath))
+            {
+                var payload = Convert.ToBase64String(await File.ReadAllBytesAsync(hostPath, ct).ConfigureAwait(false));
+                var target = PosixCombine(containerPath, Path.GetFileName(hostPath));
+                var script =
+                    $"mkdir -p -- {WslRootShell.ShellEscape(containerPath)} && " +
+                    $"base64 -d > {WslRootShell.ShellEscape(target)}";
+                return await runner.RunWithStdinAsync(["exec", "-i", id, "sh", "-c", script], payload, ct)
+                    .ConfigureAwait(false);
+            }
+
+            return new CommandResult { ExitCode = -1, StandardError = $"Host path not found: {hostPath}" };
+        }
+        catch (Exception ex)
+        {
+            return new CommandResult { ExitCode = -1, StandardError = $"Could not copy to container: {ex.Message}" };
+        }
+    }
 
     public Task<CommandResult> DeletePathAsync(string id, string path, CancellationToken ct = default)
     {
@@ -402,6 +505,86 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
 
     private Task<CommandResult> ExecShellAsync(string id, string script, CancellationToken ct = default) =>
         runner.RunAsync(["exec", id, "sh", "-c", script], ct);
+
+    private static byte[] DecodeBase64(string output)
+    {
+        // base64 output arrives wrapped across multiple lines; strip all whitespace before decoding.
+        // Filter in-place into a single char[] to avoid the extra LINQ array + string allocations.
+        var buffer = new char[output.Length];
+        var n = 0;
+        foreach (var c in output)
+        {
+            if (!char.IsWhiteSpace(c))
+            {
+                buffer[n++] = c;
+            }
+        }
+
+        return Convert.FromBase64CharArray(buffer, 0, n);
+    }
+
+    /// <summary>
+    /// Clears read-only attributes on an existing host file or directory tree so a subsequent
+    /// overwrite/extract can truncate it. Files opened for read-only preview are marked read-only,
+    /// which would otherwise make re-copying them throw <see cref="UnauthorizedAccessException"/>.
+    /// </summary>
+    private static void PrepareOverwrite(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.SetAttributes(path, FileAttributes.Normal);
+            }
+            else if (Directory.Exists(path))
+            {
+                foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        File.SetAttributes(file, FileAttributes.Normal);
+                    }
+                    catch
+                    {
+                        // Best-effort; a still-locked file will surface a clear error on write.
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort; the caller's write/extract will report any real failure.
+        }
+    }
+
+    private static string PosixBaseName(string path)
+    {
+        var trimmed = path.TrimEnd('/');
+        if (trimmed.Length == 0)
+        {
+            return "/";
+        }
+
+        var idx = trimmed.LastIndexOf('/');
+        return idx < 0 ? trimmed : trimmed[(idx + 1)..];
+    }
+
+    private static string PosixParent(string path)
+    {
+        var trimmed = path.TrimEnd('/');
+        var idx = trimmed.LastIndexOf('/');
+        if (idx < 0)
+        {
+            return ".";
+        }
+
+        return idx == 0 ? "/" : trimmed[..idx];
+    }
+
+    private static string PosixCombine(string directory, string name) =>
+        string.IsNullOrEmpty(directory) || directory == "/"
+            ? "/" + name
+            : directory.TrimEnd('/') + "/" + name;
 
     private static string BuildListFilesScript(string path)
     {
