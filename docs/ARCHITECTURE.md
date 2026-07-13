@@ -125,6 +125,16 @@ credentials are stored** — only registry host/username metadata; the actual lo
 the engine's credential store. Corrupt settings never crash the app (they fall back to defaults
 and log a warning).
 
+### Run profiles (`RunProfileStore`, `ComposeImporter`)
+
+Reusable named run configurations (image, name, ports, env vars, volumes, network, flags) are
+persisted to `run-profiles.json` next to `settings.json`, so a workload can be relaunched in one
+click without re-entering the same options. The Run dialog offers a profile picker (prefill) plus
+*Save as profile* / *Delete*; the Images page exposes a per-image **Run profile** submenu.
+`ComposeImporter` seeds profiles from a *basic* `docker-compose.yml` (one profile per service,
+common single-container fields only) using a small indentation-aware reader — full compose
+orchestration is out of scope. Load/parse failures never crash the app.
+
 ### Diagnostics (`FileLoggerProvider`)
 
 A dependency-free `ILoggerProvider` writes daily-rotated, size-capped logs (plus the debugger

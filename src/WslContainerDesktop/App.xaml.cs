@@ -212,6 +212,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
+        services.AddSingleton<IRunProfileStore, RunProfileStore>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();

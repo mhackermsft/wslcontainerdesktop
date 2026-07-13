@@ -61,6 +61,12 @@
                     <TextBlock Text="Prune" />
                 </StackPanel>
             </Button>
+            <Button Command="{x:Bind ViewModel.ImportComposeCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="14" Glyph="&#xE8B5;" />
+                    <TextBlock Text="Import compose" />
+                </StackPanel>
+            </Button>
         </StackPanel>
 
         <Border
@@ -166,7 +172,13 @@
                                     <Button Padding="7,5" ToolTipService.ToolTip="More">
                                         <FontIcon FontSize="14" Glyph="&#xE712;" />
                                         <Button.Flyout>
-                                            <MenuFlyout>
+                                            <MenuFlyout Opening="MoreFlyout_Opening">
+                                                <MenuFlyoutSubItem Text="Run profile">
+                                                    <MenuFlyoutSubItem.Icon>
+                                                        <FontIcon Glyph="&#xE768;" />
+                                                    </MenuFlyoutSubItem.Icon>
+                                                </MenuFlyoutSubItem>
+                                                <MenuFlyoutSeparator />
                                                 <MenuFlyoutItem Click="TagMenu_Click" Text="Tag" />
                                                 <MenuFlyoutItem Click="PushMenu_Click" Text="Push">
                                                     <MenuFlyoutItem.Icon>
