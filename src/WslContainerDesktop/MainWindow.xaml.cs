@@ -136,6 +136,19 @@ public sealed partial class MainWindow : Window
 
     public void HideToTray() => AppWindow.Hide();
 
+    /// <summary>Selects the nav item with the given tag, navigating the content frame to it.</summary>
+    public void NavigateTo(string tag)
+    {
+        foreach (var item in NavView.MenuItems)
+        {
+            if (item is NavigationViewItem nvi && (nvi.Tag as string) == tag)
+            {
+                NavView.SelectedItem = nvi;
+                return;
+            }
+        }
+    }
+
     public void ShowFromTray()
     {
         AppWindow.Show();

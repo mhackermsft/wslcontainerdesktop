@@ -29,7 +29,8 @@ public partial class App : Application
     private MainWindow? _window;
     private TrayIcon? _tray;
     private StatusMonitor? _monitor;
-private ILogger<App>? _logger;
+    private INotificationService? _notifications;
+    private ILogger<App>? _logger;
 private bool _isExiting;
 
 public App()
@@ -75,9 +76,16 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         // the view models.
         _monitor = Services.GetRequiredService<StatusMonitor>();
 
+        // Register for toast notifications and route toast clicks back into the app.
+        _notifications = Services.GetRequiredService<INotificationService>();
+        _notifications.ActivationRequested += OnNotificationActivated;
+        _notifications.Register();
+
         _tray = new TrayIcon();
         _tray.OpenRequested += () => _monitor!.Dispatcher.TryEnqueue(ShowMainWindow);
         _tray.QuitRequested += () => _monitor!.Dispatcher.TryEnqueue(ExitApplication);
+        _tray.ContainerActionRequested += OnTrayContainerAction;
+        _tray.MuteToggleRequested += OnTrayMuteToggle;
         _tray.Initialize();
 
         _monitor.StatusChanged += OnEngineStatusChanged;
@@ -90,7 +98,15 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         // tray so we don't steal focus on login; otherwise honor the StartMinimized setting.
         var launchedAtLogin = WasActivatedByStartupTask();
 
-        if (settings.StartMinimized || launchedAtLogin)
+        // A cold-start toast click asks the app to open a specific page.
+        var notificationActivation = GetNotificationActivation();
+
+        if (notificationActivation is not null)
+        {
+            _window.Activate();
+            OnNotificationActivated(this, notificationActivation);
+        }
+        else if (settings.StartMinimized || launchedAtLogin)
         {
             _window.HideToTray();
         }
@@ -98,6 +114,76 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         {
             _window.Activate();
         }
+    }
+
+    /// <summary>Returns the toast activation that launched the app, or null for a normal launch.</summary>
+    private NotificationActivation? GetNotificationActivation()
+    {
+        try
+        {
+            var activatedArgs = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
+            if (activatedArgs.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.AppNotification
+                && activatedArgs.Data is Microsoft.Windows.AppNotifications.AppNotificationActivatedEventArgs notificationArgs)
+            {
+                return NotificationService.ParseActivation(notificationArgs);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "Failed to read notification activation args.");
+        }
+
+        return null;
+    }
+
+    private void OnNotificationActivated(object? sender, NotificationActivation e)
+    {
+        var dispatcher = _monitor?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.HasThreadAccess)
+        {
+            dispatcher.TryEnqueue(() => OnNotificationActivated(sender, e));
+            return;
+        }
+
+        ShowMainWindow();
+        if (!string.IsNullOrEmpty(e.Page))
+        {
+            _window?.NavigateTo(e.Page);
+        }
+    }
+
+    private void OnTrayContainerAction(TrayContainerAction action)
+    {
+        var wslc = Services.GetRequiredService<IWslcService>();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (action.Start)
+                {
+                    await wslc.StartContainerAsync(action.ContainerId);
+                }
+                else
+                {
+                    await wslc.StopContainerAsync(action.ContainerId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Tray container action failed for {Id}.", action.ContainerId);
+            }
+            finally
+            {
+                _monitor?.RequestRefresh();
+            }
+        });
+    }
+
+    private void OnTrayMuteToggle()
+    {
+        var settings = Services.GetRequiredService<ISettingsService>();
+        settings.NotificationsEnabled = !settings.NotificationsEnabled;
+        settings.Save();
     }
 
     private static bool WasActivatedByStartupTask()
@@ -123,7 +209,8 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             _ => "WSL Container Desktop",
         };
 
-        _tray?.UpdateStatus(e.Health, tooltip, e.Summary);
+        var settings = Services.GetRequiredService<ISettingsService>();
+        _tray?.UpdateStatus(e.Health, tooltip, e.Summary, e.RunningCount, e.Containers, settings.NotificationsEnabled);
     }
 
     public void ShowMainWindow()
@@ -171,6 +258,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         }
 
         _monitor?.Dispose();
+        _notifications?.Unregister();
         _tray?.Dispose();
         _window?.ForceClose();
 
@@ -216,6 +304,15 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();
 
+        // NotificationService needs the UI DispatcherQueue to marshal toast-click callbacks.
+        // Like StatusMonitor it is first resolved from OnLaunched (on the UI thread), so the
+        // factory captures the dispatcher directly.
+        services.AddSingleton<INotificationService>(sp => new NotificationService(
+            sp.GetRequiredService<ISettingsService>(),
+            DispatcherQueue.GetForCurrentThread()
+                ?? throw new InvalidOperationException("NotificationService must first be resolved on the UI thread."),
+            sp.GetRequiredService<ILogger<NotificationService>>()));
+
         // StatusMonitor needs the UI DispatcherQueue. Because the singleton is first resolved from
         // OnLaunched (which runs on the UI thread), the factory can capture the dispatcher directly
         // here — no static bridge required. GetForCurrentThread must be non-null at that point.
@@ -224,6 +321,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             sp.GetRequiredService<IKubernetesService>(),
             sp.GetRequiredService<RegistryAuthRefresher>(),
             sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<INotificationService>(),
             DispatcherQueue.GetForCurrentThread()
                 ?? throw new InvalidOperationException("StatusMonitor must first be resolved on the UI thread."),
             sp.GetRequiredService<ILogger<StatusMonitor>>()));

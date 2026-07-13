@@ -31,6 +31,7 @@ public partial class ImagesViewModel : ObservableObject
     private readonly DialogService _dialogs;
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
+    private readonly INotificationService _notifications;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -43,13 +44,14 @@ public partial class ImagesViewModel : ObservableObject
 
     public ObservableCollection<ImageInfo> Images { get; } = new();
 
-    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher)
+    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications)
     {
         _wslc = wslc;
         _monitor = monitor;
         _dialogs = dialogs;
         _settings = settings;
         _authRefresher = authRefresher;
+        _notifications = notifications;
     }
 
     [RelayCommand]
@@ -106,10 +108,12 @@ public partial class ImagesViewModel : ObservableObject
             {
                 await _dialogs.ShowMessageAsync("Pull failed", result.ErrorText);
                 StatusMessage = "Pull failed";
+                _notifications.NotifyImagePull(reference, success: false, result.ErrorText);
             }
             else
             {
                 StatusMessage = $"Pulled {reference}";
+                _notifications.NotifyImagePull(reference, success: true);
                 await RefreshAsync();
             }
         }
@@ -332,9 +336,11 @@ public partial class ImagesViewModel : ObservableObject
             {
                 await _dialogs.ShowMessageAsync("Build failed", result.ErrorText);
                 StatusMessage = "Build failed";
+                _notifications.NotifyImageBuild(dialog.ImageTag, success: false, result.ErrorText);
             }
             else
             {
+                _notifications.NotifyImageBuild(dialog.ImageTag, success: true);
                 await _dialogs.ShowMessageAsync("Build complete", result.StandardOutput);
                 await RefreshAsync();
             }

@@ -34,7 +34,8 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Built-in Kubernetes** — install a single-node **k3s** cluster into WSL and manage nodes, deployments, pods, services, and more, with port-forwarding and "Apply YAML".
 - **Registry management** — add public and private registries, and add an **Azure Container Registry with one click** using your existing Azure sign-in (no admin keys, tokens refreshed automatically).
 - **Live everywhere** — a background monitor drives per-container performance meters, the tray icon, and the status indicators without you lifting a finger.
-- **Lives in the tray** — minimize to a system-tray icon whose color reflects engine health.
+- **Lives in the tray** — minimize to a system-tray icon whose color reflects engine health, with a live running-container count and quick start/stop actions.
+- **Toast notifications** — actionable Windows toasts for pull/build, container-stopped, and engine down/recovered events; user-toggleable and globally mutable.
 
 ---
 
@@ -202,14 +203,20 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - **Row quick actions** (scale, restart, run-now, delete) and a **full detail view** per object with Summary / **Kube** (editable YAML you can apply back) / Describe / Logs tabs.
 - **Apply YAML** manifests and **port-forward** services or pods to `localhost`.
 
+### Notifications
+- **Windows toast notifications** for noteworthy events: image pull/build completed or failed, a container that stopped running, and the engine going down or recovering.
+- **Clicking a toast** activates the app and opens the relevant page.
+- **User-toggleable** in Settings — a master *Show notifications* switch plus per-category switches (images, containers, engine) — and globally mutable from the tray menu.
+
 ### System tray
 - Minimizes / closes to the tray instead of exiting (configurable).
-- **Right-click menu**: open the app, a live status line, and Quit.
+- **Right-click menu**: open the app, a live status line, the **running-container count**, **quick start/stop** for each container, a **Mute notifications** toggle, and Quit.
 - Tray icon color reflects engine health — **green = healthy**, red = unreachable.
 
 ### Settings
 - Path to `wslc.exe` with a **Test connection** button and engine version readout.
 - Close-to-tray and start-minimized toggles.
+- **Notification toggles** — master switch plus per-category (images, containers, engine).
 - Auto-refresh interval.
 - Light / Dark / System theme, applied instantly.
 

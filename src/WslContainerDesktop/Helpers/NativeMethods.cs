@@ -57,6 +57,7 @@ internal static class NativeMethods
     public const uint MF_SEPARATOR = 0x00000800;
     public const uint MF_GRAYED = 0x00000001;
     public const uint MF_DISABLED = 0x00000002;
+    public const uint MF_CHECKED = 0x00000008;
     public const uint MF_DEFAULT = 0x00001000;
 
     // ShowWindow.

@@ -35,6 +35,10 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public bool CloseToTray { get; set; } = true;
     public bool StartMinimized { get; set; }
     public string Theme { get; set; } = "Default";
+    public bool NotificationsEnabled { get; set; } = true;
+    public bool NotifyImageEvents { get; set; } = true;
+    public bool NotifyContainerEvents { get; set; } = true;
+    public bool NotifyEngineEvents { get; set; } = true;
     public string? WslDistro { get; set; }
     public string? K3sInstallerSha256 { get; set; }
     public List<RegistryEntry> Registries { get; set; } = new() { RegistryEntry.DockerHub() };
@@ -64,6 +68,10 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             CloseToTray = dto.CloseToTray;
             StartMinimized = dto.StartMinimized;
             Theme = string.IsNullOrWhiteSpace(dto.Theme) ? "Default" : dto.Theme;
+            NotificationsEnabled = dto.NotificationsEnabled;
+            NotifyImageEvents = dto.NotifyImageEvents;
+            NotifyContainerEvents = dto.NotifyContainerEvents;
+            NotifyEngineEvents = dto.NotifyEngineEvents;
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
             K3sInstallerSha256 = string.IsNullOrWhiteSpace(dto.K3sInstallerSha256) ? null : dto.K3sInstallerSha256.Trim().ToLowerInvariant();
 
@@ -111,6 +119,10 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 CloseToTray = CloseToTray,
                 StartMinimized = StartMinimized,
                 Theme = Theme,
+                NotificationsEnabled = NotificationsEnabled,
+                NotifyImageEvents = NotifyImageEvents,
+                NotifyContainerEvents = NotifyContainerEvents,
+                NotifyEngineEvents = NotifyEngineEvents,
                 WslDistro = WslDistro,
                 K3sInstallerSha256 = K3sInstallerSha256,
                 Registries = Registries
@@ -155,6 +167,10 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public bool CloseToTray { get; set; } = true;
         public bool StartMinimized { get; set; }
         public string? Theme { get; set; }
+        public bool NotificationsEnabled { get; set; } = true;
+        public bool NotifyImageEvents { get; set; } = true;
+        public bool NotifyContainerEvents { get; set; } = true;
+        public bool NotifyEngineEvents { get; set; } = true;
         public string? WslDistro { get; set; }
         public string? K3sInstallerSha256 { get; set; }
         public List<RegistryDto>? Registries { get; set; }

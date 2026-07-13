@@ -112,11 +112,26 @@ the status bar, and every page observe one stream instead of polling independent
 
 - polls the container engine and the k3s footer status on the configured cadence,
 - raises `StatusChanged` / `K8sStatusChanged` **on the UI thread** (via the captured
-  `DispatcherQueue`), and
+  `DispatcherQueue`),
+- compares consecutive snapshots to emit toast notifications for engine up/down transitions
+  and for containers that stopped running (via `INotificationService`), and
 - periodically refreshes Azure ACR tokens in the background.
 
 Because it needs the UI `DispatcherQueue`, it is registered with a DI **factory** that captures
 `DispatcherQueue.GetForCurrentThread()`; it is first resolved from `OnLaunched` on the UI thread.
+
+### Notifications (`NotificationService`)
+
+Wraps the Windows App SDK `AppNotificationManager` (available because the app has package
+identity) to raise toasts for noteworthy events: image pull/build completion or failure,
+container-stopped, and engine down/recovered. Toasts carry a `page` argument so a click routes
+back into the app and navigates the relevant page (`App` handles both live `NotificationInvoked`
+clicks and cold-start `AppNotification` activation). Every toast respects the Settings toggles —
+a master *Show notifications* switch plus per-category switches — so notifications can be globally
+muted (also from the tray menu).
+
+The **tray** menu is status-driven: it shows the live running-container count, per-container quick
+start/stop actions, and a *Mute notifications* toggle.
 
 ### Settings (`SettingsService`)
 

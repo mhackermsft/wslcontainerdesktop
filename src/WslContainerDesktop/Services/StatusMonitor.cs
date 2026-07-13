@@ -54,6 +54,7 @@ public sealed class StatusMonitor : IDisposable
     private readonly IKubernetesService _k8s;
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
+    private readonly INotificationService _notifications;
     private readonly DispatcherQueue _dispatcher;
     private readonly ILogger<StatusMonitor> _logger;
 
@@ -71,12 +72,13 @@ public sealed class StatusMonitor : IDisposable
 
     public DispatcherQueue Dispatcher => _dispatcher;
 
-    public StatusMonitor(IWslcService wslc, IKubernetesService k8s, RegistryAuthRefresher authRefresher, ISettingsService settings, DispatcherQueue dispatcher, ILogger<StatusMonitor> logger)
+    public StatusMonitor(IWslcService wslc, IKubernetesService k8s, RegistryAuthRefresher authRefresher, ISettingsService settings, INotificationService notifications, DispatcherQueue dispatcher, ILogger<StatusMonitor> logger)
     {
         _wslc = wslc;
         _k8s = k8s;
         _authRefresher = authRefresher;
         _settings = settings;
+        _notifications = notifications;
         _dispatcher = dispatcher;
         _logger = logger;
     }
@@ -233,9 +235,60 @@ public sealed class StatusMonitor : IDisposable
             };
         }
 
+        var previous = Latest;
         Latest = snapshot;
 
+        DetectAndNotifyTransitions(previous, snapshot);
+
         _dispatcher.TryEnqueue(() => StatusChanged?.Invoke(this, snapshot));
+    }
+
+    /// <summary>
+    /// Compares the prior snapshot to the new one and emits toasts for engine up/down
+    /// transitions and for containers that stopped running. Skipped on the first poll
+    /// (<paramref name="previous"/> is null) so launch doesn't spam notifications.
+    /// </summary>
+    private void DetectAndNotifyTransitions(EngineStatusSnapshot? previous, EngineStatusSnapshot current)
+    {
+        if (previous is null)
+        {
+            return;
+        }
+
+        var wasUp = previous.Health is EngineHealth.Healthy or EngineHealth.Degraded;
+        var isUp = current.Health is EngineHealth.Healthy or EngineHealth.Degraded;
+
+        if (wasUp && current.Health == EngineHealth.Down)
+        {
+            _notifications.NotifyEngineDown();
+        }
+        else if (previous.Health == EngineHealth.Down && isUp)
+        {
+            _notifications.NotifyEngineRecovered();
+        }
+
+        // Only compare container states while the engine stays up; a down/up bounce would
+        // otherwise report every container as "stopped".
+        if (!wasUp || !isUp)
+        {
+            return;
+        }
+
+        var stillPresent = current.Containers.ToDictionary(c => c.Id, StringComparer.Ordinal);
+        foreach (var was in previous.Containers)
+        {
+            if (was.State != ContainerState.Running)
+            {
+                continue;
+            }
+
+            // Notify only if the container still exists but is no longer running; a removed
+            // container (missing from the new list) was almost certainly user-initiated.
+            if (stillPresent.TryGetValue(was.Id, out var now) && now.State != ContainerState.Running)
+            {
+                _notifications.NotifyContainerExited(string.IsNullOrWhiteSpace(now.Name) ? now.ShortId : now.Name, now.Id);
+            }
+        }
     }
 
     public void Dispose()
