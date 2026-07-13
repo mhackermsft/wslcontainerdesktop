@@ -19,6 +19,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.Storage.Pickers;
+using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
@@ -111,7 +113,7 @@ public sealed partial class ContainerDetailPage : Page
 
     private void DetailTabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
-        if (LogsPanel is null || SummaryPanel is null || InspectPanel is null || StatsPanel is null)
+        if (LogsPanel is null || SummaryPanel is null || InspectPanel is null || StatsPanel is null || FilesPanel is null)
         {
             return;
         }
@@ -120,6 +122,83 @@ public sealed partial class ContainerDetailPage : Page
         LogsPanel.Visibility = selected == TabLogs ? Visibility.Visible : Visibility.Collapsed;
         SummaryPanel.Visibility = selected == TabSummary ? Visibility.Visible : Visibility.Collapsed;
         StatsPanel.Visibility = selected == TabStats ? Visibility.Visible : Visibility.Collapsed;
+        FilesPanel.Visibility = selected == TabFiles ? Visibility.Visible : Visibility.Collapsed;
         InspectPanel.Visibility = selected == TabInspect ? Visibility.Visible : Visibility.Collapsed;
+
+        if (selected == TabFiles)
+        {
+            _ = ViewModel.EnsureFilesLoadedAsync();
+        }
     }
+
+    private async void FilesRefresh_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.RefreshFilesAsync();
+
+    private async void FilesUp_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.NavigateUpAsync();
+
+    private async void FilesList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is ContainerFileEntry entry)
+        {
+            await ViewModel.OpenFileEntryAsync(entry);
+        }
+    }
+
+    private async void PreviewFile_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.PreviewFileAsync();
+
+    private async void DeleteFile_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.DeleteSelectedFileAsync();
+
+    private async void CopyOut_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FolderPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+        };
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is not null)
+        {
+            await ViewModel.CopySelectedFileOutAsync(folder.Path);
+        }
+    }
+
+    private async void CopyInFile_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+        };
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is not null)
+        {
+            await ViewModel.CopyIntoCurrentDirectoryAsync(file.Path);
+        }
+    }
+
+    private async void CopyInFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FolderPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+        };
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is not null)
+        {
+            await ViewModel.CopyIntoCurrentDirectoryAsync(folder.Path);
+        }
+    }
+
+    private static nint GetMainWindowHandle() =>
+        Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
 }

@@ -35,6 +35,11 @@ public interface IWslcService
     Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default);
     Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default);
     Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default);
+    Task<CommandResult> ListFilesAsync(string id, string path, CancellationToken ct = default);
+    Task<CommandResult> ReadTextFileAsync(string id, string path, int maxBytes = 65_536, CancellationToken ct = default);
+    Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default);
+    Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default);
+    Task<CommandResult> DeletePathAsync(string id, string path, CancellationToken ct = default);
     Task<IReadOnlyList<ContainerStats>> GetStatsAsync(CancellationToken ct = default);
     Task<ContainerStats?> GetStatsAsync(string id, CancellationToken ct = default);
     void OpenTerminal(string id);

@@ -105,6 +105,33 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["inspect", "--type", "container", id], ct);
 
+    public Task<CommandResult> ListFilesAsync(string id, string path, CancellationToken ct = default) =>
+        ExecShellAsync(id, BuildListFilesScript(path), ct);
+
+    public Task<CommandResult> ReadTextFileAsync(string id, string path, int maxBytes = 65_536, CancellationToken ct = default) =>
+        ExecShellAsync(id, BuildReadTextFileScript(path, maxBytes), ct);
+
+    public Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default) =>
+        runner.RunAsync(["cp", $"{id}:{containerPath}", hostPath], ct);
+
+    public Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default) =>
+        runner.RunAsync(["cp", hostPath, $"{id}:{containerPath}"], ct);
+
+    public Task<CommandResult> DeletePathAsync(string id, string path, CancellationToken ct = default)
+    {
+        var normalized = string.IsNullOrWhiteSpace(path) ? "/" : path.Trim();
+        if (normalized == "/")
+        {
+            return Task.FromResult(new CommandResult
+            {
+                ExitCode = -1,
+                StandardError = "Refusing to delete the container root directory.",
+            });
+        }
+
+        return ExecShellAsync(id, $"rm -rf -- {WslRootShell.ShellEscape(normalized)}", ct);
+    }
+
     public async Task<IReadOnlyList<ContainerStats>> GetStatsAsync(CancellationToken ct = default)
     {
         var result = await runner.RunAsync(["stats", "--all", "--format", "json"], ct).ConfigureAwait(false);
@@ -340,6 +367,35 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
 
     // ---- Helpers --------------------------------------------------------
 
+    private Task<CommandResult> ExecShellAsync(string id, string script, CancellationToken ct = default) =>
+        runner.RunAsync(["exec", id, "sh", "-c", script], ct);
+
+    private static string BuildListFilesScript(string path)
+    {
+        var escapedPath = WslRootShell.ShellEscape(string.IsNullOrWhiteSpace(path) ? "/" : path);
+        return "target=" + escapedPath + "; " +
+               "if [ ! -d \"$target\" ]; then echo __WSLCD_NOT_DIR__; exit 3; fi; " +
+               "cd \"$target\" || exit 4; " +
+               "printf 'PWD\\t%s\\n' \"$PWD\"; " +
+               "for entry in .[!.]* ..?* *; do " +
+               "[ -e \"$entry\" ] || continue; " +
+               "kind=f; " +
+               "if [ -d \"$entry\" ]; then kind=d; elif [ -L \"$entry\" ]; then kind=l; fi; " +
+               "stat -c \"ENTRY\\t${kind}\\t%A\\t%U\\t%G\\t%s\\t%Y\\t%n\" -- \"$entry\"; " +
+               "done";
+    }
+
+    private static string BuildReadTextFileScript(string path, int maxBytes)
+    {
+        var escapedPath = WslRootShell.ShellEscape(path);
+        var safeMaxBytes = Math.Clamp(maxBytes, 1_024, 1_048_576);
+        return "target=" + escapedPath + "; " +
+               "if [ ! -f \"$target\" ]; then echo __WSLCD_NOT_FILE__; exit 3; fi; " +
+               "size=$(wc -c < \"$target\" 2>/dev/null || echo 0); " +
+               $"if [ \"$size\" -gt {safeMaxBytes} ]; then echo __WSLCD_TOO_LARGE__:$size; exit 4; fi; " +
+               "cat -- \"$target\"";
+    }
+
     private IReadOnlyList<T> Deserialize<T>(CommandResult result)
     {
         if (!result.Success)
@@ -371,5 +427,4 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         }
     }
 }
-
 

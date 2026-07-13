@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Collections.ObjectModel;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -27,6 +28,7 @@ namespace WslContainerDesktop.ViewModels;
 
 public partial class ContainersViewModel : ObservableObject, IDisposable
 {
+    private const int MaxInlinePreviewBytes = 65_536;
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
     private readonly DialogService _dialogs;
@@ -68,6 +70,27 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _detailInspectJson = string.Empty;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanNavigateUp))]
+    private string _filesCurrentPath = "/";
+
+    [ObservableProperty]
+    private string _filesStatusMessage = "Open the Files tab to browse the container filesystem.";
+
+    [ObservableProperty]
+    private bool _isFilesBusy;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedFile))]
+    [NotifyPropertyChangedFor(nameof(CanPreviewSelectedFile))]
+    private ContainerFileEntry? _selectedFile;
+
+    [ObservableProperty]
+    private string _filePreviewTitle = "Select a small text file to preview.";
+
+    [ObservableProperty]
+    private string _filePreviewText = string.Empty;
+
     // ---- Live stats (Stats tab) ----
     [ObservableProperty]
     private string _statCpu = "-";
@@ -93,11 +116,21 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private int _statPids;
 
+    private bool _hasAttemptedFilesLoad;
+
     public ObservableCollection<string> DetailEnvironment { get; } = new();
 
     public ObservableCollection<string> DetailMounts { get; } = new();
 
+    public ObservableCollection<ContainerFileEntry> DetailFiles { get; } = new();
+
     public bool HasSelection => Selected is not null;
+
+    public bool HasSelectedFile => SelectedFile is not null;
+
+    public bool CanPreviewSelectedFile => SelectedFile is not null && !SelectedFile.IsDirectory;
+
+    public bool CanNavigateUp => FilesCurrentPath != "/";
 
     /// <summary>Raised (on the UI thread) for each streamed log line of the selected container.</summary>
     public event Action<string>? LogLineReceived;
@@ -145,6 +178,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         DetailNetwork = "-";
         DetailWorkingDir = "-";
         DetailInspectJson = string.Empty;
+        ResetFilesState(value);
 
         if (value is null)
         {
@@ -196,6 +230,259 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             // ignore inspect failures for detail panel
             _logger.LogDebug(ex, "Container inspect for the detail panel failed.");
         }
+    }
+
+    public Task EnsureFilesLoadedAsync()
+    {
+        if (_hasAttemptedFilesLoad || Selected is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return LoadFilesAsync(FilesCurrentPath);
+    }
+
+    public Task RefreshFilesAsync() => LoadFilesAsync(FilesCurrentPath);
+
+    public Task NavigateUpAsync()
+    {
+        if (!CanNavigateUp)
+        {
+            return Task.CompletedTask;
+        }
+
+        return LoadFilesAsync(GetParentPath(FilesCurrentPath));
+    }
+
+    public async Task OpenFileEntryAsync(ContainerFileEntry? entry)
+    {
+        if (entry is null)
+        {
+            return;
+        }
+
+        if (entry.IsDirectory)
+        {
+            await LoadFilesAsync(entry.Path);
+            return;
+        }
+
+        await PreviewFileAsync(entry);
+    }
+
+    public async Task PreviewFileAsync(ContainerFileEntry? entry = null)
+    {
+        entry ??= SelectedFile;
+        if (entry is null || entry.IsDirectory || Selected is null)
+        {
+            return;
+        }
+
+        IsFilesBusy = true;
+        FilePreviewTitle = entry.Path;
+        try
+        {
+            var result = await _wslc.ReadTextFileAsync(Selected.Id, entry.Path, MaxInlinePreviewBytes);
+            if (!result.Success)
+            {
+                FilePreviewText = DescribeFileCommandFailure(result, "Could not preview this file.");
+                return;
+            }
+
+            FilePreviewText = string.IsNullOrEmpty(result.StandardOutput)
+                ? "(empty file)"
+                : result.StandardOutput.TrimEnd('\r', '\n');
+            FilesStatusMessage = $"Previewing {entry.Name}";
+        }
+        catch (Exception ex)
+        {
+            FilePreviewText = ex.Message;
+        }
+        finally
+        {
+            IsFilesBusy = false;
+        }
+    }
+
+    public async Task CopyIntoCurrentDirectoryAsync(string hostPath)
+    {
+        if (Selected is null || string.IsNullOrWhiteSpace(hostPath))
+        {
+            return;
+        }
+
+        await ExecuteAsync($"Copying {Path.GetFileName(hostPath)} into {Selected.Name}…",
+            () => _wslc.CopyToContainerAsync(Selected.Id, hostPath, FilesCurrentPath));
+
+        if (Selected.IsRunning)
+        {
+            await LoadFilesAsync(FilesCurrentPath);
+        }
+    }
+
+    public async Task CopySelectedFileOutAsync(string hostDirectory)
+    {
+        if (Selected is null || SelectedFile is null || string.IsNullOrWhiteSpace(hostDirectory))
+        {
+            return;
+        }
+
+        await ExecuteAsync($"Copying {SelectedFile.Name} to the host…",
+            () => _wslc.CopyFromContainerAsync(Selected.Id, SelectedFile.Path, hostDirectory));
+    }
+
+    public async Task DeleteSelectedFileAsync()
+    {
+        if (Selected is null || SelectedFile is null)
+        {
+            return;
+        }
+
+        var kind = SelectedFile.IsDirectory ? "folder" : "file";
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Delete from container",
+            $"Delete {kind} \"{SelectedFile.Name}\" from {Selected.Name}? This cannot be undone.",
+            "Delete");
+        if (!ok)
+        {
+            return;
+        }
+
+        await ExecuteAsync($"Deleting {SelectedFile.Name}…",
+            () => _wslc.DeletePathAsync(Selected.Id, SelectedFile.Path));
+
+        if (Selected.IsRunning)
+        {
+            await LoadFilesAsync(FilesCurrentPath);
+        }
+    }
+
+    private async Task LoadFilesAsync(string path)
+    {
+        var selected = Selected;
+        if (selected is null)
+        {
+            return;
+        }
+
+        _hasAttemptedFilesLoad = true;
+        if (!selected.IsRunning)
+        {
+            DetailFiles.Clear();
+            SelectedFile = null;
+            FilesCurrentPath = NormalizeContainerPath(path);
+            FilesStatusMessage = "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
+            SetPreviewPlaceholder();
+            return;
+        }
+
+        var requestedPath = NormalizeContainerPath(path);
+        IsFilesBusy = true;
+        FilesStatusMessage = $"Loading {requestedPath}…";
+        try
+        {
+            var result = await _wslc.ListFilesAsync(selected.Id, requestedPath);
+            if (Selected?.Id != selected.Id)
+            {
+                return;
+            }
+
+            if (!result.Success)
+            {
+                DetailFiles.Clear();
+                SelectedFile = null;
+                FilesCurrentPath = requestedPath;
+                FilesStatusMessage = DescribeFileCommandFailure(result, "Could not list this directory.");
+                SetPreviewPlaceholder();
+                return;
+            }
+
+            var (currentPath, entries) = ContainerFileEntry.ParseListing(result.StandardOutput, requestedPath);
+            DetailFiles.Clear();
+            foreach (var entry in entries)
+            {
+                DetailFiles.Add(entry);
+            }
+
+            FilesCurrentPath = currentPath;
+            SelectedFile = null;
+            SetPreviewPlaceholder();
+            FilesStatusMessage = entries.Count == 0
+                ? $"No files in {currentPath}"
+                : $"{entries.Count} item(s) in {currentPath}";
+        }
+        catch (Exception ex)
+        {
+            FilesCurrentPath = requestedPath;
+            FilesStatusMessage = ex.Message;
+            DetailFiles.Clear();
+            SelectedFile = null;
+            SetPreviewPlaceholder();
+        }
+        finally
+        {
+            IsFilesBusy = false;
+        }
+    }
+
+    private void ResetFilesState(ContainerRowViewModel? selected)
+    {
+        _hasAttemptedFilesLoad = false;
+        DetailFiles.Clear();
+        SelectedFile = null;
+        FilesCurrentPath = "/";
+        FilesStatusMessage = selected?.IsRunning == true
+            ? "Open the Files tab to browse the container filesystem."
+            : "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
+        SetPreviewPlaceholder();
+    }
+
+    private void SetPreviewPlaceholder()
+    {
+        FilePreviewTitle = "Select a small text file to preview.";
+        FilePreviewText = string.Empty;
+    }
+
+    private static string NormalizeContainerPath(string path) =>
+        string.IsNullOrWhiteSpace(path) ? "/" : path.Trim();
+
+    private static string GetParentPath(string path)
+    {
+        var normalized = NormalizeContainerPath(path).TrimEnd('/');
+        if (string.IsNullOrEmpty(normalized) || normalized == "/")
+        {
+            return "/";
+        }
+
+        var slash = normalized.LastIndexOf('/');
+        return slash <= 0 ? "/" : normalized[..slash];
+    }
+
+    private static string DescribeFileCommandFailure(CommandResult result, string fallback)
+    {
+        var combined = (result.StandardError + "\n" + result.StandardOutput).Trim();
+        if (combined.Contains("__WSLCD_NOT_DIR__", StringComparison.Ordinal))
+        {
+            return "The selected path is not a directory.";
+        }
+
+        if (combined.Contains("__WSLCD_NOT_FILE__", StringComparison.Ordinal))
+        {
+            return "The selected path is not a regular file.";
+        }
+
+        if (combined.Contains("__WSLCD_TOO_LARGE__", StringComparison.Ordinal))
+        {
+            return $"Preview is limited to files up to {MaxInlinePreviewBytes / 1024} KB.";
+        }
+
+        if (combined.Contains("not running", StringComparison.OrdinalIgnoreCase) ||
+            combined.Contains("stopped", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
+        }
+
+        return string.IsNullOrWhiteSpace(combined) ? fallback : combined;
     }
 
     /// <summary>Stops the live log stream (call when navigating away from the page).</summary>
