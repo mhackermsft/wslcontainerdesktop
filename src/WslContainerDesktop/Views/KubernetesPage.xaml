@@ -354,178 +354,49 @@
                         <Border
                             Style="{StaticResource ListCard}"
                             Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Nodes}">
-                            <ListView
-                                IsItemClickEnabled="True"
-                                ItemClick="Resource_ItemClick"
-                                ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                ItemsSource="{x:Bind ViewModel.Nodes, Mode=OneWay}"
-                                SelectionMode="None">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="k8s:K8sNode">
-                                        <Grid ColumnSpacing="12">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="2*" MinWidth="140" />
-                                                <ColumnDefinition Width="110" />
-                                                <ColumnDefinition Width="140" />
-                                                <ColumnDefinition Width="*" MinWidth="120" />
-                                                <ColumnDefinition Width="16" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Status}" />
-                                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Roles}" />
-                                            <TextBlock Grid.Column="3" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Version}" />
-                                            <FontIcon Grid.Column="4" VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Glyph="&#xE76C;" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </Border>
-
-                        <!--  Deployments  -->
-                        <Border
-                            Style="{StaticResource ListCard}"
-                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Deployments}">
-                            <ListView
-                                IsItemClickEnabled="True"
-                                ItemClick="Resource_ItemClick"
-                                ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                ItemsSource="{x:Bind ViewModel.Deployments, Mode=OneWay}"
-                                SelectionMode="None">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="k8s:K8sDeployment">
-                                        <Grid ColumnSpacing="12">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="2*" MinWidth="160" />
-                                                <ColumnDefinition Width="1.2*" MinWidth="110" />
-                                                <ColumnDefinition Width="100" />
-                                                <ColumnDefinition Width="120" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
-                                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Ready}" />
-                                            <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal" Spacing="2">
-                                                <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Scale" Click="ScaleDeployment_Click" ToolTipService.ToolTip="Scale">
-                                                    <FontIcon FontSize="14" Glyph="&#xE740;" />
-                                                </Button>
-                                                <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Rolling restart" Click="RestartDeployment_Click" ToolTipService.ToolTip="Rolling restart">
-                                                    <FontIcon FontSize="14" Glyph="&#xE72C;" />
-                                                </Button>
-                                                <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
-                                                    <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                                                </Button>
-                                            </StackPanel>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </Border>
-
-                        <!--  Pods  -->
-                        <Border
-                            Style="{StaticResource ListCard}"
-                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Pods}">
-                            <ListView
-                                IsItemClickEnabled="True"
-                                ItemClick="Resource_ItemClick"
-                                ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                ItemsSource="{x:Bind ViewModel.Pods, Mode=OneWay}"
-                                SelectionMode="None">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="k8s:K8sPod">
-                                        <Grid ColumnSpacing="8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="2*" MinWidth="160" />
-                                                <ColumnDefinition Width="1.2*" MinWidth="100" />
-                                                <ColumnDefinition Width="120" />
-                                                <ColumnDefinition Width="70" />
-                                                <ColumnDefinition Width="70" />
-                                                <ColumnDefinition Width="80" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Status}" />
-                                            <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Ready}" />
-                                            <TextBlock Grid.Column="4" VerticalAlignment="Center" Text="{x:Bind Restarts}" />
-                                            <StackPanel Grid.Column="5" HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal" Spacing="2">
-                                                <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
-                                                    <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                                                </Button>
-                                            </StackPanel>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </Border>
-
-                        <!--  Services  -->
-                        <Border
-                            Style="{StaticResource ListCard}"
-                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Services}">
-                            <ListView
-                                IsItemClickEnabled="True"
-                                ItemClick="Resource_ItemClick"
-                                ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                ItemsSource="{x:Bind ViewModel.Services, Mode=OneWay}"
-                                SelectionMode="None">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="k8s:K8sService">
-                                        <Grid ColumnSpacing="12">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="2*" MinWidth="150" />
-                                                <ColumnDefinition Width="1.2*" MinWidth="100" />
-                                                <ColumnDefinition Width="120" />
-                                                <ColumnDefinition Width="130" />
-                                                <ColumnDefinition Width="*" MinWidth="90" />
-                                                <ColumnDefinition Width="44" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
-                                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Type}" />
-                                            <TextBlock Grid.Column="3" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12" Text="{x:Bind ClusterIP}" />
-                                            <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12" Text="{x:Bind Ports}" />
-                                            <Button Grid.Column="5" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
-                                                <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                                            </Button>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </Border>
-
-                        <!--  Ingresses  -->
-                        <Border
-                            Style="{StaticResource ListCard}"
-                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Ingresses}">
                             <Grid>
-                                <TextBlock
-                                    Margin="16,14"
-                                    VerticalAlignment="Top"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="No ingresses."
-                                    Visibility="{x:Bind ViewModel.Ingresses.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="140" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" MinWidth="120" />
+                                            <ColumnDefinition Width="16" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="STATUS" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="ROLES" />
+                                        <TextBlock Grid.Column="3" Style="{StaticResource ColHead}" Text="VERSION" />
+                                    </Grid>
+                                </Border>
                                 <ListView
+                                    Grid.Row="1"
+                                    Padding="0,4"
                                     IsItemClickEnabled="True"
                                     ItemClick="Resource_ItemClick"
                                     ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                    ItemsSource="{x:Bind ViewModel.Ingresses, Mode=OneWay}"
+                                    ItemsSource="{x:Bind ViewModel.Nodes, Mode=OneWay}"
                                     SelectionMode="None">
                                     <ListView.ItemTemplate>
-                                        <DataTemplate x:DataType="k8s:K8sIngress">
+                                        <DataTemplate x:DataType="k8s:K8sNode">
                                             <Grid ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="2*" MinWidth="150" />
-                                                    <ColumnDefinition Width="1.2*" MinWidth="100" />
-                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="2*" MinWidth="140" />
+                                                    <ColumnDefinition Width="110" />
+                                                    <ColumnDefinition Width="140" />
                                                     <ColumnDefinition Width="*" MinWidth="120" />
-                                                    <ColumnDefinition Width="44" />
+                                                    <ColumnDefinition Width="16" />
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
-                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Class}" />
-                                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Hosts}" TextTrimming="CharacterEllipsis" />
-                                                <Button Grid.Column="4" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
-                                                    <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                                                </Button>
+                                                <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Status}" />
+                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Roles}" />
+                                                <TextBlock Grid.Column="3" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Version}" />
+                                                <FontIcon Grid.Column="4" VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Glyph="&#xE76C;" />
                                             </Grid>
                                         </DataTemplate>
                                     </ListView.ItemTemplate>
@@ -533,39 +404,179 @@
                             </Grid>
                         </Border>
 
-                        <!--  PVCs  -->
+                        <!--  Deployments  -->
                         <Border
                             Style="{StaticResource ListCard}"
-                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Persistent Volume Claims}">
+                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Deployments}">
                             <Grid>
-                                <TextBlock
-                                    Margin="16,14"
-                                    VerticalAlignment="Top"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="No persistent volume claims."
-                                    Visibility="{x:Bind ViewModel.Pvcs.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="160" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="110" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="NAMESPACE" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="READY" />
+                                        <TextBlock Grid.Column="3" HorizontalAlignment="Right" Style="{StaticResource ColHead}" Text="ACTIONS" />
+                                    </Grid>
+                                </Border>
                                 <ListView
+                                    Grid.Row="1"
+                                    Padding="0,4"
                                     IsItemClickEnabled="True"
                                     ItemClick="Resource_ItemClick"
                                     ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                    ItemsSource="{x:Bind ViewModel.Pvcs, Mode=OneWay}"
+                                    ItemsSource="{x:Bind ViewModel.Deployments, Mode=OneWay}"
                                     SelectionMode="None">
                                     <ListView.ItemTemplate>
-                                        <DataTemplate x:DataType="k8s:K8sPvc">
+                                        <DataTemplate x:DataType="k8s:K8sDeployment">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="2*" MinWidth="160" />
+                                                    <ColumnDefinition Width="1.2*" MinWidth="110" />
+                                                    <ColumnDefinition Width="100" />
+                                                    <ColumnDefinition Width="120" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
+                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Ready}" />
+                                                <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal" Spacing="2">
+                                                    <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Scale" Click="ScaleDeployment_Click" ToolTipService.ToolTip="Scale">
+                                                        <FontIcon FontSize="14" Glyph="&#xE740;" />
+                                                    </Button>
+                                                    <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Rolling restart" Click="RestartDeployment_Click" ToolTipService.ToolTip="Rolling restart">
+                                                        <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                                                    </Button>
+                                                    <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
+                                                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                                    </Button>
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </Grid>
+                        </Border>
+
+                        <!--  Pods  -->
+                        <Border
+                            Style="{StaticResource ListCard}"
+                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Pods}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="160" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="70" />
+                                            <ColumnDefinition Width="70" />
+                                            <ColumnDefinition Width="80" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="NAMESPACE" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="STATUS" />
+                                        <TextBlock Grid.Column="3" Style="{StaticResource ColHead}" Text="READY" />
+                                        <TextBlock Grid.Column="4" Style="{StaticResource ColHead}" Text="RESTARTS" />
+                                    </Grid>
+                                </Border>
+                                <ListView
+                                    Grid.Row="1"
+                                    Padding="0,4"
+                                    IsItemClickEnabled="True"
+                                    ItemClick="Resource_ItemClick"
+                                    ItemContainerStyle="{StaticResource K8sRowStyle}"
+                                    ItemsSource="{x:Bind ViewModel.Pods, Mode=OneWay}"
+                                    SelectionMode="None">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="k8s:K8sPod">
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="2*" MinWidth="160" />
+                                                    <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="70" />
+                                                    <ColumnDefinition Width="70" />
+                                                    <ColumnDefinition Width="80" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Status}" />
+                                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Ready}" />
+                                                <TextBlock Grid.Column="4" VerticalAlignment="Center" Text="{x:Bind Restarts}" />
+                                                <StackPanel Grid.Column="5" HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal" Spacing="2">
+                                                    <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
+                                                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                                    </Button>
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </Grid>
+                        </Border>
+
+                        <!--  Services  -->
+                        <Border
+                            Style="{StaticResource ListCard}"
+                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Services}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="150" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="130" />
+                                            <ColumnDefinition Width="*" MinWidth="90" />
+                                            <ColumnDefinition Width="44" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="NAMESPACE" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="TYPE" />
+                                        <TextBlock Grid.Column="3" Style="{StaticResource ColHead}" Text="CLUSTER IP" />
+                                        <TextBlock Grid.Column="4" Style="{StaticResource ColHead}" Text="PORTS" />
+                                    </Grid>
+                                </Border>
+                                <ListView
+                                    Grid.Row="1"
+                                    Padding="0,4"
+                                    IsItemClickEnabled="True"
+                                    ItemClick="Resource_ItemClick"
+                                    ItemContainerStyle="{StaticResource K8sRowStyle}"
+                                    ItemsSource="{x:Bind ViewModel.Services, Mode=OneWay}"
+                                    SelectionMode="None">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="k8s:K8sService">
                                             <Grid ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="2*" MinWidth="150" />
                                                     <ColumnDefinition Width="1.2*" MinWidth="100" />
-                                                    <ColumnDefinition Width="110" />
-                                                    <ColumnDefinition Width="100" />
-                                                    <ColumnDefinition Width="*" MinWidth="110" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="130" />
+                                                    <ColumnDefinition Width="*" MinWidth="90" />
                                                     <ColumnDefinition Width="44" />
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
-                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Status}" />
-                                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Capacity}" />
-                                                <TextBlock Grid.Column="4" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind StorageClass}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Type}" />
+                                                <TextBlock Grid.Column="3" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12" Text="{x:Bind ClusterIP}" />
+                                                <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12" Text="{x:Bind Ports}" />
                                                 <Button Grid.Column="5" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
                                                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                                 </Button>
@@ -576,99 +587,178 @@
                             </Grid>
                         </Border>
 
+                        <!--  Ingresses  -->
+                        <Border
+                            Style="{StaticResource ListCard}"
+                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Ingresses}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="150" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="*" MinWidth="120" />
+                                            <ColumnDefinition Width="44" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="NAMESPACE" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="CLASS" />
+                                        <TextBlock Grid.Column="3" Style="{StaticResource ColHead}" Text="HOSTS" />
+                                    </Grid>
+                                </Border>
+                                <Grid Grid.Row="1">
+                                    <TextBlock
+                                        Margin="16,14"
+                                        VerticalAlignment="Top"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="No ingresses."
+                                        Visibility="{x:Bind ViewModel.Ingresses.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
+                                    <ListView
+                                        Padding="0,4"
+                                        IsItemClickEnabled="True"
+                                        ItemClick="Resource_ItemClick"
+                                        ItemContainerStyle="{StaticResource K8sRowStyle}"
+                                        ItemsSource="{x:Bind ViewModel.Ingresses, Mode=OneWay}"
+                                        SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="k8s:K8sIngress">
+                                                <Grid ColumnSpacing="12">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="2*" MinWidth="150" />
+                                                        <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="*" MinWidth="120" />
+                                                        <ColumnDefinition Width="44" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
+                                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Class}" />
+                                                    <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Hosts}" TextTrimming="CharacterEllipsis" />
+                                                    <Button Grid.Column="4" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
+                                                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                                    </Button>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <!--  PVCs  -->
+                        <Border
+                            Style="{StaticResource ListCard}"
+                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Persistent Volume Claims}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="150" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="*" MinWidth="110" />
+                                            <ColumnDefinition Width="44" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="NAMESPACE" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="STATUS" />
+                                        <TextBlock Grid.Column="3" Style="{StaticResource ColHead}" Text="CAPACITY" />
+                                        <TextBlock Grid.Column="4" Style="{StaticResource ColHead}" Text="STORAGE CLASS" />
+                                    </Grid>
+                                </Border>
+                                <Grid Grid.Row="1">
+                                    <TextBlock
+                                        Margin="16,14"
+                                        VerticalAlignment="Top"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="No persistent volume claims."
+                                        Visibility="{x:Bind ViewModel.Pvcs.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
+                                    <ListView
+                                        Padding="0,4"
+                                        IsItemClickEnabled="True"
+                                        ItemClick="Resource_ItemClick"
+                                        ItemContainerStyle="{StaticResource K8sRowStyle}"
+                                        ItemsSource="{x:Bind ViewModel.Pvcs, Mode=OneWay}"
+                                        SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="k8s:K8sPvc">
+                                                <Grid ColumnSpacing="12">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="2*" MinWidth="150" />
+                                                        <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="100" />
+                                                        <ColumnDefinition Width="*" MinWidth="110" />
+                                                        <ColumnDefinition Width="44" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
+                                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Status}" />
+                                                    <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Capacity}" />
+                                                    <TextBlock Grid.Column="4" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind StorageClass}" TextTrimming="CharacterEllipsis" />
+                                                    <Button Grid.Column="5" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
+                                                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                                    </Button>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
                         <!--  ConfigMaps  -->
                         <Border
                             Style="{StaticResource ListCard}"
                             Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=ConfigMaps}">
-                            <ListView
-                                IsItemClickEnabled="True"
-                                ItemClick="Resource_ItemClick"
-                                ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                ItemsSource="{x:Bind ViewModel.ConfigMaps, Mode=OneWay}"
-                                SelectionMode="None">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="k8s:K8sConfigMap">
-                                        <Grid ColumnSpacing="12">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="2*" MinWidth="160" />
-                                                <ColumnDefinition Width="1.2*" MinWidth="110" />
-                                                <ColumnDefinition Width="80" />
-                                                <ColumnDefinition Width="44" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
-                                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Keys}" />
-                                            <Button Grid.Column="3" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
-                                                <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                                            </Button>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </Border>
-
-                        <!--  Secrets  -->
-                        <Border
-                            Style="{StaticResource ListCard}"
-                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Secrets}">
-                            <ListView
-                                IsItemClickEnabled="True"
-                                ItemClick="Resource_ItemClick"
-                                ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                ItemsSource="{x:Bind ViewModel.Secrets, Mode=OneWay}"
-                                SelectionMode="None">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="k8s:K8sSecret">
-                                        <Grid ColumnSpacing="12">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="2*" MinWidth="160" />
-                                                <ColumnDefinition Width="1.2*" MinWidth="110" />
-                                                <ColumnDefinition Width="1.4*" MinWidth="150" />
-                                                <ColumnDefinition Width="80" />
-                                                <ColumnDefinition Width="44" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
-                                            <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Type}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Keys}" />
-                                            <Button Grid.Column="4" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
-                                                <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                                            </Button>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </Border>
-
-                        <!--  Jobs  -->
-                        <Border
-                            Style="{StaticResource ListCard}"
-                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Jobs}">
                             <Grid>
-                                <TextBlock
-                                    Margin="16,14"
-                                    VerticalAlignment="Top"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="No jobs."
-                                    Visibility="{x:Bind ViewModel.Jobs.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="160" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="110" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="44" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="NAMESPACE" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="KEYS" />
+                                    </Grid>
+                                </Border>
                                 <ListView
+                                    Grid.Row="1"
+                                    Padding="0,4"
                                     IsItemClickEnabled="True"
                                     ItemClick="Resource_ItemClick"
                                     ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                    ItemsSource="{x:Bind ViewModel.Jobs, Mode=OneWay}"
+                                    ItemsSource="{x:Bind ViewModel.ConfigMaps, Mode=OneWay}"
                                     SelectionMode="None">
                                     <ListView.ItemTemplate>
-                                        <DataTemplate x:DataType="k8s:K8sJob">
+                                        <DataTemplate x:DataType="k8s:K8sConfigMap">
                                             <Grid ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="2*" MinWidth="160" />
                                                     <ColumnDefinition Width="1.2*" MinWidth="110" />
-                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="80" />
                                                     <ColumnDefinition Width="44" />
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
-                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Completions}" />
+                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Keys}" />
                                                 <Button Grid.Column="3" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
                                                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                                 </Button>
@@ -679,52 +769,189 @@
                             </Grid>
                         </Border>
 
+                        <!--  Secrets  -->
+                        <Border
+                            Style="{StaticResource ListCard}"
+                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Secrets}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="160" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="110" />
+                                            <ColumnDefinition Width="1.4*" MinWidth="150" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="44" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="NAMESPACE" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="TYPE" />
+                                        <TextBlock Grid.Column="3" Style="{StaticResource ColHead}" Text="KEYS" />
+                                    </Grid>
+                                </Border>
+                                <ListView
+                                    Grid.Row="1"
+                                    Padding="0,4"
+                                    IsItemClickEnabled="True"
+                                    ItemClick="Resource_ItemClick"
+                                    ItemContainerStyle="{StaticResource K8sRowStyle}"
+                                    ItemsSource="{x:Bind ViewModel.Secrets, Mode=OneWay}"
+                                    SelectionMode="None">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="k8s:K8sSecret">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="2*" MinWidth="160" />
+                                                    <ColumnDefinition Width="1.2*" MinWidth="110" />
+                                                    <ColumnDefinition Width="1.4*" MinWidth="150" />
+                                                    <ColumnDefinition Width="80" />
+                                                    <ColumnDefinition Width="44" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
+                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Type}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Keys}" />
+                                                <Button Grid.Column="4" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
+                                                    <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </Grid>
+                        </Border>
+
+                        <!--  Jobs  -->
+                        <Border
+                            Style="{StaticResource ListCard}"
+                            Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=Jobs}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="160" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="110" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="44" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="NAMESPACE" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="COMPLETIONS" />
+                                    </Grid>
+                                </Border>
+                                <Grid Grid.Row="1">
+                                    <TextBlock
+                                        Margin="16,14"
+                                        VerticalAlignment="Top"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="No jobs."
+                                        Visibility="{x:Bind ViewModel.Jobs.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
+                                    <ListView
+                                        Padding="0,4"
+                                        IsItemClickEnabled="True"
+                                        ItemClick="Resource_ItemClick"
+                                        ItemContainerStyle="{StaticResource K8sRowStyle}"
+                                        ItemsSource="{x:Bind ViewModel.Jobs, Mode=OneWay}"
+                                        SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="k8s:K8sJob">
+                                                <Grid ColumnSpacing="12">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="2*" MinWidth="160" />
+                                                        <ColumnDefinition Width="1.2*" MinWidth="110" />
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="44" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
+                                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Completions}" />
+                                                    <Button Grid.Column="3" Width="34" Height="34" Padding="0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
+                                                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                                    </Button>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
                         <!--  CronJobs  -->
                         <Border
                             Style="{StaticResource ListCard}"
                             Visibility="{x:Bind ViewModel.SelectedSection, Mode=OneWay, Converter={StaticResource SectionVis}, ConverterParameter=CronJobs}">
                             <Grid>
-                                <TextBlock
-                                    Margin="16,14"
-                                    VerticalAlignment="Top"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="No cronjobs."
-                                    Visibility="{x:Bind ViewModel.CronJobs.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
-                                <ListView
-                                    IsItemClickEnabled="True"
-                                    ItemClick="Resource_ItemClick"
-                                    ItemContainerStyle="{StaticResource K8sRowStyle}"
-                                    ItemsSource="{x:Bind ViewModel.CronJobs, Mode=OneWay}"
-                                    SelectionMode="None">
-                                    <ListView.ItemTemplate>
-                                        <DataTemplate x:DataType="k8s:K8sCronJob">
-                                            <Grid ColumnSpacing="12">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="2*" MinWidth="150" />
-                                                    <ColumnDefinition Width="1.2*" MinWidth="100" />
-                                                    <ColumnDefinition Width="140" />
-                                                    <ColumnDefinition Width="60" />
-                                                    <ColumnDefinition Width="118" />
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
-                                                <TextBlock Grid.Column="2" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12" Text="{x:Bind Schedule}" />
-                                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Active}" />
-                                                <StackPanel Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal" Spacing="2">
-                                                    <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Run now" Click="RunCron_Click" ToolTipService.ToolTip="Run now">
-                                                        <FontIcon FontSize="14" Glyph="&#xE768;" />
-                                                    </Button>
-                                                    <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Suspend / resume" Click="ToggleCron_Click" ToolTipService.ToolTip="Suspend / resume">
-                                                        <FontIcon FontSize="14" Glyph="&#xE769;" />
-                                                    </Button>
-                                                    <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
-                                                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                                                    </Button>
-                                                </StackPanel>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ListView.ItemTemplate>
-                                </ListView>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Padding="16,10,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="150" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="60" />
+                                            <ColumnDefinition Width="118" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource ColHead}" Text="NAME" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource ColHead}" Text="NAMESPACE" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource ColHead}" Text="SCHEDULE" />
+                                        <TextBlock Grid.Column="3" Style="{StaticResource ColHead}" Text="ACTIVE" />
+                                    </Grid>
+                                </Border>
+                                <Grid Grid.Row="1">
+                                    <TextBlock
+                                        Margin="16,14"
+                                        VerticalAlignment="Top"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="No cronjobs."
+                                        Visibility="{x:Bind ViewModel.CronJobs.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
+                                    <ListView
+                                        Padding="0,4"
+                                        IsItemClickEnabled="True"
+                                        ItemClick="Resource_ItemClick"
+                                        ItemContainerStyle="{StaticResource K8sRowStyle}"
+                                        ItemsSource="{x:Bind ViewModel.CronJobs, Mode=OneWay}"
+                                        SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="k8s:K8sCronJob">
+                                                <Grid ColumnSpacing="12">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="2*" MinWidth="150" />
+                                                        <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                                        <ColumnDefinition Width="140" />
+                                                        <ColumnDefinition Width="60" />
+                                                        <ColumnDefinition Width="118" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Namespace}" />
+                                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12" Text="{x:Bind Schedule}" />
+                                                    <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Active}" />
+                                                    <StackPanel Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal" Spacing="2">
+                                                        <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Run now" Click="RunCron_Click" ToolTipService.ToolTip="Run now">
+                                                            <FontIcon FontSize="14" Glyph="&#xE768;" />
+                                                        </Button>
+                                                        <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Suspend / resume" Click="ToggleCron_Click" ToolTipService.ToolTip="Suspend / resume">
+                                                            <FontIcon FontSize="14" Glyph="&#xE769;" />
+                                                        </Button>
+                                                        <Button Width="34" Height="34" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Delete" Click="DeleteResource_Click" ToolTipService.ToolTip="Delete">
+                                                            <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                                        </Button>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </Grid>
                             </Grid>
                         </Border>
 
