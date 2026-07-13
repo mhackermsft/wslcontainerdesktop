@@ -81,4 +81,48 @@ public sealed partial class ImagesPage : Page
             ViewModel.RemoveCommand.Execute(img);
         }
     }
+
+    // Populates the "Run profile" submenu with the saved profiles for the row's image when the
+    // "More" flyout opens, so one click launches a container with the remembered configuration.
+    private void MoreFlyout_Opening(object sender, object e)
+    {
+        if (sender is not MenuFlyout flyout)
+        {
+            return;
+        }
+
+        var image = (flyout.Target as FrameworkElement)?.DataContext as ImageInfo;
+        var submenu = flyout.Items.OfType<MenuFlyoutSubItem>().FirstOrDefault();
+        if (submenu is null)
+        {
+            return;
+        }
+
+        submenu.Items.Clear();
+
+        var profiles = image is null
+            ? System.Array.Empty<RunProfile>()
+            : ViewModel.ProfilesForImage(image.Reference);
+
+        if (profiles.Count == 0)
+        {
+            submenu.Items.Add(new MenuFlyoutItem { Text = "No saved profiles", IsEnabled = false });
+            return;
+        }
+
+        foreach (var profile in profiles)
+        {
+            var item = new MenuFlyoutItem { Text = profile.Name, Tag = profile };
+            item.Click += RunProfileMenu_Click;
+            submenu.Items.Add(item);
+        }
+    }
+
+    private void RunProfileMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as MenuFlyoutItem)?.Tag is RunProfile profile)
+        {
+            ViewModel.RunProfileCommand.Execute(profile);
+        }
+    }
 }

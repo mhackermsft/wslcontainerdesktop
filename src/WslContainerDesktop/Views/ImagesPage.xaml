@@ -166,7 +166,13 @@
                                     <Button Padding="7,5" ToolTipService.ToolTip="More">
                                         <FontIcon FontSize="14" Glyph="&#xE712;" />
                                         <Button.Flyout>
-                                            <MenuFlyout>
+                                            <MenuFlyout Opening="MoreFlyout_Opening">
+                                                <MenuFlyoutSubItem Text="Run profile">
+                                                    <MenuFlyoutSubItem.Icon>
+                                                        <FontIcon Glyph="&#xE768;" />
+                                                    </MenuFlyoutSubItem.Icon>
+                                                </MenuFlyoutSubItem>
+                                                <MenuFlyoutSeparator />
                                                 <MenuFlyoutItem Click="TagMenu_Click" Text="Tag" />
                                                 <MenuFlyoutItem Click="PushMenu_Click" Text="Push">
                                                     <MenuFlyoutItem.Icon>

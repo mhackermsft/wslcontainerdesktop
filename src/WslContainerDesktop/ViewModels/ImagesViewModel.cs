@@ -31,6 +31,7 @@ public partial class ImagesViewModel : ObservableObject
     private readonly DialogService _dialogs;
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
+    private readonly IRunProfileStore _profiles;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -43,14 +44,18 @@ public partial class ImagesViewModel : ObservableObject
 
     public ObservableCollection<ImageInfo> Images { get; } = new();
 
-    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher)
+    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles)
     {
         _wslc = wslc;
         _monitor = monitor;
         _dialogs = dialogs;
         _settings = settings;
         _authRefresher = authRefresher;
+        _profiles = profiles;
     }
+
+    /// <summary>Saved run profiles that target the given image, for the one-click run submenu.</summary>
+    public IReadOnlyList<RunProfile> ProfilesForImage(string image) => _profiles.GetForImage(image);
 
     [RelayCommand]
     public async Task RefreshAsync()
@@ -128,20 +133,37 @@ public partial class ImagesViewModel : ObservableObject
             return;
         }
 
-        var dialog = new RunContainerDialog(_wslc, _settings.Registries, image.Reference);
+        var dialog = new RunContainerDialog(_wslc, _settings.Registries, _profiles, image.Reference);
         if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary || dialog.Options is null)
         {
             return;
         }
 
+        await ExecuteRunAsync(dialog.Options);
+    }
+
+    [RelayCommand]
+    private async Task RunProfileAsync(RunProfile? profile)
+    {
+        if (profile is null || string.IsNullOrWhiteSpace(profile.Options.Image))
+        {
+            return;
+        }
+
+        await ExecuteRunAsync(profile.Options);
+    }
+
+    /// <summary>Launches a container from resolved run options and refreshes the monitor.</summary>
+    private async Task ExecuteRunAsync(RunContainerOptions options)
+    {
         IsBusy = true;
-        StatusMessage = $"Running {image.Reference}…";
+        StatusMessage = $"Running {options.Image}…";
         try
         {
             // `wslc run` auto-pulls if the image is absent, so refresh Azure auth first.
-            await _authRefresher.EnsureFreshForReferenceAsync(dialog.Options.Image);
+            await _authRefresher.EnsureFreshForReferenceAsync(options.Image);
 
-            var result = await _wslc.RunContainerAsync(dialog.Options);
+            var result = await _wslc.RunContainerAsync(options);
             if (!result.Success)
             {
                 await _dialogs.ShowMessageAsync("Run failed", result.ErrorText);

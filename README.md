@@ -178,6 +178,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - List with repository, tag, ID, size, and age.
 - **Pull**, **Build** (from a Dockerfile + context), **Tag**, **Push**, **Inspect**, **Remove**, and **Prune**.
 - Run a new container directly from an image.
+- **Saved run profiles** — save an image's ports/env/volumes/network/name/flags as a reusable, named profile, prefill the Run dialog from one, and launch it in one click from the image's **⋯ → Run profile** menu. Profiles persist across restarts, and a basic **docker-compose.yml** can be imported to seed one profile per service (**Import compose**).
 - Pull / Build / Push dialogs include a **registry selector** with a live "resolved reference" preview.
 
 ### Volumes

@@ -32,6 +32,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private readonly DialogService _dialogs;
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
+    private readonly IRunProfileStore _profiles;
     private readonly ILogger<ContainersViewModel> _logger;
     private readonly DispatcherQueue _dispatcher;
     private readonly LogStreamer _logStreamer;
@@ -110,13 +111,14 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<ContainerRowViewModel> Containers { get; } = new();
 
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, ILogger<ContainersViewModel> logger)
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
         _dialogs = dialogs;
         _settings = settings;
         _authRefresher = authRefresher;
+        _profiles = profiles;
         _logger = logger;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _logStreamer = new LogStreamer(settings, _dispatcher);
@@ -420,7 +422,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task RunAsync()
     {
-        var dialog = new RunContainerDialog(_wslc, _settings.Registries);
+        var dialog = new RunContainerDialog(_wslc, _settings.Registries, _profiles);
         var result = await _dialogs.ShowDialogAsync(dialog);
         if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary || dialog.Options is null)
         {
@@ -434,6 +436,48 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 await _authRefresher.EnsureFreshForReferenceAsync(dialog.Options.Image);
                 return await _wslc.RunContainerAsync(dialog.Options);
             });
+    }
+
+    [RelayCommand]
+    private async Task ImportComposeAsync()
+    {
+        var dialog = new ImportComposeDialog();
+        if (await _dialogs.ShowDialogAsync(dialog) != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary ||
+            string.IsNullOrWhiteSpace(dialog.Yaml))
+        {
+            return;
+        }
+
+        IReadOnlyList<RunProfile> parsed;
+        try
+        {
+            parsed = ComposeImporter.Parse(dialog.Yaml);
+        }
+        catch (Exception ex)
+        {
+            await _dialogs.ShowMessageAsync("Import failed", ex.Message);
+            return;
+        }
+
+        if (parsed.Count == 0)
+        {
+            await _dialogs.ShowMessageAsync(
+                "Nothing to import",
+                "No services with an image were found in the compose file.");
+            return;
+        }
+
+        foreach (var profile in parsed)
+        {
+            _profiles.Save(profile);
+        }
+
+        StatusMessage = $"Imported {parsed.Count} profile{(parsed.Count == 1 ? "" : "s")}";
+        await _dialogs.ShowMessageAsync(
+            "Compose imported",
+            $"Saved {parsed.Count} run profile{(parsed.Count == 1 ? "" : "s")}: " +
+            string.Join(", ", parsed.Select(p => p.Name)) +
+            ".\n\nLoad one from the Run dialog, or from an image's ⋯ menu.");
     }
 
     [RelayCommand]
