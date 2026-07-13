@@ -75,6 +75,9 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
     var settings = Services.GetRequiredService<ISettingsService>();
     settings.Load();
 
+        // Reclaim files staged from containers in previous sessions (including any a crash left
+        // behind), since they are never deleted while the app is running.
+        ContainersViewModel.ClearTempFiles(_logger);
         // The status monitor needs the UI DispatcherQueue. It's resolved here (on the UI thread)
         // so its DI factory can capture the dispatcher; the same singleton is later injected into
         // the view models.
@@ -224,6 +227,10 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _tray?.Dispose();
         _window?.ForceClose();
 
+        // Reclaim files staged from containers this session (best-effort; skips any still open in
+        // an external editor, which the next startup cleanup will retry).
+        ContainersViewModel.ClearTempFiles(_logger);
+
         // Dispose the DI container so IDisposable singletons (e.g. ContainersViewModel's
         // LogStreamer and its wsl.exe child) are torn down deterministically.
         (Services as IDisposable)?.Dispose();
@@ -262,6 +269,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
+        services.AddSingleton<IRunProfileStore, RunProfileStore>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();
@@ -283,6 +291,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ContainersViewModel>();
         services.AddSingleton<ImagesViewModel>();
         services.AddSingleton<VolumesViewModel>();
+        services.AddSingleton<ReclaimSpaceViewModel>();
         services.AddSingleton<NetworksViewModel>();
         services.AddSingleton<RegistriesViewModel>();
         services.AddSingleton<SettingsViewModel>();
