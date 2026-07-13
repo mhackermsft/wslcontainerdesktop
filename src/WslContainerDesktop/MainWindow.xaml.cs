@@ -149,6 +149,32 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Opens a specific container's detail page (which defaults to the Logs tab), used when the
+    /// user clicks the "View logs" button on a container-stopped toast. Falls back to the
+    /// Containers list if the container is no longer listed.
+    /// </summary>
+    public void OpenContainerLogs(string containerId)
+    {
+        // Route to the Containers page first so the detail page has a valid back stack.
+        NavigateTo("containers");
+
+        if (string.IsNullOrEmpty(containerId))
+        {
+            return;
+        }
+
+        var vm = App.Current.Services.GetRequiredService<ContainersViewModel>();
+        var row = vm.Containers.FirstOrDefault(c => string.Equals(c.Id, containerId, StringComparison.Ordinal));
+        if (row is null)
+        {
+            return;
+        }
+
+        vm.Selected = row;
+        NavFrame.Navigate(typeof(ContainerDetailPage));
+    }
+
     public void ShowFromTray()
     {
         AppWindow.Show();

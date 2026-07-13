@@ -146,7 +146,11 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         }
 
         ShowMainWindow();
-        if (!string.IsNullOrEmpty(e.Page))
+        if (string.Equals(e.Action, "logs", StringComparison.Ordinal) && !string.IsNullOrEmpty(e.TargetId))
+        {
+            _window?.OpenContainerLogs(e.TargetId);
+        }
+        else if (!string.IsNullOrEmpty(e.Page))
         {
             _window?.NavigateTo(e.Page);
         }
