@@ -36,7 +36,7 @@
 
                 <!--  Header  -->
                 <StackPanel Spacing="2">
-                    <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Reclaim space" />
+                    <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Disk usage" />
                     <TextBlock
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Style="{ThemeResource CaptionTextBlockStyle}"

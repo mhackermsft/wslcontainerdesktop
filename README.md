@@ -188,8 +188,8 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 ### Networks
 - List, Create, Inspect, Remove, and Prune, including the default `bridge` network.
 
-### Reclaim space
-- A holistic **disk-usage & cleanup center** that summarizes how much space **images**, **containers**, and **volumes** consume and how much is reclaimable.
+### Disk usage
+- A holistic **disk-usage & cleanup center**, reachable from the **Disk usage** entry at the bottom of the navigation pane (next to Settings), that summarizes how much space **images**, **containers**, and **volumes** consume and how much is reclaimable.
 - Lists the **largest images**, **dangling images**, and **unused (orphaned anonymous) volumes**.
 - **One-click prune** for dangling images, stopped containers, and unused volumes — or **Reclaim all** at once — each with an explicit confirmation and before/after freed-space feedback. Reuses the existing per-resource prune commands.
 
