@@ -473,7 +473,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         if (combined.Contains("__WSLCD_TOO_LARGE__", StringComparison.Ordinal))
         {
-            return $"Preview is limited to files up to {MaxInlinePreviewBytes / 1024} KB.";
+            return $"Preview is limited to files up to {MaxInlinePreviewBytes / 1024} KiB.";
         }
 
         if (combined.Contains("not running", StringComparison.OrdinalIgnoreCase) ||

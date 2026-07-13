@@ -377,7 +377,7 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
                "if [ ! -d \"$target\" ]; then echo __WSLCD_NOT_DIR__; exit 3; fi; " +
                "cd \"$target\" || exit 4; " +
                "printf 'PWD\\t%s\\n' \"$PWD\"; " +
-               // Match regular and hidden entries while excluding "." and "..".
+               // Match regular entries, ".foo" entries, and "..foo" entries while excluding "." and "..".
                "for entry in .[!.]* ..?* *; do " +
                "[ -e \"$entry\" ] || continue; " +
                "kind=f; " +
