@@ -53,6 +53,21 @@ public partial class ContainerRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(GpuTooltip))]
     private string? _gpuName;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HealthTooltip))]
+    private ContainerHealthState _health = ContainerHealthState.Unknown;
+
+    [ObservableProperty]
+    private bool _hasHealthCheck;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HealthTooltip))]
+    private int _healthRestartCount;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HealthTooltip))]
+    private int _healthMaxRestarts;
+
     /// <summary>True once the network has been resolved (via inspect), so we don't refetch every poll.</summary>
     public bool NetworkResolved { get; set; }
 
@@ -63,6 +78,19 @@ public partial class ContainerRowViewModel : ObservableObject
     public string GpuTooltip => string.IsNullOrWhiteSpace(GpuName)
         ? "GPU passthrough enabled"
         : $"GPU: {GpuName}";
+
+    /// <summary>Tooltip text for the health badge.</summary>
+    public string HealthTooltip => Health switch
+    {
+        ContainerHealthState.Healthy => "Health check: healthy",
+        ContainerHealthState.Degraded => HealthMaxRestarts > 0
+            ? $"Health check: unhealthy — auto-restarting ({HealthRestartCount}/{HealthMaxRestarts})"
+            : "Health check: unhealthy",
+        ContainerHealthState.Down => HealthMaxRestarts > 0
+            ? $"Health check: down after {HealthMaxRestarts} restart attempt(s)"
+            : "Health check: down",
+        _ => "Health check: pending",
+    };
 
     public ContainerRowViewModel(ContainerInfo model)
     {

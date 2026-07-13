@@ -149,6 +149,27 @@ public sealed class BoolToStatusBrushConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+/// <summary>Maps a <see cref="ContainerHealthState"/> to a badge color brush.</summary>
+public sealed class HealthToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var state = value is ContainerHealthState s ? s : ContainerHealthState.Unknown;
+        var color = state switch
+        {
+            ContainerHealthState.Healthy => Color.FromArgb(255, 31, 122, 61),
+            ContainerHealthState.Degraded => Color.FromArgb(255, 191, 130, 20),
+            ContainerHealthState.Down => Color.FromArgb(255, 176, 42, 42),
+            _ => Color.FromArgb(255, 110, 110, 110),
+        };
+
+        return new SolidColorBrush(color);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Visible when the bound string equals the ConverterParameter (used for sub-nav sections).</summary>
 public sealed class StringEqualsToVisibilityConverter : IValueConverter
 {

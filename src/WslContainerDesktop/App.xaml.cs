@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 using WslContainerDesktop.Tray;
 using WslContainerDesktop.ViewModels;
@@ -30,8 +31,14 @@ public partial class App : Application
     private TrayIcon? _tray;
     private StatusMonitor? _monitor;
     private INotificationService? _notifications;
+    private HealthWatchdog? _watchdog;
+    private EngineHealth _engineHealth = EngineHealth.Unknown;
+    private string _engineSummary = string.Empty;
+    private int _runningCount;
+    private IReadOnlyList<ContainerInfo> _lastContainers = Array.Empty<ContainerInfo>();
+    private ContainerHealthState _worstContainerHealth = ContainerHealthState.Unknown;
     private ILogger<App>? _logger;
-private bool _isExiting;
+    private bool _isExiting;
 
 public App()
 {
@@ -71,6 +78,9 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
     var settings = Services.GetRequiredService<ISettingsService>();
     settings.Load();
 
+        // Reclaim files staged from containers in previous sessions (including any a crash left
+        // behind), since they are never deleted while the app is running.
+        ContainersViewModel.ClearTempFiles(_logger);
         // The status monitor needs the UI DispatcherQueue. It's resolved here (on the UI thread)
         // so its DI factory can capture the dispatcher; the same singleton is later injected into
         // the view models.
@@ -90,6 +100,12 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         _monitor.StatusChanged += OnEngineStatusChanged;
         _monitor.Start();
+
+        // Health watchdog rides on the monitor's polling and enforces per-container probes.
+        _watchdog = Services.GetRequiredService<HealthWatchdog>();
+        _watchdog.HealthChanged += OnHealthChanged;
+        _watchdog.NotificationRequested += OnHealthNotification;
+        _watchdog.Start();
 
         _window = new MainWindow();
         _window.ApplyTheme(settings.Theme);
@@ -208,15 +224,56 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
     private void OnEngineStatusChanged(object? sender, EngineStatusSnapshot e)
     {
-        var tooltip = e.Health switch
+        _engineHealth = e.Health;
+        _engineSummary = e.Summary;
+        _runningCount = e.RunningCount;
+        _lastContainers = e.Containers;
+        UpdateTray();
+    }
+
+    private void OnHealthChanged(object? sender, HealthSnapshot e)
+    {
+        _worstContainerHealth = e.Worst;
+        UpdateTray();
+    }
+
+    private void OnHealthNotification(string title, string message) =>
+        _tray?.ShowNotification(title, message);
+
+    /// <summary>Rolls the engine status and per-container health into the single tray glyph.</summary>
+    private void UpdateTray()
+    {
+        // Engine reachability dominates: if it's unreachable, nothing else matters.
+        var health = _engineHealth;
+        if (health == EngineHealth.Healthy)
         {
-            EngineHealth.Healthy => $"WSL Container Desktop — {e.Summary}",
+            health = _worstContainerHealth switch
+            {
+                ContainerHealthState.Down => EngineHealth.Down,
+                ContainerHealthState.Degraded => EngineHealth.Degraded,
+                _ => EngineHealth.Healthy,
+            };
+        }
+
+        var tooltip = _engineHealth switch
+        {
+            EngineHealth.Healthy => $"WSL Container Desktop — {_engineSummary}",
             EngineHealth.Down => "WSL Container Desktop — engine unreachable",
             _ => "WSL Container Desktop",
         };
 
+        if (health == EngineHealth.Degraded)
+        {
+            tooltip += " · a container is unhealthy";
+        }
+        else if (health == EngineHealth.Down && _engineHealth == EngineHealth.Healthy)
+        {
+            tooltip += " · a container is down";
+        }
+
         var settings = Services.GetRequiredService<ISettingsService>();
-        _tray?.UpdateStatus(e.Health, tooltip, e.Summary, e.RunningCount, e.Containers, settings.NotificationsEnabled);
+        var statusText = _engineSummary.Length == 0 ? "Status: unknown" : _engineSummary;
+        _tray?.UpdateStatus(health, tooltip, statusText, _runningCount, _lastContainers, settings.NotificationsEnabled);
     }
 
     public void ShowMainWindow()
@@ -263,10 +320,15 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             _logger?.LogWarning(ex, "Failed to stop port-forwards during shutdown.");
         }
 
+        _watchdog?.Dispose();
         _monitor?.Dispose();
         _notifications?.Unregister();
         _tray?.Dispose();
         _window?.ForceClose();
+
+        // Reclaim files staged from containers this session (best-effort; skips any still open in
+        // an external editor, which the next startup cleanup will retry).
+        ContainersViewModel.ClearTempFiles(_logger);
 
         // Dispose the DI container so IDisposable singletons (e.g. ContainersViewModel's
         // LogStreamer and its wsl.exe child) are torn down deterministically.
@@ -306,6 +368,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
+        services.AddSingleton<IRunProfileStore, RunProfileStore>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();
@@ -332,9 +395,12 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
                 ?? throw new InvalidOperationException("StatusMonitor must first be resolved on the UI thread."),
             sp.GetRequiredService<ILogger<StatusMonitor>>()));
 
+        services.AddSingleton<HealthWatchdog>();
+
         services.AddSingleton<ContainersViewModel>();
         services.AddSingleton<ImagesViewModel>();
         services.AddSingleton<VolumesViewModel>();
+        services.AddSingleton<ReclaimSpaceViewModel>();
         services.AddSingleton<NetworksViewModel>();
         services.AddSingleton<RegistriesViewModel>();
         services.AddSingleton<SettingsViewModel>();

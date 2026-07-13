@@ -91,6 +91,14 @@ public sealed partial class ContainersPage : Page
         }
     }
 
+    private void HealthCheckMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            ViewModel.HealthCheckCommand.Execute(row);
+        }
+    }
+
     private void RemoveMenu_Click(object sender, RoutedEventArgs e)
     {
         if (RowOf(sender) is { } row)

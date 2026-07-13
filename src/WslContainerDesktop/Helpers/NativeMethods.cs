@@ -45,6 +45,12 @@ internal static class NativeMethods
     public const int NIF_INFO = 0x00000010;
     public const int NIF_SHOWTIP = 0x00000080;
 
+    // Balloon/toast info flags (dwInfoFlags).
+    public const int NIIF_NONE = 0x00000000;
+    public const int NIIF_INFO = 0x00000001;
+    public const int NIIF_WARNING = 0x00000002;
+    public const int NIIF_ERROR = 0x00000003;
+
     public const int NOTIFYICON_VERSION_4 = 4;
 
     // TrackPopupMenu flags.

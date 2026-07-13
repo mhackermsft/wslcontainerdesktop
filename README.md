@@ -168,6 +168,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - Live list with color-coded state (green = running) and inline row actions.
 - **Run a container** from a rich dialog: image, name, ports, environment variables, volumes, network, `--rm`, `-d`, `-i`, `--gpus all`, and a custom command. A **registry selector** qualifies bare image names.
 - Start, Stop, Restart, Kill, Remove, and Prune stopped.
+- **Health &amp; auto-heal** — configure a per-container health probe (an in-container **command** via `wslc exec`, or a host-side **TCP** connect to a published port) with a check interval and a restart policy. The watchdog enforces the policy, auto-restarts up to *N* times when a workload goes unhealthy, then stops and alerts. Health shows as a **badge** (healthy / degraded / down) on the list and rolls into the tray glyph, with a tray toast on unhealthy transitions. Config persists across restarts.
 - Click a container for a **full-page detail view** with tabs:
   - **Logs** — live streaming output with auto-scroll, wrap toggle, and clear.
   - **Summary** — id, state, image, ports, IP, network, start time, command, env vars, and mounts.
@@ -179,6 +180,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - List with repository, tag, ID, size, and age.
 - **Pull**, **Build** (from a Dockerfile + context), **Tag**, **Push**, **Inspect**, **Remove**, and **Prune**.
 - Run a new container directly from an image.
+- **Saved run profiles** — save an image's ports/env/volumes/network/name/flags as a reusable, named profile, prefill the Run dialog from one, and launch it in one click from the image's **⋯ → Run profile** menu. Profiles persist across restarts, and a basic **docker-compose.yml** can be imported to seed one profile per service (**Import compose**).
 - Pull / Build / Push dialogs include a **registry selector** with a live "resolved reference" preview.
 
 ### Volumes
@@ -188,6 +190,11 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 
 ### Networks
 - List, Create, Inspect, Remove, and Prune, including the default `bridge` network.
+
+### Disk usage
+- A holistic **disk-usage & cleanup center**, reachable from the **Disk usage** entry at the bottom of the navigation pane (next to Settings), that summarizes how much space **images**, **containers**, and **volumes** consume and how much is reclaimable.
+- Lists the **largest images**, **dangling images**, and **unused (orphaned anonymous) volumes**.
+- **One-click prune** for dangling images, stopped containers, and unused volumes — or **Reclaim all** at once — each with an explicit confirmation and before/after freed-space feedback. Reuses the existing per-resource prune commands.
 
 ### Registries
 - A managed list of container registries used by the Run / Pull / Build / Push dialogs, with **Docker Hub** built in as the default.
@@ -211,7 +218,8 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 ### System tray
 - Minimizes / closes to the tray instead of exiting (configurable).
 - **Right-click menu**: open the app, a live status line, the **running-container count**, **quick start/stop** for each container, a **Mute notifications** toggle, and Quit.
-- Tray icon color reflects engine health — **green = healthy**, red = unreachable.
+- Tray icon color reflects engine health — **green = healthy**, amber = a container is unhealthy/degraded, red = engine unreachable or a container is down.
+- **Balloon notifications** when a watched container transitions to unhealthy or down.
 
 ### Settings
 - Path to `wslc.exe` with a **Test connection** button and engine version readout.

@@ -15,10 +15,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Collections.ObjectModel;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
+using Windows.ApplicationModel.DataTransfer;
 using WslContainerDesktop.Dialogs;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -27,11 +29,14 @@ namespace WslContainerDesktop.ViewModels;
 
 public partial class ContainersViewModel : ObservableObject, IDisposable
 {
+    private const int MaxInlinePreviewBytes = 65_536;
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
+    private readonly HealthWatchdog _watchdog;
     private readonly DialogService _dialogs;
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
+    private readonly IRunProfileStore _profiles;
     private readonly ILogger<ContainersViewModel> _logger;
     private readonly DispatcherQueue _dispatcher;
     private readonly LogStreamer _logStreamer;
@@ -68,6 +73,20 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _detailInspectJson = string.Empty;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanNavigateUp))]
+    private string _filesCurrentPath = "/";
+
+    [ObservableProperty]
+    private string _filesStatusMessage = "Open the Files tab to browse the container filesystem.";
+
+    [ObservableProperty]
+    private bool _isFilesBusy;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedFile))]
+    private ContainerFileEntry? _selectedFile;
+
     // ---- Live stats (Stats tab) ----
     [ObservableProperty]
     private string _statCpu = "-";
@@ -93,11 +112,26 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private int _statPids;
 
+    private bool _hasAttemptedFilesLoad;
+
+    // Staging task for drag-out: when a file is selected, a background copy to a temp folder begins.
+    private Task<string?>? _dragStagingTask;
+    private ContainerFileEntry? _dragStagingEntry;
+
     public ObservableCollection<string> DetailEnvironment { get; } = new();
 
     public ObservableCollection<string> DetailMounts { get; } = new();
 
+    public ObservableCollection<ContainerFileEntry> DetailFiles { get; } = new();
+
     public bool HasSelection => Selected is not null;
+
+    public bool HasSelectedFile => SelectedFile is not null;
+
+    public bool CanNavigateUp => FilesCurrentPath != "/";
+
+    /// <summary>Returns the in-progress or completed temp-file staging task for the currently selected file entry.</summary>
+    public Task<string?>? DragStagingTask => _dragStagingTask;
 
     /// <summary>Raised (on the UI thread) for each streamed log line of the selected container.</summary>
     public event Action<string>? LogLineReceived;
@@ -110,19 +144,22 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<ContainerRowViewModel> Containers { get; } = new();
 
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, ILogger<ContainersViewModel> logger)
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
+        _watchdog = watchdog;
         _dialogs = dialogs;
         _settings = settings;
         _authRefresher = authRefresher;
+        _profiles = profiles;
         _logger = logger;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _logStreamer = new LogStreamer(settings, _dispatcher);
         _logStreamer.LineReceived += line => LogLineReceived?.Invoke(line);
 
         _monitor.StatusChanged += OnStatusChanged;
+        _watchdog.HealthChanged += OnHealthChanged;
 
         if (_monitor.Latest is not null)
         {
@@ -145,6 +182,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         DetailNetwork = "-";
         DetailWorkingDir = "-";
         DetailInspectJson = string.Empty;
+        ResetFilesState(value);
 
         if (value is null)
         {
@@ -153,6 +191,20 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         _logStreamer.Start(value.Id);
         _ = LoadDetailsAsync(value.Id);
+    }
+
+    partial void OnSelectedFileChanged(ContainerFileEntry? value)
+    {
+        // When a non-directory file is selected, pre-copy it to a temp location so it can be
+        // dragged out to Windows Explorer with minimal delay.
+        _dragStagingTask = null;
+        _dragStagingEntry = null;
+
+        if (value is { IsDirectory: false } && Selected is { } container)
+        {
+            _dragStagingEntry = value;
+            _dragStagingTask = StageDragFileAsync(container.Id, value);
+        }
     }
 
     private async Task LoadDetailsAsync(string id)
@@ -196,6 +248,479 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             // ignore inspect failures for detail panel
             _logger.LogDebug(ex, "Container inspect for the detail panel failed.");
         }
+    }
+
+    public Task EnsureFilesLoadedAsync()
+    {
+        if (_hasAttemptedFilesLoad || Selected is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return LoadFilesAsync(FilesCurrentPath);
+    }
+
+    public Task RefreshFilesAsync() => LoadFilesAsync(FilesCurrentPath);
+
+    public Task NavigateUpAsync()
+    {
+        if (!CanNavigateUp)
+        {
+            return Task.CompletedTask;
+        }
+
+        return LoadFilesAsync(GetParentPath(FilesCurrentPath));
+    }
+
+    public async Task OpenFileEntryAsync(ContainerFileEntry? entry)
+    {
+        if (entry is null)
+        {
+            return;
+        }
+
+        if (entry.IsDirectory)
+        {
+            await LoadFilesAsync(entry.Path);
+            return;
+        }
+
+        await OpenFileAsync(entry);
+    }
+
+    /// <summary>Copies the file to a temp location and opens it read-only with the OS default handler.</summary>
+    public async Task OpenFileAsync(ContainerFileEntry? entry = null)
+    {
+        entry ??= SelectedFile;
+        if (entry is null || entry.IsDirectory || Selected is null)
+        {
+            return;
+        }
+
+        IsFilesBusy = true;
+        FilesStatusMessage = $"Opening {entry.Name}…";
+        try
+        {
+            var tempDir = GetTempDir(Selected.Id);
+            var result = await _wslc.CopyFromContainerAsync(Selected.Id, entry.Path, tempDir);
+            if (!result.Success)
+            {
+                FilesStatusMessage = DescribeFileCommandFailure(result, "Could not open this file.");
+                return;
+            }
+
+            var localPath = Path.Combine(tempDir, entry.Name);
+            if (!File.Exists(localPath))
+            {
+                FilesStatusMessage = "File was not found after copy.";
+                return;
+            }
+
+            // Mark read-only to discourage edits that can't be written back.
+            try
+            {
+                new FileInfo(localPath).IsReadOnly = true;
+            }
+            catch
+            {
+                // Ignore; read-only is advisory.
+            }
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = localPath,
+                UseShellExecute = true,
+            });
+
+            FilesStatusMessage = $"Opened {entry.Name}";
+        }
+        catch (Exception ex)
+        {
+            FilesStatusMessage = ex.Message;
+        }
+        finally
+        {
+            IsFilesBusy = false;
+        }
+    }
+
+    /// <summary>Copies the selected entry's container path to the Windows clipboard.</summary>
+    public void CopyPathToClipboard(ContainerFileEntry? entry = null)
+    {
+        entry ??= SelectedFile;
+        if (entry is null)
+        {
+            return;
+        }
+
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(entry.Path);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        FilesStatusMessage = $"Copied path: {entry.Path}";
+    }
+
+    /// <summary>Prompts for a new name and renames the selected entry.</summary>
+    public async Task RenameAsync(ContainerFileEntry? entry = null)
+    {
+        entry ??= SelectedFile;
+        if (entry is null || Selected is null)
+        {
+            return;
+        }
+
+        var dialog = new Dialogs.SimpleInputDialog("Rename", "New name", entry.Name)
+        {
+            Value = entry.Name,
+        };
+        var dialogResult = await _dialogs.ShowDialogAsync(dialog);
+        if (dialogResult != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var newName = dialog.Value.Trim();
+        if (string.IsNullOrEmpty(newName) || newName == entry.Name)
+        {
+            return;
+        }
+
+        var newPath = CombineContainerPath(FilesCurrentPath, newName);
+        await ExecuteAsync($"Renaming {entry.Name}…",
+            () => _wslc.RenamePathAsync(Selected.Id, entry.Path, newPath));
+
+        await LoadFilesAsync(FilesCurrentPath);
+    }
+
+    /// <summary>Prompts for a folder name and creates a new directory in the current path.</summary>
+    public async Task CreateFolderAsync()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        var dialog = new Dialogs.SimpleInputDialog("New folder", "Folder name", "new-folder");
+        var dialogResult = await _dialogs.ShowDialogAsync(dialog);
+        if (dialogResult != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var name = dialog.Value.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return;
+        }
+
+        var newPath = CombineContainerPath(FilesCurrentPath, name);
+        await ExecuteAsync($"Creating folder {name}…",
+            () => _wslc.CreateDirectoryAsync(Selected.Id, newPath));
+
+        if (Selected.IsRunning)
+        {
+            await LoadFilesAsync(FilesCurrentPath);
+        }
+    }
+
+    public async Task CopyIntoCurrentDirectoryAsync(string hostPath)
+    {
+        if (Selected is null || string.IsNullOrWhiteSpace(hostPath))
+        {
+            return;
+        }
+
+        await ExecuteAsync($"Copying {Path.GetFileName(hostPath)} into {Selected.Name}…",
+            () => _wslc.CopyToContainerAsync(Selected.Id, hostPath, FilesCurrentPath));
+
+        if (Selected.IsRunning)
+        {
+            await LoadFilesAsync(FilesCurrentPath);
+        }
+    }
+
+    /// <summary>Copies multiple host paths into the current container directory (used for multi-file drag-in).</summary>
+    public async Task CopyMultipleIntoCurrentDirectoryAsync(IEnumerable<string> hostPaths)
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        var paths = hostPaths.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        IsFilesBusy = true;
+        FilesStatusMessage = $"Uploading {paths.Count} item(s) to {Selected.Name}…";
+        var failed = new List<string>();
+        try
+        {
+            foreach (var path in paths)
+            {
+                var result = await _wslc.CopyToContainerAsync(Selected.Id, path, FilesCurrentPath);
+                if (!result.Success)
+                {
+                    failed.Add(Path.GetFileName(path));
+                }
+            }
+
+            if (failed.Count > 0)
+            {
+                await _dialogs.ShowMessageAsync("Upload incomplete",
+                    $"The following items could not be copied:\n{string.Join('\n', failed)}");
+            }
+        }
+        finally
+        {
+            IsFilesBusy = false;
+        }
+
+        if (Selected.IsRunning)
+        {
+            await LoadFilesAsync(FilesCurrentPath);
+        }
+    }
+
+    public async Task CopySelectedFileOutAsync(string hostDirectory)
+    {
+        if (Selected is null || SelectedFile is null || string.IsNullOrWhiteSpace(hostDirectory))
+        {
+            return;
+        }
+
+        await ExecuteAsync($"Copying {SelectedFile.Name} to the host…",
+            () => _wslc.CopyFromContainerAsync(Selected.Id, SelectedFile.Path, hostDirectory));
+    }
+
+    public async Task DeleteSelectedFileAsync()
+    {
+        if (Selected is null || SelectedFile is null)
+        {
+            return;
+        }
+
+        var kind = SelectedFile.IsDirectory ? "folder" : "file";
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Delete from container",
+            $"Delete {kind} \"{SelectedFile.Name}\" from {Selected.Name}? This cannot be undone.",
+            "Delete");
+        if (!ok)
+        {
+            return;
+        }
+
+        await ExecuteAsync($"Deleting {SelectedFile.Name}…",
+            () => _wslc.DeletePathAsync(Selected.Id, SelectedFile.Path));
+
+        if (Selected.IsRunning)
+        {
+            await LoadFilesAsync(FilesCurrentPath);
+        }
+    }
+
+    private async Task LoadFilesAsync(string path)
+    {
+        var selected = Selected;
+        if (selected is null)
+        {
+            return;
+        }
+
+        _hasAttemptedFilesLoad = true;
+        var requestedPath = NormalizeContainerPath(path);
+
+        if (!selected.IsRunning)
+        {
+            DetailFiles.Clear();
+            SelectedFile = null;
+            FilesCurrentPath = requestedPath;
+            FilesStatusMessage = "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
+            return;
+        }
+
+        IsFilesBusy = true;
+        // Set FilesCurrentPath before the await so that a subsequent navigation to a
+        // different path can be detected as a stale response in the post-await guard below.
+        FilesCurrentPath = requestedPath;
+        FilesStatusMessage = $"Loading {requestedPath}…";
+        try
+        {
+            var result = await _wslc.ListFilesAsync(selected.Id, requestedPath);
+
+            // Guard against stale responses: verify both the container and the path still match.
+            if (Selected?.Id != selected.Id || FilesCurrentPath != requestedPath)
+            {
+                return;
+            }
+
+            if (!result.Success)
+            {
+                DetailFiles.Clear();
+                SelectedFile = null;
+                FilesStatusMessage = DescribeFileCommandFailure(result, "Could not list this directory.");
+                return;
+            }
+
+            var (currentPath, entries) = ContainerFileEntry.ParseListing(result.StandardOutput, requestedPath);
+            DetailFiles.Clear();
+            foreach (var entry in entries)
+            {
+                DetailFiles.Add(entry);
+            }
+
+            FilesCurrentPath = currentPath;
+            SelectedFile = null;
+            FilesStatusMessage = entries.Count == 0
+                ? $"No files in {currentPath}"
+                : $"{entries.Count} item(s) in {currentPath}";
+        }
+        catch (Exception ex)
+        {
+            FilesStatusMessage = ex.Message;
+            DetailFiles.Clear();
+            SelectedFile = null;
+        }
+        finally
+        {
+            IsFilesBusy = false;
+        }
+    }
+
+    private void ResetFilesState(ContainerRowViewModel? selected)
+    {
+        _hasAttemptedFilesLoad = false;
+        _dragStagingTask = null;
+        _dragStagingEntry = null;
+        DetailFiles.Clear();
+        SelectedFile = null;
+        FilesCurrentPath = "/";
+        FilesStatusMessage = selected?.IsRunning == true
+            ? "Open the Files tab to browse the container filesystem."
+            : "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
+    }
+
+    /// <summary>Background-copies the selected file to a temp folder for drag-out support.</summary>
+    private async Task<string?> StageDragFileAsync(string containerId, ContainerFileEntry entry)
+    {
+        try
+        {
+            var tempDir = GetTempDir(containerId);
+            var result = await _wslc.CopyFromContainerAsync(containerId, entry.Path, tempDir)
+                .ConfigureAwait(false);
+            if (!result.Success)
+            {
+                return null;
+            }
+
+            var localPath = Path.Combine(tempDir, entry.Name);
+            return File.Exists(localPath) ? localPath : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Matches the "short ID" length displayed elsewhere in the UI and provides
+    // sufficient uniqueness for temp-directory names across containers on the same host.
+    private const int ShortIdLength = 12;
+
+    private const string TempRootFolderName = "WslContainerDesktop";
+
+    /// <summary>Root of the temp tree used to stage files opened/downloaded from containers.</summary>
+    private static string TempRoot => Path.Combine(Path.GetTempPath(), TempRootFolderName);
+
+    private static string GetTempDir(string containerId)
+    {
+        // Use the first ShortIdLength hex characters of the container ID as the subfolder name.
+        var dir = Path.Combine(TempRoot, containerId.Length >= ShortIdLength ? containerId[..ShortIdLength] : containerId);
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    /// <summary>
+    /// Best-effort deletion of the temp tree used to stage files opened/downloaded from containers.
+    /// Files staged for a read-only "open" are marked read-only, so their attributes are cleared
+    /// before deletion. Run at startup (rather than only on Dispose) so files left behind by a
+    /// crash or forced exit are still reclaimed.
+    /// </summary>
+    public static void ClearTempFiles(ILogger? logger = null)
+    {
+        try
+        {
+            if (!Directory.Exists(TempRoot))
+            {
+                return;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(TempRoot, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+                catch
+                {
+                    // A locked/open file can't be reset; the delete below will skip it and we retry next launch.
+                }
+            }
+
+            Directory.Delete(TempRoot, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Failed to clear staged container temp files at {Path}.", TempRoot);
+        }
+    }
+
+    private static string NormalizeContainerPath(string path) =>
+        string.IsNullOrEmpty(path) ? "/" : path;
+
+    private static string GetParentPath(string path)
+    {
+        var normalized = NormalizeContainerPath(path).TrimEnd('/');
+        if (string.IsNullOrEmpty(normalized) || normalized == "/")
+        {
+            return "/";
+        }
+
+        var slash = normalized.LastIndexOf('/');
+        return slash <= 0 ? "/" : normalized[..slash];
+    }
+
+    private static string CombineContainerPath(string directory, string name)
+    {
+        var dir = string.IsNullOrEmpty(directory) ? "/" : directory;
+        return dir == "/" ? "/" + name : dir.TrimEnd('/') + "/" + name;
+    }
+
+    private static string DescribeFileCommandFailure(CommandResult result, string fallback)
+    {
+        var combined = (result.StandardError + "\n" + result.StandardOutput).Trim();
+        if (combined.Contains("__WSLCD_NOT_DIR__", StringComparison.Ordinal))
+        {
+            return "The selected path is not a directory.";
+        }
+
+        if (combined.Contains("__WSLCD_NOT_FILE__", StringComparison.Ordinal))
+        {
+            return "The selected path is not a regular file.";
+        }
+
+        if (combined.Contains("__WSLCD_TOO_LARGE__", StringComparison.Ordinal))
+        {
+            return $"Preview is limited to files up to {MaxInlinePreviewBytes / 1024} KiB.";
+        }
+
+        if (combined.Contains("not running", StringComparison.OrdinalIgnoreCase) ||
+            combined.Contains("stopped", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
+        }
+
+        return string.IsNullOrWhiteSpace(combined) ? fallback : combined;
     }
 
     /// <summary>Stops the live log stream (call when navigating away from the page).</summary>
@@ -309,6 +834,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         StopStatsPolling();
+        _monitor.StatusChanged -= OnStatusChanged;
+        _watchdog.HealthChanged -= OnHealthChanged;
         _logStreamer.Dispose();
     }
 
@@ -374,7 +901,40 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         {
             _ = ResolveGpuAsync(row);
         }
+
+        RefreshHealth();
     }
+
+    /// <summary>Applies configured-flag and the latest watchdog health state onto each row.</summary>
+    private void RefreshHealth()
+    {
+        var configured = _settings.HealthChecks
+            .Where(h => h.Enabled && h.IsValid)
+            .Select(h => h.ContainerName)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var states = _watchdog.Latest.Containers
+            .ToDictionary(c => c.ContainerName, StringComparer.Ordinal);
+
+        foreach (var row in Containers)
+        {
+            row.HasHealthCheck = configured.Contains(row.Name);
+            if (states.TryGetValue(row.Name, out var snapshot))
+            {
+                row.Health = snapshot.State;
+                row.HealthRestartCount = snapshot.RestartCount;
+                row.HealthMaxRestarts = snapshot.MaxRestarts;
+            }
+            else if (!row.HasHealthCheck)
+            {
+                row.Health = ContainerHealthState.Unknown;
+                row.HealthRestartCount = 0;
+                row.HealthMaxRestarts = 0;
+            }
+        }
+    }
+
+    private void OnHealthChanged(object? sender, HealthSnapshot e) => RefreshHealth();
 
     private async Task ResolveGpuAsync(ContainerRowViewModel row)
     {
@@ -420,7 +980,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task RunAsync()
     {
-        var dialog = new RunContainerDialog(_wslc, _settings.Registries);
+        var dialog = new RunContainerDialog(_wslc, _settings.Registries, _profiles);
         var result = await _dialogs.ShowDialogAsync(dialog);
         if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary || dialog.Options is null)
         {
@@ -434,6 +994,48 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 await _authRefresher.EnsureFreshForReferenceAsync(dialog.Options.Image);
                 return await _wslc.RunContainerAsync(dialog.Options);
             });
+    }
+
+    [RelayCommand]
+    private async Task ImportComposeAsync()
+    {
+        var dialog = new ImportComposeDialog();
+        if (await _dialogs.ShowDialogAsync(dialog) != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary ||
+            string.IsNullOrWhiteSpace(dialog.Yaml))
+        {
+            return;
+        }
+
+        IReadOnlyList<RunProfile> parsed;
+        try
+        {
+            parsed = ComposeImporter.Parse(dialog.Yaml);
+        }
+        catch (Exception ex)
+        {
+            await _dialogs.ShowMessageAsync("Import failed", ex.Message);
+            return;
+        }
+
+        if (parsed.Count == 0)
+        {
+            await _dialogs.ShowMessageAsync(
+                "Nothing to import",
+                "No services with an image were found in the compose file.");
+            return;
+        }
+
+        foreach (var profile in parsed)
+        {
+            _profiles.Save(profile);
+        }
+
+        StatusMessage = $"Imported {parsed.Count} profile{(parsed.Count == 1 ? "" : "s")}";
+        await _dialogs.ShowMessageAsync(
+            "Compose imported",
+            $"Saved {parsed.Count} run profile{(parsed.Count == 1 ? "" : "s")}: " +
+            string.Join(", ", parsed.Select(p => p.Name)) +
+            ".\n\nLoad one from the Run dialog, or from an image's ⋯ menu.");
     }
 
     [RelayCommand]
@@ -538,6 +1140,52 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         _wslc.OpenTerminal(row.Id);
         StatusMessage = $"Opened terminal for {row.Name}";
+    }
+
+    [RelayCommand]
+    private async Task HealthCheckAsync(ContainerRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        var existing = _settings.HealthChecks
+            .FirstOrDefault(h => string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal));
+        var hostPorts = row.Model.Ports
+            .Where(p => p.HostPort > 0)
+            .Select(p => p.HostPort)
+            .Distinct()
+            .ToList();
+
+        var dialog = new HealthCheckDialog(row.Name, hostPorts, existing);
+        var result = await _dialogs.ShowDialogAsync(dialog);
+        if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        // Replace any existing policy for this container. Build a new list and swap the reference
+        // atomically so the watchdog's background loop never observes a mid-mutation list.
+        var updated = _settings.HealthChecks
+            .Where(h => !string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal))
+            .ToList();
+
+        if (dialog.Result is { IsValid: true } config)
+        {
+            updated.Add(config);
+            StatusMessage = config.Enabled
+                ? $"Health check configured for {row.Name}"
+                : $"Health check disabled for {row.Name}";
+        }
+        else
+        {
+            StatusMessage = $"Health check removed for {row.Name}";
+        }
+
+        _settings.HealthChecks = updated;
+        _settings.Save();
+        RefreshHealth();
     }
 
     [RelayCommand]

@@ -35,10 +35,20 @@ public interface IWslcService
     Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default);
     Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default);
     Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default);
+    Task<CommandResult> ListFilesAsync(string id, string path, CancellationToken ct = default);
+    Task<CommandResult> ReadTextFileAsync(string id, string path, int maxBytes = 65_536, CancellationToken ct = default);
+    Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default);
+    Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default);
+    Task<CommandResult> DeletePathAsync(string id, string path, CancellationToken ct = default);
+    Task<CommandResult> RenamePathAsync(string id, string oldPath, string newPath, CancellationToken ct = default);
+    Task<CommandResult> CreateDirectoryAsync(string id, string path, CancellationToken ct = default);
     Task<IReadOnlyList<ContainerStats>> GetStatsAsync(CancellationToken ct = default);
     Task<ContainerStats?> GetStatsAsync(string id, CancellationToken ct = default);
     void OpenTerminal(string id);
     void FollowLogs(string id);
+
+    /// <summary>Runs a shell command inside a container (`wslc exec &lt;id&gt; sh -c &lt;command&gt;`) and returns its result.</summary>
+    Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default);
 
     /// <summary>Detects GPU passthrough for a running container (checks /dev/dxg), and the GPU name if available.</summary>
     Task<(bool HasGpu, string? GpuName)> GetGpuInfoAsync(string id, CancellationToken ct = default);
