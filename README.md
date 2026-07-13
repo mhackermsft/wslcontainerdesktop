@@ -36,6 +36,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Live everywhere** — a background monitor drives per-container performance meters, the tray icon, and the status indicators without you lifting a finger.
 - **Lives in the tray** — minimize to a system-tray icon whose color reflects engine health, with a live running-container count and quick start/stop actions.
 - **Toast notifications** — actionable Windows toasts for pull/build, container-stopped, and engine down/recovered events; user-toggleable and globally mutable.
+- **Disk-usage & cleanup center** — see what images, containers, and volumes consume, what's reclaimable, and prune it all with one click.
 
 ---
 
@@ -72,6 +73,16 @@ Install and manage a single-node **k3s** cluster right inside the app: a metrics
 
 ![Kubernetes dashboard](docs/screenshots/kubernetes-dashboard.png)
 ![Kubernetes deployments](docs/screenshots/kubernetes-deployments.png)
+
+### Disk usage
+A holistic disk-usage & cleanup center: what images, containers, and volumes consume, how much is reclaimable, and one-click prune or **Reclaim all**.
+
+![Disk usage](docs/screenshots/disk-usage.png)
+
+### Settings
+Point the app at `wslc.exe`, tune tray/startup behavior, toggle toast notifications per category, and switch theme.
+
+![Settings](docs/screenshots/settings.png)
 
 ---
 
