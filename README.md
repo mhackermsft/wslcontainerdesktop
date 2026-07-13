@@ -167,6 +167,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - Live list with color-coded state (green = running) and inline row actions.
 - **Run a container** from a rich dialog: image, name, ports, environment variables, volumes, network, `--rm`, `-d`, `-i`, `--gpus all`, and a custom command. A **registry selector** qualifies bare image names.
 - Start, Stop, Restart, Kill, Remove, and Prune stopped.
+- **Health &amp; auto-heal** — configure a per-container health probe (an in-container **command** via `wslc exec`, or a host-side **TCP** connect to a published port) with a check interval and a restart policy. The watchdog enforces the policy, auto-restarts up to *N* times when a workload goes unhealthy, then stops and alerts. Health shows as a **badge** (healthy / degraded / down) on the list and rolls into the tray glyph, with a tray toast on unhealthy transitions. Config persists across restarts.
 - Click a container for a **full-page detail view** with tabs:
   - **Logs** — live streaming output with auto-scroll, wrap toggle, and clear.
   - **Summary** — id, state, image, ports, IP, network, start time, command, env vars, and mounts.
@@ -211,7 +212,8 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 ### System tray
 - Minimizes / closes to the tray instead of exiting (configurable).
 - **Right-click menu**: open the app, a live status line, and Quit.
-- Tray icon color reflects engine health — **green = healthy**, red = unreachable.
+- Tray icon color reflects engine health — **green = healthy**, amber = a container is unhealthy/degraded, red = engine unreachable or a container is down.
+- **Balloon notifications** when a watched container transitions to unhealthy or down.
 
 ### Settings
 - Path to `wslc.exe` with a **Test connection** button and engine version readout.

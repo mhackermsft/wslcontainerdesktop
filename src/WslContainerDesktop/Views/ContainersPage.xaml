@@ -13,6 +13,7 @@
     <Page.Resources>
         <converters:StateToBrushConverter x:Key="StateToBrush" />
         <converters:StateToStringConverter x:Key="StateToString" />
+        <converters:HealthToBrushConverter x:Key="HealthToBrush" />
         <converters:RelativeTimeConverter x:Key="RelativeTime" />
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
         <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
@@ -151,13 +152,20 @@
                                     Margin="10,0,8,0"
                                     VerticalAlignment="Center"
                                     Spacing="2">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Grid ColumnSpacing="6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
                                         <TextBlock
+                                            Grid.Column="0"
                                             VerticalAlignment="Center"
                                             FontWeight="SemiBold"
                                             Text="{Binding Name}"
                                             TextTrimming="CharacterEllipsis" />
                                         <Border
+                                            Grid.Column="1"
                                             Padding="5,1"
                                             VerticalAlignment="Center"
                                             Background="#1F7A3D"
@@ -169,7 +177,20 @@
                                                 <TextBlock FontSize="10" Foreground="White" Text="GPU" />
                                             </StackPanel>
                                         </Border>
-                                    </StackPanel>
+                                        <Border
+                                            Grid.Column="2"
+                                            Padding="5,1"
+                                            VerticalAlignment="Center"
+                                            Background="{Binding Health, Converter={StaticResource HealthToBrush}}"
+                                            CornerRadius="4"
+                                            ToolTipService.ToolTip="{Binding HealthTooltip}"
+                                            Visibility="{Binding HasHealthCheck, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                                <FontIcon FontSize="10" Foreground="White" Glyph="&#xEB51;" />
+                                                <TextBlock FontSize="10" Foreground="White" Text="Health" />
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
                                     <TextBlock
                                         FontFamily="Consolas"
                                         FontSize="11"
@@ -273,6 +294,11 @@
                                                 <MenuFlyoutItem Click="OpenPortMenu_Click" Text="Open in browser">
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE774;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem Click="HealthCheckMenu_Click" Text="Health check…">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xEB51;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
                                                 <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" />

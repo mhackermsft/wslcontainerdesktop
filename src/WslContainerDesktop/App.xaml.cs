@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 using WslContainerDesktop.Tray;
 using WslContainerDesktop.ViewModels;
@@ -29,6 +30,10 @@ public partial class App : Application
     private MainWindow? _window;
     private TrayIcon? _tray;
     private StatusMonitor? _monitor;
+    private HealthWatchdog? _watchdog;
+    private EngineHealth _engineHealth = EngineHealth.Unknown;
+    private string _engineSummary = string.Empty;
+    private ContainerHealthState _worstContainerHealth = ContainerHealthState.Unknown;
 private ILogger<App>? _logger;
 private bool _isExiting;
 
@@ -86,6 +91,12 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _monitor.StatusChanged += OnEngineStatusChanged;
         _monitor.Start();
 
+        // Health watchdog rides on the monitor's polling and enforces per-container probes.
+        _watchdog = Services.GetRequiredService<HealthWatchdog>();
+        _watchdog.HealthChanged += OnHealthChanged;
+        _watchdog.NotificationRequested += OnHealthNotification;
+        _watchdog.Start();
+
         _window = new MainWindow();
         _window.ApplyTheme(settings.Theme);
 
@@ -119,14 +130,52 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
     private void OnEngineStatusChanged(object? sender, EngineStatusSnapshot e)
     {
-        var tooltip = e.Health switch
+        _engineHealth = e.Health;
+        _engineSummary = e.Summary;
+        UpdateTray();
+    }
+
+    private void OnHealthChanged(object? sender, HealthSnapshot e)
+    {
+        _worstContainerHealth = e.Worst;
+        UpdateTray();
+    }
+
+    private void OnHealthNotification(string title, string message) =>
+        _tray?.ShowNotification(title, message);
+
+    /// <summary>Rolls the engine status and per-container health into the single tray glyph.</summary>
+    private void UpdateTray()
+    {
+        // Engine reachability dominates: if it's unreachable, nothing else matters.
+        var health = _engineHealth;
+        if (health == EngineHealth.Healthy)
         {
-            EngineHealth.Healthy => $"WSL Container Desktop — {e.Summary}",
+            health = _worstContainerHealth switch
+            {
+                ContainerHealthState.Down => EngineHealth.Down,
+                ContainerHealthState.Degraded => EngineHealth.Degraded,
+                _ => EngineHealth.Healthy,
+            };
+        }
+
+        var tooltip = _engineHealth switch
+        {
+            EngineHealth.Healthy => $"WSL Container Desktop — {_engineSummary}",
             EngineHealth.Down => "WSL Container Desktop — engine unreachable",
             _ => "WSL Container Desktop",
         };
 
-        _tray?.UpdateStatus(e.Health, tooltip, e.Summary);
+        if (health == EngineHealth.Degraded)
+        {
+            tooltip += " · a container is unhealthy";
+        }
+        else if (health == EngineHealth.Down && _engineHealth == EngineHealth.Healthy)
+        {
+            tooltip += " · a container is down";
+        }
+
+        _tray?.UpdateStatus(health, tooltip, _engineSummary.Length == 0 ? "Status: unknown" : _engineSummary);
     }
 
     public void ShowMainWindow()
@@ -173,6 +222,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             _logger?.LogWarning(ex, "Failed to stop port-forwards during shutdown.");
         }
 
+        _watchdog?.Dispose();
         _monitor?.Dispose();
         _tray?.Dispose();
         _window?.ForceClose();
@@ -235,6 +285,8 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             DispatcherQueue.GetForCurrentThread()
                 ?? throw new InvalidOperationException("StatusMonitor must first be resolved on the UI thread."),
             sp.GetRequiredService<ILogger<StatusMonitor>>()));
+
+        services.AddSingleton<HealthWatchdog>();
 
         services.AddSingleton<ContainersViewModel>();
         services.AddSingleton<ImagesViewModel>();

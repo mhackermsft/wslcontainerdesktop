@@ -49,6 +49,12 @@ public interface ISettingsService
     /// </summary>
     System.Collections.Generic.List<Models.RegistryEntry> Registries { get; set; }
 
+    /// <summary>
+    /// Per-container health probe and restart policies enforced by the health watchdog.
+    /// Keyed by container name so they survive stop/start and recreation.
+    /// </summary>
+    System.Collections.Generic.List<Models.HealthCheckConfig> HealthChecks { get; set; }
+
     void Load();
     void Save();
 }

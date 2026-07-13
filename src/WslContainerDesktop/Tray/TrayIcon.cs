@@ -104,6 +104,36 @@ public sealed class TrayIcon : IDisposable
         }
     }
 
+    /// <summary>Shows a balloon/toast notification from the tray icon (best effort).</summary>
+    public void ShowNotification(string title, string message)
+    {
+        if (!_iconAdded)
+        {
+            return;
+        }
+
+        // szInfoTitle is a 64-char field and szInfo a 256-char field; truncate to stay within them.
+        var data = new NativeMethods.NOTIFYICONDATA
+        {
+            cbSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.NOTIFYICONDATA>(),
+            hWnd = _hwnd,
+            uID = TrayIconId,
+            uFlags = NativeMethods.NIF_INFO,
+            szTip = _tooltip,
+            szInfo = Truncate(message, 255),
+            szInfoTitle = Truncate(title, 63),
+            dwInfoFlags = NativeMethods.NIIF_WARNING,
+        };
+
+        NativeMethods.Shell_NotifyIconW(NativeMethods.NIM_MODIFY, ref data);
+    }
+
+    private static string Truncate(string? value, int max)
+    {
+        value ??= string.Empty;
+        return value.Length <= max ? value : value[..max];
+    }
+
     private void AddOrUpdateIcon(int message)
     {
         var data = new NativeMethods.NOTIFYICONDATA
