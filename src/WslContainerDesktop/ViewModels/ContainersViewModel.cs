@@ -536,6 +536,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         IsFilesBusy = true;
+        // Set FilesCurrentPath before the await so that a subsequent navigation to a
+        // different path can be detected as a stale response in the post-await guard below.
         FilesCurrentPath = requestedPath;
         FilesStatusMessage = $"Loading {requestedPath}…";
         try
@@ -618,6 +620,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     private static string GetTempDir(string containerId)
     {
+        // Use the first 12 hex characters of the container ID as the subfolder name —
+        // this matches the "short ID" length displayed elsewhere in the UI and provides
+        // sufficient uniqueness across containers on the same host.
         var dir = Path.Combine(Path.GetTempPath(), "WslContainerDesktop", containerId.Length >= 12 ? containerId[..12] : containerId);
         Directory.CreateDirectory(dir);
         return dir;

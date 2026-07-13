@@ -48,12 +48,22 @@ public sealed class ContainerFileEntry
     {
         get
         {
-            if (IsDirectory) return "Folder";
-            if (IsSymlink) return "Shortcut";
-            var ext = System.IO.Path.GetExtension(Name);
-            return string.IsNullOrEmpty(ext) ? "File" : ext.TrimStart('.').ToUpperInvariant() + " File";
+            if (_typeDisplay is null)
+            {
+                if (IsDirectory) _typeDisplay = "Folder";
+                else if (IsSymlink) _typeDisplay = "Shortcut";
+                else
+                {
+                    var ext = System.IO.Path.GetExtension(Name);
+                    _typeDisplay = string.IsNullOrEmpty(ext) ? "File" : ext.TrimStart('.').ToUpperInvariant() + " File";
+                }
+            }
+
+            return _typeDisplay;
         }
     }
+
+    private string? _typeDisplay;
 
     public string OwnerDisplay => string.IsNullOrWhiteSpace(Group) || string.Equals(Owner, Group, StringComparison.Ordinal)
         ? Owner

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.IO;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
@@ -39,6 +40,12 @@ public sealed partial class ContainerDetailPage : Page
     private readonly MenuFlyout _itemContextFlyout;
     private readonly MenuFlyout _backgroundContextFlyout;
 
+    // StorageFile staging for non-blocking drag-out support. When the selection changes to a
+    // file, a background task resolves the staged temp copy into a StorageFile so that
+    // DragItemsStarting can set it synchronously without blocking the UI thread.
+    private Task<StorageFile?>? _stagedStorageFileTask;
+    private ContainerFileEntry? _stagedForEntry;
+
     public ContainerDetailPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<ContainersViewModel>();
@@ -48,11 +55,54 @@ public sealed partial class ContainerDetailPage : Page
         ViewModel.LogCleared += OnLogCleared;
         ViewModel.SelectionCleared += OnSelectionCleared;
 
+        // When the selected file changes, begin resolving the staged temp copy into a
+        // StorageFile in the background so drag-out is ready without blocking the UI thread.
+        ViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ContainersViewModel.SelectedFile))
+            {
+                OnSelectedFileChangedForDrag(ViewModel.SelectedFile);
+            }
+        };
+
         _itemContextFlyout = BuildItemContextFlyout();
         _backgroundContextFlyout = BuildBackgroundContextFlyout();
     }
 
     public ContainersViewModel ViewModel { get; }
+
+    private void OnSelectedFileChangedForDrag(ContainerFileEntry? entry)
+    {
+        _stagedStorageFileTask = null;
+        _stagedForEntry = null;
+
+        if (entry is not { IsDirectory: false })
+        {
+            return;
+        }
+
+        _stagedForEntry = entry;
+        var stagingTask = ViewModel.DragStagingTask;
+        if (stagingTask is null)
+        {
+            return;
+        }
+
+        // Chain from the path-staging task to create the StorageFile on a background thread.
+        _stagedStorageFileTask = stagingTask.ContinueWith(
+            async t =>
+            {
+                var path = t.IsCompletedSuccessfully ? t.Result : null;
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                {
+                    return null;
+                }
+
+                return await StorageFile.GetFileFromPathAsync(path).AsTask().ConfigureAwait(false);
+            },
+            TaskContinuationOptions.None
+        ).Unwrap();
+    }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
@@ -195,7 +245,22 @@ public sealed partial class ContainerDetailPage : Page
 
     private async void FilesList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        await ViewModel.OpenFileEntryAsync(ViewModel.SelectedFile);
+        // Walk the visual tree from the tapped element to get the actual data item.
+        // This is more reliable than ViewModel.SelectedFile, which may lag with touch input.
+        var element = e.OriginalSource as DependencyObject;
+        ContainerFileEntry? tappedEntry = null;
+        while (element is not null)
+        {
+            if (element is ListViewItem lvi && lvi.Content is ContainerFileEntry entry)
+            {
+                tappedEntry = entry;
+                break;
+            }
+
+            element = VisualTreeHelper.GetParent(element);
+        }
+
+        await ViewModel.OpenFileEntryAsync(tappedEntry ?? ViewModel.SelectedFile);
     }
 
     private void FilesList_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -290,7 +355,6 @@ public sealed partial class ContainerDetailPage : Page
         var entry = ViewModel.SelectedFile;
         if (entry is null || entry.IsDirectory)
         {
-            // Folders require recursive staging; use Download to… instead.
             if (entry?.IsDirectory == true)
             {
                 ViewModel.FilesStatusMessage = "To download a folder, right-click → Download to…";
@@ -300,37 +364,19 @@ public sealed partial class ContainerDetailPage : Page
             return;
         }
 
-        var stagingTask = ViewModel.DragStagingTask;
-        if (stagingTask is null || !stagingTask.IsCompletedSuccessfully || stagingTask.Result is null)
+        // Check the pre-staged StorageFile (resolved in the background when the file was selected).
+        if (_stagedStorageFileTask is null ||
+            !_stagedStorageFileTask.IsCompletedSuccessfully ||
+            _stagedStorageFileTask.Result is null ||
+            _stagedForEntry != entry)
         {
-            ViewModel.FilesStatusMessage = "File not yet staged — select it and try dragging again.";
+            ViewModel.FilesStatusMessage = "File not yet staged for drag — select it and try again.";
             e.Cancel = true;
             return;
         }
 
-        var tempPath = stagingTask.Result;
-        if (!System.IO.File.Exists(tempPath))
-        {
-            e.Cancel = true;
-            return;
-        }
-
-        try
-        {
-            // GetFileFromPathAsync is a WinRT async operation. Running it on a ThreadPool thread
-            // prevents the STA re-entrancy deadlock that would occur if awaited on the UI thread
-            // inside a synchronous event handler.
-            var storageFile = Task.Run(async () =>
-                await StorageFile.GetFileFromPathAsync(tempPath).AsTask().ConfigureAwait(false)
-            ).GetAwaiter().GetResult();
-
-            e.Data.SetStorageItems([storageFile]);
-            e.Data.RequestedOperation = DataPackageOperation.Copy;
-        }
-        catch
-        {
-            e.Cancel = true;
-        }
+        e.Data.SetStorageItems([_stagedStorageFileTask.Result]);
+        e.Data.RequestedOperation = DataPackageOperation.Copy;
     }
 
     // ---- Context flyout: item actions -----------------------------------

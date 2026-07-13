@@ -119,12 +119,12 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
 
     public Task<CommandResult> DeletePathAsync(string id, string path, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(path) || path == "/" || ContainsPathTraversal(path))
+        if (string.IsNullOrEmpty(path) || path == "/" || !path.StartsWith('/') || ContainsPathTraversal(path))
         {
             return Task.FromResult(new CommandResult
             {
                 ExitCode = -1,
-                StandardError = "Refusing to delete: path is the container root, empty, or contains path traversal segments.",
+                StandardError = "Refusing to delete: path must be an absolute non-root path without traversal segments.",
             });
         }
 
@@ -160,6 +160,8 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         return ExecShellAsync(id, $"mkdir -p -- {WslRootShell.ShellEscape(path)}", ct);
     }
 
+    // Container paths always use forward slashes (POSIX). Backslash is a valid character
+    // in Linux filenames and is NOT a path separator, so we deliberately do not normalize it.
     private static bool ContainsPathTraversal(string path) =>
         path.Split('/').Any(s => s == "." || s == "..");
 
