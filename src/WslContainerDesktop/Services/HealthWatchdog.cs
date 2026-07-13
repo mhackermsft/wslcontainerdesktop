@@ -149,6 +149,16 @@ public sealed class HealthWatchdog : IDisposable
         foreach (var cfg in configs)
         {
             var rt = _runtime.GetOrAdd(cfg.ContainerName, _ => new Runtime());
+
+            // A probe for this container is still in flight. Skip entirely — including the
+            // not-running branch below — so we never mutate its Runtime state concurrently
+            // with the running EvaluateAsync (e.g. during the transient not-running window
+            // of a restart it triggered).
+            if (rt.CheckInProgress)
+            {
+                continue;
+            }
+
             var container = containers.FirstOrDefault(c =>
                 string.Equals(c.Name, cfg.ContainerName, StringComparison.Ordinal));
 
@@ -177,11 +187,6 @@ public sealed class HealthWatchdog : IDisposable
                     changed = true;
                 }
 
-                continue;
-            }
-
-            if (rt.CheckInProgress)
-            {
                 continue;
             }
 

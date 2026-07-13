@@ -146,13 +146,20 @@
                                     Margin="10,0,8,0"
                                     VerticalAlignment="Center"
                                     Spacing="2">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Grid ColumnSpacing="6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
                                         <TextBlock
+                                            Grid.Column="0"
                                             VerticalAlignment="Center"
                                             FontWeight="SemiBold"
                                             Text="{Binding Name}"
                                             TextTrimming="CharacterEllipsis" />
                                         <Border
+                                            Grid.Column="1"
                                             Padding="5,1"
                                             VerticalAlignment="Center"
                                             Background="#1F7A3D"
@@ -165,6 +172,7 @@
                                             </StackPanel>
                                         </Border>
                                         <Border
+                                            Grid.Column="2"
                                             Padding="5,1"
                                             VerticalAlignment="Center"
                                             Background="{Binding Health, Converter={StaticResource HealthToBrush}}"
@@ -176,7 +184,7 @@
                                                 <TextBlock FontSize="10" Foreground="White" Text="Health" />
                                             </StackPanel>
                                         </Border>
-                                    </StackPanel>
+                                    </Grid>
                                     <TextBlock
                                         FontFamily="Consolas"
                                         FontSize="11"
