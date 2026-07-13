@@ -377,6 +377,7 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
                "if [ ! -d \"$target\" ]; then echo __WSLCD_NOT_DIR__; exit 3; fi; " +
                "cd \"$target\" || exit 4; " +
                "printf 'PWD\\t%s\\n' \"$PWD\"; " +
+               // Match regular and hidden entries while excluding "." and "..".
                "for entry in .[!.]* ..?* *; do " +
                "[ -e \"$entry\" ] || continue; " +
                "kind=f; " +
@@ -388,6 +389,7 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     private static string BuildReadTextFileScript(string path, int maxBytes)
     {
         var escapedPath = WslRootShell.ShellEscape(path);
+        // Keep previews reasonably small for the inline UI while preventing an empty/unsafe limit.
         var safeMaxBytes = Math.Clamp(maxBytes, 1_024, 1_048_576);
         return "target=" + escapedPath + "; " +
                "if [ ! -f \"$target\" ]; then echo __WSLCD_NOT_FILE__; exit 3; fi; " +
@@ -427,4 +429,3 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         }
     }
 }
-

@@ -564,7 +564,7 @@
                         <TextBlock
                             FontSize="12"
                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                            Text="Click a folder to drill down. Preview supports small files up to 64 KB." />
+                            Text="Click a folder to drill down. Preview supports small files up to 64 KiB." />
                     </StackPanel>
                 </Border>
 
