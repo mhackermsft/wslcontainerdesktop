@@ -76,7 +76,25 @@ Install and manage a single-node **k3s** cluster right inside the app: a metrics
 
 ## Getting started
 
-### 1. Prerequisites
+### Option A: Install a release (recommended for users)
+
+Prebuilt, signed packages are published on the [**Releases**](https://github.com/mhackermsft/wslcontainerdesktop/releases) page.
+
+1. Open the latest release and download **all three** assets into the same folder:
+   - `WSLContainerDesktop_<version>_x64.msix` — the app (self-contained; it bundles the .NET and Windows App SDK runtimes).
+   - `WSLContainerDesktop-Signing.cer` — the publisher certificate.
+   - `Install.ps1` — the installer.
+2. Right-click **`Install.ps1`** → **Run with PowerShell**. It requests admin rights, trusts the certificate, then installs the app.
+3. Launch **WSL Container Desktop** from the Start menu.
+
+To update later, download a newer release and run its `Install.ps1` the same way — it updates in place.
+
+> [!NOTE]
+> The package is **self-signed**. `Install.ps1` trusts the included certificate so Windows will accept it; you can inspect the `.cer` first (right-click → Open). You still need the **WSL container preview** (below) installed for the app to do anything.
+
+### Option B: Build from source
+
+#### 1. Prerequisites
 
 | Requirement | Notes |
 |-------------|-------|
@@ -98,7 +116,7 @@ Confirm the engine is present:
 & "C:\Program Files\WSL\wslc.exe" version
 ```
 
-### 2. Get the code
+#### 2. Get the code
 
 ```powershell
 git clone <your-fork-or-repo-url> wslcontainerdesktop
@@ -108,7 +126,7 @@ cd wslcontainerdesktop
 > [!CAUTION]
 > Before you build or run this, **review the source code yourself** to confirm it is safe and appropriate for your environment. You run it entirely at your own risk — see the [Disclaimer](#-disclaimer--no-warranty).
 
-### 3. Build & run
+#### 3. Build & run
 
 From a developer PowerShell prompt:
 
@@ -127,7 +145,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 
 `tools\launcher\Build-And-Run.ps1` rebuilds, redeploys, and launches the app in one step. A desktop shortcut named **WSL Container Desktop** points at it, so you can double-click to run the latest code after making changes.
 
-### 4. First run
+### First run
 
 1. Launch the app — the **Dashboard** shows your engine status and any running containers.
 2. Head to **Images → Pull image** to fetch something (e.g. `nginx:alpine`).
@@ -217,6 +235,20 @@ MVVM (CommunityToolkit.Mvvm) with dependency injection (Microsoft.Extensions.Dep
 The tray is implemented directly against Win32 (`Shell_NotifyIcon`, a hidden message window, `TrackPopupMenuEx`) so it has no third-party UI dependencies and stays compatible with the latest Windows App SDK.
 
 For a deeper contributor-oriented walkthrough — the process-execution strategy, the `StatusMonitor` model, the k3s status marker protocol, the installer trust model, and coding conventions — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## Releasing (maintainers)
+
+Releases are cut by manually running the **Build & Release (MSIX)** workflow:
+
+1. Go to **Actions → Build & Release (MSIX) → Run workflow**.
+2. Enter a **version** (SemVer `X.Y.Z`, e.g. `1.2.0`). Leave it blank to auto-derive `0.1.<run-number>`. Optionally tick **pre-release**.
+3. The workflow stamps the version into the package manifest, builds a **self-contained** MSIX (x64), signs it with the repository's signing certificate, and publishes a GitHub Release tagged `v<version>` with the `.msix`, the `.cer`, and `Install.ps1` attached.
+
+**Versioning:** the version you supply becomes the MSIX identity version `X.Y.Z.0` and the app's displayed version (read at runtime from the package identity, so it always matches the installed build). Bump it each release — the workflow refuses to reuse an existing tag, and Windows only treats a package as an in-place update when the version increases. The manifest version committed in source is just a placeholder; the release version overrides it at build time.
+
+Signing details and how to rotate the certificate are documented in [`build/README-signing.md`](build/README-signing.md).
 
 ---
 

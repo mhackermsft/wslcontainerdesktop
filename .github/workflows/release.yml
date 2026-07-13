@@ -1,0 +1,168 @@
+name: Build & Release (MSIX)
+
+# Manually triggered from the Actions tab. Builds a signed, self-contained MSIX and publishes
+# it as a GitHub Release.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (SemVer X.Y.Z). Leave blank to auto-derive 0.1.<run_number>."
+        required: false
+        default: ""
+      prerelease:
+        description: "Mark the GitHub Release as a pre-release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need tags to detect version clashes
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}".Trim()
+          if (-not $v) { $v = "0.1.${{ github.run_number }}" }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { Write-Error "Version '$v' must be SemVer X.Y.Z"; exit 1 }
+          "version=$v"     | Out-File $env:GITHUB_OUTPUT -Append
+          "version4=$v.0"  | Out-File $env:GITHUB_OUTPUT -Append
+          "tag=v$v"        | Out-File $env:GITHUB_OUTPUT -Append
+          Write-Host "Release version: $v ($v.0)"
+
+      - name: Fail if tag already exists
+        shell: pwsh
+        run: |
+          if (git tag --list "${{ steps.ver.outputs.tag }}") {
+            Write-Error "Tag ${{ steps.ver.outputs.tag }} already exists. Bump the version input."
+            exit 1
+          }
+
+      - name: Stamp version into the manifest
+        shell: pwsh
+        run: ./build/Set-Version.ps1 -Version "${{ steps.ver.outputs.version4 }}"
+
+      - name: Decode signing certificate
+        id: cert
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.PFX_BASE64 }}
+        run: |
+          if (-not $env:PFX_BASE64) { Write-Error "PFX_BASE64 secret is not set (see build/README-signing.md)."; exit 1 }
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [System.IO.File]::WriteAllBytes($pfx, [System.Convert]::FromBase64String($env:PFX_BASE64))
+          "pfx=$pfx" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Restore
+        run: dotnet restore src/WslContainerDesktop/WslContainerDesktop.csproj
+
+      - name: Build MSIX (unsigned, self-contained)
+        id: pkg
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'AppPackages'
+          dotnet build src/WslContainerDesktop/WslContainerDesktop.csproj `
+            -c Release -p:Platform=x64 -p:RuntimeIdentifier=win-x64 `
+            -p:Version="${{ steps.ver.outputs.version }}" `
+            -p:FileVersion="${{ steps.ver.outputs.version4 }}" `
+            -p:GenerateAppxPackageOnBuild=true `
+            -p:AppxPackageSigningEnabled=false `
+            "-p:AppxPackageDir=$out\" `
+            -p:UapAppxPackageBuildMode=SideloadOnly `
+            -p:AppxBundle=Never `
+            -p:WindowsAppSDKSelfContained=true `
+            -p:SelfContained=true
+          if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit 1 }
+          $msix = Get-ChildItem $out -Recurse -Filter *.msix | Select-Object -First 1
+          if (-not $msix) { Write-Error "No .msix produced under $out"; exit 1 }
+          Write-Host "Produced: $($msix.FullName)"
+          "msix=$($msix.FullName)" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Sign MSIX
+        shell: pwsh
+        env:
+          PFX_PASSWORD: ${{ secrets.PFX_PASSWORD }}
+        run: |
+          $st = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.windows.sdk.buildtools" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $st) {
+            $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+          }
+          if (-not $st) { Write-Error "signtool.exe not found"; exit 1 }
+          Write-Host "Using signtool: $($st.FullName)"
+          & $st.FullName sign /fd SHA256 /f "${{ steps.cert.outputs.pfx }}" /p "$env:PFX_PASSWORD" "${{ steps.pkg.outputs.msix }}"
+          if ($LASTEXITCODE -ne 0) { Write-Error "Signing failed"; exit 1 }
+          # Informational: a self-signed root is untrusted on the runner, so /pa may report an
+          # untrusted-chain error even though the signature itself is valid.
+          & $st.FullName verify /pa "${{ steps.pkg.outputs.msix }}"
+
+      - name: Stage release assets
+        id: stage
+        shell: pwsh
+        env:
+          PFX_PASSWORD: ${{ secrets.PFX_PASSWORD }}
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'release'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $ver = "${{ steps.ver.outputs.version }}"
+
+          # Rename the MSIX to a friendly, versioned name.
+          Copy-Item "${{ steps.pkg.outputs.msix }}" (Join-Path $stage "WSLContainerDesktop_${ver}_x64.msix")
+
+          # Export the public certificate (for user trust) from the PFX.
+          $col = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
+          $col.Import("${{ steps.cert.outputs.pfx }}", $env:PFX_PASSWORD, 'DefaultKeySet')
+          $leaf = $col[0]
+          [System.IO.File]::WriteAllBytes((Join-Path $stage 'WSLContainerDesktop-Signing.cer'), $leaf.Export('Cert'))
+
+          # Include the end-user installer script.
+          Copy-Item './build/Install.ps1' (Join-Path $stage 'Install.ps1')
+
+          Write-Host "Staged assets:"
+          Get-ChildItem $stage | ForEach-Object { Write-Host " - $($_.Name) ($([math]::Round($_.Length/1MB,1)) MB)" }
+          "dir=$stage" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $notesPath = Join-Path $env:RUNNER_TEMP 'notes.md'
+          @"
+          ## WSL Container Desktop ${{ steps.ver.outputs.version }}
+
+          ### Install
+          1. Download **all three** assets below (.msix, .cer, Install.ps1) into the same folder.
+          2. Right-click **Install.ps1** and choose **Run with PowerShell** (it requests admin rights to trust the signing certificate, then installs the app).
+          3. Launch **WSL Container Desktop** from the Start menu.
+
+          To update later, run a newer release's Install.ps1 the same way.
+
+          > Self-signed, self-contained package (bundles the .NET and Windows App SDK runtimes, so nothing else is required). Not a Microsoft product and carries no warranty - see the repository README.
+          "@ | Set-Content -LiteralPath $notesPath -Encoding UTF8
+
+          $ghArgs = @(
+            'release', 'create', "${{ steps.ver.outputs.tag }}",
+            '--title', "WSL Container Desktop ${{ steps.ver.outputs.version }}",
+            '--notes-file', $notesPath,
+            '--target', "${{ github.sha }}"
+          )
+          if ('${{ github.event.inputs.prerelease }}' -eq 'true') { $ghArgs += '--prerelease' }
+          Get-ChildItem "${{ steps.stage.outputs.dir }}" | ForEach-Object { $ghArgs += $_.FullName }
+
+          gh @ghArgs

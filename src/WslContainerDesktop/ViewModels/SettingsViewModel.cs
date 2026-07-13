@@ -61,7 +61,25 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBusy;
 
-    public string AppVersion { get; } = "1.0.0";
+    public string AppVersion { get; } = ResolveAppVersion();
+
+    /// <summary>
+    /// The app's version for display. Reads the packaged identity version (which the release
+    /// pipeline stamps into the MSIX), falling back to the assembly version when unpackaged.
+    /// </summary>
+    private static string ResolveAppVersion()
+    {
+        try
+        {
+            var v = Windows.ApplicationModel.Package.Current.Id.Version;
+            return $"Version {v.Major}.{v.Minor}.{v.Build}";
+        }
+        catch
+        {
+            var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            return v is null ? "Version 1.0.0" : $"Version {v.Major}.{v.Minor}.{v.Build}";
+        }
+    }
 
     public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger)
     {
