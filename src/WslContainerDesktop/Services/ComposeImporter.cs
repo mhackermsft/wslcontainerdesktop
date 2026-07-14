@@ -1343,13 +1343,45 @@ public static class ComposeImporter
                 return string.IsNullOrWhiteSpace(s.Value) ? null : s.Value.Trim();
 
             case SequenceNode seq:
-                var tokens = seq.Items.OfType<ScalarNode>().Select(x => x.Value).Where(x => !string.IsNullOrEmpty(x));
+                // Exec (list) form: each element is a distinct argv token and must survive the
+                // consumer's whitespace tokenizer intact. Quote any element containing whitespace so
+                // e.g. ["sh","-c","while true; do ...; done"] is NOT collapsed into separate words
+                // (which would leave sh with just "while" as its -c script and exit immediately).
+                var tokens = seq.Items.OfType<ScalarNode>()
+                    .Select(x => x.Value)
+                    .Where(x => !string.IsNullOrEmpty(x))
+                    .Select(QuoteToken);
                 var joined = string.Join(' ', tokens).Trim();
                 return string.IsNullOrEmpty(joined) ? null : joined;
 
             default:
                 return null;
         }
+    }
+
+    /// <summary>
+    /// Wraps a command argv token in quotes when it contains whitespace, so the whitespace-splitting
+    /// tokenizer in <see cref="Models.RunContainerOptions"/> reconstructs it as a single argument.
+    /// Picks a quote character not already present in the token when possible.
+    /// </summary>
+    private static string QuoteToken(string token)
+    {
+        if (!token.Any(char.IsWhiteSpace))
+        {
+            return token;
+        }
+
+        if (!token.Contains('"'))
+        {
+            return $"\"{token}\"";
+        }
+
+        if (!token.Contains('\''))
+        {
+            return $"'{token}'";
+        }
+
+        return $"\"{token}\""; // best effort when both quote characters appear
     }
 
     private static List<string> CollectStrings(Node? node)
