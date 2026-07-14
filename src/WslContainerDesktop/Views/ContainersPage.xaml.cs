@@ -17,16 +17,23 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
 public sealed partial class ContainersPage : Page
 {
+    private readonly CollectionViewSource _groupedContainers = new() { IsSourceGrouped = true };
+
     public ContainersPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<ContainersViewModel>();
         InitializeComponent();
+
+        // Bind the list to a grouped view over the project groups (headers come from ContainerGroup).
+        _groupedContainers.Source = ViewModel.Groups;
+        ContainersList.ItemsSource = _groupedContainers.View;
     }
 
     public ContainersViewModel ViewModel { get; }

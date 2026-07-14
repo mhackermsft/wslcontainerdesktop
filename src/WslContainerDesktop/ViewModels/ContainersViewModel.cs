@@ -38,6 +38,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
     private readonly IRunProfileStore _profiles;
+    private readonly IComposeProjectStore _composeStore;
     private readonly ILogger<ContainersViewModel> _logger;
     private readonly DispatcherQueue _dispatcher;
     private readonly LogStreamer _logStreamer;
@@ -145,7 +146,14 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<ContainerRowViewModel> Containers { get; } = new();
 
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, ILogger<ContainersViewModel> logger)
+    /// <summary>
+    /// The Containers list grouped by compose project (with a trailing "Standalone" group for
+    /// containers that aren't part of any project). Bound by the view via a grouped
+    /// <c>CollectionViewSource</c>. Kept in sync with <see cref="Containers"/> on every reconcile.
+    /// </summary>
+    public ObservableCollection<ContainerGroup> Groups { get; } = new();
+
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -155,6 +163,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         _settings = settings;
         _authRefresher = authRefresher;
         _profiles = profiles;
+        _composeStore = composeStore;
         _logger = logger;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _logStreamer = new LogStreamer(settings, _dispatcher);
@@ -898,6 +907,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             _ = ResolveNetworkAsync(row);
         }
 
+        // Assign each row's compose project (by matching its name against stored projects) and
+        // rebuild the grouped view used by the Containers list.
+        AssignProjects();
+        SyncGroups();
+
         // Probe GPU passthrough once per running container (via a cheap exec check).
         foreach (var row in Containers.Where(r => r.IsRunning && !r.GpuChecked))
         {
@@ -905,6 +919,133 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         RefreshHealth();
+    }
+
+    /// <summary>
+    /// Assigns each row's <see cref="ContainerRowViewModel.Project"/> by matching the container name
+    /// against the deterministic <c>project_service</c> names of every stored compose project.
+    /// </summary>
+    private void AssignProjects()
+    {
+        // Build containerName -> projectName once per reconcile.
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var project in _composeStore.GetAll())
+        {
+            foreach (var service in project.Services)
+            {
+                map[project.ContainerNameFor(service.Name)] = project.Name;
+            }
+        }
+
+        foreach (var row in Containers)
+        {
+            row.Project = map.TryGetValue(row.Name, out var projectName) ? projectName : null;
+        }
+    }
+
+    /// <summary>
+    /// Reconciles <see cref="Groups"/> against the current <see cref="Containers"/> so the grouped
+    /// list matches: one group per compose project (alphabetical), then a trailing "Standalone"
+    /// group. Groups and rows are reused in place (matched by key/id) so scroll position and item
+    /// recycling survive the periodic refresh.
+    /// </summary>
+    private void SyncGroups()
+    {
+        const string standaloneKey = "\uffff"; // sorts last
+
+        // Desired: key -> ordered rows. Project groups keyed by project name; standalone last.
+        var desired = new SortedDictionary<string, List<ContainerRowViewModel>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Containers)
+        {
+            var key = string.IsNullOrEmpty(row.Project) ? standaloneKey : row.Project!;
+            if (!desired.TryGetValue(key, out var list))
+            {
+                list = new List<ContainerRowViewModel>();
+                desired[key] = list;
+            }
+
+            list.Add(row);
+        }
+
+        foreach (var list in desired.Values)
+        {
+            list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Remove groups no longer present.
+        for (var i = Groups.Count - 1; i >= 0; i--)
+        {
+            if (!desired.ContainsKey(Groups[i].Key))
+            {
+                Groups.RemoveAt(i);
+            }
+        }
+
+        // Add/reorder groups to match desired order, then sync each group's items.
+        var desiredIndex = 0;
+        foreach (var (key, rows) in desired)
+        {
+            var existing = Groups.FirstOrDefault(g => g.Key == key);
+            if (existing is null)
+            {
+                var isProject = key != standaloneKey;
+                var title = isProject ? key : "Standalone";
+                existing = new ContainerGroup(key, title, isProject);
+                Groups.Insert(desiredIndex, existing);
+            }
+            else
+            {
+                var currentIndex = Groups.IndexOf(existing);
+                if (currentIndex != desiredIndex)
+                {
+                    Groups.Move(currentIndex, desiredIndex);
+                }
+            }
+
+            SyncGroupItems(existing, rows);
+            desiredIndex++;
+        }
+    }
+
+    /// <summary>Updates a single group's rows in place to match <paramref name="desired"/> order.</summary>
+    private static void SyncGroupItems(ContainerGroup group, List<ContainerRowViewModel> desired)
+    {
+        var desiredIds = new HashSet<string>(desired.Select(r => r.Id), StringComparer.Ordinal);
+        for (var i = group.Count - 1; i >= 0; i--)
+        {
+            if (!desiredIds.Contains(group[i].Id))
+            {
+                group.RemoveAt(i);
+            }
+        }
+
+        for (var i = 0; i < desired.Count; i++)
+        {
+            var row = desired[i];
+            if (i < group.Count && ReferenceEquals(group[i], row))
+            {
+                continue;
+            }
+
+            var currentIndex = -1;
+            for (var j = i; j < group.Count; j++)
+            {
+                if (ReferenceEquals(group[j], row))
+                {
+                    currentIndex = j;
+                    break;
+                }
+            }
+
+            if (currentIndex >= 0)
+            {
+                group.Move(currentIndex, i);
+            }
+            else
+            {
+                group.Insert(i, row);
+            }
+        }
     }
 
     /// <summary>Applies configured-flag and the latest watchdog health state onto each row.</summary>

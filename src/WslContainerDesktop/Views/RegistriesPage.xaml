@@ -19,7 +19,6 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -57,9 +56,35 @@
             </Button>
         </StackPanel>
 
+        <!--  Table: column header (wide only) + list  -->
+        <Grid Grid.Row="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup>
+                    <VisualState x:Name="HeaderWide">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MinWidth="680" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                    </VisualState>
+                    <VisualState x:Name="HeaderNarrow">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MaxWidth="680" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+
         <!--  Column header  -->
         <Border
-            Grid.Row="2"
+            x:Name="HeaderBorder"
+            Grid.Row="0"
             Padding="16,8,20,8"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
@@ -67,11 +92,11 @@
             CornerRadius="6,6,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2.4*" MinWidth="200" />
-                    <ColumnDefinition Width="2*" MinWidth="150" />
-                    <ColumnDefinition Width="1.2*" MinWidth="100" />
+                    <ColumnDefinition Width="2*" MinWidth="130" />
+                    <ColumnDefinition Width="1.6*" MinWidth="110" />
+                    <ColumnDefinition Width="1.2*" MinWidth="90" />
+                    <ColumnDefinition Width="1*" MinWidth="80" />
                     <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="200" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="NAME" />
                 <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="HOST" />
@@ -87,7 +112,7 @@
 
         <!--  List  -->
         <Border
-            Grid.Row="3"
+            Grid.Row="1"
             Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
             BorderThickness="1,0,1,1"
@@ -105,13 +130,33 @@
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="models:RegistryEntry">
-                        <Grid>
+                        <Grid x:Name="RowRoot">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup>
+                                        <VisualState x:Name="RowWide">
+                                            <VisualState.StateTriggers>
+                                                <converters:ControlSizeTrigger MinWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
+                                            </VisualState.StateTriggers>
+                                        </VisualState>
+                                        <VisualState x:Name="RowNarrow">
+                                            <VisualState.StateTriggers>
+                                                <converters:ControlSizeTrigger MaxWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
+                                            </VisualState.StateTriggers>
+                                            <VisualState.Setters>
+                                                <Setter Target="WideGrid.Visibility" Value="Collapsed" />
+                                                <Setter Target="NarrowPanel.Visibility" Value="Visible" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+
+                                <Grid x:Name="WideGrid">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="2.4*" MinWidth="200" />
-                                <ColumnDefinition Width="2*" MinWidth="150" />
-                                <ColumnDefinition Width="1.2*" MinWidth="100" />
+                                <ColumnDefinition Width="2*" MinWidth="130" />
+                                <ColumnDefinition Width="1.6*" MinWidth="110" />
+                                <ColumnDefinition Width="1.2*" MinWidth="90" />
+                                <ColumnDefinition Width="1*" MinWidth="80" />
                                 <ColumnDefinition Width="150" />
-                                <ColumnDefinition Width="200" />
                             </Grid.ColumnDefinitions>
 
                             <Grid
@@ -201,10 +246,67 @@
                                     <FontIcon FontSize="13" Glyph="&#xE74D;" />
                                 </Button>
                             </StackPanel>
-                        </Grid>
+                                </Grid>
+
+                                <!--  Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
+                                <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Grid.Column="0" FontSize="15" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE753;" />
+                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                        <Border Grid.Column="2" Padding="8,1" VerticalAlignment="Center" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="8" Visibility="{x:Bind IsDefault, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="default" />
+                                        </Border>
+                                    </Grid>
+
+                                    <Grid ColumnSpacing="8" RowSpacing="3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="76" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="HOST" />
+                                        <TextBlock Grid.Row="0" Grid.Column="1" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Host}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="USERNAME" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Username}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="STATUS" />
+                                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="7">
+                                            <FontIcon FontSize="13" Foreground="{x:Bind LoginStateColor, Mode=OneWay, Converter={StaticResource HexToBrush}}" Glyph="{x:Bind LoginStateGlyph, Mode=OneWay}" />
+                                            <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind LoginStateText, Mode=OneWay}" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <Button Click="Login_Click" AutomationProperties.Name="Log in" ToolTipService.ToolTip="Log in / re-authenticate" Visibility="{x:Bind ShowLoginButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <FontIcon FontSize="13" Glyph="&#xE77B;" />
+                                                <TextBlock FontSize="13" Text="Log in" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Click="Logout_Click" AutomationProperties.Name="Log out" ToolTipService.ToolTip="Log out" Visibility="{x:Bind ShowLogoutButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <FontIcon FontSize="13" Glyph="&#xE7E8;" />
+                                                <TextBlock FontSize="13" Text="Log out" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Click="Remove_Click" AutomationProperties.Name="Remove" ToolTipService.ToolTip="Remove" Visibility="{x:Bind ShowRemoveButton, Converter={StaticResource BoolToVis}}">
+                                            <FontIcon FontSize="13" Glyph="&#xE74D;" />
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
         </Border>
+        </Grid>
     </Grid>
 </Page>

@@ -20,6 +20,7 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="10" />
             <Setter Property="Padding" Value="18,16" />
+            <Setter Property="MinWidth" Value="210" />
         </Style>
     </Page.Resources>
 
@@ -35,16 +36,10 @@
                     Text="Overview and live performance of your WSL containers" />
             </StackPanel>
 
-            <!--  Summary cards  -->
-            <Grid ColumnSpacing="14">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
+            <!--  Summary cards (reflow onto multiple rows when narrow)  -->
+            <converters:WrapPanel HorizontalSpacing="14" VerticalSpacing="14">
 
-                <Border Grid.Column="0" Style="{StaticResource StatCard}">
+                <Border Style="{StaticResource StatCard}">
                     <StackPanel Spacing="6">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon
@@ -124,7 +119,7 @@
                             TextTrimming="CharacterEllipsis" />
                     </StackPanel>
                 </Border>
-            </Grid>
+            </converters:WrapPanel>
 
             <!--  Aggregate CPU  -->
             <Border Style="{StaticResource StatCard}">
@@ -158,8 +153,27 @@
                 BorderThickness="1"
                 CornerRadius="8">
                 <Grid>
-                    <!--  Column header  -->
-                    <Grid Padding="16,10" VerticalAlignment="Top">
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroup>
+                            <VisualState x:Name="PerfWide">
+                                <VisualState.StateTriggers>
+                                    <converters:ControlSizeTrigger MinWidth="640" TargetElement="{Binding ElementName=Root}" />
+                                </VisualState.StateTriggers>
+                            </VisualState>
+                            <VisualState x:Name="PerfNarrow">
+                                <VisualState.StateTriggers>
+                                    <converters:ControlSizeTrigger MaxWidth="640" TargetElement="{Binding ElementName=Root}" />
+                                </VisualState.StateTriggers>
+                                <VisualState.Setters>
+                                    <Setter Target="PerfHeader.Visibility" Value="Collapsed" />
+                                    <Setter Target="PerfList.Margin" Value="0,6,0,6" />
+                                </VisualState.Setters>
+                            </VisualState>
+                        </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
+
+                    <!--  Column header (wide only)  -->
+                    <Grid x:Name="PerfHeader" Padding="16,10" VerticalAlignment="Top">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="2*" MinWidth="120" />
                             <ColumnDefinition Width="1.4*" MinWidth="120" />
@@ -175,11 +189,32 @@
                     </Grid>
 
                     <ItemsControl
+                        x:Name="PerfList"
                         Margin="0,40,0,6"
                         ItemsSource="{x:Bind ViewModel.LiveStats, Mode=OneWay}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:DashboardStatRow">
-                                <Grid Padding="16,8" ColumnSpacing="8">
+                                <Grid x:Name="PerfRowRoot">
+                                    <VisualStateManager.VisualStateGroups>
+                                        <VisualStateGroup>
+                                            <VisualState x:Name="PerfRowWide">
+                                                <VisualState.StateTriggers>
+                                                    <converters:ControlSizeTrigger MinWidth="600" TargetElement="{Binding ElementName=PerfRowRoot}" />
+                                                </VisualState.StateTriggers>
+                                            </VisualState>
+                                            <VisualState x:Name="PerfRowNarrow">
+                                                <VisualState.StateTriggers>
+                                                    <converters:ControlSizeTrigger MaxWidth="600" TargetElement="{Binding ElementName=PerfRowRoot}" />
+                                                </VisualState.StateTriggers>
+                                                <VisualState.Setters>
+                                                    <Setter Target="PerfWideGrid.Visibility" Value="Collapsed" />
+                                                    <Setter Target="PerfNarrowPanel.Visibility" Value="Visible" />
+                                                </VisualState.Setters>
+                                            </VisualState>
+                                        </VisualStateGroup>
+                                    </VisualStateManager.VisualStateGroups>
+
+                                <Grid x:Name="PerfWideGrid" Padding="16,8" ColumnSpacing="8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="2*" MinWidth="120" />
                                         <ColumnDefinition Width="1.4*" MinWidth="120" />
@@ -254,6 +289,85 @@
                                         FontSize="12"
                                         Text="{x:Bind BlockIO, Mode=OneWay}"
                                         TextTrimming="CharacterEllipsis" />
+                                </Grid>
+
+                                <!--  Narrow: stacked card layout  -->
+                                <StackPanel x:Name="PerfNarrowPanel" Padding="16,10" Spacing="8" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            FontWeight="SemiBold"
+                                            Text="{x:Bind Name, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <Border
+                                            Padding="5,1"
+                                            VerticalAlignment="Center"
+                                            Background="#1F7A3D"
+                                            CornerRadius="4"
+                                            ToolTipService.ToolTip="{x:Bind GpuTooltip, Mode=OneWay}"
+                                            Visibility="{x:Bind HasGpu, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                                <FontIcon FontSize="10" Foreground="White" Glyph="&#xE950;" />
+                                                <TextBlock FontSize="10" Foreground="White" Text="GPU" />
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="64" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" Text="CPU" />
+                                        <StackPanel Grid.Column="1" Spacing="3">
+                                            <TextBlock FontSize="13" Text="{x:Bind Cpu, Mode=OneWay}" />
+                                            <ProgressBar Maximum="100" Minimum="0" Value="{x:Bind CpuValue, Mode=OneWay}" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="64" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" Text="MEMORY" />
+                                        <StackPanel Grid.Column="1" Spacing="3">
+                                            <TextBlock
+                                                FontSize="12"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{x:Bind MemUsage, Mode=OneWay}"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <ProgressBar Maximum="100" Minimum="0" Value="{x:Bind MemValue, Mode=OneWay}" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="64" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="NET I/O" />
+                                        <TextBlock
+                                            Grid.Row="0"
+                                            Grid.Column="1"
+                                            FontFamily="Consolas"
+                                            FontSize="12"
+                                            Text="{x:Bind NetIO, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="BLOCK I/O" />
+                                        <TextBlock
+                                            Grid.Row="1"
+                                            Grid.Column="1"
+                                            FontFamily="Consolas"
+                                            FontSize="12"
+                                            Text="{x:Bind BlockIO, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </StackPanel>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>

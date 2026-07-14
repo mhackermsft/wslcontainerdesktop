@@ -20,7 +20,6 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -57,13 +56,39 @@
             Message="Restart and health-check policies for a project are enforced by this app, so they only apply while it is running. When the app relaunches, supervision resumes for projects whose containers still exist."
             Severity="Informational" />
 
-        <Border
-            Grid.Row="3"
-            Padding="16,8,20,8"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-            BorderThickness="1"
-            CornerRadius="6,6,0,0">
+        <!--  Table: column header (wide only) + list  -->
+        <Grid Grid.Row="3">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup>
+                    <VisualState x:Name="HeaderWide">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MinWidth="720" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                    </VisualState>
+                    <VisualState x:Name="HeaderNarrow">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MaxWidth="720" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+
+                <Border
+                    x:Name="HeaderBorder"
+                    Grid.Row="0"
+                    Padding="16,8,20,8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6,6,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" MinWidth="160" />
@@ -83,7 +108,7 @@
         </Border>
 
         <Border
-            Grid.Row="4"
+            Grid.Row="1"
             Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
             BorderThickness="1,0,1,1"
@@ -103,7 +128,27 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:ComposeProjectRow">
-                            <Grid>
+                            <Grid x:Name="RowRoot">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup>
+                                        <VisualState x:Name="RowWide">
+                                            <VisualState.StateTriggers>
+                                                <converters:ControlSizeTrigger MinWidth="680" TargetElement="{Binding ElementName=RowRoot}" />
+                                            </VisualState.StateTriggers>
+                                        </VisualState>
+                                        <VisualState x:Name="RowNarrow">
+                                            <VisualState.StateTriggers>
+                                                <converters:ControlSizeTrigger MaxWidth="680" TargetElement="{Binding ElementName=RowRoot}" />
+                                            </VisualState.StateTriggers>
+                                            <VisualState.Setters>
+                                                <Setter Target="WideGrid.Visibility" Value="Collapsed" />
+                                                <Setter Target="NarrowPanel.Visibility" Value="Visible" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+
+                                <Grid x:Name="WideGrid">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" MinWidth="160" />
                                     <ColumnDefinition Width="2*" MinWidth="180" />
@@ -182,6 +227,47 @@
                                         <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                     </Button>
                                 </StackPanel>
+                                </Grid>
+
+                                <!--  Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
+                                <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE7F4;" />
+                                        <TextBlock VerticalAlignment="Center" FontSize="13" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+
+                                    <Grid ColumnSpacing="8" RowSpacing="3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="76" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="SERVICES" />
+                                        <TextBlock Grid.Row="0" Grid.Column="1" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ServicesSummary}" ToolTipService.ToolTip="{x:Bind ServicesSummary}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="STATUS" />
+                                        <Border Grid.Row="1" Grid.Column="1" Padding="8,2" HorizontalAlignment="Left" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="10">
+                                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind StatusText, Mode=OneWay}" />
+                                        </Border>
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <Button Padding="7,5" Click="UpButton_Click" ToolTipService.ToolTip="Bring up">
+                                            <FontIcon FontSize="14" Glyph="&#xE768;" />
+                                        </Button>
+                                        <Button Padding="7,5" Click="RestartButton_Click" ToolTipService.ToolTip="Restart">
+                                            <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                                        </Button>
+                                        <Button Padding="7,5" Click="DownButton_Click" ToolTipService.ToolTip="Bring down">
+                                            <FontIcon FontSize="14" Glyph="&#xE71A;" />
+                                        </Button>
+                                        <Button Padding="7,5" Click="RemoveButton_Click" ToolTipService.ToolTip="Remove project">
+                                            <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
@@ -210,6 +296,7 @@
                     Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
             </Grid>
         </Border>
+        </Grid>
     </Grid>
 </Page>
 
