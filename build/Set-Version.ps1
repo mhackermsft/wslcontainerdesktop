@@ -21,14 +21,13 @@ $manifest = Join-Path $PSScriptRoot '..\src\WslContainerDesktop\Package.appxmani
 $manifest = (Resolve-Path -LiteralPath $manifest).Path
 
 $content = Get-Content -LiteralPath $manifest -Raw
-$updated = [regex]::Replace(
-    $content,
-    '(<Identity\b[^>]*\bVersion=")[^"]*(")',
-    "`${1}$Version`$2")
+$pattern = '(<Identity\b[^>]*\bVersion=")[^"]*(")'
 
-if ($updated -eq $content) {
+if (-not [regex]::IsMatch($content, $pattern)) {
     throw "Could not find an <Identity ... Version=`"...`"> attribute to stamp in $manifest"
 }
+
+$updated = [regex]::Replace($content, $pattern, "`${1}$Version`$2")
 
 # Write back without a BOM (MSBuild reads either; keep it clean).
 [System.IO.File]::WriteAllText($manifest, $updated, (New-Object System.Text.UTF8Encoding($false)))
