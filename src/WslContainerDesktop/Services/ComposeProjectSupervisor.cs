@@ -224,8 +224,10 @@ public sealed class ComposeProjectSupervisor
     /// <summary>
     /// Brings the project down: stops and removes every container the app created for it, and
     /// unregisters its health/restart policies. Leaves the stored project definition intact.
+    /// When <paramref name="removeVolumes"/> is <c>true</c>, also removes the project-created
+    /// volumes (like <c>docker compose down --volumes</c>); external volumes are always preserved.
     /// </summary>
-    public async Task DownAsync(string projectName, CancellationToken ct = default)
+    public async Task DownAsync(string projectName, bool removeVolumes = false, CancellationToken ct = default)
     {
         var project = _store.Get(projectName);
         if (project is null)
@@ -249,7 +251,8 @@ public sealed class ComposeProjectSupervisor
             await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
         }
 
-        // Remove project-created networks (like `docker compose down`). Volumes are preserved.
+        // Remove project-created networks (like `docker compose down`). Volumes are preserved
+        // unless the caller requested their removal (like `docker compose down --volumes`).
         foreach (var network in project.Networks.Where(n => !n.External && !string.IsNullOrWhiteSpace(n.Name)))
         {
             try
@@ -259,6 +262,21 @@ public sealed class ComposeProjectSupervisor
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Removing network {Network} failed (may be in use).", network.Name);
+            }
+        }
+
+        if (removeVolumes)
+        {
+            foreach (var volume in project.Volumes.Where(v => !v.External && !string.IsNullOrWhiteSpace(v.Name)))
+            {
+                try
+                {
+                    await _wslc.RemoveVolumeAsync(volume.Name, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Removing volume {Volume} failed (may be in use).", volume.Name);
+                }
             }
         }
 
@@ -278,7 +296,7 @@ public sealed class ComposeProjectSupervisor
             return new ComposeUpResult();
         }
 
-        await DownAsync(projectName, ct).ConfigureAwait(false);
+        await DownAsync(projectName, removeVolumes: false, ct).ConfigureAwait(false);
         return await UpAsync(project, ct).ConfigureAwait(false);
     }
 

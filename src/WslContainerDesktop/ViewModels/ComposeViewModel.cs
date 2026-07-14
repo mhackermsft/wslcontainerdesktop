@@ -373,7 +373,7 @@ public partial class ComposeViewModel : ObservableObject
 
         var ok = await _dialogs.ShowConfirmAsync(
             "Remove project",
-            $"Remove the project definition for \"{row.Name}\"? This also brings it down (stops and removes its containers).",
+            $"Remove the project definition for \"{row.Name}\"? This also brings it down (stops and removes its containers) and deletes the volumes it created. External volumes are preserved.",
             "Remove");
         if (!ok)
         {
@@ -383,7 +383,7 @@ public partial class ComposeViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            await _supervisor.DownAsync(row.Name);
+            await _supervisor.DownAsync(row.Name, removeVolumes: true);
             _store.Delete(row.Name);
             await RefreshAsync();
             StatusMessage = $"Removed \"{row.Name}\"";
