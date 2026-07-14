@@ -67,6 +67,12 @@ public interface ISettingsService
     /// </summary>
     System.Collections.Generic.List<Models.HealthCheckConfig> HealthChecks { get; set; }
 
+    /// <summary>
+    /// Per-container restart policies for containers without a health check (compose services with
+    /// a <c>restart:</c> policy). Enforced in-process by the restart watchdog while the app runs.
+    /// </summary>
+    System.Collections.Generic.List<Models.RestartPolicyConfig> RestartPolicies { get; set; }
+
     void Load();
     void Save();
 }

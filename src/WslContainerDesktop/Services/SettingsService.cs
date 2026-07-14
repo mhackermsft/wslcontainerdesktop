@@ -43,6 +43,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public string? K3sInstallerSha256 { get; set; }
     public List<RegistryEntry> Registries { get; set; } = new() { RegistryEntry.DockerHub() };
     public List<HealthCheckConfig> HealthChecks { get; set; } = new();
+    public List<RestartPolicyConfig> RestartPolicies { get; set; } = new();
 
     public void Load()
     {
@@ -134,6 +135,36 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             }
 
             HealthChecks = healthChecks;
+
+            // Load persisted restart policies (skip malformed / "no" entries).
+            var restartPolicies = new List<RestartPolicyConfig>();
+            if (dto.RestartPolicies is not null)
+            {
+                foreach (var r in dto.RestartPolicies)
+                {
+                    if (r is null || string.IsNullOrWhiteSpace(r.ContainerName))
+                    {
+                        continue;
+                    }
+
+                    var policy = new RestartPolicyConfig
+                    {
+                        ContainerName = r.ContainerName!.Trim(),
+                        Policy = Enum.IsDefined(typeof(RestartPolicyKind), r.Policy)
+                            ? (RestartPolicyKind)r.Policy
+                            : RestartPolicyKind.No,
+                        MaxRestarts = Math.Clamp(r.MaxRestarts, 0, RestartPolicyConfig.MaxRestartLimit),
+                        Enabled = r.Enabled,
+                    };
+
+                    if (policy.IsValid)
+                    {
+                        restartPolicies.Add(policy);
+                    }
+                }
+            }
+
+            RestartPolicies = restartPolicies;
         }
         catch (Exception ex)
         {
@@ -185,6 +216,16 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                         Enabled = h.Enabled,
                     })
                     .ToList(),
+                RestartPolicies = RestartPolicies
+                    .Where(r => r.IsValid)
+                    .Select(r => new RestartPolicyDto
+                    {
+                        ContainerName = r.ContainerName,
+                        Policy = (int)r.Policy,
+                        MaxRestarts = r.MaxRestarts,
+                        Enabled = r.Enabled,
+                    })
+                    .ToList(),
             };
 
             var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true });
@@ -223,6 +264,15 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public string? K3sInstallerSha256 { get; set; }
         public List<RegistryDto>? Registries { get; set; }
         public List<HealthCheckDto>? HealthChecks { get; set; }
+        public List<RestartPolicyDto>? RestartPolicies { get; set; }
+    }
+
+    private sealed class RestartPolicyDto
+    {
+        public string? ContainerName { get; set; }
+        public int Policy { get; set; }
+        public int MaxRestarts { get; set; } = 3;
+        public bool Enabled { get; set; } = true;
     }
 
     private sealed class HealthCheckDto

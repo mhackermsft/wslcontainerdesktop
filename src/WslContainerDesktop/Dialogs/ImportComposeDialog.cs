@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.IO;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Storage;
@@ -22,17 +23,23 @@ using Windows.Storage.Pickers;
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
-/// Lets the user pick or paste a basic <c>docker-compose.yml</c> to seed one run profile per
-/// service. Only the common single-container fields are honored; full compose orchestration is out
-/// of scope (see <see cref="Services.ComposeImporter"/>).
+/// Lets the user pick a <c>docker-compose.yml</c> from disk to import. Importing from a file (rather
+/// than pasting text) is required so relative <c>env_file</c> paths and a sibling <c>.env</c> file
+/// resolve against the compose file's folder (see <see cref="Services.ComposeImporter"/>).
 /// </summary>
 public sealed class ImportComposeDialog : ContentDialog
 {
-    private readonly TextBox _editor;
     private readonly TextBlock _fileLabel;
 
-    /// <summary>The compose text the user chose to import.</summary>
+    /// <summary>The compose text read from the chosen file.</summary>
     public string Yaml { get; private set; } = string.Empty;
+
+    /// <summary>Full path of the chosen compose file, or null if none was selected.</summary>
+    public string? FilePath { get; private set; }
+
+    /// <summary>Directory the compose file lives in, used to resolve <c>.env</c> and relative paths.</summary>
+    public string? BaseDirectory =>
+        string.IsNullOrEmpty(FilePath) ? null : Path.GetDirectoryName(FilePath);
 
     public ImportComposeDialog()
     {
@@ -40,6 +47,9 @@ public sealed class ImportComposeDialog : ContentDialog
         PrimaryButtonText = "Import";
         CloseButtonText = "Cancel";
         DefaultButton = ContentDialogButton.Primary;
+
+        // Nothing can be imported until a file is chosen.
+        IsPrimaryButtonEnabled = false;
 
         var browseButton = new Button
         {
@@ -50,7 +60,7 @@ public sealed class ImportComposeDialog : ContentDialog
                 Children =
                 {
                     new FontIcon { FontSize = 14, Glyph = "\uE838" },
-                    new TextBlock { Text = "Browse for a compose file…" },
+                    new TextBlock { Text = "Choose a compose file…" },
                 },
             },
         };
@@ -71,32 +81,23 @@ public sealed class ImportComposeDialog : ContentDialog
             Children = { browseButton, _fileLabel },
         };
 
-        _editor = new TextBox
-        {
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.NoWrap,
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-            FontSize = 13,
-            PlaceholderText = "Paste a docker-compose.yml here, or browse for a file.",
-            Height = 320,
-            Width = 640,
-        };
-        ScrollViewer.SetVerticalScrollBarVisibility(_editor, ScrollBarVisibility.Auto);
-        ScrollViewer.SetHorizontalScrollBarVisibility(_editor, ScrollBarVisibility.Auto);
-
         var hint = new TextBlock
         {
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Text = "Each service becomes a saved run profile (image, name, ports, environment, volumes, network). "
-                 + "Full compose orchestration (depends_on, build, healthchecks) is ignored.",
+            Width = 460,
+            Text = "Pick a docker-compose.yml (or .yaml) from disk. A sibling .env file and relative "
+                 + "env_file paths are read from the same folder. Imported from the Compose page, the "
+                 + "project keeps its depends_on order, restart and healthcheck policies (enforced by this "
+                 + "app while it runs), environment interpolation, and resource limits. Imported from the "
+                 + "Images/Containers page, each service is saved as a standalone run profile instead.",
         };
 
         Content = new StackPanel
         {
             Spacing = 12,
-            Children = { topRow, _editor, hint },
+            Children = { topRow, hint },
         };
 
         PrimaryButtonClick += OnPrimary;
@@ -123,25 +124,25 @@ public sealed class ImportComposeDialog : ContentDialog
                 return;
             }
 
-            var text = await FileIO.ReadTextAsync(file);
-            _editor.Text = text;
+            Yaml = await FileIO.ReadTextAsync(file);
+            FilePath = file.Path;
             _fileLabel.Text = file.Name;
+            IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(Yaml);
         }
         catch
         {
+            Yaml = string.Empty;
+            FilePath = null;
             _fileLabel.Text = "Could not read the selected file.";
+            IsPrimaryButtonEnabled = false;
         }
     }
 
     private void OnPrimary(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
-        var text = _editor.Text;
-        if (string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrWhiteSpace(Yaml))
         {
             args.Cancel = true;
-            return;
         }
-
-        Yaml = text;
     }
 }

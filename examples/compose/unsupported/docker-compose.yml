@@ -1,0 +1,76 @@
+# Compose stack that INTENTIONALLY uses features WSL Container Desktop can't reproduce,
+# so you can see the "Some features aren't supported" warning dialog at import.
+#
+# HOW TO TEST
+#   1. Compose page → "Import compose file" → pick THIS file
+#      (examples/compose/unsupported/docker-compose.yml).
+#   2. A dialog lists the dropped/limited features (see the expected list below) and
+#      offers "Import anyway". Cancel to abort, or import to continue.
+#   3. If you import + bring up, the containers still run — just WITHOUT the unsupported
+#      behavior (no privileges, single network, one instance, etc.).
+#
+# EXPECTED WARNINGS
+#   Service 'app':   privileged, cap_add, cap_drop, read_only, init, devices, sysctls,
+#                    logging, mac_address, pid, ipc, security_opt      (each "not supported")
+#   Service 'app':   attached to only the first of 2 networks           (single-network limit)
+#   Service 'app':   deploy.replicas: 3 is not supported                (no scaling)
+#   Service 'worker': group_add, userns_mode, cgroup_parent             (each "not supported")
+#   Top-level 'unknown-top-level:' is not supported                     (unrecognized key)
+#
+# NOTE: `x-notes` (extension) and `version` are deliberately NOT flagged.
+
+version: "3.9"
+
+x-notes: &notes "extension keys starting with x- are ignored, not flagged"
+
+networks:
+  net1: {}
+  net2: {}
+
+services:
+  app:
+    image: nginx:alpine
+    # --- none of these have a wslc run flag or a safe emulation ---
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_TIME
+    cap_drop:
+      - MKNOD
+    read_only: true
+    init: true
+    devices:
+      - "/dev/null:/dev/null"
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+    mac_address: "02:42:ac:11:00:02"
+    pid: host
+    ipc: host
+    security_opt:
+      - "no-new-privileges:true"
+    # multi-network: wslc attaches only the FIRST network
+    networks:
+      - net1
+      - net2
+    # scaling: only a single instance is started
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "1.0"      # deploy.resources.limits IS supported (not flagged)
+          memory: 128M
+
+  worker:
+    image: busybox:1.36
+    command: ["sh", "-c", "sleep 3600"]
+    group_add:
+      - audio
+    userns_mode: host
+    cgroup_parent: /custom.slice
+
+# Unrecognized top-level key — flagged as unsupported.
+unknown-top-level: something
