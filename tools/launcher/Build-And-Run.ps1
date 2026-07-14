@@ -10,10 +10,10 @@
 
 $ErrorActionPreference = 'Stop'
 
-$projectDir = Join-Path $PSScriptRoot '..\..\src\WslContainerDesktop'
-$project    = Join-Path $projectDir 'WslContainerDesktop.csproj'
-$aumid      = '393193CD-4A5B-4502-BC94-7C6AF142CD28_1z32rh13vfry6!App'
-$manifest   = Join-Path $projectDir 'bin\x64\Debug\net10.0-windows10.0.26100.0\win-x64\AppX\AppxManifest.xml'
+$projectDir  = Join-Path $PSScriptRoot '..\..\src\WslContainerDesktop'
+$project     = Join-Path $projectDir 'WslContainerDesktop.csproj'
+$packageName = '393193CD-4A5B-4502-BC94-7C6AF142CD28'
+$manifest    = Join-Path $projectDir 'bin\x64\Debug\net10.0-windows10.0.26100.0\win-x64\AppX\AppxManifest.xml'
 
 # Locate dotnet.
 $dotnet = 'C:\Program Files\dotnet\dotnet.exe'
@@ -35,9 +35,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Register the freshly built loose files so the new version is what launches.
+# Re-register from this exact location so the AUMID resolves to the fresh build
+# even if a previous registration pointed somewhere else.
 if (Test-Path $manifest) {
     try {
-        Add-AppxPackage -Register $manifest -ForceUpdateFromAnyVersion -ErrorAction Stop
+        Add-AppxPackage -Register $manifest -ForceUpdateFromAnyVersion -ForceApplicationShutdown -ErrorAction Stop
     }
     catch {
         Write-Host "  Warning: registration reported: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -46,6 +48,17 @@ if (Test-Path $manifest) {
 
 Write-Host ''
 Write-Host '  Launching...' -ForegroundColor Green
+
+# Resolve the app's AUMID from the registered package rather than hard-coding
+# the publisher hash (which changes if the manifest Publisher ever changes).
+$pkg = Get-AppxPackage -Name $packageName | Select-Object -First 1
+if (-not $pkg) {
+    Write-Host '  Could not find the registered package to launch.' -ForegroundColor Red
+    Read-Host '  Press Enter to close'
+    exit 1
+}
+$appId = (Get-AppxPackageManifest $pkg).Package.Applications.Application.Id
+$aumid = "$($pkg.PackageFamilyName)!$appId"
 
 # Launch by identity via the shell so the app is detached from this console.
 Start-Process "shell:AppsFolder\$aumid"
