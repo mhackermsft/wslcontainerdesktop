@@ -213,6 +213,10 @@ public partial class ComposeViewModel : ObservableObject
             project.Name = nameDialog.Value.Trim();
         }
 
+        // Namespace project-created volumes/networks with the (now-final) project name so removing
+        // this project can never delete or detach resources another project shares by bare name.
+        project.ApplyProjectNamespacing();
+
         _store.Save(project);
         await RefreshAsync();
         StatusMessage = $"Imported project \"{project.Name}\" ({project.Services.Count} services)";

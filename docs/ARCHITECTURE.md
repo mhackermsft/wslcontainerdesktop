@@ -185,10 +185,13 @@ services that declare a `healthcheck` into `HealthWatchdog`, and seeds `restart:
 services *without* a healthcheck into `RestartPolicyWatchdog` (which restarts an exited container
 within a budget; `on-failure` inspects the exit code, and a user's manual stop suppresses
 `unless-stopped`/`on-failure` restarts). Stops honor each service's `stop_grace_period` and
-`stop_signal` (`wslc stop -t/-s`). `down` also removes project-created networks (volumes are
-preserved, like `docker compose down`); **removing** a project (deleting its definition) additionally
-deletes the volumes it created (like `docker compose down --volumes`), while external volumes are
-always preserved. Because enforcement is in-process there is **no background
+`stop_signal` (`wslc stop -t/-s`). Project-created volumes and networks are **namespaced with the
+project name** at import (`myproj_data`, `myproj_appnet`, like `docker compose`), with service mount
+sources and network references rewritten to match, so resources are isolated between projects;
+external volumes/networks keep their exact declared name. `down` also removes project-created
+networks (volumes are preserved, like `docker compose down`); **removing** a project (deleting its
+definition) additionally deletes the volumes it created (like `docker compose down --volumes`), while
+external volumes are always preserved. Because enforcement is in-process there is **no background
 daemon** — restart/health policies apply only while the app runs, and `ReconcileAsync` re-adopts
 still-present projects on the next launch. The Compose page lists projects with up/restart/down/
 remove; import is from that page.

@@ -249,6 +249,90 @@ public sealed class ComposeProject
     public string ContainerNameFor(string serviceName) => $"{Name}_{serviceName}";
 
     /// <summary>
+    /// Prefixes non-external top-level volumes and networks with the project name (matching
+    /// <c>docker compose</c>, e.g. <c>myproj_pgdata</c>) and rewrites every service reference to
+    /// match. This isolates resources between projects so that removing one project never deletes
+    /// or detaches a volume/network another project relies on. External resources keep their exact
+    /// declared name. Idempotent-unsafe: call exactly once, after <see cref="Name"/> is finalized
+    /// and before the project is persisted or brought up.
+    /// </summary>
+    public void ApplyProjectNamespacing()
+    {
+        if (string.IsNullOrWhiteSpace(Name))
+        {
+            return;
+        }
+
+        var volumeRenames = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var volume in Volumes.Where(v => !v.External && !string.IsNullOrWhiteSpace(v.Name)))
+        {
+            var original = volume.Name;
+            var prefixed = $"{Name}_{original}";
+            volume.Name = prefixed;
+            volumeRenames[original] = prefixed;
+        }
+
+        var networkRenames = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var network in Networks.Where(n => !n.External && !string.IsNullOrWhiteSpace(n.Name)))
+        {
+            var original = network.Name;
+            var prefixed = $"{Name}_{original}";
+            network.Name = prefixed;
+            networkRenames[original] = prefixed;
+        }
+
+        if (volumeRenames.Count == 0 && networkRenames.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var service in Services)
+        {
+            if (volumeRenames.Count > 0)
+            {
+                for (var i = 0; i < service.Options.Volumes.Count; i++)
+                {
+                    service.Options.Volumes[i] = RewriteVolumeSource(service.Options.Volumes[i], volumeRenames);
+                }
+            }
+
+            if (networkRenames.Count > 0)
+            {
+                for (var i = 0; i < service.Options.Networks.Count; i++)
+                {
+                    if (networkRenames.TryGetValue(service.Options.Networks[i], out var renamed))
+                    {
+                        service.Options.Networks[i] = renamed;
+                    }
+                }
+
+                if (service.Options.Network is not null &&
+                    networkRenames.TryGetValue(service.Options.Network, out var primary))
+                {
+                    service.Options.Network = primary;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Rewrites the source of a <c>source:target[:mode]</c> mount spec when the source names a
+    /// project volume being namespaced. Bind mounts (paths) and anonymous volumes are left as-is
+    /// because their source never matches a declared volume name.
+    /// </summary>
+    private static string RewriteVolumeSource(string spec, IReadOnlyDictionary<string, string> renames)
+    {
+        var colon = spec.IndexOf(':');
+        if (colon <= 0)
+        {
+            return spec;
+        }
+
+        var source = spec[..colon];
+        return renames.TryGetValue(source, out var renamed) ? renamed + spec[colon..] : spec;
+    }
+
+    /// <summary>
     /// Human-readable warnings collected during import about compose keys that are not supported and
     /// were ignored (e.g. <c>privileged</c>, <c>cap_add</c>, multi-network attach). Surfaced to the
     /// user at import time; not persisted with the project.
