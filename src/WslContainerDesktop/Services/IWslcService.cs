@@ -28,6 +28,9 @@ public interface IWslcService
     Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(bool all = true, CancellationToken ct = default);
     Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default);
     Task<CommandResult> StopContainerAsync(string id, CancellationToken ct = default);
+
+    /// <summary>Stops a container, waiting <paramref name="timeSeconds"/> before SIGKILL and optionally sending <paramref name="signal"/> first (compose <c>stop_grace_period</c>/<c>stop_signal</c>).</summary>
+    Task<CommandResult> StopContainerAsync(string id, int? timeSeconds, string? signal, CancellationToken ct = default);
     Task<CommandResult> RestartContainerAsync(string id, CancellationToken ct = default);
     Task<CommandResult> KillContainerAsync(string id, CancellationToken ct = default);
     Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default);
@@ -68,6 +71,7 @@ public interface IWslcService
         string? target = null,
         IReadOnlyDictionary<string, string>? labels = null,
         bool noCache = false,
+        bool pull = false,
         CancellationToken ct = default);
 
     // Registries

@@ -45,6 +45,9 @@ public enum DependencyCondition
 
     /// <summary><c>service_healthy</c> — the dependency has passed its health check.</summary>
     ServiceHealthy = 1,
+
+    /// <summary><c>service_completed_successfully</c> — the dependency's container ran and exited 0.</summary>
+    ServiceCompletedSuccessfully = 2,
 }
 
 /// <summary>A single <c>depends_on</c> edge from one service to another, with its gating condition.</summary>
@@ -75,6 +78,12 @@ public sealed class ComposeBuildConfig
 
     /// <summary>Image metadata labels applied at build time (maps to repeated <c>--label</c>).</summary>
     public Dictionary<string, string> Labels { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>Build without the layer cache (compose <c>build.no_cache</c>, maps to <c>--no-cache</c>).</summary>
+    public bool NoCache { get; set; }
+
+    /// <summary>Always attempt to pull a newer base image (compose <c>build.pull</c> / <c>pull_policy: build</c>, maps to <c>--pull</c>).</summary>
+    public bool Pull { get; set; }
 
     public bool IsValid => !string.IsNullOrWhiteSpace(Context);
 }
@@ -162,6 +171,19 @@ public sealed class ComposeService
     public RestartPolicyKind Restart { get; set; } = RestartPolicyKind.No;
 
     /// <summary>
+    /// Profiles this service belongs to (compose <c>profiles:</c>). A service with profiles only
+    /// starts when one of its profiles is in <see cref="ComposeProject.ActiveProfiles"/>; a service
+    /// with no profiles always starts (matching <c>docker compose</c>'s default).
+    /// </summary>
+    public List<string> Profiles { get; set; } = new();
+
+    /// <summary>
+    /// Grace period in seconds to wait for the container to stop before it is killed
+    /// (compose <c>stop_grace_period</c>, applied via <c>wslc stop -t</c>). Null uses the engine default.
+    /// </summary>
+    public int? StopGracePeriodSeconds { get; set; }
+
+    /// <summary>
     /// Build configuration (compose <c>build:</c>). When set and the image is missing, the supervisor
     /// builds the image before running the service.
     /// </summary>
@@ -197,6 +219,12 @@ public sealed class ComposeProject
 
     /// <summary>The services that make up this project.</summary>
     public List<ComposeService> Services { get; set; } = new();
+
+    /// <summary>
+    /// Profiles enabled for this project. Empty means only profile-less services start (the
+    /// <c>docker compose</c> default when no <c>--profile</c>/<c>COMPOSE_PROFILES</c> is given).
+    /// </summary>
+    public List<string> ActiveProfiles { get; set; } = new();
 
     /// <summary>Top-level named networks the project declares; created on up (unless external).</summary>
     public List<ComposeNetwork> Networks { get; set; } = new();

@@ -65,6 +65,25 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public Task<CommandResult> StopContainerAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["stop", id], ct);
 
+    public Task<CommandResult> StopContainerAsync(string id, int? timeSeconds, string? signal, CancellationToken ct = default)
+    {
+        var args = new List<string> { "stop" };
+        if (timeSeconds is int t && t >= 0)
+        {
+            args.Add("-t");
+            args.Add(t.ToString());
+        }
+
+        if (!string.IsNullOrWhiteSpace(signal))
+        {
+            args.Add("-s");
+            args.Add(signal.Trim());
+        }
+
+        args.Add(id);
+        return runner.RunAsync(args, ct);
+    }
+
     public async Task<CommandResult> RestartContainerAsync(string id, CancellationToken ct = default)
     {
         var stop = await runner.RunAsync(["stop", id], ct).ConfigureAwait(false);
@@ -459,6 +478,7 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         string? target = null,
         IReadOnlyDictionary<string, string>? labels = null,
         bool noCache = false,
+        bool pull = false,
         CancellationToken ct = default)
     {
         var args = new List<string> { "build", "-t", tag };
@@ -495,6 +515,11 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         if (noCache)
         {
             args.Add("--no-cache");
+        }
+
+        if (pull)
+        {
+            args.Add("--pull");
         }
 
         args.Add(contextPath);

@@ -110,6 +110,9 @@ public static class ComposeImporter
         var anchors = new Dictionary<string, Node>(StringComparer.Ordinal);
         var root = ParseMapping(lines, 0, lines.Count, 0, anchors);
 
+        // Deep-merge a sibling docker-compose.override.yml (compose's default override behavior).
+        root = ApplyOverrideFile(root, baseDirectory, effectiveEnv);
+
         var project = new ComposeProject
         {
             Name = SanitizeProjectName(root.Scalar("name")),
@@ -127,7 +130,10 @@ public static class ComposeImporter
                 continue;
             }
 
-            var service = BuildService(name, svc, baseDirectory);
+            // Resolve `extends:` (same-file service or another file) before building the service.
+            var resolved = ResolveExtends(svc, services, baseDirectory, effectiveEnv, new HashSet<string>(StringComparer.Ordinal));
+
+            var service = BuildService(name, resolved, baseDirectory);
             if (service is not null)
             {
                 project.Services.Add(service);
@@ -140,6 +146,198 @@ public static class ComposeImporter
         project.Configs = ParseTopLevelSecrets(root.Child("configs"), baseDirectory);
 
         return project;
+    }
+
+    // Compose's default override file names, in precedence order (later ones do not override earlier).
+    private static readonly string[] OverrideFileNames =
+    {
+        "docker-compose.override.yml",
+        "docker-compose.override.yaml",
+        "compose.override.yml",
+        "compose.override.yaml",
+    };
+
+    /// <summary>
+    /// Deep-merges the first present sibling <c>*.override.*</c> compose file over <paramref name="root"/>
+    /// (override wins), mirroring <c>docker compose</c>'s automatic override behavior. Returns
+    /// <paramref name="root"/> unchanged when there is no base directory or no override file.
+    /// </summary>
+    private static MappingNode ApplyOverrideFile(
+        MappingNode root,
+        string? baseDirectory,
+        IReadOnlyDictionary<string, string>? env)
+    {
+        if (string.IsNullOrWhiteSpace(baseDirectory))
+        {
+            return root;
+        }
+
+        foreach (var candidate in OverrideFileNames)
+        {
+            var path = Path.Combine(baseDirectory, candidate);
+            var overrideRoot = LoadComposeRoot(path, env);
+            if (overrideRoot is not null)
+            {
+                return MergeMappings(root, overrideRoot);
+            }
+        }
+
+        return root;
+    }
+
+    /// <summary>
+    /// Resolves a service's <c>extends:</c> chain by deep-merging the base service (from this file or
+    /// an external file) under the extending service, with the child winning. Guards against cycles.
+    /// </summary>
+    private static MappingNode ResolveExtends(
+        MappingNode svc,
+        MappingNode localServices,
+        string? baseDirectory,
+        IReadOnlyDictionary<string, string>? env,
+        HashSet<string> visiting)
+    {
+        var ext = svc.Child("extends");
+        string? baseFile = null;
+        string? baseService = null;
+
+        switch (ext)
+        {
+            case ScalarNode s when !string.IsNullOrWhiteSpace(s.Value):
+                baseService = s.Value.Trim();
+                break;
+            case MappingNode m:
+                baseService = m.Scalar("service")?.Trim();
+                baseFile = m.Scalar("file")?.Trim();
+                break;
+        }
+
+        if (string.IsNullOrWhiteSpace(baseService))
+        {
+            return StripKey(svc, "extends");
+        }
+
+        MappingNode? baseServices = localServices;
+        var baseDirForBase = baseDirectory;
+        if (!string.IsNullOrWhiteSpace(baseFile))
+        {
+            var resolvedFile = ResolvePath(baseFile, baseDirectory);
+            baseServices = LoadComposeRoot(resolvedFile, env)?.Child("services") as MappingNode;
+            baseDirForBase = Path.GetDirectoryName(resolvedFile) ?? baseDirectory;
+        }
+
+        if (baseServices?.Child(baseService) is not MappingNode baseSvc)
+        {
+            return StripKey(svc, "extends");
+        }
+
+        var key = (baseFile ?? string.Empty) + "|" + baseService;
+        if (!visiting.Add(key))
+        {
+            return StripKey(svc, "extends"); // cycle — stop resolving.
+        }
+
+        var resolvedBase = ResolveExtends(baseSvc, baseServices, baseDirForBase, env, visiting);
+        visiting.Remove(key);
+
+        return MergeMappings(resolvedBase, StripKey(svc, "extends"));
+    }
+
+    /// <summary>Parses a compose file from disk into its root mapping, or null when unreadable/malformed.</summary>
+    private static MappingNode? LoadComposeRoot(string path, IReadOnlyDictionary<string, string>? env)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return null;
+            }
+
+            var text = File.ReadAllText(path);
+            var lines = Tokenize(text, env);
+            return ParseMapping(lines, 0, lines.Count, 0, new Dictionary<string, Node>(StringComparer.Ordinal));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Returns a copy of <paramref name="map"/> with <paramref name="key"/> removed.</summary>
+    private static MappingNode StripKey(MappingNode map, string key)
+    {
+        var copy = new Dictionary<string, Node>(map.Map, StringComparer.Ordinal);
+        copy.Remove(key);
+        return new MappingNode(copy);
+    }
+
+    /// <summary>
+    /// Deep-merges <paramref name="overrideNode"/> onto <paramref name="baseNode"/>: nested mappings
+    /// merge recursively; scalars and sequences from the override replace the base value.
+    /// </summary>
+    private static readonly HashSet<string> KeyValueSequenceKeys =
+        new(StringComparer.Ordinal) { "environment", "labels" };
+
+    private static MappingNode MergeMappings(MappingNode baseNode, MappingNode overrideNode)
+    {
+        var result = new Dictionary<string, Node>(baseNode.Map, StringComparer.Ordinal);
+        foreach (var (k, ov) in overrideNode.Map)
+        {
+            if (result.TryGetValue(k, out var bv))
+            {
+                if (bv is MappingNode bm && ov is MappingNode om)
+                {
+                    result[k] = MergeMappings(bm, om);
+                    continue;
+                }
+
+                // environment/labels lists merge by KEY (override wins per-key), like docker compose.
+                if (KeyValueSequenceKeys.Contains(k) && bv is SequenceNode bs && ov is SequenceNode os)
+                {
+                    result[k] = MergeKeyValueSequences(bs, os);
+                    continue;
+                }
+            }
+
+            result[k] = ov;
+        }
+
+        return new MappingNode(result);
+    }
+
+    /// <summary>
+    /// Merges two <c>KEY=VALUE</c> scalar sequences by key: base order is preserved, matching keys are
+    /// overwritten by the override, and new override keys are appended. Mirrors compose's list-of-env merge.
+    /// </summary>
+    private static SequenceNode MergeKeyValueSequences(SequenceNode baseSeq, SequenceNode overrideSeq)
+    {
+        static string KeyOf(Node n) =>
+            n is ScalarNode s ? s.Value.Split('=', 2)[0].Trim() : string.Empty;
+
+        var order = new List<string>();
+        var byKey = new Dictionary<string, Node>(StringComparer.Ordinal);
+        foreach (var item in baseSeq.Items)
+        {
+            var key = KeyOf(item);
+            if (!byKey.ContainsKey(key))
+            {
+                order.Add(key);
+            }
+
+            byKey[key] = item;
+        }
+
+        foreach (var item in overrideSeq.Items)
+        {
+            var key = KeyOf(item);
+            if (!byKey.ContainsKey(key))
+            {
+                order.Add(key);
+            }
+
+            byKey[key] = item;
+        }
+
+        return new SequenceNode(order.Select(k => byKey[k]).ToList());
     }
 
     /// <summary>
@@ -194,7 +392,7 @@ public static class ComposeImporter
         ApplyResourceLimits(options, svc);
         ApplyRuntimeOptions(options, svc);
 
-        var build = ParseBuild(svc.Child("build"), baseDirectory);
+        var build = ParseBuild(svc.Child("build"), svc.Scalar("pull_policy"), baseDirectory);
 
         // A service needs either an image to run or a build section to produce one.
         if (string.IsNullOrWhiteSpace(options.Image) && build is null)
@@ -209,6 +407,8 @@ public static class ComposeImporter
             Restart = ParseRestart(svc.Scalar("restart")),
             DependsOn = ParseDependsOn(svc.Child("depends_on")),
             Build = build,
+            Profiles = CollectStrings(svc.Child("profiles")),
+            StopGracePeriodSeconds = ParseDurationSeconds(svc.Scalar("stop_grace_period")),
             Secrets = ParseFileMounts(svc.Child("secrets"), "/run/secrets/"),
             Configs = ParseFileMounts(svc.Child("configs"), "/"),
         };
@@ -298,13 +498,15 @@ public static class ComposeImporter
     /// is a mapping with <c>context</c>, <c>dockerfile</c>, <c>args</c>, <c>target</c>, and <c>labels</c>.
     /// The context (and a relative dockerfile) resolve against <paramref name="baseDirectory"/>.
     /// </summary>
-    private static ComposeBuildConfig? ParseBuild(Node? node, string? baseDirectory)
+    private static ComposeBuildConfig? ParseBuild(Node? node, string? pullPolicy, string? baseDirectory)
     {
         string? context;
         string? dockerfile = null;
         var args = new List<string>();
         string? target = null;
         var labels = new Dictionary<string, string>(StringComparer.Ordinal);
+        var noCache = false;
+        var pull = false;
 
         switch (node)
         {
@@ -318,6 +520,8 @@ public static class ComposeImporter
                 target = map.Scalar("target")?.Trim();
                 args = CollectKeyValues(map.Child("args"));
                 labels = CollectLabels(map.Child("labels"));
+                noCache = string.Equals(map.Scalar("no_cache")?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+                pull = string.Equals(map.Scalar("pull")?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
                 break;
 
             default:
@@ -329,6 +533,14 @@ public static class ComposeImporter
             return null;
         }
 
+        // pull_policy: always / build forces a fresh base-image pull for the build.
+        var policy = pullPolicy?.Trim();
+        if (string.Equals(policy, "always", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(policy, "build", StringComparison.OrdinalIgnoreCase))
+        {
+            pull = true;
+        }
+
         return new ComposeBuildConfig
         {
             Context = ResolvePath(context, baseDirectory),
@@ -336,6 +548,8 @@ public static class ComposeImporter
             Args = args,
             Target = string.IsNullOrWhiteSpace(target) ? null : target,
             Labels = labels,
+            NoCache = noCache,
+            Pull = pull,
         };
     }
 
@@ -803,10 +1017,17 @@ public static class ComposeImporter
                     }
 
                     var condition = DependencyCondition.ServiceStarted;
-                    if (value is MappingNode cfg &&
-                        string.Equals(cfg.Scalar("condition"), "service_healthy", StringComparison.OrdinalIgnoreCase))
+                    if (value is MappingNode cfg)
                     {
-                        condition = DependencyCondition.ServiceHealthy;
+                        var conditionText = cfg.Scalar("condition");
+                        if (string.Equals(conditionText, "service_healthy", StringComparison.OrdinalIgnoreCase))
+                        {
+                            condition = DependencyCondition.ServiceHealthy;
+                        }
+                        else if (string.Equals(conditionText, "service_completed_successfully", StringComparison.OrdinalIgnoreCase))
+                        {
+                            condition = DependencyCondition.ServiceCompletedSuccessfully;
+                        }
                     }
 
                     deps.Add(new ComposeDependency { ServiceName = name.Trim(), Condition = condition });

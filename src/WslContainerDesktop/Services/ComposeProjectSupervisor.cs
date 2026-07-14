@@ -85,6 +85,12 @@ public sealed class ComposeProjectSupervisor
         {
             ct.ThrowIfCancellationRequested();
 
+            // Skip services excluded by the active profile set (docker compose profile semantics).
+            if (!IsServiceActive(project, service))
+            {
+                continue;
+            }
+
             // Honor service_healthy dependencies before creating this service.
             foreach (var dep in service.DependsOn.Where(d => d.Condition == DependencyCondition.ServiceHealthy))
             {
@@ -104,6 +110,25 @@ public sealed class ComposeProjectSupervisor
                 }
             }
 
+            // Honor service_completed_successfully dependencies (one-shot init/migration services).
+            foreach (var dep in service.DependsOn.Where(d => d.Condition == DependencyCondition.ServiceCompletedSuccessfully))
+            {
+                var depService = project.Services.FirstOrDefault(s =>
+                    string.Equals(s.Name, dep.ServiceName, StringComparison.Ordinal));
+                if (depService is null || !started.Contains(dep.ServiceName))
+                {
+                    continue;
+                }
+
+                var completed = await WaitForCompletedAsync(project, depService, ct).ConfigureAwait(false);
+                if (!completed)
+                {
+                    _logger.LogWarning(
+                        "Dependency {Dep} did not complete successfully within {Timeout}s; starting {Service} anyway.",
+                        dep.ServiceName, (int)HealthyWaitTimeout.TotalSeconds, service.Name);
+                }
+            }
+
             var result = await StartServiceAsync(project, service, ct).ConfigureAwait(false);
             results.Add(result);
             if (result.Success)
@@ -116,6 +141,14 @@ public sealed class ComposeProjectSupervisor
         SeedRestartPolicies(project);
         return new ComposeUpResult { Services = results };
     }
+
+    /// <summary>
+    /// A service starts when it declares no profiles, or when one of its profiles is in the project's
+    /// <see cref="ComposeProject.ActiveProfiles"/> — matching <c>docker compose</c>'s profile rules.
+    /// </summary>
+    private static bool IsServiceActive(ComposeProject project, ComposeService service) =>
+        service.Profiles.Count == 0 ||
+        service.Profiles.Any(p => project.ActiveProfiles.Contains(p, StringComparer.Ordinal));
 
     /// <summary>
     /// Creates the project's declared networks and volumes before its services start. External
@@ -173,7 +206,8 @@ public sealed class ComposeProjectSupervisor
             try
             {
                 var result = await _wslc.BuildImageAsync(
-                    build.Context, tag, build.Dockerfile, build.Args, build.Target, build.Labels, noCache: false, ct)
+                    build.Context, tag, build.Dockerfile, build.Args, build.Target, build.Labels,
+                    build.NoCache, build.Pull, ct)
                     .ConfigureAwait(false);
                 if (!result.Success)
                 {
@@ -209,7 +243,9 @@ public sealed class ComposeProjectSupervisor
                 continue;
             }
 
-            await _wslc.StopContainerAsync(existing.Id, ct).ConfigureAwait(false);
+            await _wslc.StopContainerAsync(
+                existing.Id, service.StopGracePeriodSeconds, service.Options.StopSignal, ct)
+                .ConfigureAwait(false);
             await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
         }
 
@@ -354,7 +390,9 @@ public sealed class ComposeProjectSupervisor
             var existing = FindByName(containers, name);
             if (existing is not null)
             {
-                await _wslc.StopContainerAsync(existing.Id, ct).ConfigureAwait(false);
+                await _wslc.StopContainerAsync(
+                    existing.Id, service.StopGracePeriodSeconds, service.Options.StopSignal, ct)
+                    .ConfigureAwait(false);
                 await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
             }
         }
@@ -422,6 +460,67 @@ public sealed class ComposeProjectSupervisor
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Waits until the dependency container has exited with code 0 (compose
+    /// <c>service_completed_successfully</c>). Returns false on timeout or a non-zero/unreadable exit.
+    /// </summary>
+    private async Task<bool> WaitForCompletedAsync(ComposeProject project, ComposeService dep, CancellationToken ct)
+    {
+        var name = ResolveContainerName(project, dep);
+        var deadline = DateTimeOffset.UtcNow + HealthyWaitTimeout;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+            var container = FindByName(containers, name);
+
+            // Only inspect the exit code once the container has actually stopped.
+            if (container is not null &&
+                container.State is ContainerState.Stopped or ContainerState.Created)
+            {
+                return await ExitedCleanlyAsync(container.Id, ct).ConfigureAwait(false);
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Best-effort exit-code check via <c>wslc inspect</c>: true only when the container's last exit
+    /// code can be read and is zero. Unknown/unreadable exits are treated as failures.
+    /// </summary>
+    private async Task<bool> ExitedCleanlyAsync(string id, CancellationToken ct)
+    {
+        try
+        {
+            var inspect = await _wslc.InspectContainerAsync(id, ct).ConfigureAwait(false);
+            if (!inspect.Success || string.IsNullOrWhiteSpace(inspect.StandardOutput))
+            {
+                return false;
+            }
+
+            var match = System.Text.RegularExpressions.Regex.Match(
+                inspect.StandardOutput, "\"ExitCode\"\\s*:\\s*(-?\\d+)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return match.Success && int.TryParse(match.Groups[1].Value, out var code) && code == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static RunContainerOptions CloneForRun(ComposeProject project, ComposeService service, string name)
@@ -530,6 +629,11 @@ public sealed class ComposeProjectSupervisor
         var toAdd = new List<HealthCheckConfig>();
         foreach (var service in project.Services)
         {
+            if (!IsServiceActive(project, service))
+            {
+                continue;
+            }
+
             if (service.Health is null || string.IsNullOrWhiteSpace(service.Health.Command))
             {
                 continue;
@@ -593,6 +697,11 @@ public sealed class ComposeProjectSupervisor
         var toAdd = new List<RestartPolicyConfig>();
         foreach (var service in project.Services)
         {
+            if (!IsServiceActive(project, service))
+            {
+                continue;
+            }
+
             var hasHealth = service.Health is not null && !string.IsNullOrWhiteSpace(service.Health.Command);
             if (service.Restart == RestartPolicyKind.No || hasHealth)
             {
