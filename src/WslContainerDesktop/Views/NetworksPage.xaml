@@ -19,7 +19,6 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -55,8 +54,34 @@
             </Button>
         </StackPanel>
 
+        <!--  Table: column header (wide only) + list  -->
+        <Grid Grid.Row="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup>
+                    <VisualState x:Name="HeaderWide">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MinWidth="700" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                    </VisualState>
+                    <VisualState x:Name="HeaderNarrow">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MaxWidth="700" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+
         <Border
-            Grid.Row="2"
+            x:Name="HeaderBorder"
+            Grid.Row="0"
             Padding="12,8"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
@@ -81,7 +106,7 @@
         </Border>
 
         <Border
-            Grid.Row="3"
+            Grid.Row="1"
             Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
             BorderThickness="1,0,1,1"
@@ -101,7 +126,27 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:NetworkInfo">
-                            <Grid>
+                            <Grid x:Name="RowRoot">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup>
+                                        <VisualState x:Name="RowWide">
+                                            <VisualState.StateTriggers>
+                                                <converters:ControlSizeTrigger MinWidth="660" TargetElement="{Binding ElementName=RowRoot}" />
+                                            </VisualState.StateTriggers>
+                                        </VisualState>
+                                        <VisualState x:Name="RowNarrow">
+                                            <VisualState.StateTriggers>
+                                                <converters:ControlSizeTrigger MaxWidth="660" TargetElement="{Binding ElementName=RowRoot}" />
+                                            </VisualState.StateTriggers>
+                                            <VisualState.Setters>
+                                                <Setter Target="WideGrid.Visibility" Value="Collapsed" />
+                                                <Setter Target="NarrowPanel.Visibility" Value="Visible" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+
+                                <Grid x:Name="WideGrid">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" MinWidth="200" />
                                     <ColumnDefinition Width="160" />
@@ -169,6 +214,42 @@
                                         <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                     </Button>
                                 </StackPanel>
+                                </Grid>
+
+                                <!--  Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
+                                <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE968;" />
+                                        <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                        <Border Padding="8,2" VerticalAlignment="Center" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="10" ToolTipService.ToolTip="Built-in default network. Containers use it unless assigned a custom network. It cannot be edited or removed." Visibility="{x:Bind IsBuiltIn, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Default" />
+                                        </Border>
+                                    </StackPanel>
+
+                                    <Grid ColumnSpacing="8" RowSpacing="3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="76" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="DRIVER" />
+                                        <TextBlock Grid.Row="0" Grid.Column="1" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind DriverDisplay}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="ID" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ShortId}" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="4" Visibility="{x:Bind CanModify, Converter={StaticResource BoolToVis}}">
+                                        <Button Padding="7,5" Click="InspectButton_Click" ToolTipService.ToolTip="Inspect">
+                                            <FontIcon FontSize="14" Glyph="&#xE946;" />
+                                        </Button>
+                                        <Button Padding="7,5" Click="RemoveButton_Click" ToolTipService.ToolTip="Remove">
+                                            <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
@@ -197,5 +278,6 @@
                     Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
             </Grid>
         </Border>
+        </Grid>
     </Grid>
 </Page>

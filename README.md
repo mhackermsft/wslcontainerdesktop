@@ -20,6 +20,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - [Screenshots](#screenshots)
 - [Getting started](#getting-started)
 - [Feature tour](#feature-tour)
+- [Docker Compose compatibility](#docker-compose-compatibility)
 - [Architecture](#architecture)
 - [Notes on the WSL container preview](#notes-on-the-wsl-container-preview)
 - [Disclaimer & no warranty](#-disclaimer--no-warranty)
@@ -30,6 +31,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 ## Highlights
 
 - **Full container lifecycle** — run, start, stop, restart, kill, remove, prune, logs, exec terminal, inspect, and live stats.
+- **Docker Compose** — import a `docker-compose.yml` and bring a whole multi-service stack **up / down / restart as a unit**, with dependency ordering, health/exit gating, and auto-heal. The desktop app acts as the orchestration layer above `wslc` — see [Docker Compose compatibility](#docker-compose-compatibility) for exactly what is and isn't supported.
 - **Images, volumes, networks** — pull, build, tag, push, inspect, and prune, all from a clean Fluent UI.
 - **Built-in Kubernetes** — install a single-node **k3s** cluster into WSL and manage nodes, deployments, pods, services, and more, with port-forwarding and "Apply YAML".
 - **Registry management** — add public and private registries, and add an **Azure Container Registry with one click** using your existing Azure sign-in (no admin keys, tokens refreshed automatically).
@@ -187,11 +189,19 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
   - **Inspect** — full raw JSON.
 - Open an interactive terminal (`exec -it`) or open a published port in the browser.
 
+### Docker Compose
+- **Import a `docker-compose.yml`** (file picker) to create a **Compose project** — the app parses a large subset of the Compose spec into a service dependency graph.
+- **Up / Down / Restart the whole stack as a unit** from the Compose page. On **up**, services start in dependency order with `depends_on` health/exit gating; project-scoped networks and named volumes are created (prefixed with the project name, like `docker compose`), and each service gets deterministic naming and Compose-style DNS aliases.
+- **Auto-heal while the app runs** — `healthcheck` and `restart:` policies are enforced by the built-in watchdog. Because the desktop app *is* the orchestrator, **these features only work while WSL Container Desktop is running** (there is no background daemon).
+- **Down** stops and removes the project's containers and networks but preserves volumes; **Remove** additionally deletes the volumes the project created (like `docker compose down --volumes`).
+- Projects are **re-adopted on relaunch**, and the importer **warns about any unsupported keys** before you commit, so you always know what will and won't be honored.
+- See [Docker Compose compatibility](#docker-compose-compatibility) for the full feature matrix.
+
 ### Images
 - List with repository, tag, ID, size, and age.
 - **Pull**, **Build** (from a Dockerfile + context), **Tag**, **Push**, **Inspect**, **Remove**, and **Prune**.
 - Run a new container directly from an image.
-- **Saved run profiles** — save an image's ports/env/volumes/network/name/flags as a reusable, named profile, prefill the Run dialog from one, and launch it in one click from the image's **⋯ → Run profile** menu. Profiles persist across restarts, and a basic **docker-compose.yml** can be imported to seed one profile per service (**Import compose**).
+- **Saved run profiles** — save an image's ports/env/volumes/network/name/flags as a reusable, named profile, prefill the Run dialog from one, and launch it in one click from the image's **⋯ → Run profile** menu. Profiles persist across restarts. (For full multi-service orchestration, use the [Docker Compose](#docker-compose) page instead.)
 - Pull / Build / Push dialogs include a **registry selector** with a live "resolved reference" preview.
 
 ### Volumes
@@ -238,6 +248,46 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - **Notification toggles** — master switch plus per-category (images, containers, engine).
 - Auto-refresh interval.
 - Light / Dark / System theme, applied instantly.
+
+---
+
+## Docker Compose compatibility
+
+WSL Container Desktop can import a `docker-compose.yml` and run the whole stack, but it is **not** a drop-in replacement for the `docker compose` CLI. Understanding the model below will tell you what to expect.
+
+### Purpose & model — "desktop-as-daemon"
+
+The WSL container engine (`wslc`) has no built-in Compose command and no long-running orchestration daemon. To offer fuller Compose support, **WSL Container Desktop itself acts as the orchestration layer above `wslc`**: it parses the Compose file, resolves the dependency graph, and translates each service into `wslc run` (and `network`/`volume`) commands, then supervises the result.
+
+The single most important consequence:
+
+> [!IMPORTANT]
+> **Anything that requires ongoing supervision only works while WSL Container Desktop is running.** Health checks, restart policies, and auto-heal are enforced by the app's in-process watchdog — there is no background service. If you close the app, your containers keep running, but they will **not** be health-checked or auto-restarted until you reopen it. This is by design: it is a desktop tool, not a server-grade orchestrator.
+
+This makes it ideal for **local development and testing** of multi-container apps — spin a stack up, iterate, tear it down — rather than for unattended production hosting.
+
+### What works
+
+A large subset of the Compose spec is honored on **up**:
+
+- **Services** — `image`, `build` (context/dockerfile/args/target/labels/pull), `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `labels`.
+- **Networking & storage** — `ports` (short and long form), `volumes` (short and long form), top-level `networks:` / `volumes:` creation, service DNS aliases, `secrets:` / `configs:` (file-backed, best-effort), `extra_hosts` (best-effort), `tmpfs`, `dns*`.
+- **Config** — `environment`, `env_file`, `${VAR}` / `${VAR:-default}` interpolation, YAML anchors/aliases, `<<` merge keys, block scalars, `extends:`, `include:`, and a sibling `docker-compose.override.yml` (deep-merged).
+- **Resources** — `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`.
+- **Lifecycle** — `depends_on` (including `condition: service_healthy` / `service_completed_successfully`), `healthcheck`, `restart:` (`no`/`always`/`on-failure`/`unless-stopped`), `profiles:`, and project `up` / `down` / `restart` with re-adoption on relaunch.
+
+Some of these are **best-effort** — e.g. `secrets`/`configs` are bind-mounted rather than stored in an engine secret store, `extra_hosts` is applied via `exec` after start, and `restart` backoff timing is not byte-for-byte identical to Docker.
+
+### What is *not* supported
+
+Features with no matching `wslc` capability or that require a persistent daemon are **skipped** (the importer warns you about them before the project is saved):
+
+- **Multi-network attach per container** — `wslc run` attaches only the *first* network; there is no `network connect`.
+- **Low-level container options** — `cap_add` / `cap_drop`, `devices`, `sysctls`, `privileged`, `read_only`, `init`, `pid` / `ipc`, `mac_address`, and `logging` drivers.
+- **Scaling & Swarm** — `deploy.replicas` / scaling and the rest of Swarm-mode `deploy`.
+- **Always-on restart after the app closes** — see the model note above.
+
+For the authoritative, line-by-line feature matrix (including exactly how each key is mapped), see the **Compose feature support** table in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#compose-feature-support).
 
 ---
 

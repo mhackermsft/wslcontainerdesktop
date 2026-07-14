@@ -71,6 +71,13 @@ public partial class ContainerRowViewModel : ObservableObject
     /// <summary>True once the network has been resolved (via inspect), so we don't refetch every poll.</summary>
     public bool NetworkResolved { get; set; }
 
+    /// <summary>
+    /// The compose project this container belongs to, or <c>null</c> if it is standalone. Set by
+    /// <see cref="ContainersViewModel"/> during reconcile by matching the container name against
+    /// stored compose projects; used to group the Containers list.
+    /// </summary>
+    public string? Project { get; set; }
+
     /// <summary>True once GPU access has been probed for the current running instance.</summary>
     public bool GpuChecked { get; set; }
 

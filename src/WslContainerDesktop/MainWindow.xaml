@@ -36,7 +36,7 @@
             IsBackButtonVisible="Collapsed"
             IsPaneToggleButtonVisible="False"
             IsSettingsVisible="True"
-            PaneDisplayMode="Left"
+            PaneDisplayMode="Auto"
             PaneClosing="NavView_PaneClosing"
             PaneOpening="NavView_PaneOpening"
             SelectionChanged="NavView_SelectionChanged">

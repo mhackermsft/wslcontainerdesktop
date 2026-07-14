@@ -23,7 +23,6 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -67,14 +66,40 @@
             </StackPanel>
         </Grid>
 
-        <!--  Column header  -->
-        <Border
-            Grid.Row="2"
-            Padding="16,8,20,8"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-            BorderThickness="1"
-            CornerRadius="6,6,0,0">
+        <!--  Table: column header (wide only) + list  -->
+        <Grid Grid.Row="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup>
+                    <VisualState x:Name="HeaderWide">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MinWidth="680" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                    </VisualState>
+                    <VisualState x:Name="HeaderNarrow">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MaxWidth="680" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+
+                <!--  Column header  -->
+                <Border
+                    x:Name="HeaderBorder"
+                    Grid.Row="0"
+                    Padding="16,8,20,8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6,6,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="14" />
@@ -100,7 +125,7 @@
 
         <!--  List  -->
         <Border
-            Grid.Row="3"
+            Grid.Row="1"
             Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
             BorderThickness="1,0,1,1"
@@ -111,8 +136,33 @@
                     Padding="0,4"
                     IsItemClickEnabled="True"
                     ItemClick="ContainersList_ItemClick"
-                    ItemsSource="{x:Bind ViewModel.Containers, Mode=OneWay}"
                     SelectionMode="None">
+                    <ListView.GroupStyle>
+                        <GroupStyle HidesIfEmpty="True">
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate x:DataType="vm:ContainerGroup">
+                                    <Border Padding="10,10,10,4">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                FontWeight="SemiBold"
+                                                Text="{x:Bind Title}" />
+                                            <Border
+                                                Padding="6,0"
+                                                VerticalAlignment="Center"
+                                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                CornerRadius="9">
+                                                <TextBlock
+                                                    FontSize="11"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Text="{x:Bind Count}" />
+                                            </Border>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListView.GroupStyle>
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -122,7 +172,27 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:ContainerRowViewModel">
-                            <Grid>
+                            <Grid x:Name="RowRoot">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup>
+                                        <VisualState x:Name="RowWide">
+                                            <VisualState.StateTriggers>
+                                                <converters:ControlSizeTrigger MinWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
+                                            </VisualState.StateTriggers>
+                                        </VisualState>
+                                        <VisualState x:Name="RowNarrow">
+                                            <VisualState.StateTriggers>
+                                                <converters:ControlSizeTrigger MaxWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
+                                            </VisualState.StateTriggers>
+                                            <VisualState.Setters>
+                                                <Setter Target="WideGrid.Visibility" Value="Collapsed" />
+                                                <Setter Target="NarrowPanel.Visibility" Value="Visible" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+
+                                <Grid x:Name="WideGrid">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="14" />
                                     <ColumnDefinition Width="1.8*" MinWidth="110" />
@@ -306,6 +376,174 @@
                                         </Button.Flyout>
                                     </Button>
                                 </StackPanel>
+                                </Grid>
+
+                                <!--  Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
+                                <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Ellipse
+                                            Width="12"
+                                            Height="12"
+                                            VerticalAlignment="Center"
+                                            Fill="{Binding State, Converter={StaticResource StateToBrush}}"
+                                            ToolTipService.ToolTip="{Binding State, Converter={StaticResource StateToString}}" />
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            FontWeight="SemiBold"
+                                            Text="{Binding Name}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <Border
+                                            Padding="5,1"
+                                            VerticalAlignment="Center"
+                                            Background="#1F7A3D"
+                                            CornerRadius="4"
+                                            ToolTipService.ToolTip="{Binding GpuTooltip}"
+                                            Visibility="{Binding HasGpu, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                                <FontIcon FontSize="10" Foreground="White" Glyph="&#xE950;" />
+                                                <TextBlock FontSize="10" Foreground="White" Text="GPU" />
+                                            </StackPanel>
+                                        </Border>
+                                        <Border
+                                            Padding="5,1"
+                                            VerticalAlignment="Center"
+                                            Background="{Binding Health, Converter={StaticResource HealthToBrush}}"
+                                            CornerRadius="4"
+                                            ToolTipService.ToolTip="{Binding HealthTooltip}"
+                                            Visibility="{Binding HasHealthCheck, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                                <FontIcon FontSize="10" Foreground="White" Glyph="&#xEB51;" />
+                                                <TextBlock FontSize="10" Foreground="White" Text="Health" />
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <TextBlock
+                                        FontFamily="Consolas"
+                                        FontSize="11"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        Text="{Binding ShortId}" />
+
+                                    <Grid ColumnSpacing="8" RowSpacing="3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="76" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="IMAGE" />
+                                        <TextBlock
+                                            Grid.Row="0"
+                                            Grid.Column="1"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{Binding Image}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="PORTS" />
+                                        <TextBlock
+                                            Grid.Row="1"
+                                            Grid.Column="1"
+                                            FontSize="12"
+                                            Text="{Binding PortsDisplay}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="NETWORK" />
+                                        <TextBlock
+                                            Grid.Row="2"
+                                            Grid.Column="1"
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{Binding Network}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="CREATED" />
+                                        <TextBlock
+                                            Grid.Row="3"
+                                            Grid.Column="1"
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{Binding Created, Converter={StaticResource RelativeTime}}" />
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                        <Button
+                                            Width="34"
+                                            Height="34"
+                                            Padding="0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Click="StartButton_Click"
+                                            ToolTipService.ToolTip="Start"
+                                            Visibility="{Binding IsStopped, Converter={StaticResource BoolToVis}}">
+                                            <FontIcon FontSize="15" Glyph="&#xE768;" />
+                                        </Button>
+                                        <Button
+                                            Width="34"
+                                            Height="34"
+                                            Padding="0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Click="StopButton_Click"
+                                            ToolTipService.ToolTip="Stop"
+                                            Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                                            <FontIcon FontSize="15" Glyph="&#xE71A;" />
+                                        </Button>
+                                        <Button
+                                            Width="34"
+                                            Height="34"
+                                            Padding="0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Click="RestartButton_Click"
+                                            ToolTipService.ToolTip="Restart"
+                                            Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                                            <FontIcon FontSize="15" Glyph="&#xE72C;" />
+                                        </Button>
+                                        <Button
+                                            Width="34"
+                                            Height="34"
+                                            Padding="0"
+                                            AutomationProperties.Name="Terminal"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Click="TerminalButton_Click"
+                                            ToolTipService.ToolTip="Terminal"
+                                            Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}">
+                                            <FontIcon FontSize="15" Glyph="&#xE756;" />
+                                        </Button>
+                                        <Button
+                                            Width="34"
+                                            Height="34"
+                                            Padding="0"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            ToolTipService.ToolTip="More">
+                                            <FontIcon FontSize="15" Glyph="&#xE712;" />
+                                            <Button.Flyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Click="OpenPortMenu_Click" Text="Open in browser">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE774;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Click="HealthCheckMenu_Click" Text="Health check…">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xEB51;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" />
+                                                    <MenuFlyoutSeparator />
+                                                    <MenuFlyoutItem Click="RemoveMenu_Click" Text="Remove">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE74D;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                </MenuFlyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
@@ -335,5 +573,6 @@
                     Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
             </Grid>
         </Border>
+        </Grid>
     </Grid>
 </Page>

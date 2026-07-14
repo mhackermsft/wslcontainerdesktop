@@ -41,6 +41,7 @@ public sealed partial class MainWindow : Window
         AppWindow.SetIcon("Assets/AppIcon.ico");
         AppWindow.Title = "WSL Container Desktop";
         CenterAndSize(1200, 780);
+        SetMinimumSize(900, 640);
 
         if (Content is FrameworkElement root)
         {
@@ -222,6 +223,21 @@ public sealed partial class MainWindow : Window
     }
 
     public void ForceClose() => Close();
+
+    private void SetMinimumSize(int logicalWidth, int logicalHeight)
+    {
+        if (AppWindow.Presenter is not OverlappedPresenter presenter)
+        {
+            return;
+        }
+
+        var hwnd = Microsoft.UI.Win32Interop.GetWindowFromWindowId(AppWindow.Id);
+        var dpi = Helpers.NativeMethods.GetDpiForWindow(hwnd);
+        var scale = dpi == 0 ? 1.0 : dpi / 96.0;
+
+        presenter.PreferredMinimumWidth = (int)(logicalWidth * scale);
+        presenter.PreferredMinimumHeight = (int)(logicalHeight * scale);
+    }
 
     private void CenterAndSize(int logicalWidth, int logicalHeight)
     {
