@@ -999,48 +999,6 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private async Task ImportComposeAsync()
-    {
-        var dialog = new ImportComposeDialog();
-        if (await _dialogs.ShowDialogAsync(dialog) != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary ||
-            string.IsNullOrWhiteSpace(dialog.Yaml))
-        {
-            return;
-        }
-
-        IReadOnlyList<RunProfile> parsed;
-        try
-        {
-            parsed = ComposeImporter.Parse(dialog.Yaml, dialog.BaseDirectory);
-        }
-        catch (Exception ex)
-        {
-            await _dialogs.ShowMessageAsync("Import failed", ex.Message);
-            return;
-        }
-
-        if (parsed.Count == 0)
-        {
-            await _dialogs.ShowMessageAsync(
-                "Nothing to import",
-                "No services with an image were found in the compose file.");
-            return;
-        }
-
-        foreach (var profile in parsed)
-        {
-            _profiles.Save(profile);
-        }
-
-        StatusMessage = $"Imported {parsed.Count} profile{(parsed.Count == 1 ? "" : "s")}";
-        await _dialogs.ShowMessageAsync(
-            "Compose imported",
-            $"Saved {parsed.Count} run profile{(parsed.Count == 1 ? "" : "s")}: " +
-            string.Join(", ", parsed.Select(p => p.Name)) +
-            ".\n\nLoad one from the Run dialog, or from an image's ⋯ menu.");
-    }
-
-    [RelayCommand]
     private Task StartAsync(ContainerRowViewModel? row) =>
         row is null ? Task.CompletedTask :
         ExecuteAsync($"Starting {row.Name}…", () => _wslc.StartContainerAsync(row.Id));
