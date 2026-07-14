@@ -32,6 +32,58 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public Task<CommandResult> GetVersionAsync(CancellationToken ct = default) =>
         runner.RunAsync(["version"], ct);
 
+    /// <summary>
+    /// Terminates the current <c>wslc</c> session. This is the only way to release the per-session
+    /// bind-mount slots that <c>wslc</c> leaks (it caps distinct host bind sources at 15 and never
+    /// frees them, even after containers are removed — a documented wslc limitation). Terminating the
+    /// session also stops all running containers, so callers must confirm with the user first.
+    /// </summary>
+    public Task<CommandResult> RestartSessionAsync(CancellationToken ct = default) =>
+        runner.RunAsync(["system", "session", "terminate"], ct);
+
+    public async Task<BindMountProbeResult> VerifyBindMountAsync(string hostSource, CancellationToken ct = default)
+    {
+        // Bind the source into a throwaway busybox and report, from inside the VM, whether it is a
+        // regular file, a directory (a raced/poisoned bind), or the probe could not run at all. When
+        // the probe container itself fails (image unavailable, engine error, or the mount create
+        // failing outright) we report ProbeUnavailable so the caller can fail open — the real run then
+        // surfaces any genuine mount error through its own error handling rather than being masked as
+        // a mount-limit failure.
+        var args = new List<string>
+        {
+            "run", "--rm",
+            "-v", $"{hostSource}:/wcd-probe:ro",
+            "busybox:1.36",
+            "sh", "-c",
+            "if [ -f /wcd-probe ]; then echo __WCD_FILE__; " +
+            "elif [ -d /wcd-probe ]; then echo __WCD_DIR__; fi",
+        };
+
+        try
+        {
+            var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
+            if (result.StandardOutput.Contains("__WCD_FILE__", StringComparison.Ordinal))
+            {
+                return BindMountProbeResult.MountsAsFile;
+            }
+
+            if (result.StandardOutput.Contains("__WCD_DIR__", StringComparison.Ordinal))
+            {
+                return BindMountProbeResult.MountsAsDirectory;
+            }
+
+            return BindMountProbeResult.ProbeUnavailable;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return BindMountProbeResult.ProbeUnavailable;
+        }
+    }
+
     public async Task<bool> IsEngineAvailableAsync(CancellationToken ct = default)
     {
         try

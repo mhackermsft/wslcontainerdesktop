@@ -47,6 +47,14 @@
                     <TextBlock Text="Refresh" />
                 </StackPanel>
             </Button>
+            <Button
+                Command="{x:Bind ViewModel.RestartSessionCommand}"
+                ToolTipService.ToolTip="Release wslc's leaked bind-mount slots (needed when config/secret mounts start failing). Stops all running containers.">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="14" Glyph="&#xE777;" />
+                    <TextBlock Text="Restart WSL session" />
+                </StackPanel>
+            </Button>
         </StackPanel>
 
         <InfoBar
@@ -204,24 +212,28 @@
                                     Spacing="4">
                                     <Button
                                         Padding="7,5"
+                                        AutomationProperties.Name="Bring up"
                                         Click="UpButton_Click"
                                         ToolTipService.ToolTip="Bring up">
                                         <FontIcon FontSize="14" Glyph="&#xE768;" />
                                     </Button>
                                     <Button
                                         Padding="7,5"
+                                        AutomationProperties.Name="Restart"
                                         Click="RestartButton_Click"
                                         ToolTipService.ToolTip="Restart">
                                         <FontIcon FontSize="14" Glyph="&#xE72C;" />
                                     </Button>
                                     <Button
                                         Padding="7,5"
+                                        AutomationProperties.Name="Bring down"
                                         Click="DownButton_Click"
                                         ToolTipService.ToolTip="Bring down">
                                         <FontIcon FontSize="14" Glyph="&#xE71A;" />
                                     </Button>
                                     <Button
                                         Padding="7,5"
+                                        AutomationProperties.Name="Remove project"
                                         Click="RemoveButton_Click"
                                         ToolTipService.ToolTip="Remove project">
                                         <FontIcon FontSize="14" Glyph="&#xE74D;" />
@@ -254,16 +266,16 @@
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Button Padding="7,5" Click="UpButton_Click" ToolTipService.ToolTip="Bring up">
+                                        <Button Padding="7,5" AutomationProperties.Name="Bring up" Click="UpButton_Click" ToolTipService.ToolTip="Bring up">
                                             <FontIcon FontSize="14" Glyph="&#xE768;" />
                                         </Button>
-                                        <Button Padding="7,5" Click="RestartButton_Click" ToolTipService.ToolTip="Restart">
+                                        <Button Padding="7,5" AutomationProperties.Name="Restart" Click="RestartButton_Click" ToolTipService.ToolTip="Restart">
                                             <FontIcon FontSize="14" Glyph="&#xE72C;" />
                                         </Button>
-                                        <Button Padding="7,5" Click="DownButton_Click" ToolTipService.ToolTip="Bring down">
+                                        <Button Padding="7,5" AutomationProperties.Name="Bring down" Click="DownButton_Click" ToolTipService.ToolTip="Bring down">
                                             <FontIcon FontSize="14" Glyph="&#xE71A;" />
                                         </Button>
-                                        <Button Padding="7,5" Click="RemoveButton_Click" ToolTipService.ToolTip="Remove project">
+                                        <Button Padding="7,5" AutomationProperties.Name="Remove project" Click="RemoveButton_Click" ToolTipService.ToolTip="Remove project">
                                             <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                         </Button>
                                     </StackPanel>

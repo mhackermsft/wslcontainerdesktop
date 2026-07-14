@@ -400,6 +400,12 @@ public sealed class ComposeProjectSupervisor
         return ordered;
     }
 
+    /// <summary>How many times to stage-and-verify a config/secret bind before giving up. Each retry
+    /// stages the file at a fresh unique path to bust wslc's per-path 9P negative cache. Kept small:
+    /// a single fresh-path retry clears a one-off race, and each abandoned path leaks a wslc mount
+    /// slot, so more retries would work against the very limit they guard.</summary>
+    private const int MaxStagedMountAttempts = 2;
+
     private async Task<ComposeServiceResult> StartServiceAsync(ComposeProject project, ComposeService service, CancellationToken ct)
     {
         var name = ResolveContainerName(project, service);
@@ -422,23 +428,88 @@ public sealed class ComposeProjectSupervisor
             _logger.LogDebug(ex, "Pre-run cleanup for {Name} failed; continuing.", name);
         }
 
-        var options = CloneForRun(project, service, name);
-
-        try
+        // A config/secret file bind can silently fail: under wslc session mount pressure runc can't
+        // stat the host source and pre-creates it as a DIRECTORY, so the container starts but reads a
+        // directory where its config should be (nginx: "Is a directory"). Worse, the raced path is
+        // then poisoned — wslc's 9P layer caches the missing-source result per path, so re-running the
+        // same staged path keeps failing even in an otherwise clean session. Windows-side detection is
+        // unreliable (the file→directory view lags), so before running the real container we verify
+        // each staged bind from INSIDE the VM (authoritative). Only a *confirmed* directory mount
+        // triggers a re-stage at a FRESH path (which the cache treats as new); if the probe itself
+        // can't run we fail open and let the real run surface any genuine error. Only file-mount
+        // services pay the verification cost.
+        string? nonce = null;
+        for (var attempt = 1; attempt <= MaxStagedMountAttempts; attempt++)
         {
-            var run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
-            if (!run.Success)
+            var options = CloneForRun(project, service, name, nonce);
+            var stagedSources = options.Volumes
+                .Where(v => v.StartsWith(StagingRoot, StringComparison.OrdinalIgnoreCase))
+                .Select(SourceOf)
+                .ToList();
+
+            if (stagedSources.Count > 0 && await AnyStagedMountRacedAsync(stagedSources, ct).ConfigureAwait(false))
             {
-                return new ComposeServiceResult(service.Name, false, Summarize(run));
+                if (attempt < MaxStagedMountAttempts)
+                {
+                    nonce = Guid.NewGuid().ToString("N")[..8];
+                    _logger.LogWarning(
+                        "Staged config/secret bind for {Name} mounted as a directory (wslc mount " +
+                        "pressure); re-staging at a fresh path (attempt {Next}/{Max}).",
+                        name, attempt + 1, MaxStagedMountAttempts);
+                    continue;
+                }
+
+                return new ComposeServiceResult(service.Name, false, MountLimitMessage);
             }
 
-            await ApplyExtraHostsAsync(name, service, ct).ConfigureAwait(false);
-            return new ComposeServiceResult(service.Name, true, $"Started as {name}");
+            try
+            {
+                var run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
+                if (!run.Success)
+                {
+                    return new ComposeServiceResult(service.Name, false, Summarize(run));
+                }
+
+                await ApplyExtraHostsAsync(name, service, ct).ConfigureAwait(false);
+                return new ComposeServiceResult(service.Name, true, $"Started as {name}");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return new ComposeServiceResult(service.Name, false, ex.Message);
+            }
         }
-        catch (Exception ex)
+
+        return new ComposeServiceResult(service.Name, false, MountLimitMessage);
+    }
+
+    /// <summary>The host source of a "<c>source:/target:ro</c>" bind string.</summary>
+    private static string SourceOf(string volume)
+    {
+        var boundary = volume.IndexOf(":/", StringComparison.Ordinal);
+        return boundary > 0 ? volume[..boundary] : volume;
+    }
+
+    /// <summary>True when any staged source is confirmed (from inside the wslc VM) to mount as a
+    /// directory — a raced/poisoned bind that must be re-staged fresh. A probe that can't run
+    /// (<see cref="BindMountProbeResult.ProbeUnavailable"/>) is treated as "not raced" so the real
+    /// run proceeds and its own error handling reports any genuine failure, rather than masking an
+    /// image/engine problem as a mount-limit failure.</summary>
+    private async Task<bool> AnyStagedMountRacedAsync(IEnumerable<string> sources, CancellationToken ct)
+    {
+        foreach (var source in sources)
         {
-            return new ComposeServiceResult(service.Name, false, ex.Message);
+            if (await _wslc.VerifyBindMountAsync(source, ct).ConfigureAwait(false)
+                == BindMountProbeResult.MountsAsDirectory)
+            {
+                return true;
+            }
         }
+
+        return false;
     }
 
     /// <summary>
@@ -605,7 +676,7 @@ public sealed class ComposeProjectSupervisor
         }
     }
 
-    private static RunContainerOptions CloneForRun(ComposeProject project, ComposeService service, string name)
+    private RunContainerOptions CloneForRun(ComposeProject project, ComposeService service, string name, string? stagingNonce = null)
     {
         var src = service.Options;
         var options = new RunContainerOptions
@@ -650,12 +721,12 @@ public sealed class ComposeProjectSupervisor
         // Bind-mount file-backed secrets/configs read-only (wslc has no secret store).
         foreach (var mount in service.Secrets)
         {
-            AddFileMount(options, project.Secrets, mount);
+            AddFileMount(options, project, project.Secrets, mount, "secret", stagingNonce);
         }
 
         foreach (var mount in service.Configs)
         {
-            AddFileMount(options, project.Configs, mount);
+            AddFileMount(options, project, project.Configs, mount, "config", stagingNonce);
         }
 
         // Tag the container so the project can be re-adopted and torn down as a unit.
@@ -679,11 +750,50 @@ public sealed class ComposeProjectSupervisor
             ? $"{project.Name}_{service.Name}:latest"
             : service.Options.Image.Trim();
 
+    /// <summary>
+    /// Root under which config/secret source files are materialized before binding. Two problems are
+    /// avoided by staging (rather than binding source files in place):
+    /// <list type="bullet">
+    /// <item>Some Windows directories do not enumerate reliably inside the <c>wslc</c> VM's 9P share,
+    /// so a file bind's parent isn't found and runc falls back to <c>mkdir</c> on the read-only share
+    /// ("read-only file system").</item>
+    /// <item>MSIX <b>AppData redirection</b>: for a packaged app, writes to
+    /// <c>%LOCALAPPDATA%</c> are transparently redirected into the package's
+    /// <c>...\Packages\&lt;PFN&gt;\LocalCache\Local</c> store, but the literal (unredirected) path is
+    /// what would be handed to <c>wslc</c>. <c>wslc</c> runs without the package's redirection view,
+    /// looks at the literal path, finds nothing, and runc pre-creates the bind source as a directory
+    /// — so the container reads a directory where its config/secret file should be. Staging under the
+    /// package's real <c>LocalCache</c> folder (which is <i>not</i> further redirected) makes the path
+    /// the app writes identical to the path <c>wslc</c> reads.</item>
+    /// </list>
+    /// </summary>
+    private static string StagingRoot => Path.Combine(StagingBase.Value, "compose-stage");
+
+    private static readonly Lazy<string> StagingBase = new(() =>
+    {
+        try
+        {
+            // Packaged: the package's real LocalCache folder. Not redirected, so app-write path ==
+            // wslc-read path. Throws when running unpackaged.
+            return Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path;
+        }
+        catch
+        {
+            // Unpackaged: %LOCALAPPDATA% is not redirected and binds reliably.
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "WslContainerDesktop");
+        }
+    });
+
     /// <summary>Resolves a secret/config reference to its source file and adds a read-only bind mount.</summary>
-    private static void AddFileMount(
+    private void AddFileMount(
         RunContainerOptions options,
+        ComposeProject project,
         IReadOnlyList<ComposeSecret> definitions,
-        ComposeFileMount reference)
+        ComposeFileMount reference,
+        string kind,
+        string? stagingNonce = null)
     {
         var def = definitions.FirstOrDefault(d =>
             string.Equals(d.Name, reference.Source, StringComparison.Ordinal));
@@ -692,7 +802,93 @@ public sealed class ComposeProjectSupervisor
             return;
         }
 
-        options.Volumes.Add($"{def.File}:{reference.Target}:ro");
+        if (!File.Exists(def.File))
+        {
+            _logger.LogWarning(
+                "Compose {Kind} '{Name}' source file '{File}' not found; skipping mount into {Target}.",
+                kind, def.Name, def.File, reference.Target);
+            return;
+        }
+
+        var mountSource = MaterializeForMount(project, kind, def.Name, def.File, stagingNonce);
+        options.Volumes.Add($"{mountSource}:{reference.Target}:ro");
+    }
+
+    /// <summary>
+    /// Copies a config/secret source file into a per-project staging directory and returns the staged
+    /// path to bind. See <see cref="StagingRoot"/> for why in-place binds are avoided. When
+    /// <paramref name="stagingNonce"/> is set (a retry) or the stable staged path has been poisoned
+    /// (left as a directory by a prior raced run), a fresh unique subdirectory is used so wslc's
+    /// per-path 9P negative cache treats the source as new.
+    /// </summary>
+    private string MaterializeForMount(
+        ComposeProject project, string kind, string name, string source, string? stagingNonce)
+    {
+        try
+        {
+            var baseDir = Path.Combine(StagingRoot, Sanitize(project.Name), kind, Sanitize(name));
+            var stablePath = Path.Combine(baseDir, Path.GetFileName(source));
+
+            string dir;
+            if (!string.IsNullOrEmpty(stagingNonce))
+            {
+                dir = Path.Combine(baseDir, stagingNonce);
+            }
+            else if (Directory.Exists(stablePath))
+            {
+                // Stable path was raced into a directory in a prior run; reusing it keeps failing.
+                dir = Path.Combine(baseDir, Guid.NewGuid().ToString("N")[..8]);
+            }
+            else
+            {
+                dir = baseDir;
+            }
+
+            Directory.CreateDirectory(dir);
+            var dest = Path.Combine(dir, Path.GetFileName(source));
+
+            // A prior raced run may have left a directory at dest (runc pre-created the missing bind
+            // source). File.Copy can't overwrite a directory, so clear it first.
+            if (Directory.Exists(dest))
+            {
+                Directory.Delete(dest, recursive: true);
+            }
+
+            File.Copy(source, dest, overwrite: true);
+            return dest;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to stage compose {Kind} '{Name}' from '{Source}'; binding source in place.",
+                kind, name, source);
+            return source;
+        }
+    }
+
+    /// <summary>Best-effort removal of a project's staged config/secret files. Call when a project
+    /// is deleted so its materialized configs/secrets don't linger under the staging root.</summary>
+    public void CleanStaging(string projectName)
+    {
+        try
+        {
+            var dir = Path.Combine(StagingRoot, Sanitize(projectName));
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to clean compose staging for {Project}.", projectName);
+        }
+    }
+
+    /// <summary>Replaces characters that are invalid in a path segment with underscores.</summary>
+    private static string Sanitize(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        return new string(value.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
     }
 
     /// <summary>The container name a service runs as: an explicit <c>container_name</c>, else <c>project_service</c>.</summary>
@@ -848,6 +1044,43 @@ public sealed class ComposeProjectSupervisor
             ? result.StandardOutput
             : result.StandardError;
         text = (text ?? string.Empty).Trim();
+
+        if (IsMountLimitFailure(text))
+        {
+            return MountLimitMessage;
+        }
+
         return string.IsNullOrEmpty(text) ? $"wslc exited with code {result.ExitCode}" : text;
+    }
+
+    /// <summary>User-facing message for both the explicit wslc mount-limit error and the silent
+    /// directory-race symptom. The Compose page detects this to offer a session restart.</summary>
+    public const string MountLimitMessage =
+        "wslc hit its session bind-mount limit (it leaks a slot per distinct host path, cap 15), so "
+        + "this config/secret could not be mounted. Use \"Restart WSL session\" to release the slots, "
+        + "then bring the project up again. (Restarting stops all running containers.)";
+
+    /// <summary>
+    /// True when a <c>wslc run</c> failure is the session bind-mount limit. wslc leaks a slot per
+    /// distinct host bind source (cap 15, never freed until the session is terminated); once
+    /// exhausted, new binds either report the explicit limit error or degrade to a runc
+    /// <c>mkdir ... read-only file system</c> on the mount source.
+    /// </summary>
+    public static bool IsMountLimitFailure(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        if (string.Equals(text, MountLimitMessage, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var lower = text.ToLowerInvariant();
+        return lower.Contains("too many volumes")
+            || (lower.Contains("limit: 15") && lower.Contains("volume"))
+            || (lower.Contains("creating mount source path") && lower.Contains("read-only file system"));
     }
 }
