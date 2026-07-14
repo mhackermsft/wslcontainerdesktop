@@ -110,12 +110,14 @@ public static class ComposeImporter
         var anchors = new Dictionary<string, Node>(StringComparer.Ordinal);
         var root = ParseMapping(lines, 0, lines.Count, 0, anchors);
 
-        // Deep-merge a sibling docker-compose.override.yml (compose's default override behavior).
+        // Merge any top-level `include:` files first (the including file wins), then a sibling override.
+        root = ApplyIncludes(root, baseDirectory, effectiveEnv);
         root = ApplyOverrideFile(root, baseDirectory, effectiveEnv);
 
         var project = new ComposeProject
         {
             Name = SanitizeProjectName(root.Scalar("name")),
+            ActiveProfiles = ParseActiveProfiles(effectiveEnv),
         };
 
         if (root.Child("services") is not MappingNode services)
@@ -183,6 +185,63 @@ public static class ComposeImporter
         }
 
         return root;
+    }
+
+    /// <summary>
+    /// Merges top-level <c>include:</c> files under <paramref name="root"/> (the including file wins),
+    /// mirroring <c>docker compose</c>'s <c>include</c>. Accepts the short list form
+    /// (<c>- other.yml</c>) and the long form (<c>- path: other.yml</c>). Best-effort: missing or
+    /// unreadable includes are skipped.
+    /// </summary>
+    private static MappingNode ApplyIncludes(
+        MappingNode root,
+        string? baseDirectory,
+        IReadOnlyDictionary<string, string>? env)
+    {
+        if (string.IsNullOrWhiteSpace(baseDirectory) || root.Child("include") is not SequenceNode includes)
+        {
+            return root;
+        }
+
+        var merged = new MappingNode(new Dictionary<string, Node>(StringComparer.Ordinal));
+        foreach (var item in includes.Items)
+        {
+            var relative = item switch
+            {
+                ScalarNode s => s.Value,
+                MappingNode m => m.Scalar("path"),
+                _ => null,
+            };
+
+            if (string.IsNullOrWhiteSpace(relative))
+            {
+                continue;
+            }
+
+            var included = LoadComposeRoot(ResolvePath(relative, baseDirectory), env);
+            if (included is not null)
+            {
+                // Later includes win over earlier ones; the main file wins over all includes.
+                merged = MergeMappings(merged, included);
+            }
+        }
+
+        return MergeMappings(merged, StripKey(root, "include"));
+    }
+
+    /// <summary>
+    /// Reads the active compose profiles from the <c>COMPOSE_PROFILES</c> environment variable (the
+    /// same mechanism <c>docker compose</c> uses), split on commas.
+    /// </summary>
+    private static List<string> ParseActiveProfiles(IReadOnlyDictionary<string, string>? env)
+    {
+        if (env is null || !env.TryGetValue("COMPOSE_PROFILES", out var raw) || string.IsNullOrWhiteSpace(raw))
+        {
+            return new List<string>();
+        }
+
+        return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
     }
 
     /// <summary>
@@ -414,7 +473,63 @@ public static class ComposeImporter
         };
 
         service.Health = ParseHealthCheck(svc.Child("healthcheck"), service.Restart);
+        service.ExtraHosts = ParseExtraHosts(svc.Child("extra_hosts"));
         return service;
+    }
+
+    /// <summary>
+    /// Parses compose <c>extra_hosts:</c> into <c>host:ip</c> strings, accepting the list form
+    /// (<c>- "host:ip"</c> or <c>- host=ip</c>) and the mapping form (<c>host: ip</c>).
+    /// </summary>
+    private static List<string> ParseExtraHosts(Node? node)
+    {
+        var hosts = new List<string>();
+        switch (node)
+        {
+            case SequenceNode seq:
+                foreach (var item in seq.Items.OfType<ScalarNode>())
+                {
+                    var entry = NormalizeHostEntry(item.Value);
+                    if (entry is not null)
+                    {
+                        hosts.Add(entry);
+                    }
+                }
+
+                break;
+
+            case MappingNode map:
+                foreach (var (host, value) in map.Map)
+                {
+                    if (!string.IsNullOrWhiteSpace(host) && value is ScalarNode ip)
+                    {
+                        var entry = NormalizeHostEntry($"{host}:{ip.Value}");
+                        if (entry is not null)
+                        {
+                            hosts.Add(entry);
+                        }
+                    }
+                }
+
+                break;
+        }
+
+        return hosts;
+    }
+
+    /// <summary>Normalizes a host entry to <c>host:ip</c>, accepting <c>host:ip</c> or <c>host=ip</c>.</summary>
+    private static string? NormalizeHostEntry(string raw)
+    {
+        var value = Unquote(raw).Trim();
+        var sep = value.IndexOfAny(new[] { '=', ':' });
+        if (sep <= 0 || sep >= value.Length - 1)
+        {
+            return null;
+        }
+
+        var host = value[..sep].Trim();
+        var ip = value[(sep + 1)..].Trim();
+        return string.IsNullOrEmpty(host) || string.IsNullOrEmpty(ip) ? null : $"{host}:{ip}";
     }
 
     /// <summary>
@@ -853,7 +968,7 @@ public static class ComposeImporter
     /// </summary>
     private static void MergeEnvFiles(RunContainerOptions options, Node? node, string? baseDirectory)
     {
-        var paths = CollectStrings(node);
+        var paths = CollectEnvFilePaths(node);
         if (paths.Count == 0)
         {
             return;
@@ -878,6 +993,37 @@ public static class ComposeImporter
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Reads compose <c>env_file:</c> paths, accepting the scalar form (<c>./a.env</c>), the list of
+    /// scalars, and the long list-of-mappings form (<c>- path: ./a.env  required: false</c>).
+    /// </summary>
+    private static List<string> CollectEnvFilePaths(Node? node)
+    {
+        // Long form: a sequence whose items are mappings with a `path:` key.
+        if (node is SequenceNode seq && seq.Items.Any(i => i is MappingNode))
+        {
+            var paths = new List<string>();
+            foreach (var item in seq.Items)
+            {
+                var path = item switch
+                {
+                    ScalarNode s => s.Value,
+                    MappingNode m => m.Scalar("path"),
+                    _ => null,
+                };
+
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    paths.Add(path.Trim());
+                }
+            }
+
+            return paths;
+        }
+
+        return CollectStrings(node);
     }
 
     /// <summary>Resolves a possibly-relative path against the compose file's directory when known.</summary>

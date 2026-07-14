@@ -200,6 +200,13 @@ public sealed class ComposeService
     /// <see cref="HealthCheckConfig.ContainerName"/> is bound to the resolved container name at up.
     /// </summary>
     public HealthCheckConfig? Health { get; set; }
+
+    /// <summary>
+    /// Extra <c>/etc/hosts</c> entries (compose <c>extra_hosts:</c>), each as <c>host:ip</c>. Because
+    /// <c>wslc run</c> has no <c>--add-host</c> flag, the supervisor appends these to the container's
+    /// <c>/etc/hosts</c> via <c>exec</c> right after it starts.
+    /// </summary>
+    public List<string> ExtraHosts { get; set; } = new();
 }
 
 /// <summary>

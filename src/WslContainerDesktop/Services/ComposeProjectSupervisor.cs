@@ -406,13 +406,74 @@ public sealed class ComposeProjectSupervisor
         try
         {
             var run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
-            return run.Success
-                ? new ComposeServiceResult(service.Name, true, $"Started as {name}")
-                : new ComposeServiceResult(service.Name, false, Summarize(run));
+            if (!run.Success)
+            {
+                return new ComposeServiceResult(service.Name, false, Summarize(run));
+            }
+
+            await ApplyExtraHostsAsync(name, service, ct).ConfigureAwait(false);
+            return new ComposeServiceResult(service.Name, true, $"Started as {name}");
         }
         catch (Exception ex)
         {
             return new ComposeServiceResult(service.Name, false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Appends compose <c>extra_hosts:</c> entries to the container's <c>/etc/hosts</c> via
+    /// <c>exec</c>, since <c>wslc run</c> has no <c>--add-host</c>. The special <c>host-gateway</c>
+    /// address resolves to the container's default gateway at runtime. Best-effort: failures are logged.
+    /// </summary>
+    private async Task ApplyExtraHostsAsync(string name, ComposeService service, CancellationToken ct)
+    {
+        if (service.ExtraHosts.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+            var container = FindByName(containers, name);
+            if (container is null)
+            {
+                return;
+            }
+
+            var lines = new List<string>();
+            foreach (var entry in service.ExtraHosts)
+            {
+                var sep = entry.IndexOf(':');
+                if (sep <= 0 || sep >= entry.Length - 1)
+                {
+                    continue;
+                }
+
+                var host = entry[..sep].Trim();
+                var ip = entry[(sep + 1)..].Trim();
+                var addr = string.Equals(ip, "host-gateway", StringComparison.OrdinalIgnoreCase)
+                    ? "$GW"
+                    : ip;
+                lines.Add($"echo \"{addr} {host}\" >> /etc/hosts");
+            }
+
+            if (lines.Count == 0)
+            {
+                return;
+            }
+
+            var script = "GW=$(ip route 2>/dev/null | awk '/^default/{print $3; exit}'); " +
+                string.Join("; ", lines);
+            var result = await _wslc.ExecAsync(container.Id, script, ct).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                _logger.LogDebug("Applying extra_hosts to {Name} failed: {Detail}", name, Summarize(result));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Applying extra_hosts to {Name} threw.", name);
         }
     }
 

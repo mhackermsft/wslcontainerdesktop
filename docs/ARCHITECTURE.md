@@ -160,14 +160,15 @@ labels), `container_name`, `command`, `entrypoint`, `ports` (short and long form
 per service), `user`, `working_dir`, `hostname`, `domainname`, `labels`,
 `cpus`/`mem_limit`/`deploy.resources.limits`, `tmpfs`, `ulimits`, `shm_size`, `stop_signal`,
 `dns`/`dns_search`/`dns_opt`, `secrets`/`configs` refs, `restart`, `stop_grace_period`, `profiles`,
-`depends_on` (list and `condition:` form, including `service_completed_successfully`), and
-`healthcheck`. Top-level `networks:`, `volumes:`, `secrets:` and
+`extra_hosts`, `depends_on` (list and `condition:` form, including `service_completed_successfully`),
+and `healthcheck`. Top-level `networks:`, `volumes:`, `secrets:` and
 `configs:` blocks are parsed too. Values support `${VAR}` / `${VAR:-default}`
 interpolation, and the reader resolves YAML anchors/aliases (`&`/`*`), `<<` merge keys, and `|`/`>`
-block scalars. A service's `extends:` (same-file or cross-file `file:`/`service:`) is resolved before
-parsing, and a sibling `docker-compose.override.yml` is deep-merged over the base file
-(`environment`/`labels` merge by key; other scalars/sequences are overridden). Projects persist to
-`compose-projects.json`.
+block scalars. Top-level `include:` files are merged in (the main file wins), a service's `extends:`
+(same-file or cross-file `file:`/`service:`) is resolved before parsing, and a sibling
+`docker-compose.override.yml` is deep-merged over the base file (`environment`/`labels` merge by key;
+other scalars/sequences are overridden). Active `profiles:` come from `COMPOSE_PROFILES` in the
+environment / `.env`. Projects persist to `compose-projects.json`.
 
 `ComposeProjectSupervisor` brings a project **up / down / restart as a unit**: on `up` it first
 **provisions** declared (non-external) `networks:`/`volumes:` via `wslc network/volume create`, then
@@ -178,7 +179,8 @@ profile always starts; a profiled service starts only when one of its profiles i
 each container its **service name as a `--network-alias`** so siblings
 resolve it by name (Compose-style DNS discovery), bind-mounts file-backed `secrets`/`configs`
 read-only (there is no `wslc` secret store), gates `service_healthy` edges on a health probe and
-`service_completed_successfully` edges on the dependency exiting 0, enrolls
+`service_completed_successfully` edges on the dependency exiting 0, appends `extra_hosts:` entries to
+each container's `/etc/hosts` via `exec` after start (there is no `--add-host` flag), enrolls
 services that declare a `healthcheck` into `HealthWatchdog`, and seeds `restart:` policies for
 services *without* a healthcheck into `RestartPolicyWatchdog` (which restarts an exited container
 within a budget; `on-failure` inspects the exit code, and a user's manual stop suppresses
@@ -202,13 +204,15 @@ against that folder.
 | `build:` (short + long form: `context`, `dockerfile`, `args`, `target`, `labels`, `no_cache`, `pull`, `pull_policy`) | **Supported** — built and tagged `project_service` on up; `context` resolves against the compose folder; `pull_policy: always/build` maps to `--pull` |
 | `ports` (short `"h:c"` and long `target/published/protocol`) | **Supported** |
 | `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported** |
-| `environment` (list and map), `env_file` | **Supported** — relative `env_file` paths resolve against the compose file's folder; a sibling `.env` seeds interpolation |
+| `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Supported** — relative `env_file` paths resolve against the compose file's folder; a sibling `.env` seeds interpolation |
 | Top-level `networks:` / `volumes:` **creation** (driver, `driver_opts`, labels; `external` skipped) | **Supported** — created on up via `wslc network/volume create`; networks removed on down |
 | `networks` / `network_mode` per service, service-name DNS aliases | **Supported** — service name added as `--network-alias`; `wslc run` still attaches only the **first** network per container (no `network connect`) |
 | `secrets:` / `configs:` (file-backed) | **Supported (best-effort)** — source file bind-mounted read-only (`/run/secrets/<name>` or the config target); no in-engine secret store |
 | `tmpfs`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`, `dns`/`dns_search`/`dns_opt` | **Supported** — mapped to the matching `wslc run`/`wslc stop` flags |
-| `profiles:` | **Supported** — services with a profile start only when one of their profiles is in the project's active set; unprofiled services always start |
+| `profiles:` | **Supported** — services with a profile start only when one of their profiles is in the project's active set (from `COMPOSE_PROFILES` in the environment / `.env`); unprofiled services always start |
 | `extends:` (same-file and cross-file `file:`/`service:`) | **Supported** — resolved and merged before parsing (child wins; `environment`/`labels` merge by key) |
+| `include:` (top-level) | **Supported** — included files are merged under the main file (the main file wins), short `- file.yml` and long `- path:` forms |
+| `extra_hosts:` | **Supported (best-effort)** — appended to the container's `/etc/hosts` via `exec` after start (no `--add-host` flag); `host-gateway` resolves to the container's default gateway |
 | `docker-compose.override.yml` | **Supported** — a sibling override file is deep-merged over the base compose file |
 | `${VAR}` / `${VAR:-default}` interpolation, anchors/aliases, `<<` merge, `\|`/`>` block scalars | **Supported** (block scalars are best-effort: blank lines not preserved) |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
@@ -216,7 +220,7 @@ against that folder.
 | `depends_on` incl. `condition: service_healthy` / `service_completed_successfully` | **Supported** — start ordering + health/exit gating |
 | `restart:` (`no`/`always`/`on-failure`/`unless-stopped`) | **Supported (best-effort)** while the app runs; restart backoff timing is not byte-for-byte identical to Docker |
 | Project lifecycle (`up`/`down`/`restart`), re-adoption on relaunch | **Supported** |
-| Multi-network attach per container, `cap_add`/`cap_drop`, `devices`, `sysctls`, `privileged`, `logging` drivers | **Not supported** — no `wslc run`/`network connect` flag |
+| Multi-network attach per container, `cap_add`/`cap_drop`, `devices`, `sysctls`, `privileged`, `read_only`, `init`, `pid`/`ipc`, `mac_address`, `logging` drivers | **Not supported** — no `wslc run`/`network connect` flag and no safe in-container emulation |
 | `deploy.replicas` / scaling, Swarm `deploy`, always-on restart after the app closes | **Not supported** — requires a persistent daemon (out of scope for the desktop-as-daemon model) |
 
 ### Diagnostics (`FileLoggerProvider`)
