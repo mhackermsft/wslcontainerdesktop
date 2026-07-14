@@ -18,6 +18,21 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>Outcome of probing how a host path bind-mounts inside the wslc VM.</summary>
+public enum BindMountProbeResult
+{
+    /// <summary>The source mounted as a regular file (the healthy case).</summary>
+    MountsAsFile,
+
+    /// <summary>The source mounted as a directory — runc pre-created a missing bind source; the
+    /// staged path is poisoned and must be re-staged fresh.</summary>
+    MountsAsDirectory,
+
+    /// <summary>The probe container could not run (e.g. the probe image is unavailable), so the mount
+    /// state is unknown. Callers should fail open and let the real run surface any genuine error.</summary>
+    ProbeUnavailable,
+}
+
 public interface IWslcService
 {
     // Engine
@@ -28,10 +43,10 @@ public interface IWslcService
     /// all running containers. See the implementation for the wslc volume-limit rationale.</summary>
     Task<CommandResult> RestartSessionAsync(CancellationToken ct = default);
 
-    /// <summary>Verifies that a host path bind-mounts as a regular file inside the wslc VM. Used to
-    /// detect the config/secret bind race where runc pre-creates a missing source as a directory.
-    /// Returns false when the source mounts as a directory or the probe container fails to run.</summary>
-    Task<bool> VerifyBindMountAsync(string hostSource, CancellationToken ct = default);
+    /// <summary>Verifies how a host path bind-mounts inside the wslc VM, to detect the config/secret
+    /// bind race where runc pre-creates a missing source as a directory. Distinguishes a clean file
+    /// mount from a raced directory mount from a probe that could not run at all (fail-open).</summary>
+    Task<BindMountProbeResult> VerifyBindMountAsync(string hostSource, CancellationToken ct = default);
 
     // Containers
     Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(bool all = true, CancellationToken ct = default);

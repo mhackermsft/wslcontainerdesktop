@@ -401,8 +401,10 @@ public sealed class ComposeProjectSupervisor
     }
 
     /// <summary>How many times to stage-and-verify a config/secret bind before giving up. Each retry
-    /// stages the file at a fresh unique path to bust wslc's per-path 9P negative cache.</summary>
-    private const int MaxStagedMountAttempts = 3;
+    /// stages the file at a fresh unique path to bust wslc's per-path 9P negative cache. Kept small:
+    /// a single fresh-path retry clears a one-off race, and each abandoned path leaks a wslc mount
+    /// slot, so more retries would work against the very limit they guard.</summary>
+    private const int MaxStagedMountAttempts = 2;
 
     private async Task<ComposeServiceResult> StartServiceAsync(ComposeProject project, ComposeService service, CancellationToken ct)
     {
@@ -432,8 +434,10 @@ public sealed class ComposeProjectSupervisor
         // then poisoned — wslc's 9P layer caches the missing-source result per path, so re-running the
         // same staged path keeps failing even in an otherwise clean session. Windows-side detection is
         // unreliable (the file→directory view lags), so before running the real container we verify
-        // each staged bind from INSIDE the VM (authoritative) and, on failure, re-stage at a FRESH
-        // path — which the cache treats as new. Only file-mount services pay the verification cost.
+        // each staged bind from INSIDE the VM (authoritative). Only a *confirmed* directory mount
+        // triggers a re-stage at a FRESH path (which the cache treats as new); if the probe itself
+        // can't run we fail open and let the real run surface any genuine error. Only file-mount
+        // services pay the verification cost.
         string? nonce = null;
         for (var attempt = 1; attempt <= MaxStagedMountAttempts; attempt++)
         {
@@ -443,13 +447,13 @@ public sealed class ComposeProjectSupervisor
                 .Select(SourceOf)
                 .ToList();
 
-            if (stagedSources.Count > 0 && !await StagedMountsCleanAsync(stagedSources, ct).ConfigureAwait(false))
+            if (stagedSources.Count > 0 && await AnyStagedMountRacedAsync(stagedSources, ct).ConfigureAwait(false))
             {
                 if (attempt < MaxStagedMountAttempts)
                 {
                     nonce = Guid.NewGuid().ToString("N")[..8];
                     _logger.LogWarning(
-                        "Staged config/secret bind for {Name} did not mount as a file (wslc mount " +
+                        "Staged config/secret bind for {Name} mounted as a directory (wslc mount " +
                         "pressure); re-staging at a fresh path (attempt {Next}/{Max}).",
                         name, attempt + 1, MaxStagedMountAttempts);
                     continue;
@@ -489,21 +493,23 @@ public sealed class ComposeProjectSupervisor
         return boundary > 0 ? volume[..boundary] : volume;
     }
 
-    /// <summary>True only when every staged source mounts as a regular file inside the wslc VM. A
-    /// staged source that mounts as a directory is a raced (poisoned) bind and must be re-staged
-    /// fresh. The probe is authoritative because it observes the source from inside the VM, not via
-    /// the lagging Windows→9P view.</summary>
-    private async Task<bool> StagedMountsCleanAsync(IEnumerable<string> sources, CancellationToken ct)
+    /// <summary>True when any staged source is confirmed (from inside the wslc VM) to mount as a
+    /// directory — a raced/poisoned bind that must be re-staged fresh. A probe that can't run
+    /// (<see cref="BindMountProbeResult.ProbeUnavailable"/>) is treated as "not raced" so the real
+    /// run proceeds and its own error handling reports any genuine failure, rather than masking an
+    /// image/engine problem as a mount-limit failure.</summary>
+    private async Task<bool> AnyStagedMountRacedAsync(IEnumerable<string> sources, CancellationToken ct)
     {
         foreach (var source in sources)
         {
-            if (!await _wslc.VerifyBindMountAsync(source, ct).ConfigureAwait(false))
+            if (await _wslc.VerifyBindMountAsync(source, ct).ConfigureAwait(false)
+                == BindMountProbeResult.MountsAsDirectory)
             {
-                return false;
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 
     /// <summary>

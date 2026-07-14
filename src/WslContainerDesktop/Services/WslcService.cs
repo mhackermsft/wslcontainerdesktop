@@ -41,24 +41,38 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public Task<CommandResult> RestartSessionAsync(CancellationToken ct = default) =>
         runner.RunAsync(["system", "session", "terminate"], ct);
 
-    public async Task<bool> VerifyBindMountAsync(string hostSource, CancellationToken ct = default)
+    public async Task<BindMountProbeResult> VerifyBindMountAsync(string hostSource, CancellationToken ct = default)
     {
-        // Bind the source into a throwaway busybox and check it is a regular file from inside the VM.
-        // We rely on the printed marker (rather than the container exit code alone) so an unexpected
-        // wslc wrapper exit code can't be mistaken for success.
+        // Bind the source into a throwaway busybox and report, from inside the VM, whether it is a
+        // regular file, a directory (a raced/poisoned bind), or the probe could not run at all. When
+        // the probe container itself fails (image unavailable, engine error, or the mount create
+        // failing outright) we report ProbeUnavailable so the caller can fail open — the real run then
+        // surfaces any genuine mount error through its own error handling rather than being masked as
+        // a mount-limit failure.
         var args = new List<string>
         {
             "run", "--rm",
             "-v", $"{hostSource}:/wcd-probe:ro",
             "busybox:1.36",
-            "sh", "-c", "if [ -f /wcd-probe ]; then echo __WCD_MOUNT_OK__; fi",
+            "sh", "-c",
+            "if [ -f /wcd-probe ]; then echo __WCD_FILE__; " +
+            "elif [ -d /wcd-probe ]; then echo __WCD_DIR__; fi",
         };
 
         try
         {
             var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
-            return result.Success
-                && result.StandardOutput.Contains("__WCD_MOUNT_OK__", StringComparison.Ordinal);
+            if (result.StandardOutput.Contains("__WCD_FILE__", StringComparison.Ordinal))
+            {
+                return BindMountProbeResult.MountsAsFile;
+            }
+
+            if (result.StandardOutput.Contains("__WCD_DIR__", StringComparison.Ordinal))
+            {
+                return BindMountProbeResult.MountsAsDirectory;
+            }
+
+            return BindMountProbeResult.ProbeUnavailable;
         }
         catch (OperationCanceledException)
         {
@@ -66,7 +80,7 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         }
         catch
         {
-            return false;
+            return BindMountProbeResult.ProbeUnavailable;
         }
     }
 
