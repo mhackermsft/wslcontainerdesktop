@@ -134,6 +134,11 @@ public static class ComposeImporter
             }
         }
 
+        project.Networks = ParseTopLevelNetworks(root.Child("networks"));
+        project.Volumes = ParseTopLevelVolumes(root.Child("volumes"));
+        project.Secrets = ParseTopLevelSecrets(root.Child("secrets"), baseDirectory);
+        project.Configs = ParseTopLevelSecrets(root.Child("configs"), baseDirectory);
+
         return project;
     }
 
@@ -187,8 +192,12 @@ public static class ComposeImporter
         MergeEnvFiles(options, svc.Child("env_file"), baseDirectory);
         ApplyNetwork(options, svc);
         ApplyResourceLimits(options, svc);
+        ApplyRuntimeOptions(options, svc);
 
-        if (string.IsNullOrWhiteSpace(options.Image))
+        var build = ParseBuild(svc.Child("build"), baseDirectory);
+
+        // A service needs either an image to run or a build section to produce one.
+        if (string.IsNullOrWhiteSpace(options.Image) && build is null)
         {
             return null;
         }
@@ -199,11 +208,285 @@ public static class ComposeImporter
             Options = options,
             Restart = ParseRestart(svc.Scalar("restart")),
             DependsOn = ParseDependsOn(svc.Child("depends_on")),
+            Build = build,
+            Secrets = ParseFileMounts(svc.Child("secrets"), "/run/secrets/"),
+            Configs = ParseFileMounts(svc.Child("configs"), "/"),
         };
 
         service.Health = ParseHealthCheck(svc.Child("healthcheck"), service.Restart);
         return service;
     }
+
+    /// <summary>
+    /// Reads compose runtime options that map directly to <c>wslc run</c> flags but have no bearing
+    /// on orchestration: <c>tmpfs</c>, <c>ulimits</c>, <c>shm_size</c>, <c>stop_signal</c>,
+    /// <c>domainname</c>, and the <c>dns</c> family.
+    /// </summary>
+    private static void ApplyRuntimeOptions(RunContainerOptions options, MappingNode svc)
+    {
+        options.Tmpfs = CollectStrings(svc.Child("tmpfs"));
+        options.Dns = CollectStrings(svc.Child("dns"));
+        options.DnsSearch = CollectStrings(svc.Child("dns_search"));
+        options.DnsOptions = CollectStrings(svc.Child("dns_opt"));
+        options.Ulimits = CollectUlimits(svc.Child("ulimits"));
+
+        var shm = svc.Scalar("shm_size");
+        if (!string.IsNullOrWhiteSpace(shm))
+        {
+            options.ShmSize = shm.Trim();
+        }
+
+        var stopSignal = svc.Scalar("stop_signal");
+        if (!string.IsNullOrWhiteSpace(stopSignal))
+        {
+            options.StopSignal = stopSignal.Trim();
+        }
+
+        var domain = svc.Scalar("domainname");
+        if (!string.IsNullOrWhiteSpace(domain))
+        {
+            options.Domainname = domain.Trim();
+        }
+    }
+
+    /// <summary>
+    /// Reads compose <c>ulimits:</c> into <c>name=soft[:hard]</c> strings, accepting the short scalar
+    /// form (<c>nofile: 65535</c>) and the long mapping form (<c>nofile: { soft: 1, hard: 2 }</c>).
+    /// </summary>
+    private static List<string> CollectUlimits(Node? node)
+    {
+        var items = new List<string>();
+        if (node is not MappingNode map)
+        {
+            return items;
+        }
+
+        foreach (var (name, value) in map.Map)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            switch (value)
+            {
+                case ScalarNode s when !string.IsNullOrWhiteSpace(s.Value):
+                    items.Add($"{name.Trim()}={s.Value.Trim()}");
+                    break;
+
+                case MappingNode limits:
+                    var soft = limits.Scalar("soft")?.Trim();
+                    var hard = limits.Scalar("hard")?.Trim();
+                    if (!string.IsNullOrWhiteSpace(soft) && !string.IsNullOrWhiteSpace(hard))
+                    {
+                        items.Add($"{name.Trim()}={soft}:{hard}");
+                    }
+                    else if (!string.IsNullOrWhiteSpace(soft))
+                    {
+                        items.Add($"{name.Trim()}={soft}");
+                    }
+
+                    break;
+            }
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Parses a service <c>build:</c> section. The short form is a context path string; the long form
+    /// is a mapping with <c>context</c>, <c>dockerfile</c>, <c>args</c>, <c>target</c>, and <c>labels</c>.
+    /// The context (and a relative dockerfile) resolve against <paramref name="baseDirectory"/>.
+    /// </summary>
+    private static ComposeBuildConfig? ParseBuild(Node? node, string? baseDirectory)
+    {
+        string? context;
+        string? dockerfile = null;
+        var args = new List<string>();
+        string? target = null;
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        switch (node)
+        {
+            case ScalarNode s when !string.IsNullOrWhiteSpace(s.Value):
+                context = s.Value.Trim();
+                break;
+
+            case MappingNode map:
+                context = map.Scalar("context")?.Trim();
+                dockerfile = map.Scalar("dockerfile")?.Trim();
+                target = map.Scalar("target")?.Trim();
+                args = CollectKeyValues(map.Child("args"));
+                labels = CollectLabels(map.Child("labels"));
+                break;
+
+            default:
+                return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(context))
+        {
+            return null;
+        }
+
+        return new ComposeBuildConfig
+        {
+            Context = ResolvePath(context, baseDirectory),
+            Dockerfile = string.IsNullOrWhiteSpace(dockerfile) ? null : dockerfile,
+            Args = args,
+            Target = string.IsNullOrWhiteSpace(target) ? null : target,
+            Labels = labels,
+        };
+    }
+
+    /// <summary>
+    /// Parses a service <c>secrets:</c> / <c>configs:</c> reference list into <see cref="ComposeFileMount"/>s.
+    /// Short form is a name (mounted at <paramref name="defaultTargetDir"/> + name); long form supplies
+    /// <c>source</c> and optional <c>target</c>.
+    /// </summary>
+    private static List<ComposeFileMount> ParseFileMounts(Node? node, string defaultTargetDir)
+    {
+        var mounts = new List<ComposeFileMount>();
+        if (node is not SequenceNode seq)
+        {
+            return mounts;
+        }
+
+        foreach (var item in seq.Items)
+        {
+            switch (item)
+            {
+                case ScalarNode s when !string.IsNullOrWhiteSpace(s.Value):
+                    var name = s.Value.Trim();
+                    mounts.Add(new ComposeFileMount { Source = name, Target = defaultTargetDir + name });
+                    break;
+
+                case MappingNode map:
+                    var source = map.Scalar("source")?.Trim();
+                    if (string.IsNullOrWhiteSpace(source))
+                    {
+                        break;
+                    }
+
+                    var target = map.Scalar("target")?.Trim();
+                    if (string.IsNullOrWhiteSpace(target))
+                    {
+                        target = defaultTargetDir + source;
+                    }
+                    else if (!target.StartsWith('/'))
+                    {
+                        // configs allow a bare filename target; anchor it under the default dir.
+                        target = defaultTargetDir + target;
+                    }
+
+                    mounts.Add(new ComposeFileMount { Source = source, Target = target });
+                    break;
+            }
+        }
+
+        return mounts;
+    }
+
+    /// <summary>Parses the top-level <c>networks:</c> mapping into <see cref="ComposeNetwork"/> definitions.</summary>
+    private static List<ComposeNetwork> ParseTopLevelNetworks(Node? node)
+    {
+        var result = new List<ComposeNetwork>();
+        if (node is not MappingNode map)
+        {
+            return result;
+        }
+
+        foreach (var (name, value) in map.Map)
+        {
+            if (string.IsNullOrWhiteSpace(name) ||
+                string.Equals(name, "default", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var cfg = value as MappingNode;
+            result.Add(new ComposeNetwork
+            {
+                Name = name.Trim(),
+                Driver = cfg?.Scalar("driver")?.Trim(),
+                DriverOpts = CollectKeyValues(cfg?.Child("driver_opts")),
+                Labels = CollectLabels(cfg?.Child("labels")),
+                External = IsExternal(cfg?.Child("external")),
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>Parses the top-level <c>volumes:</c> mapping into <see cref="ComposeVolume"/> definitions.</summary>
+    private static List<ComposeVolume> ParseTopLevelVolumes(Node? node)
+    {
+        var result = new List<ComposeVolume>();
+        if (node is not MappingNode map)
+        {
+            return result;
+        }
+
+        foreach (var (name, value) in map.Map)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            var cfg = value as MappingNode;
+            result.Add(new ComposeVolume
+            {
+                Name = name.Trim(),
+                Driver = cfg?.Scalar("driver")?.Trim(),
+                DriverOpts = CollectKeyValues(cfg?.Child("driver_opts")),
+                Labels = CollectLabels(cfg?.Child("labels")),
+                External = IsExternal(cfg?.Child("external")),
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Parses a top-level <c>secrets:</c> / <c>configs:</c> mapping. Only file-backed sources are
+    /// materializable; the source path resolves against <paramref name="baseDirectory"/>.
+    /// </summary>
+    private static List<ComposeSecret> ParseTopLevelSecrets(Node? node, string? baseDirectory)
+    {
+        var result = new List<ComposeSecret>();
+        if (node is not MappingNode map)
+        {
+            return result;
+        }
+
+        foreach (var (name, value) in map.Map)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            var cfg = value as MappingNode;
+            var file = cfg?.Scalar("file")?.Trim();
+            result.Add(new ComposeSecret
+            {
+                Name = name.Trim(),
+                File = string.IsNullOrWhiteSpace(file) ? null : ResolvePath(file, baseDirectory),
+                External = IsExternal(cfg?.Child("external")),
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>True when an <c>external:</c> node is <c>true</c> or a mapping (compose's external form).</summary>
+    private static bool IsExternal(Node? node) => node switch
+    {
+        ScalarNode s => string.Equals(s.Value?.Trim(), "true", StringComparison.OrdinalIgnoreCase),
+        MappingNode => true,
+        _ => false,
+    };
 
     private static void ApplyNetwork(RunContainerOptions options, MappingNode svc)
     {

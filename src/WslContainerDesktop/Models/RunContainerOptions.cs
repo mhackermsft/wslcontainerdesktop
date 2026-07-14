@@ -72,6 +72,37 @@ public sealed class RunContainerOptions
     /// <summary>Container metadata labels (maps to repeated <c>--label KEY=VALUE</c>). Used to tag compose-project members.</summary>
     public Dictionary<string, string> Labels { get; set; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Network-scoped aliases the container is reachable by on its network (maps to repeated
+    /// <c>--network-alias</c>). The supervisor adds the compose service name so sibling services can
+    /// resolve it by name, mirroring Compose's built-in DNS discovery.
+    /// </summary>
+    public List<string> Aliases { get; set; } = new();
+
+    /// <summary>DNS nameserver IPs (compose <c>dns:</c>, maps to repeated <c>--dns</c>).</summary>
+    public List<string> Dns { get; set; } = new();
+
+    /// <summary>DNS search domains (compose <c>dns_search:</c>, maps to repeated <c>--dns-search</c>).</summary>
+    public List<string> DnsSearch { get; set; } = new();
+
+    /// <summary>DNS resolver options (compose <c>dns_opt:</c>, maps to repeated <c>--dns-option</c>).</summary>
+    public List<string> DnsOptions { get; set; } = new();
+
+    /// <summary>tmpfs mount targets (compose <c>tmpfs:</c>, maps to repeated <c>--tmpfs</c>).</summary>
+    public List<string> Tmpfs { get; set; } = new();
+
+    /// <summary>ulimit settings in <c>name=soft[:hard]</c> form (compose <c>ulimits:</c>, maps to repeated <c>--ulimit</c>).</summary>
+    public List<string> Ulimits { get; set; } = new();
+
+    /// <summary>Size of <c>/dev/shm</c> e.g. "64M" (compose <c>shm_size:</c>, maps to <c>--shm-size</c>).</summary>
+    public string? ShmSize { get; set; }
+
+    /// <summary>Signal used to stop the container (compose <c>stop_signal:</c>, maps to <c>--stop-signal</c>).</summary>
+    public string? StopSignal { get; set; }
+
+    /// <summary>Container domain name (compose <c>domainname:</c>, maps to <c>--domainname</c>).</summary>
+    public string? Domainname { get; set; }
+
     public List<string> ToArguments()
     {
         var args = new List<string> { "run" };
@@ -111,6 +142,61 @@ public sealed class RunContainerOptions
         {
             args.Add("--network");
             args.Add(primaryNetwork);
+
+            // Aliases only apply when attached to a user network.
+            foreach (var alias in Aliases.Where(a => !string.IsNullOrWhiteSpace(a)).Distinct(StringComparer.Ordinal))
+            {
+                args.Add("--network-alias");
+                args.Add(alias.Trim());
+            }
+        }
+
+        foreach (var d in Dns.Where(x => !string.IsNullOrWhiteSpace(x)))
+        {
+            args.Add("--dns");
+            args.Add(d.Trim());
+        }
+
+        foreach (var d in DnsSearch.Where(x => !string.IsNullOrWhiteSpace(x)))
+        {
+            args.Add("--dns-search");
+            args.Add(d.Trim());
+        }
+
+        foreach (var d in DnsOptions.Where(x => !string.IsNullOrWhiteSpace(x)))
+        {
+            args.Add("--dns-option");
+            args.Add(d.Trim());
+        }
+
+        foreach (var t in Tmpfs.Where(x => !string.IsNullOrWhiteSpace(x)))
+        {
+            args.Add("--tmpfs");
+            args.Add(t.Trim());
+        }
+
+        foreach (var u in Ulimits.Where(x => !string.IsNullOrWhiteSpace(x)))
+        {
+            args.Add("--ulimit");
+            args.Add(u.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(ShmSize))
+        {
+            args.Add("--shm-size");
+            args.Add(ShmSize.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(StopSignal))
+        {
+            args.Add("--stop-signal");
+            args.Add(StopSignal.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(Domainname))
+        {
+            args.Add("--domainname");
+            args.Add(Domainname.Trim());
         }
 
         if (!string.IsNullOrWhiteSpace(Hostname))

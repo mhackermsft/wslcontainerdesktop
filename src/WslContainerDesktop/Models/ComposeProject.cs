@@ -56,6 +56,94 @@ public sealed class ComposeDependency
 }
 
 /// <summary>
+/// A service <c>build:</c> section. When present the supervisor builds an image from
+/// <see cref="Context"/> (resolved against the compose file's folder) and tags it before running.
+/// </summary>
+public sealed class ComposeBuildConfig
+{
+    /// <summary>Build context directory (absolute after import resolves it against the compose folder).</summary>
+    public string Context { get; set; } = string.Empty;
+
+    /// <summary>Path to the Dockerfile relative to the context, or null for the default <c>Dockerfile</c>.</summary>
+    public string? Dockerfile { get; set; }
+
+    /// <summary>Build-time variables as <c>KEY=VALUE</c> strings (maps to repeated <c>--build-arg</c>).</summary>
+    public List<string> Args { get; set; } = new();
+
+    /// <summary>Target build stage for a multi-stage Dockerfile (maps to <c>--target</c>), or null.</summary>
+    public string? Target { get; set; }
+
+    /// <summary>Image metadata labels applied at build time (maps to repeated <c>--label</c>).</summary>
+    public Dictionary<string, string> Labels { get; set; } = new(StringComparer.Ordinal);
+
+    public bool IsValid => !string.IsNullOrWhiteSpace(Context);
+}
+
+/// <summary>
+/// A service reference to a project <c>secret</c> or <c>config</c>. Because <c>wslc</c> has no secret
+/// store, the supervisor bind-mounts the source file read-only at <see cref="Target"/>.
+/// </summary>
+public sealed class ComposeFileMount
+{
+    /// <summary>The project-level secret/config name this reference points at.</summary>
+    public string Source { get; set; } = string.Empty;
+
+    /// <summary>Absolute mount path inside the container (defaults applied by the importer).</summary>
+    public string Target { get; set; } = string.Empty;
+}
+
+/// <summary>A top-level named <c>network:</c> the project declares (and the app creates on up).</summary>
+public sealed class ComposeNetwork
+{
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Network driver (compose <c>driver:</c>, maps to <c>network create --driver</c>).</summary>
+    public string? Driver { get; set; }
+
+    /// <summary>Driver-specific options as <c>KEY=VALUE</c> (maps to repeated <c>--opt</c>).</summary>
+    public List<string> DriverOpts { get; set; } = new();
+
+    /// <summary>Network metadata labels (maps to repeated <c>--label</c>).</summary>
+    public Dictionary<string, string> Labels { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>When true the network is expected to already exist and is not created.</summary>
+    public bool External { get; set; }
+}
+
+/// <summary>A top-level named <c>volume:</c> the project declares (and the app creates on up).</summary>
+public sealed class ComposeVolume
+{
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Volume driver (compose <c>driver:</c>, maps to <c>volume create --driver</c>).</summary>
+    public string? Driver { get; set; }
+
+    /// <summary>Driver-specific options as <c>KEY=VALUE</c> (maps to repeated <c>--opt</c>).</summary>
+    public List<string> DriverOpts { get; set; } = new();
+
+    /// <summary>Volume metadata labels (maps to repeated <c>--label</c>).</summary>
+    public Dictionary<string, string> Labels { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>When true the volume is expected to already exist and is not created.</summary>
+    public bool External { get; set; }
+}
+
+/// <summary>
+/// A top-level <c>secret</c> or <c>config</c> definition. Only file-backed sources are supported;
+/// the supervisor bind-mounts <see cref="File"/> read-only into referencing services.
+/// </summary>
+public sealed class ComposeSecret
+{
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Absolute host path to the source file (resolved against the compose folder on import).</summary>
+    public string? File { get; set; }
+
+    /// <summary>When true the secret/config is external (unmanaged); the app cannot materialize it.</summary>
+    public bool External { get; set; }
+}
+
+/// <summary>
 /// One service within a <see cref="ComposeProject"/>: the container run options plus the
 /// orchestration metadata (dependencies, restart policy, health check) the supervisor enforces.
 /// </summary>
@@ -72,6 +160,18 @@ public sealed class ComposeService
 
     /// <summary>The service's restart policy, enforced in-app by the supervisor.</summary>
     public RestartPolicyKind Restart { get; set; } = RestartPolicyKind.No;
+
+    /// <summary>
+    /// Build configuration (compose <c>build:</c>). When set and the image is missing, the supervisor
+    /// builds the image before running the service.
+    /// </summary>
+    public ComposeBuildConfig? Build { get; set; }
+
+    /// <summary>Secret references (compose service <c>secrets:</c>), bind-mounted read-only at up.</summary>
+    public List<ComposeFileMount> Secrets { get; set; } = new();
+
+    /// <summary>Config references (compose service <c>configs:</c>), bind-mounted read-only at up.</summary>
+    public List<ComposeFileMount> Configs { get; set; } = new();
 
     /// <summary>
     /// Health probe derived from the compose <c>healthcheck:</c>, if any. The
@@ -97,6 +197,18 @@ public sealed class ComposeProject
 
     /// <summary>The services that make up this project.</summary>
     public List<ComposeService> Services { get; set; } = new();
+
+    /// <summary>Top-level named networks the project declares; created on up (unless external).</summary>
+    public List<ComposeNetwork> Networks { get; set; } = new();
+
+    /// <summary>Top-level named volumes the project declares; created on up (unless external).</summary>
+    public List<ComposeVolume> Volumes { get; set; } = new();
+
+    /// <summary>Top-level file-backed secrets, bind-mounted into referencing services.</summary>
+    public List<ComposeSecret> Secrets { get; set; } = new();
+
+    /// <summary>Top-level file-backed configs, bind-mounted into referencing services.</summary>
+    public List<ComposeSecret> Configs { get; set; } = new();
 
     /// <summary>The deterministic container name the supervisor assigns to a service (<c>project_service</c>).</summary>
     public string ContainerNameFor(string serviceName) => $"{Name}_{serviceName}";

@@ -154,44 +154,59 @@ never crash the app.
 
 For fuller compose support the app acts as the **orchestration layer above `wslc`**
 ("desktop-as-daemon"). `ComposeImporter.ParseProject` reads a much larger subset of the spec into a
-`ComposeProject` (services + dependency graph): `image`, `container_name`, `command`, `entrypoint`,
-`ports` (short and long form), `environment` (list/map), `env_file`, `volumes` (short and long
-form), `networks`/`network_mode` (multiple networks per service), `user`, `working_dir`,
-`hostname`, `labels`, `cpus`/`mem_limit`/`deploy.resources.limits`, `restart`, `depends_on`
-(list and `condition:` form), and `healthcheck`. Values support `${VAR}` / `${VAR:-default}`
+`ComposeProject` (services + dependency graph): `image`, `build` (context/dockerfile/args/target/
+labels), `container_name`, `command`, `entrypoint`, `ports` (short and long form), `environment`
+(list/map), `env_file`, `volumes` (short and long form), `networks`/`network_mode` (multiple networks
+per service), `user`, `working_dir`, `hostname`, `domainname`, `labels`,
+`cpus`/`mem_limit`/`deploy.resources.limits`, `tmpfs`, `ulimits`, `shm_size`, `stop_signal`,
+`dns`/`dns_search`/`dns_opt`, `secrets`/`configs` refs, `restart`, `depends_on`
+(list and `condition:` form), and `healthcheck`. Top-level `networks:`, `volumes:`, `secrets:` and
+`configs:` blocks are parsed too. Values support `${VAR}` / `${VAR:-default}`
 interpolation, and the reader resolves YAML anchors/aliases (`&`/`*`), `<<` merge keys, and `|`/`>`
 block scalars. Projects persist to `compose-projects.json`.
 
-`ComposeProjectSupervisor` brings a project **up / down / restart as a unit**: it starts each
+`ComposeProjectSupervisor` brings a project **up / down / restart as a unit**: on `up` it first
+**provisions** declared (non-external) `networks:`/`volumes:` via `wslc network/volume create`, then
+**builds** images for services with a `build:` section (tagged `project_service`), then starts each
 service as a labelled container (`com.wsldesktop.project` / `com.wsldesktop.service`) in `depends_on`
-topological order, gates `service_healthy` edges on a health probe, enrolls services that declare a
-`healthcheck` into `HealthWatchdog`, and seeds `restart:` policies for services *without* a
-healthcheck into `RestartPolicyWatchdog` (which restarts an exited container within a budget;
-`on-failure` inspects the exit code, and a user's manual stop suppresses `unless-stopped`/`on-failure`
-restarts). Because enforcement is in-process there is **no background daemon** — restart/health
-policies apply only while the app runs, and `ReconcileAsync` re-adopts still-present projects on the
-next launch. The Compose page lists projects with up/restart/down/remove; import is from that page.
+topological order. It gives each container its **service name as a `--network-alias`** so siblings
+resolve it by name (Compose-style DNS discovery), bind-mounts file-backed `secrets`/`configs`
+read-only (there is no `wslc` secret store), gates `service_healthy` edges on a health probe, enrolls
+services that declare a `healthcheck` into `HealthWatchdog`, and seeds `restart:` policies for
+services *without* a healthcheck into `RestartPolicyWatchdog` (which restarts an exited container
+within a budget; `on-failure` inspects the exit code, and a user's manual stop suppresses
+`unless-stopped`/`on-failure` restarts). `down` also removes project-created networks (volumes are
+preserved, like `docker compose down`). Because enforcement is in-process there is **no background
+daemon** — restart/health policies apply only while the app runs, and `ReconcileAsync` re-adopts
+still-present projects on the next launch. The Compose page lists projects with up/restart/down/
+remove; import is from that page.
 
 Import is **file-based** (the user picks the `docker-compose.yml` from disk) rather than paste-based,
 so the importer knows the file's folder: it seeds `${VAR}` interpolation defaults from a sibling
-`.env` file and resolves relative `env_file` paths against that folder.
+`.env` file and resolves relative `env_file`, `build.context`, and `secrets`/`configs` `file:` paths
+against that folder.
 
 #### Compose feature support
 
 | Feature | Support |
 |---|---|
-| `image`, `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `labels` | **Supported** |
+| `image`, `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `domainname`, `labels` | **Supported** |
+| `build:` (short + long form: `context`, `dockerfile`, `args`, `target`, `labels`) | **Supported** — built and tagged `project_service` on up; `context` resolves against the compose folder |
 | `ports` (short `"h:c"` and long `target/published/protocol`) | **Supported** |
 | `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported** |
 | `environment` (list and map), `env_file` | **Supported** — relative `env_file` paths resolve against the compose file's folder; a sibling `.env` seeds interpolation |
-| `networks` / `network_mode` (multiple per service) | **Supported in model/import**; `wslc run` attaches the **first** network at run time |
+| Top-level `networks:` / `volumes:` **creation** (driver, `driver_opts`, labels; `external` skipped) | **Supported** — created on up via `wslc network/volume create`; networks removed on down |
+| `networks` / `network_mode` per service, service-name DNS aliases | **Supported** — service name added as `--network-alias`; `wslc run` still attaches only the **first** network per container (no `network connect`) |
+| `secrets:` / `configs:` (file-backed) | **Supported (best-effort)** — source file bind-mounted read-only (`/run/secrets/<name>` or the config target); no in-engine secret store |
+| `tmpfs`, `ulimits`, `shm_size`, `stop_signal`, `dns`/`dns_search`/`dns_opt` | **Supported** — mapped to the matching `wslc run` flags |
 | `${VAR}` / `${VAR:-default}` interpolation, anchors/aliases, `<<` merge, `\|`/`>` block scalars | **Supported** (block scalars are best-effort: blank lines not preserved) |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
 | `healthcheck` | **Supported** — seeded into `HealthWatchdog` |
 | `depends_on` incl. `condition: service_healthy` | **Supported** — start ordering + health gating |
 | `restart:` (`no`/`always`/`on-failure`/`unless-stopped`) | **Supported (best-effort)** while the app runs; restart backoff timing is not byte-for-byte identical to Docker |
 | Project lifecycle (`up`/`down`/`restart`), re-adoption on relaunch | **Supported** |
-| Top-level named `volumes:` / `networks:` **creation**, `deploy.replicas`, `secrets`/`configs`, `build:`, Swarm `deploy` | **Not supported** (services require an `image`) |
+| Multi-network attach per container, `cap_add`/`cap_drop`, `devices`, `sysctls`, `privileged`, `logging` drivers | **Not supported** — no `wslc run`/`network connect` flag |
+| `deploy.replicas` / scaling, Swarm `deploy`, always-on restart after the app closes | **Not supported** — requires a persistent daemon (out of scope for the desktop-as-daemon model) |
 
 ### Diagnostics (`FileLoggerProvider`)
 

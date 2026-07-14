@@ -60,7 +60,15 @@ public interface IWslcService
     Task<CommandResult> TagImageAsync(string source, string target, CancellationToken ct = default);
     Task<CommandResult> PruneImagesAsync(CancellationToken ct = default);
     Task<CommandResult> InspectImageAsync(string id, CancellationToken ct = default);
-    Task<CommandResult> BuildImageAsync(string contextPath, string tag, string? dockerfile, CancellationToken ct = default);
+    Task<CommandResult> BuildImageAsync(
+        string contextPath,
+        string tag,
+        string? dockerfile,
+        IReadOnlyList<string>? buildArgs = null,
+        string? target = null,
+        IReadOnlyDictionary<string, string>? labels = null,
+        bool noCache = false,
+        CancellationToken ct = default);
 
     // Registries
     /// <summary>Logs in to a registry via `wslc login`, feeding the password through stdin.</summary>
@@ -83,14 +91,24 @@ public interface IWslcService
 
     // Volumes
     Task<IReadOnlyList<VolumeInfo>> ListVolumesAsync(CancellationToken ct = default);
-    Task<CommandResult> CreateVolumeAsync(string name, CancellationToken ct = default);
+    Task<CommandResult> CreateVolumeAsync(
+        string name,
+        string? driver = null,
+        IReadOnlyList<string>? driverOpts = null,
+        IReadOnlyDictionary<string, string>? labels = null,
+        CancellationToken ct = default);
     Task<CommandResult> RemoveVolumeAsync(string name, CancellationToken ct = default);
     Task<CommandResult> PruneVolumesAsync(CancellationToken ct = default);
     Task<CommandResult> InspectVolumeAsync(string name, CancellationToken ct = default);
 
     // Networks
     Task<IReadOnlyList<NetworkInfo>> ListNetworksAsync(CancellationToken ct = default);
-    Task<CommandResult> CreateNetworkAsync(string name, CancellationToken ct = default);
+    Task<CommandResult> CreateNetworkAsync(
+        string name,
+        string? driver = null,
+        IReadOnlyList<string>? driverOpts = null,
+        IReadOnlyDictionary<string, string>? labels = null,
+        CancellationToken ct = default);
     Task<CommandResult> RemoveNetworkAsync(string name, CancellationToken ct = default);
     Task<CommandResult> PruneNetworksAsync(CancellationToken ct = default);
     Task<CommandResult> InspectNetworkAsync(string name, CancellationToken ct = default);

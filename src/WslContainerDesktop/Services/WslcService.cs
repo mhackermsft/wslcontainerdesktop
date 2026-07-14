@@ -451,13 +451,50 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public Task<CommandResult> InspectImageAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["inspect", "--type", "image", id], ct);
 
-    public Task<CommandResult> BuildImageAsync(string contextPath, string tag, string? dockerfile, CancellationToken ct = default)
+    public Task<CommandResult> BuildImageAsync(
+        string contextPath,
+        string tag,
+        string? dockerfile,
+        IReadOnlyList<string>? buildArgs = null,
+        string? target = null,
+        IReadOnlyDictionary<string, string>? labels = null,
+        bool noCache = false,
+        CancellationToken ct = default)
     {
         var args = new List<string> { "build", "-t", tag };
         if (!string.IsNullOrWhiteSpace(dockerfile))
         {
             args.Add("-f");
             args.Add(dockerfile);
+        }
+
+        if (buildArgs is not null)
+        {
+            foreach (var kv in buildArgs.Where(a => !string.IsNullOrWhiteSpace(a)))
+            {
+                args.Add("--build-arg");
+                args.Add(kv.Trim());
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(target))
+        {
+            args.Add("--target");
+            args.Add(target.Trim());
+        }
+
+        if (labels is not null)
+        {
+            foreach (var kv in labels.Where(l => !string.IsNullOrWhiteSpace(l.Key)))
+            {
+                args.Add("--label");
+                args.Add(string.IsNullOrEmpty(kv.Value) ? kv.Key : $"{kv.Key}={kv.Value}");
+            }
+        }
+
+        if (noCache)
+        {
+            args.Add("--no-cache");
         }
 
         args.Add(contextPath);
@@ -472,8 +509,18 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         return Deserialize<VolumeInfo>(result);
     }
 
-    public Task<CommandResult> CreateVolumeAsync(string name, CancellationToken ct = default) =>
-        runner.RunAsync(["volume", "create", name], ct);
+    public Task<CommandResult> CreateVolumeAsync(
+        string name,
+        string? driver = null,
+        IReadOnlyList<string>? driverOpts = null,
+        IReadOnlyDictionary<string, string>? labels = null,
+        CancellationToken ct = default)
+    {
+        var args = new List<string> { "volume", "create" };
+        AppendResourceOptions(args, driver, driverOpts, labels);
+        args.Add(name);
+        return runner.RunAsync(args, ct);
+    }
 
     public Task<CommandResult> RemoveVolumeAsync(string name, CancellationToken ct = default) =>
         runner.RunAsync(["volume", "remove", name], ct);
@@ -492,8 +539,18 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         return Deserialize<NetworkInfo>(result);
     }
 
-    public Task<CommandResult> CreateNetworkAsync(string name, CancellationToken ct = default) =>
-        runner.RunAsync(["network", "create", name], ct);
+    public Task<CommandResult> CreateNetworkAsync(
+        string name,
+        string? driver = null,
+        IReadOnlyList<string>? driverOpts = null,
+        IReadOnlyDictionary<string, string>? labels = null,
+        CancellationToken ct = default)
+    {
+        var args = new List<string> { "network", "create" };
+        AppendResourceOptions(args, driver, driverOpts, labels);
+        args.Add(name);
+        return runner.RunAsync(args, ct);
+    }
 
     public Task<CommandResult> RemoveNetworkAsync(string name, CancellationToken ct = default) =>
         runner.RunAsync(["network", "remove", name], ct);
@@ -503,6 +560,38 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
 
     public Task<CommandResult> InspectNetworkAsync(string name, CancellationToken ct = default) =>
         runner.RunAsync(["network", "inspect", name], ct);
+
+    /// <summary>Appends shared <c>--driver</c> / <c>--opt</c> / <c>--label</c> options for network/volume create.</summary>
+    private static void AppendResourceOptions(
+        List<string> args,
+        string? driver,
+        IReadOnlyList<string>? driverOpts,
+        IReadOnlyDictionary<string, string>? labels)
+    {
+        if (!string.IsNullOrWhiteSpace(driver))
+        {
+            args.Add("--driver");
+            args.Add(driver.Trim());
+        }
+
+        if (driverOpts is not null)
+        {
+            foreach (var opt in driverOpts.Where(o => !string.IsNullOrWhiteSpace(o)))
+            {
+                args.Add("--opt");
+                args.Add(opt.Trim());
+            }
+        }
+
+        if (labels is not null)
+        {
+            foreach (var kv in labels.Where(l => !string.IsNullOrWhiteSpace(l.Key)))
+            {
+                args.Add("--label");
+                args.Add(string.IsNullOrEmpty(kv.Value) ? kv.Key : $"{kv.Key}={kv.Value}");
+            }
+        }
+    }
 
     // ---- Helpers --------------------------------------------------------
 

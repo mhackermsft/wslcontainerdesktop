@@ -73,6 +73,10 @@ public sealed class ComposeProjectSupervisor
     {
         _store.Save(project);
 
+        // Provision declared networks/volumes and build any images before starting services.
+        await ProvisionResourcesAsync(project, ct).ConfigureAwait(false);
+        await BuildImagesAsync(project, ct).ConfigureAwait(false);
+
         var order = ResolveOrder(project);
         var results = new List<ComposeServiceResult>();
         var started = new HashSet<string>(StringComparer.Ordinal);
@@ -114,6 +118,76 @@ public sealed class ComposeProjectSupervisor
     }
 
     /// <summary>
+    /// Creates the project's declared networks and volumes before its services start. External
+    /// resources are assumed to already exist and are skipped; "already exists" errors are ignored so
+    /// <c>up</c> is idempotent. Never throws — provisioning failures fall through to the run attempt.
+    /// </summary>
+    private async Task ProvisionResourcesAsync(ComposeProject project, CancellationToken ct)
+    {
+        foreach (var network in project.Networks.Where(n => !n.External && !string.IsNullOrWhiteSpace(n.Name)))
+        {
+            try
+            {
+                await _wslc.CreateNetworkAsync(network.Name, network.Driver, network.DriverOpts, network.Labels, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Creating network {Network} failed (may already exist).", network.Name);
+            }
+        }
+
+        foreach (var volume in project.Volumes.Where(v => !v.External && !string.IsNullOrWhiteSpace(v.Name)))
+        {
+            try
+            {
+                await _wslc.CreateVolumeAsync(volume.Name, volume.Driver, volume.DriverOpts, volume.Labels, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Creating volume {Volume} failed (may already exist).", volume.Name);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Builds an image for every service that declares a <c>build:</c> section, tagging it so the
+    /// service runs the freshly built image. A failed build is logged and left to surface when the
+    /// service fails to run.
+    /// </summary>
+    private async Task BuildImagesAsync(ComposeProject project, CancellationToken ct)
+    {
+        foreach (var service in project.Services.Where(s => s.Build is { } b && b.IsValid))
+        {
+            var build = service.Build!;
+            if (!Directory.Exists(build.Context))
+            {
+                _logger.LogWarning(
+                    "Build context {Context} for service {Service} does not exist; skipping build.",
+                    build.Context, service.Name);
+                continue;
+            }
+
+            var tag = BuiltImageTag(project, service);
+            try
+            {
+                var result = await _wslc.BuildImageAsync(
+                    build.Context, tag, build.Dockerfile, build.Args, build.Target, build.Labels, noCache: false, ct)
+                    .ConfigureAwait(false);
+                if (!result.Success)
+                {
+                    _logger.LogWarning("Build for service {Service} failed: {Detail}", service.Name, Summarize(result));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Build for service {Service} threw.", service.Name);
+            }
+        }
+    }
+
+    /// <summary>
     /// Brings the project down: stops and removes every container the app created for it, and
     /// unregisters its health/restart policies. Leaves the stored project definition intact.
     /// </summary>
@@ -137,6 +211,19 @@ public sealed class ComposeProjectSupervisor
 
             await _wslc.StopContainerAsync(existing.Id, ct).ConfigureAwait(false);
             await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
+        }
+
+        // Remove project-created networks (like `docker compose down`). Volumes are preserved.
+        foreach (var network in project.Networks.Where(n => !n.External && !string.IsNullOrWhiteSpace(n.Name)))
+        {
+            try
+            {
+                await _wslc.RemoveNetworkAsync(network.Name, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Removing network {Network} failed (may be in use).", network.Name);
+            }
         }
 
         RemoveHealthChecks(project);
@@ -342,7 +429,7 @@ public sealed class ComposeProjectSupervisor
         var src = service.Options;
         var options = new RunContainerOptions
         {
-            Image = src.Image,
+            Image = ResolveImage(project, service),
             Name = name,
             Detached = true,
             RemoveOnExit = false,
@@ -361,12 +448,70 @@ public sealed class ComposeProjectSupervisor
             EnvironmentVariables = new List<string>(src.EnvironmentVariables),
             Volumes = new List<string>(src.Volumes),
             Labels = new Dictionary<string, string>(src.Labels, StringComparer.Ordinal),
+            Dns = new List<string>(src.Dns),
+            DnsSearch = new List<string>(src.DnsSearch),
+            DnsOptions = new List<string>(src.DnsOptions),
+            Tmpfs = new List<string>(src.Tmpfs),
+            Ulimits = new List<string>(src.Ulimits),
+            ShmSize = src.ShmSize,
+            StopSignal = src.StopSignal,
+            Domainname = src.Domainname,
+            Aliases = new List<string>(src.Aliases),
         };
+
+        // Give the container its service name as a network alias so siblings can resolve it by name
+        // (Compose's built-in DNS discovery). Only meaningful when attached to a user network.
+        if (!options.Aliases.Contains(service.Name, StringComparer.Ordinal))
+        {
+            options.Aliases.Add(service.Name);
+        }
+
+        // Bind-mount file-backed secrets/configs read-only (wslc has no secret store).
+        foreach (var mount in service.Secrets)
+        {
+            AddFileMount(options, project.Secrets, mount);
+        }
+
+        foreach (var mount in service.Configs)
+        {
+            AddFileMount(options, project.Configs, mount);
+        }
 
         // Tag the container so the project can be re-adopted and torn down as a unit.
         options.Labels[ComposeProject.ProjectLabel] = project.Name;
         options.Labels[ComposeProject.ServiceLabel] = service.Name;
         return options;
+    }
+
+    /// <summary>
+    /// The image a service runs. When the service has a <c>build:</c> section the supervisor built and
+    /// tagged an image as <c>project_service</c>; otherwise the declared <c>image:</c> is used.
+    /// </summary>
+    private static string ResolveImage(ComposeProject project, ComposeService service) =>
+        service.Build is not null && service.Build.IsValid
+            ? BuiltImageTag(project, service)
+            : service.Options.Image;
+
+    /// <summary>The deterministic tag the supervisor assigns to a service built from source.</summary>
+    private static string BuiltImageTag(ComposeProject project, ComposeService service) =>
+        string.IsNullOrWhiteSpace(service.Options.Image)
+            ? $"{project.Name}_{service.Name}:latest"
+            : service.Options.Image.Trim();
+
+    /// <summary>Resolves a secret/config reference to its source file and adds a read-only bind mount.</summary>
+    private static void AddFileMount(
+        RunContainerOptions options,
+        IReadOnlyList<ComposeSecret> definitions,
+        ComposeFileMount reference)
+    {
+        var def = definitions.FirstOrDefault(d =>
+            string.Equals(d.Name, reference.Source, StringComparison.Ordinal));
+        if (def is null || string.IsNullOrWhiteSpace(def.File) || string.IsNullOrWhiteSpace(reference.Target))
+        {
+            return;
+        }
+
+        options.Volumes.Add($"{def.File}:{reference.Target}:ro");
     }
 
     /// <summary>The container name a service runs as: an explicit <c>container_name</c>, else <c>project_service</c>.</summary>
