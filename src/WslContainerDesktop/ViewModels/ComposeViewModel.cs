@@ -178,6 +178,30 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
+        // Warn about compose features that aren't supported and were dropped during import, so the
+        // user can decide before bringing the project up.
+        if (project.Warnings.Count > 0)
+        {
+            const int maxShown = 12;
+            var shown = project.Warnings.Take(maxShown);
+            var more = project.Warnings.Count - maxShown;
+            var body = string.Join("\n", shown.Select(w => "• " + w));
+            if (more > 0)
+            {
+                body += $"\n• …and {more} more.";
+            }
+
+            var proceed = await _dialogs.ShowConfirmAsync(
+                "Some features aren't supported",
+                "This compose file uses features this app can't reproduce. They were ignored:\n\n" +
+                body + "\n\nImport the project anyway?",
+                "Import anyway");
+            if (!proceed)
+            {
+                return;
+            }
+        }
+
         // Let the user name the project (defaults to the compose 'name:' or "compose").
         var nameDialog = new SimpleInputDialog("Name this project", "Project name", project.Name)
         {

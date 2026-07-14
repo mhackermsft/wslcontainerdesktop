@@ -247,4 +247,12 @@ public sealed class ComposeProject
 
     /// <summary>The deterministic container name the supervisor assigns to a service (<c>project_service</c>).</summary>
     public string ContainerNameFor(string serviceName) => $"{Name}_{serviceName}";
+
+    /// <summary>
+    /// Human-readable warnings collected during import about compose keys that are not supported and
+    /// were ignored (e.g. <c>privileged</c>, <c>cap_add</c>, multi-network attach). Surfaced to the
+    /// user at import time; not persisted with the project.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string> Warnings { get; set; } = new();
 }

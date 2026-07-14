@@ -194,7 +194,11 @@ remove; import is from that page.
 Import is **file-based** (the user picks the `docker-compose.yml` from disk) rather than paste-based,
 so the importer knows the file's folder: it seeds `${VAR}` interpolation defaults from a sibling
 `.env` file and resolves relative `env_file`, `build.context`, and `secrets`/`configs` `file:` paths
-against that folder.
+against that folder. During import the parser also **collects warnings** for any compose keys it does
+not honor (e.g. `privileged`, `cap_add`, `logging`, unknown top-level keys) plus partially-supported
+features (multi-network attach, `deploy.replicas` scaling); these are shown in a confirmation dialog
+so the user can cancel or import anyway before the project is saved. `x-` extension keys and
+recognized-but-cosmetic keys (`version`) are never flagged.
 
 #### Compose feature support
 

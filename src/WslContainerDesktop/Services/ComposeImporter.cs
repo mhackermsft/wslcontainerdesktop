@@ -139,6 +139,7 @@ public static class ComposeImporter
             if (service is not null)
             {
                 project.Services.Add(service);
+                CollectServiceWarnings(name, resolved, service, project.Warnings);
             }
         }
 
@@ -146,8 +147,72 @@ public static class ComposeImporter
         project.Volumes = ParseTopLevelVolumes(root.Child("volumes"));
         project.Secrets = ParseTopLevelSecrets(root.Child("secrets"), baseDirectory);
         project.Configs = ParseTopLevelSecrets(root.Child("configs"), baseDirectory);
+        CollectTopLevelWarnings(root, project.Warnings);
 
         return project;
+    }
+
+    // Service keys the parser actually honors. Any other key is reported as unsupported at import.
+    private static readonly HashSet<string> SupportedServiceKeys = new(StringComparer.Ordinal)
+    {
+        "image", "container_name", "command", "entrypoint", "user", "working_dir", "hostname",
+        "ports", "volumes", "environment", "labels", "env_file", "build", "pull_policy", "restart",
+        "depends_on", "profiles", "stop_grace_period", "secrets", "configs", "healthcheck",
+        "extra_hosts", "networks", "network_mode", "tmpfs", "dns", "dns_search", "dns_opt", "ulimits",
+        "shm_size", "stop_signal", "domainname", "cpus", "mem_limit", "deploy", "extends",
+    };
+
+    // Top-level keys the parser understands. Anything else (except `x-` extensions) is reported.
+    private static readonly HashSet<string> SupportedTopLevelKeys = new(StringComparer.Ordinal)
+    {
+        "version", "name", "services", "networks", "volumes", "secrets", "configs", "include",
+    };
+
+    /// <summary>
+    /// Adds a warning for every service key the parser does not honor, plus targeted notes for
+    /// partially-supported features (multi-network attach, <c>deploy.replicas</c> scaling), so the
+    /// user knows what was dropped before bringing the project up.
+    /// </summary>
+    private static void CollectServiceWarnings(
+        string name, MappingNode svc, ComposeService service, List<string> warnings)
+    {
+        foreach (var key in svc.Map.Keys)
+        {
+            if (!SupportedServiceKeys.Contains(key) && !key.StartsWith("x-", StringComparison.Ordinal))
+            {
+                warnings.Add($"Service '{name}': '{key}' is not supported and was ignored.");
+            }
+        }
+
+        if (service.Options.Networks.Count > 1)
+        {
+            warnings.Add(
+                $"Service '{name}': attached to only the first of {service.Options.Networks.Count} " +
+                "networks (single-network limitation of wslc).");
+        }
+
+        if (svc.Child("deploy") is MappingNode deploy)
+        {
+            var replicas = deploy.Scalar("replicas");
+            if (!string.IsNullOrWhiteSpace(replicas) && replicas.Trim() != "1")
+            {
+                warnings.Add(
+                    $"Service '{name}': 'deploy.replicas: {replicas.Trim()}' is not supported; " +
+                    "a single instance is started.");
+            }
+        }
+    }
+
+    /// <summary>Adds a warning for every unrecognized top-level key (ignoring <c>x-</c> extensions).</summary>
+    private static void CollectTopLevelWarnings(MappingNode root, List<string> warnings)
+    {
+        foreach (var key in root.Map.Keys)
+        {
+            if (!SupportedTopLevelKeys.Contains(key) && !key.StartsWith("x-", StringComparison.Ordinal))
+            {
+                warnings.Add($"Top-level '{key}:' is not supported and was ignored.");
+            }
+        }
     }
 
     // Compose's default override file names, in precedence order (later ones do not override earlier).
