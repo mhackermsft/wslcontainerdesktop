@@ -147,8 +147,27 @@ persisted to `run-profiles.json` next to `settings.json`, so a workload can be r
 click without re-entering the same options. The Run dialog offers a profile picker (prefill) plus
 *Save as profile* / *Delete*; the Images page exposes a per-image **Run profile** submenu.
 `ComposeImporter` seeds profiles from a *basic* `docker-compose.yml` (one profile per service,
-common single-container fields only) using a small indentation-aware reader — full compose
-orchestration is out of scope. Load/parse failures never crash the app.
+common single-container fields only) using a small indentation-aware reader. Load/parse failures
+never crash the app.
+
+### Compose projects (`ComposeProjectStore`, `ComposeProjectSupervisor`)
+
+For fuller compose support the app acts as the **orchestration layer above `wslc`**
+("desktop-as-daemon"). `ComposeImporter.ParseProject` reads a much larger subset of the spec into a
+`ComposeProject` (services + dependency graph): `image`, `container_name`, `command`, `entrypoint`,
+`ports`, `environment` (list/map), `volumes`, `networks`/`network_mode`, `user`, `working_dir`,
+`hostname`, `labels`, `cpus`/`mem_limit`/`deploy.resources.limits`, `restart`, `depends_on`
+(list and `condition:` form), and `healthcheck`, with `${VAR}` / `${VAR:-default}` interpolation.
+Projects persist to `compose-projects.json`.
+
+`ComposeProjectSupervisor` brings a project **up/down as a unit**: it starts each service as a
+labelled container (`com.wsldesktop.project` / `com.wsldesktop.service`) in `depends_on` topological
+order, gates `service_healthy` edges on a health probe, and enrolls services that declare a
+`healthcheck` into the existing `HealthWatchdog` so their restart budget is enforced. Because
+enforcement is in-process there is **no background daemon** — restart/health policies apply only
+while the app runs, and `ReconcileAsync` re-adopts still-present projects on the next launch. The
+Compose page lists projects with up/down/remove; import is available from that page. Exit-based
+restart for services *without* a healthcheck is not yet enforced (tracked as future work).
 
 ### Diagnostics (`FileLoggerProvider`)
 

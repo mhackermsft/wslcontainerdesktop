@@ -1,0 +1,73 @@
+# Sample compose stack for exercising the "fuller" compose-spec support (issue #11).
+#
+# Import it from the WSL Container Desktop → Compose page ("Import compose file"), then
+# "Bring up". It intentionally exercises the features the desktop-as-daemon orchestration
+# layer supports:
+#
+#   * ${VAR} / ${VAR:-default} interpolation          (image tags, env values)
+#   * depends_on with condition: service_healthy       (ordered startup + health gating)
+#   * healthcheck (CMD / CMD-SHELL and string forms)   (seeded into the health watchdog)
+#   * restart policies                                 (enforced while the app runs)
+#   * environment as both list and mapping forms
+#   * resource limits (mem_limit / deploy.resources.limits)
+#   * user / working_dir / hostname / labels / entrypoint
+#
+# Everything here uses small public images so it pulls quickly.
+
+name: fuller-demo
+
+services:
+  # A backing store with a real health check. Dependents wait for it to be healthy.
+  db:
+    image: postgres:16-alpine
+    hostname: db
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: appdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d appdb"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+    mem_limit: 256M
+
+  # A cache started in parallel; a simple restart policy, no health check.
+  cache:
+    image: redis:7-alpine
+    entrypoint: ["redis-server", "--appendonly", "yes"]
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+
+  # The web tier only starts once the DB reports healthy and the cache has started.
+  web:
+    image: nginx:${NGINX_TAG:-alpine}
+    ports:
+      - "8088:80"
+    environment:
+      - APP_ENV=demo
+      - CACHE_HOST=cache
+      - DB_HOST=db
+    labels:
+      com.example.tier: frontend
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/"]
+      interval: 15s
+    restart: on-failure:3
+
+  # A one-shot style worker showing user/working_dir overrides and inline flow lists.
+  worker:
+    image: busybox:1.36
+    user: "1000:1000"
+    working_dir: /tmp
+    command: ["sh", "-c", "while true; do echo working; sleep 30; done"]
+    depends_on: [db, cache]
+    restart: on-failure

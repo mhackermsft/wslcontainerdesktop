@@ -29,6 +29,24 @@ public sealed class RunContainerOptions
     public bool AllGpus { get; set; }
     public string? Command { get; set; }
 
+    /// <summary>Overrides the image entrypoint (compose <c>entrypoint:</c>). Free text, split like <see cref="Command"/>.</summary>
+    public string? Entrypoint { get; set; }
+
+    /// <summary>User to run the process as (compose <c>user:</c>, maps to <c>--user</c>).</summary>
+    public string? User { get; set; }
+
+    /// <summary>Working directory inside the container (compose <c>working_dir:</c>, maps to <c>--workdir</c>).</summary>
+    public string? WorkingDir { get; set; }
+
+    /// <summary>Container hostname (compose <c>hostname:</c>, maps to <c>--hostname</c>).</summary>
+    public string? Hostname { get; set; }
+
+    /// <summary>CPU limit (compose <c>cpus</c> / <c>deploy.resources.limits.cpus</c>, maps to <c>--cpus</c>).</summary>
+    public string? CpuLimit { get; set; }
+
+    /// <summary>Memory limit e.g. "512M" (compose <c>mem_limit</c> / <c>deploy.resources.limits.memory</c>, maps to <c>--memory</c>).</summary>
+    public string? MemoryLimit { get; set; }
+
     /// <summary>Network to attach the container to (null/empty = engine default bridge).</summary>
     public string? Network { get; set; }
 
@@ -40,6 +58,9 @@ public sealed class RunContainerOptions
 
     /// <summary>Raw "source:destination" volume/bind strings.</summary>
     public List<string> Volumes { get; set; } = new();
+
+    /// <summary>Container metadata labels (maps to repeated <c>--label KEY=VALUE</c>). Used to tag compose-project members.</summary>
+    public Dictionary<string, string> Labels { get; set; } = new(StringComparer.Ordinal);
 
     public List<string> ToArguments()
     {
@@ -78,6 +99,54 @@ public sealed class RunContainerOptions
             args.Add(Network.Trim());
         }
 
+        if (!string.IsNullOrWhiteSpace(Hostname))
+        {
+            args.Add("--hostname");
+            args.Add(Hostname.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(User))
+        {
+            args.Add("--user");
+            args.Add(User.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(WorkingDir))
+        {
+            args.Add("--workdir");
+            args.Add(WorkingDir.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(CpuLimit))
+        {
+            args.Add("--cpus");
+            args.Add(CpuLimit.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(MemoryLimit))
+        {
+            args.Add("--memory");
+            args.Add(MemoryLimit.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(Entrypoint))
+        {
+            // wslc --entrypoint takes a single executable; pass the first token and fold any
+            // remaining tokens into the command arguments below.
+            var entryTokens = SplitCommand(Entrypoint).ToList();
+            if (entryTokens.Count > 0)
+            {
+                args.Add("--entrypoint");
+                args.Add(entryTokens[0]);
+            }
+        }
+
+        foreach (var label in Labels.Where(kv => !string.IsNullOrWhiteSpace(kv.Key)))
+        {
+            args.Add("--label");
+            args.Add(string.IsNullOrEmpty(label.Value) ? label.Key : $"{label.Key}={label.Value}");
+        }
+
         foreach (var p in PortMappings.Where(x => !string.IsNullOrWhiteSpace(x)))
         {
             args.Add("-p");
@@ -97,6 +166,13 @@ public sealed class RunContainerOptions
         }
 
         args.Add(Image.Trim());
+
+        // Any entrypoint tokens beyond the executable become leading command arguments, followed
+        // by the explicit command. wslc's --entrypoint only accepts the executable itself.
+        var entrypointTail = string.IsNullOrWhiteSpace(Entrypoint)
+            ? Enumerable.Empty<string>()
+            : SplitCommand(Entrypoint).Skip(1);
+        args.AddRange(entrypointTail);
 
         if (!string.IsNullOrWhiteSpace(Command))
         {

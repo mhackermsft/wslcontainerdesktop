@@ -133,6 +133,9 @@ public sealed partial class MainWindow : Window
                 case "kubernetes":
                     NavFrame.Navigate(typeof(KubernetesPage));
                     break;
+                case "compose":
+                    NavFrame.Navigate(typeof(ComposePage));
+                    break;
             }
         }
     }

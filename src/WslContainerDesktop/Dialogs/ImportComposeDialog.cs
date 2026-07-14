@@ -89,8 +89,10 @@ public sealed class ImportComposeDialog : ContentDialog
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Text = "Each service becomes a saved run profile (image, name, ports, environment, volumes, network). "
-                 + "Full compose orchestration (depends_on, build, healthchecks) is ignored.",
+            Text = "Each service becomes a container. Imported from the Compose page, the project keeps its "
+                 + "depends_on order, restart and healthcheck policies (enforced by this app while it runs), "
+                 + "environment interpolation, and resource limits. Imported from the Images/Containers page, "
+                 + "each service is saved as a standalone run profile instead.",
         };
 
         Content = new StackPanel

@@ -107,6 +107,11 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _watchdog.NotificationRequested += OnHealthNotification;
         _watchdog.Start();
 
+        // Re-adopt any previously-imported compose projects whose containers still exist, so their
+        // health/restart policies resume being enforced after a restart. Fire-and-forget: failures
+        // must never block launch.
+        _ = Services.GetRequiredService<ComposeProjectSupervisor>().ReconcileAsync();
+
         _window = new MainWindow();
         _window.ApplyTheme(settings.Theme);
 
@@ -369,6 +374,8 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
         services.AddSingleton<IRunProfileStore, RunProfileStore>();
+        services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();
+        services.AddSingleton<ComposeProjectSupervisor>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();
@@ -408,6 +415,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<DashboardViewModel>();
         services.AddSingleton<KubernetesViewModel>();
         services.AddTransient<K8sDetailViewModel>();
+        services.AddSingleton<ComposeViewModel>();
 
         return services.BuildServiceProvider();
     }
