@@ -50,7 +50,7 @@ An at-a-glance overview with summary cards, a total-CPU meter, and a live per-co
 ![Dashboard](docs/screenshots/dashboard.png)
 
 ### Containers
-A live list with color-coded state and inline actions. Click any row for a full detail view.
+A live list with color-coded state and inline actions — with containers that belong to a **Docker Compose** project grouped together under the project name. Click any row for a full detail view.
 
 ![Containers](docs/screenshots/containers.png)
 
@@ -58,6 +58,11 @@ Container detail — **live logs** and a **Stats** tab (CPU, memory, network / b
 
 ![Container logs](docs/screenshots/container-detail-logs.png)
 ![Container stats](docs/screenshots/container-detail-stats.png)
+
+### Docker Compose
+Import a `docker-compose.yml` and bring the whole multi-service stack up, down, or restart it as a unit — with dependency ordering, health gating, and auto-heal enforced while the app runs.
+
+![Compose](docs/screenshots/compose.png)
 
 ### Images, Volumes & Networks
 
