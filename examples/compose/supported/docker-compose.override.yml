@@ -1,0 +1,7 @@
+# Auto-merged over docker-compose.yml at import (compose's default override behavior).
+# This demonstrates the override merge: it adds an environment variable to "web"
+# without touching the rest of that service. `environment` lists merge by key.
+services:
+  web:
+    environment:
+      - OVERRIDDEN=yes

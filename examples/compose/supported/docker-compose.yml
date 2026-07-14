@@ -1,0 +1,114 @@
+# Fully-supported compose stack — everything here is reproduced by WSL Container Desktop.
+#
+# HOW TO TEST
+#   1. Compose page → "Import compose file" → pick THIS file
+#      (examples/compose/supported/docker-compose.yml).
+#   2. Import should complete with NO "unsupported features" dialog.
+#   3. Choose "Bring up" to start the project in dependency order.
+#
+# WHAT IT EXERCISES (newest features first)
+#   * include:                     pulls in common.yml (adds the "logs" helper service)
+#   * docker-compose.override.yml  auto-merged over this file (adds OVERRIDDEN=yes to web)
+#   * extends:                     web extends "web-base" from common.yml
+#   * profiles:                    "debug" service only starts because .env sets
+#                                  COMPOSE_PROFILES=debug
+#   * extra_hosts:                 appended to /etc/hosts after start (incl. host-gateway)
+#   * depends_on service_completed_successfully  web waits for the one-shot "migrate" to exit 0
+#   * depends_on service_healthy   web waits for "db" to pass its health check
+#   * stop_grace_period/stop_signal honored on stop
+#   * env_file long form           (- path:/required:) loads web.env
+#   * healthcheck / restart / networks / volumes / secrets / configs
+#   * ${VAR:-default} interpolation, YAML anchors + << merge
+#
+# Everything uses small public images so it pulls quickly.
+
+name: supported-demo
+
+include:
+  - common.yml
+
+networks:
+  appnet:
+    driver: bridge
+    labels:
+      com.example.tier: app
+
+volumes:
+  data:
+    labels:
+      com.example.keep: "true"
+
+secrets:
+  api_key:
+    file: ./secrets/api_key.txt
+
+configs:
+  site_conf:
+    file: ./configs/site.conf
+
+# Shared defaults merged into services via the YAML "<<" merge key.
+x-base: &base
+  restart: unless-stopped
+  networks:
+    - appnet
+
+services:
+  # One-shot migration. "web" waits for this to complete successfully before starting.
+  migrate:
+    image: busybox:1.36
+    networks:
+      - appnet
+    command: ["sh", "-c", "echo 'running migration'; sleep 3; echo 'migration done'"]
+
+  # Cache/store with a real health check; dependents gate on it becoming healthy.
+  db:
+    <<: *base
+    image: redis:7-alpine
+    stop_grace_period: 20s
+    stop_signal: SIGTERM
+    volumes:
+      - type: volume
+        source: data
+        target: /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  # Web tier: extends a base service from common.yml, waits for db (healthy) and
+  # migrate (completed), loads an env_file (long form), and adds /etc/hosts entries.
+  web:
+    extends:
+      file: common.yml
+      service: web-base
+    image: nginx:${NGINX_TAG:-alpine}
+    networks:
+      - appnet
+    ports:
+      - "8090:80"
+    env_file:
+      - path: web.env
+        required: false
+    extra_hosts:
+      - "api.internal:10.10.0.9"
+      - "hostgw:host-gateway"
+    configs:
+      - source: site_conf
+        target: /etc/nginx/conf.d/site.conf
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 15s
+    restart: on-failure:3
+
+  # Profile-gated: only starts because .env sets COMPOSE_PROFILES=debug.
+  debug:
+    <<: *base
+    image: busybox:1.36
+    profiles:
+      - debug
+    command: ["sh", "-c", "while true; do echo 'debug alive'; sleep 30; done"]
