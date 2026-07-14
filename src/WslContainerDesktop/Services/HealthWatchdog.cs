@@ -170,7 +170,10 @@ public sealed class HealthWatchdog : IDisposable
                 var exhausted = cfg.MaxRestarts > 0 && rt.RestartCount >= cfg.MaxRestarts;
                 if (exhausted)
                 {
-                    if (rt.State != ContainerHealthState.Down)
+                    // The policy may have been removed (e.g. project teardown) after this cycle's
+                    // config snapshot was taken. Don't announce a down state for a container we're
+                    // no longer supervising.
+                    if (rt.State != ContainerHealthState.Down && IsStillActive(cfg))
                     {
                         rt.State = ContainerHealthState.Down;
                         rt.MaxRestarts = cfg.MaxRestarts;

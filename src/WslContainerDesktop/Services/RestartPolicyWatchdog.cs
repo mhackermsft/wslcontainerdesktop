@@ -217,6 +217,13 @@ public sealed class RestartPolicyWatchdog : IDisposable
     {
         try
         {
+            // The policy may have been removed (e.g. project teardown) after this cycle's snapshot
+            // was taken. Don't restart or notify for a container we're no longer supervising.
+            if (!IsStillActive(policy))
+            {
+                return;
+            }
+
             // on-failure only restarts after a non-zero exit. Other policies restart unconditionally.
             if (policy.Policy == RestartPolicyKind.OnFailure && await ExitedCleanlyAsync(container.Id, ct).ConfigureAwait(false))
             {
@@ -274,6 +281,12 @@ public sealed class RestartPolicyWatchdog : IDisposable
             return false;
         }
     }
+
+    /// <summary>True when an enabled, valid restart policy for this container still exists in settings.</summary>
+    private bool IsStillActive(RestartPolicyConfig policy) =>
+        _settings.RestartPolicies.Any(p =>
+            p.Enabled && p.IsValid &&
+            string.Equals(p.ContainerName, policy.ContainerName, StringComparison.Ordinal));
 
     private void Notify(string title, string message) =>
         _dispatcher.TryEnqueue(() => NotificationRequested?.Invoke(title, message));

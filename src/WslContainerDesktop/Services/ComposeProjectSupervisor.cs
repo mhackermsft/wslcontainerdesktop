@@ -235,6 +235,12 @@ public sealed class ComposeProjectSupervisor
             return;
         }
 
+        // Unregister health/restart policies FIRST so the in-process watchdogs stop supervising
+        // these containers before we stop/remove them. Otherwise teardown looks like a crash and
+        // fires spurious "health check failed / restarting" toasts.
+        RemoveHealthChecks(project);
+        RemoveRestartPolicies(project);
+
         var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
         foreach (var service in project.Services)
         {
@@ -279,9 +285,6 @@ public sealed class ComposeProjectSupervisor
                 }
             }
         }
-
-        RemoveHealthChecks(project);
-        RemoveRestartPolicies(project);
     }
 
     /// <summary>
