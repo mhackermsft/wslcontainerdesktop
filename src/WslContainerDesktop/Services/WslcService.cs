@@ -32,6 +32,44 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public Task<CommandResult> GetVersionAsync(CancellationToken ct = default) =>
         runner.RunAsync(["version"], ct);
 
+    /// <summary>
+    /// Terminates the current <c>wslc</c> session. This is the only way to release the per-session
+    /// bind-mount slots that <c>wslc</c> leaks (it caps distinct host bind sources at 15 and never
+    /// frees them, even after containers are removed — a documented wslc limitation). Terminating the
+    /// session also stops all running containers, so callers must confirm with the user first.
+    /// </summary>
+    public Task<CommandResult> RestartSessionAsync(CancellationToken ct = default) =>
+        runner.RunAsync(["system", "session", "terminate"], ct);
+
+    public async Task<bool> VerifyBindMountAsync(string hostSource, CancellationToken ct = default)
+    {
+        // Bind the source into a throwaway busybox and check it is a regular file from inside the VM.
+        // We rely on the printed marker (rather than the container exit code alone) so an unexpected
+        // wslc wrapper exit code can't be mistaken for success.
+        var args = new List<string>
+        {
+            "run", "--rm",
+            "-v", $"{hostSource}:/wcd-probe:ro",
+            "busybox:1.36",
+            "sh", "-c", "if [ -f /wcd-probe ]; then echo __WCD_MOUNT_OK__; fi",
+        };
+
+        try
+        {
+            var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
+            return result.Success
+                && result.StandardOutput.Contains("__WCD_MOUNT_OK__", StringComparison.Ordinal);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> IsEngineAvailableAsync(CancellationToken ct = default)
     {
         try

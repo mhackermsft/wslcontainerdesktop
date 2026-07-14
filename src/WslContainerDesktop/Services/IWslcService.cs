@@ -24,6 +24,15 @@ public interface IWslcService
     Task<CommandResult> GetVersionAsync(CancellationToken ct = default);
     Task<bool> IsEngineAvailableAsync(CancellationToken ct = default);
 
+    /// <summary>Terminates the current wslc session, releasing leaked bind-mount slots and stopping
+    /// all running containers. See the implementation for the wslc volume-limit rationale.</summary>
+    Task<CommandResult> RestartSessionAsync(CancellationToken ct = default);
+
+    /// <summary>Verifies that a host path bind-mounts as a regular file inside the wslc VM. Used to
+    /// detect the config/secret bind race where runc pre-creates a missing source as a directory.
+    /// Returns false when the source mounts as a directory or the probe container fails to run.</summary>
+    Task<bool> VerifyBindMountAsync(string hostSource, CancellationToken ct = default);
+
     // Containers
     Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(bool all = true, CancellationToken ct = default);
     Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default);

@@ -261,6 +261,23 @@ public partial class ComposeViewModel : ObservableObject
             {
                 var failed = result.Services.Where(s => !s.Success).ToList();
                 StatusMessage = $"\"{project.Name}\" partially up ({result.Started}/{result.Services.Count})";
+
+                if (failed.Any(f => ComposeProjectSupervisor.IsMountLimitFailure(f.Detail)))
+                {
+                    var restart = await _dialogs.ShowConfirmAsync(
+                        "wslc mount limit reached",
+                        $"Some services couldn't mount their configs/secrets because wslc hit its "
+                            + "session bind-mount limit (15 distinct host paths). Restart the WSL "
+                            + "session to release the slots, then bring the project up again. "
+                            + "Restarting stops all running containers. Restart now?",
+                        "Restart WSL session");
+                    if (restart)
+                    {
+                        await RestartSessionCoreAsync();
+                    }
+                    return;
+                }
+
                 await _dialogs.ShowMessageAsync(
                     "Some services failed to start",
                     string.Join("\n", failed.Select(f => $"• {f.Service}: {f.Detail}")));
@@ -389,12 +406,64 @@ public partial class ComposeViewModel : ObservableObject
         {
             await _supervisor.DownAsync(row.Name, removeVolumes: true);
             _store.Delete(row.Name);
+            _supervisor.CleanStaging(row.Name);
             await RefreshAsync();
             StatusMessage = $"Removed \"{row.Name}\"";
         }
         catch (Exception ex)
         {
             await _dialogs.ShowMessageAsync("Remove failed", ex.Message);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Terminates the wslc session to release leaked bind-mount slots (the 15-distinct-host-path
+    /// cap that blocks config/secret mounts). This stops all running containers, so it is confirmed
+    /// first. Exposed as a toolbar command and offered automatically when a bring-up hits the limit.
+    /// </summary>
+    [RelayCommand]
+    private async Task RestartSessionAsync()
+    {
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Restart WSL session",
+            "This releases wslc's leaked bind-mount slots (needed when config/secret mounts start "
+                + "failing after ~15 distinct mounts). It also STOPS ALL running containers. "
+                + "Continue?",
+            "Restart");
+        if (!ok)
+        {
+            return;
+        }
+
+        await RestartSessionCoreAsync();
+    }
+
+    private async Task RestartSessionCoreAsync()
+    {
+        IsBusy = true;
+        StatusMessage = "Restarting WSL session…";
+        try
+        {
+            var result = await _wslc.RestartSessionAsync();
+            await RefreshAsync();
+            StatusMessage = result.Success
+                ? "WSL session restarted — mount slots released. Bring your projects up again."
+                : "Restart failed";
+            if (!result.Success)
+            {
+                await _dialogs.ShowMessageAsync(
+                    "Restart failed",
+                    string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError);
+            }
+        }
+        catch (Exception ex)
+        {
+            await _dialogs.ShowMessageAsync("Restart failed", ex.Message);
+            StatusMessage = "Error";
         }
         finally
         {

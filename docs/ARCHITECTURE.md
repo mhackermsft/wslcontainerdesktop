@@ -196,6 +196,26 @@ daemon** — restart/health policies apply only while the app runs, and `Reconci
 still-present projects on the next launch. The Compose page lists projects with up/restart/down/
 remove; import is from that page.
 
+**Config/secret staging (MSIX-safe).** File-backed `configs:`/`secrets:` are not bound from their
+original location; each source file is first **materialized (copied) into a staging directory** and
+that staged path is bound read-only. Staging exists to dodge two failure modes: (1) some Windows
+directories don't enumerate reliably inside the `wslc` VM's 9P share, so an in-place file bind's
+parent isn't found and runc falls back to `mkdir` on the read-only share; and (2) **MSIX AppData
+redirection** — for the packaged app, writes to `%LOCALAPPDATA%` are transparently redirected into
+`...\Packages\<PFN>\LocalCache\Local`, but `wslc` (an external process without the package's
+redirection view) would be handed the *unredirected* path, find nothing there, and let runc
+pre-create the bind source as a **directory** — so the container reads a directory where its
+config/secret file should be (e.g. nginx: `pread() … Is a directory`). The staging root is therefore
+the package's **real** `LocalCacheFolder` (`ApplicationData.Current.LocalCacheFolder.Path`, not
+further redirected) when packaged, and `%LOCALAPPDATA%` when unpackaged — in both cases the path the
+app writes equals the path `wslc` reads. As a defense-in-depth net against the same directory-race
+under `wslc` session mount pressure (its bind-mount subsystem leaks a slot per distinct host path,
+hard cap 15/session, released only by `wslc system session terminate`), each staged bind is
+**verified from inside the VM** (a throwaway `busybox` container checks the source mounts as a file)
+before the real container runs; on failure it re-stages at a fresh unique path (which busts `wslc`'s
+per-path negative cache) and retries, and only surfaces a "restart the WSL session" recovery prompt
+if every attempt still fails.
+
 Import is **file-based** (the user picks the `docker-compose.yml` from disk) rather than paste-based,
 so the importer knows the file's folder: it seeds `${VAR}` interpolation defaults from a sibling
 `.env` file and resolves relative `env_file`, `build.context`, and `secrets`/`configs` `file:` paths
