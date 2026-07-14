@@ -155,19 +155,39 @@ never crash the app.
 For fuller compose support the app acts as the **orchestration layer above `wslc`**
 ("desktop-as-daemon"). `ComposeImporter.ParseProject` reads a much larger subset of the spec into a
 `ComposeProject` (services + dependency graph): `image`, `container_name`, `command`, `entrypoint`,
-`ports`, `environment` (list/map), `volumes`, `networks`/`network_mode`, `user`, `working_dir`,
+`ports` (short and long form), `environment` (list/map), `env_file`, `volumes` (short and long
+form), `networks`/`network_mode` (multiple networks per service), `user`, `working_dir`,
 `hostname`, `labels`, `cpus`/`mem_limit`/`deploy.resources.limits`, `restart`, `depends_on`
-(list and `condition:` form), and `healthcheck`, with `${VAR}` / `${VAR:-default}` interpolation.
-Projects persist to `compose-projects.json`.
+(list and `condition:` form), and `healthcheck`. Values support `${VAR}` / `${VAR:-default}`
+interpolation, and the reader resolves YAML anchors/aliases (`&`/`*`), `<<` merge keys, and `|`/`>`
+block scalars. Projects persist to `compose-projects.json`.
 
-`ComposeProjectSupervisor` brings a project **up/down as a unit**: it starts each service as a
-labelled container (`com.wsldesktop.project` / `com.wsldesktop.service`) in `depends_on` topological
-order, gates `service_healthy` edges on a health probe, and enrolls services that declare a
-`healthcheck` into the existing `HealthWatchdog` so their restart budget is enforced. Because
-enforcement is in-process there is **no background daemon** — restart/health policies apply only
-while the app runs, and `ReconcileAsync` re-adopts still-present projects on the next launch. The
-Compose page lists projects with up/down/remove; import is available from that page. Exit-based
-restart for services *without* a healthcheck is not yet enforced (tracked as future work).
+`ComposeProjectSupervisor` brings a project **up / down / restart as a unit**: it starts each
+service as a labelled container (`com.wsldesktop.project` / `com.wsldesktop.service`) in `depends_on`
+topological order, gates `service_healthy` edges on a health probe, enrolls services that declare a
+`healthcheck` into `HealthWatchdog`, and seeds `restart:` policies for services *without* a
+healthcheck into `RestartPolicyWatchdog` (which restarts an exited container within a budget;
+`on-failure` inspects the exit code, and a user's manual stop suppresses `unless-stopped`/`on-failure`
+restarts). Because enforcement is in-process there is **no background daemon** — restart/health
+policies apply only while the app runs, and `ReconcileAsync` re-adopts still-present projects on the
+next launch. The Compose page lists projects with up/restart/down/remove; import is from that page.
+
+#### Compose feature support
+
+| Feature | Support |
+|---|---|
+| `image`, `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `labels` | **Supported** |
+| `ports` (short `"h:c"` and long `target/published/protocol`) | **Supported** |
+| `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported** |
+| `environment` (list and map), `env_file` | **Supported** (`env_file` read from disk when the path is resolvable) |
+| `networks` / `network_mode` (multiple per service) | **Supported in model/import**; `wslc run` attaches the **first** network at run time |
+| `${VAR}` / `${VAR:-default}` interpolation, anchors/aliases, `<<` merge, `\|`/`>` block scalars | **Supported** (block scalars are best-effort: blank lines not preserved) |
+| `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
+| `healthcheck` | **Supported** — seeded into `HealthWatchdog` |
+| `depends_on` incl. `condition: service_healthy` | **Supported** — start ordering + health gating |
+| `restart:` (`no`/`always`/`on-failure`/`unless-stopped`) | **Supported (best-effort)** while the app runs; restart backoff timing is not byte-for-byte identical to Docker |
+| Project lifecycle (`up`/`down`/`restart`), re-adoption on relaunch | **Supported** |
+| Top-level named `volumes:` / `networks:` **creation**, `deploy.replicas`, `secrets`/`configs`, `build:`, Swarm `deploy` | **Not supported** (services require an `image`) |
 
 ### Diagnostics (`FileLoggerProvider`)
 

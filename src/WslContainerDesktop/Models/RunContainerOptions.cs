@@ -47,8 +47,18 @@ public sealed class RunContainerOptions
     /// <summary>Memory limit e.g. "512M" (compose <c>mem_limit</c> / <c>deploy.resources.limits.memory</c>, maps to <c>--memory</c>).</summary>
     public string? MemoryLimit { get; set; }
 
-    /// <summary>Network to attach the container to (null/empty = engine default bridge).</summary>
+    /// <summary>
+    /// Primary network to attach the container to (null/empty = engine default bridge). For a
+    /// multi-network service this is the first network; the full set is kept in <see cref="Networks"/>.
+    /// </summary>
     public string? Network { get; set; }
+
+    /// <summary>
+    /// All networks the service declared (compose <c>networks:</c>). <c>wslc run</c> attaches a
+    /// container to a single network, so <see cref="ToArguments"/> uses the first entry; the rest are
+    /// retained in the model/import for fidelity and future multi-attach support.
+    /// </summary>
+    public List<string> Networks { get; set; } = new();
 
     /// <summary>Raw "host:container" or "host:container/proto" strings.</summary>
     public List<string> PortMappings { get; set; } = new();
@@ -93,10 +103,14 @@ public sealed class RunContainerOptions
             args.Add(Name.Trim());
         }
 
-        if (!string.IsNullOrWhiteSpace(Network))
+        // wslc run attaches a container to one network; use the primary (first declared) network.
+        var primaryNetwork = !string.IsNullOrWhiteSpace(Network)
+            ? Network!.Trim()
+            : Networks.FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))?.Trim();
+        if (!string.IsNullOrWhiteSpace(primaryNetwork))
         {
             args.Add("--network");
-            args.Add(Network.Trim());
+            args.Add(primaryNetwork);
         }
 
         if (!string.IsNullOrWhiteSpace(Hostname))

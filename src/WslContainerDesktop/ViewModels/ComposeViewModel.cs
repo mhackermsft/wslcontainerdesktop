@@ -287,6 +287,58 @@ public partial class ComposeViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task RestartAsync(ComposeProjectRow? row)
+    {
+        row ??= Selected;
+        if (row is null)
+        {
+            return;
+        }
+
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Restart project",
+            $"Restart \"{row.Name}\"? This brings the project down and back up in dependency order.",
+            "Restart");
+        if (!ok)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = $"Restarting \"{row.Name}\"…";
+        try
+        {
+            var result = await _supervisor.RestartAsync(row.Name);
+            await RefreshAsync();
+
+            if (result.AllSucceeded)
+            {
+                StatusMessage = $"\"{row.Name}\" restarted — {result.Started} service(s) started";
+            }
+            else
+            {
+                var failed = result.Services.Where(s => !s.Success).ToList();
+                StatusMessage = $"\"{row.Name}\" partially up ({result.Started}/{result.Services.Count})";
+                if (failed.Count > 0)
+                {
+                    await _dialogs.ShowMessageAsync(
+                        "Some services failed to start",
+                        string.Join("\n", failed.Select(f => $"• {f.Service}: {f.Detail}")));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await _dialogs.ShowMessageAsync("Restart failed", ex.Message);
+            StatusMessage = "Error";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
     private async Task RemoveAsync(ComposeProjectRow? row)
     {
         row ??= Selected;

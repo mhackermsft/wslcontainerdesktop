@@ -33,6 +33,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
     private readonly HealthWatchdog _watchdog;
+    private readonly RestartPolicyWatchdog _restartWatchdog;
     private readonly DialogService _dialogs;
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
@@ -144,11 +145,12 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<ContainerRowViewModel> Containers { get; } = new();
 
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, ILogger<ContainersViewModel> logger)
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
         _watchdog = watchdog;
+        _restartWatchdog = restartWatchdog;
         _dialogs = dialogs;
         _settings = settings;
         _authRefresher = authRefresher;
@@ -1052,6 +1054,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         _monitor.SuppressExitNotification(row.Id);
+        _restartWatchdog.SuppressRestart(row.Name);
         return ExecuteAsync($"Stopping {row.Name}…", () => _wslc.StopContainerAsync(row.Id));
     }
 

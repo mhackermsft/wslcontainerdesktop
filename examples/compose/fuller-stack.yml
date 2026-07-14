@@ -5,10 +5,15 @@
 # layer supports:
 #
 #   * ${VAR} / ${VAR:-default} interpolation          (image tags, env values)
+#   * YAML anchors / aliases and << merge keys          (x-defaults, shared config)
 #   * depends_on with condition: service_healthy       (ordered startup + health gating)
 #   * healthcheck (CMD / CMD-SHELL and string forms)   (seeded into the health watchdog)
-#   * restart policies                                 (enforced while the app runs)
+#   * restart policies                                 (enforced while the app runs,
+#                                                        incl. exit-based restart for
+#                                                        services without a healthcheck)
 #   * environment as both list and mapping forms
+#   * long-form ports and volumes (target/published/source)
+#   * multiple networks per service
 #   * resource limits (mem_limit / deploy.resources.limits)
 #   * user / working_dir / hostname / labels / entrypoint
 #
@@ -16,23 +21,38 @@
 
 name: fuller-demo
 
+# Reusable defaults merged into services via the YAML "<<" merge key.
+x-defaults: &defaults
+  restart: unless-stopped
+  networks:
+    - backend
+
+networks:
+  frontend: {}
+  backend: {}
+
 services:
   # A backing store with a real health check. Dependents wait for it to be healthy.
   db:
+    <<: *defaults
     image: postgres:16-alpine
     hostname: db
     environment:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: appdb
+    volumes:
+      - type: volume
+        source: dbdata
+        target: /var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d appdb"]
       interval: 10s
       retries: 5
-    restart: unless-stopped
     mem_limit: 256M
 
   # A cache started in parallel; a simple restart policy, no health check.
   cache:
+    <<: *defaults
     image: redis:7-alpine
     entrypoint: ["redis-server", "--appendonly", "yes"]
     restart: always
@@ -43,10 +63,16 @@ services:
           memory: 128M
 
   # The web tier only starts once the DB reports healthy and the cache has started.
+  # It joins both networks (wslc attaches the first at run time).
   web:
     image: nginx:${NGINX_TAG:-alpine}
+    networks:
+      - frontend
+      - backend
     ports:
-      - "8088:80"
+      - target: 80
+        published: 8088
+        protocol: tcp
     environment:
       - APP_ENV=demo
       - CACHE_HOST=cache
@@ -65,6 +91,7 @@ services:
 
   # A one-shot style worker showing user/working_dir overrides and inline flow lists.
   worker:
+    <<: *defaults
     image: busybox:1.36
     user: "1000:1000"
     working_dir: /tmp

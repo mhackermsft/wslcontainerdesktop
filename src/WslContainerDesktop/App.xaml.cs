@@ -32,6 +32,7 @@ public partial class App : Application
     private StatusMonitor? _monitor;
     private INotificationService? _notifications;
     private HealthWatchdog? _watchdog;
+    private RestartPolicyWatchdog? _restartWatchdog;
     private EngineHealth _engineHealth = EngineHealth.Unknown;
     private string _engineSummary = string.Empty;
     private int _runningCount;
@@ -106,6 +107,12 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _watchdog.HealthChanged += OnHealthChanged;
         _watchdog.NotificationRequested += OnHealthNotification;
         _watchdog.Start();
+
+        // Restart watchdog enforces compose restart: policies for containers that have no health
+        // check (health-checked containers are handled by the health watchdog above).
+        _restartWatchdog = Services.GetRequiredService<RestartPolicyWatchdog>();
+        _restartWatchdog.NotificationRequested += OnHealthNotification;
+        _restartWatchdog.Start();
 
         // Re-adopt any previously-imported compose projects whose containers still exist, so their
         // health/restart policies resume being enforced after a restart. Fire-and-forget: failures
@@ -326,6 +333,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         }
 
         _watchdog?.Dispose();
+        _restartWatchdog?.Dispose();
         _monitor?.Dispose();
         _notifications?.Unregister();
         _tray?.Dispose();
@@ -403,6 +411,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             sp.GetRequiredService<ILogger<StatusMonitor>>()));
 
         services.AddSingleton<HealthWatchdog>();
+        services.AddSingleton<RestartPolicyWatchdog>();
 
         services.AddSingleton<ContainersViewModel>();
         services.AddSingleton<ImagesViewModel>();

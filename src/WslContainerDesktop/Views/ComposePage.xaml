@@ -69,7 +69,7 @@
                     <ColumnDefinition Width="*" MinWidth="160" />
                     <ColumnDefinition Width="2*" MinWidth="180" />
                     <ColumnDefinition Width="130" />
-                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="190" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="PROJECT" />
                 <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="SERVICES" />
@@ -108,7 +108,7 @@
                                     <ColumnDefinition Width="*" MinWidth="160" />
                                     <ColumnDefinition Width="2*" MinWidth="180" />
                                     <ColumnDefinition Width="130" />
-                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="190" />
                                 </Grid.ColumnDefinitions>
 
                                 <StackPanel
@@ -165,6 +165,12 @@
                                     </Button>
                                     <Button
                                         Padding="7,5"
+                                        Click="RestartButton_Click"
+                                        ToolTipService.ToolTip="Restart">
+                                        <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                                    </Button>
+                                    <Button
+                                        Padding="7,5"
                                         Click="DownButton_Click"
                                         ToolTipService.ToolTip="Bring down">
                                         <FontIcon FontSize="14" Glyph="&#xE71A;" />
@@ -206,3 +212,4 @@
         </Border>
     </Grid>
 </Page>
+

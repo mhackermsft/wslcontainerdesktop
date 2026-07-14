@@ -109,6 +109,7 @@ public sealed class ComposeProjectSupervisor
         }
 
         SeedHealthChecks(project);
+        SeedRestartPolicies(project);
         return new ComposeUpResult { Services = results };
     }
 
@@ -139,6 +140,23 @@ public sealed class ComposeProjectSupervisor
         }
 
         RemoveHealthChecks(project);
+        RemoveRestartPolicies(project);
+    }
+
+    /// <summary>
+    /// Restarts the whole project: brings it down (stops and removes its containers) and then back
+    /// up in dependency order. Returns the up result so callers can report per-service outcomes.
+    /// </summary>
+    public async Task<ComposeUpResult> RestartAsync(string projectName, CancellationToken ct = default)
+    {
+        var project = _store.Get(projectName);
+        if (project is null)
+        {
+            return new ComposeUpResult();
+        }
+
+        await DownAsync(projectName, ct).ConfigureAwait(false);
+        return await UpAsync(project, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -163,6 +181,7 @@ public sealed class ComposeProjectSupervisor
                 if (anyPresent)
                 {
                     SeedHealthChecks(project);
+                    SeedRestartPolicies(project);
                 }
             }
         }
@@ -337,6 +356,7 @@ public sealed class ComposeProjectSupervisor
             CpuLimit = src.CpuLimit,
             MemoryLimit = src.MemoryLimit,
             Network = src.Network,
+            Networks = new List<string>(src.Networks),
             PortMappings = new List<string>(src.PortMappings),
             EnvironmentVariables = new List<string>(src.EnvironmentVariables),
             Volumes = new List<string>(src.Volumes),
@@ -416,6 +436,73 @@ public sealed class ComposeProjectSupervisor
         }
 
         _settings.HealthChecks = remaining;
+        _settings.Save();
+    }
+
+    /// <summary>
+    /// Enrolls restart policies for services that declare one but have <em>no</em> health check
+    /// (health-checked services are supervised by the watchdog). Bound to resolved container names.
+    /// </summary>
+    private void SeedRestartPolicies(ComposeProject project)
+    {
+        var toAdd = new List<RestartPolicyConfig>();
+        foreach (var service in project.Services)
+        {
+            var hasHealth = service.Health is not null && !string.IsNullOrWhiteSpace(service.Health.Command);
+            if (service.Restart == RestartPolicyKind.No || hasHealth)
+            {
+                continue;
+            }
+
+            var budget = service.Restart is RestartPolicyKind.Always or RestartPolicyKind.UnlessStopped
+                ? RestartPolicyConfig.MaxRestartLimit
+                : 3;
+
+            toAdd.Add(new RestartPolicyConfig
+            {
+                ContainerName = ResolveContainerName(project, service),
+                Policy = service.Restart,
+                MaxRestarts = budget,
+                Enabled = true,
+            });
+        }
+
+        var names = new HashSet<string>(
+            project.Services.Select(s => ResolveContainerName(project, s)),
+            StringComparer.Ordinal);
+
+        // Replace the list reference atomically so the watchdog never enumerates a mutating list.
+        var merged = _settings.RestartPolicies
+            .Where(p => !names.Contains(p.ContainerName))
+            .Concat(toAdd)
+            .ToList();
+
+        if (merged.Count == _settings.RestartPolicies.Count && toAdd.Count == 0)
+        {
+            return;
+        }
+
+        _settings.RestartPolicies = merged;
+        _settings.Save();
+    }
+
+    /// <summary>Removes the restart policies the app seeded for a project's containers.</summary>
+    private void RemoveRestartPolicies(ComposeProject project)
+    {
+        var names = new HashSet<string>(
+            project.Services.Select(s => ResolveContainerName(project, s)),
+            StringComparer.Ordinal);
+
+        var remaining = _settings.RestartPolicies
+            .Where(p => !names.Contains(p.ContainerName))
+            .ToList();
+
+        if (remaining.Count == _settings.RestartPolicies.Count)
+        {
+            return;
+        }
+
+        _settings.RestartPolicies = remaining;
         _settings.Save();
     }
 

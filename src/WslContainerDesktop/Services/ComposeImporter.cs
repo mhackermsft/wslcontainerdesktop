@@ -94,7 +94,8 @@ public static class ComposeImporter
     public static ComposeProject ParseProject(string yaml, IReadOnlyDictionary<string, string>? environment = null)
     {
         var lines = Tokenize(yaml, environment);
-        var root = ParseMapping(lines, 0, lines.Count, 0);
+        var anchors = new Dictionary<string, Node>(StringComparer.Ordinal);
+        var root = ParseMapping(lines, 0, lines.Count, 0, anchors);
 
         var project = new ComposeProject
         {
@@ -134,12 +135,13 @@ public static class ComposeImporter
             User = svc.Scalar("user")?.Trim(),
             WorkingDir = svc.Scalar("working_dir")?.Trim(),
             Hostname = svc.Scalar("hostname")?.Trim(),
-            PortMappings = CollectStrings(svc.Child("ports")),
-            Volumes = CollectStrings(svc.Child("volumes")),
+            PortMappings = CollectPorts(svc.Child("ports")),
+            Volumes = CollectVolumes(svc.Child("volumes")),
             EnvironmentVariables = CollectKeyValues(svc.Child("environment")),
         };
 
         options.Labels = CollectLabels(svc.Child("labels"));
+        MergeEnvFiles(options, svc.Child("env_file"));
         ApplyNetwork(options, svc);
         ApplyResourceLimits(options, svc);
 
@@ -166,18 +168,215 @@ public static class ComposeImporter
         if (!string.IsNullOrWhiteSpace(mode))
         {
             options.Network = NormalizeNetwork(mode);
+            if (options.Network is not null)
+            {
+                options.Networks.Add(options.Network);
+            }
+
             return;
         }
 
-        // networks: may be a sequence (["frontend"]) or a mapping (frontend: {...}); take the first.
+        // networks: may be a sequence (["frontend", "backend"]) or a mapping (frontend: {...}).
+        // Collect them all in declared order; wslc attaches to the first at run time.
+        var names = new List<string>();
         switch (svc.Child("networks"))
         {
-            case SequenceNode seq when seq.Items.Count > 0 && seq.Items[0] is ScalarNode s:
-                options.Network = NormalizeNetwork(s.Value);
+            case SequenceNode seq:
+                foreach (var item in seq.Items.OfType<ScalarNode>())
+                {
+                    var n = NormalizeNetwork(item.Value);
+                    if (n is not null)
+                    {
+                        names.Add(n);
+                    }
+                }
+
                 break;
-            case MappingNode map when map.Map.Count > 0:
-                options.Network = NormalizeNetwork(map.Map.Keys.First());
+            case MappingNode map:
+                foreach (var key in map.Map.Keys)
+                {
+                    var n = NormalizeNetwork(key);
+                    if (n is not null)
+                    {
+                        names.Add(n);
+                    }
+                }
+
                 break;
+        }
+
+        options.Networks = names.Distinct(StringComparer.Ordinal).ToList();
+        options.Network = options.Networks.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Reads a compose <c>ports:</c> node into raw <c>host:container[/proto]</c> strings, accepting
+    /// both the short string form (<c>"8080:80"</c>) and the long mapping form
+    /// (<c>{ target: 80, published: 8080, protocol: tcp }</c>).
+    /// </summary>
+    private static List<string> CollectPorts(Node? node)
+    {
+        var items = new List<string>();
+        if (node is not SequenceNode seq)
+        {
+            return CollectStrings(node);
+        }
+
+        foreach (var item in seq.Items)
+        {
+            switch (item)
+            {
+                case ScalarNode s when !string.IsNullOrWhiteSpace(s.Value):
+                    items.Add(s.Value.Trim());
+                    break;
+
+                case MappingNode map:
+                    var target = map.Scalar("target")?.Trim();
+                    if (string.IsNullOrWhiteSpace(target))
+                    {
+                        break;
+                    }
+
+                    var published = map.Scalar("published")?.Trim();
+                    var proto = map.Scalar("protocol")?.Trim();
+                    var mapping = string.IsNullOrWhiteSpace(published) ? target : $"{published}:{target}";
+                    if (!string.IsNullOrWhiteSpace(proto))
+                    {
+                        mapping += $"/{proto}";
+                    }
+
+                    items.Add(mapping);
+                    break;
+            }
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Reads a compose <c>volumes:</c> node into raw <c>source:target[:ro]</c> strings, accepting
+    /// both the short string form (<c>"./data:/data"</c>) and the long mapping form
+    /// (<c>{ type: bind, source: ./data, target: /data, read_only: true }</c>).
+    /// </summary>
+    private static List<string> CollectVolumes(Node? node)
+    {
+        var items = new List<string>();
+        if (node is not SequenceNode seq)
+        {
+            return CollectStrings(node);
+        }
+
+        foreach (var item in seq.Items)
+        {
+            switch (item)
+            {
+                case ScalarNode s when !string.IsNullOrWhiteSpace(s.Value):
+                    items.Add(s.Value.Trim());
+                    break;
+
+                case MappingNode map:
+                    var target = map.Scalar("target")?.Trim();
+                    if (string.IsNullOrWhiteSpace(target))
+                    {
+                        break;
+                    }
+
+                    var source = map.Scalar("source")?.Trim();
+                    var readOnly = string.Equals(map.Scalar("read_only")?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+                    string spec;
+                    if (string.IsNullOrWhiteSpace(source))
+                    {
+                        spec = target; // anonymous volume
+                    }
+                    else
+                    {
+                        spec = $"{source}:{target}";
+                    }
+
+                    if (readOnly)
+                    {
+                        spec += ":ro";
+                    }
+
+                    items.Add(spec);
+                    break;
+            }
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Merges variables from service-level <c>env_file:</c> entries into the container environment.
+    /// Files are read relative to the current working directory (or by absolute path) on a best-effort
+    /// basis; entries already provided by <c>environment:</c> win and are never overwritten.
+    /// </summary>
+    private static void MergeEnvFiles(RunContainerOptions options, Node? node)
+    {
+        var paths = CollectStrings(node);
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        var existing = new HashSet<string>(
+            options.EnvironmentVariables.Select(e =>
+            {
+                var eq = e.IndexOf('=');
+                return eq < 0 ? e.Trim() : e[..eq].Trim();
+            }),
+            StringComparer.Ordinal);
+
+        foreach (var path in paths)
+        {
+            foreach (var (key, value) in ReadEnvFile(path))
+            {
+                if (existing.Add(key))
+                {
+                    options.EnvironmentVariables.Add($"{key}={value}");
+                }
+            }
+        }
+    }
+
+    /// <summary>Reads a <c>.env</c>-style file into KEY/VALUE pairs. Returns empty when unreadable.</summary>
+    private static IEnumerable<KeyValuePair<string, string>> ReadEnvFile(string path)
+    {
+        string[] lines;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                yield break;
+            }
+
+            lines = File.ReadAllLines(path);
+        }
+        catch
+        {
+            yield break;
+        }
+
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line[0] == '#')
+            {
+                continue;
+            }
+
+            var eq = line.IndexOf('=');
+            if (eq <= 0)
+            {
+                continue;
+            }
+
+            var key = line[..eq].Trim();
+            var value = Unquote(line[(eq + 1)..].Trim());
+            if (!string.IsNullOrEmpty(key))
+            {
+                yield return new KeyValuePair<string, string>(key, value);
+            }
         }
     }
 
@@ -544,7 +743,7 @@ public static class ComposeImporter
 
     // ----- YAML reader -------------------------------------------------------------------------
 
-    private static MappingNode ParseMapping(List<Line> lines, int start, int end, int indent)
+    private static MappingNode ParseMapping(List<Line> lines, int start, int end, int indent, Dictionary<string, Node> anchors)
     {
         var map = new Dictionary<string, Node>(StringComparer.Ordinal);
         var i = start;
@@ -579,21 +778,52 @@ public static class ComposeImporter
                 blockEnd++;
             }
 
-            Node node;
-            if (!string.IsNullOrEmpty(inline))
+            // A leading &anchor on the value names the node for later *alias / << merge references.
+            var anchorName = StripAnchor(ref inline);
+
+            // Merge key: "<<: *base" (or a flow list of aliases) folds the referenced mapping(s)
+            // into this mapping without overriding keys that are set explicitly.
+            if (key == "<<")
             {
-                node = ParseInlineValue(inline);
+                foreach (var merged in ResolveMergeSources(inline, anchors))
+                {
+                    foreach (var (mk, mv) in merged.Map)
+                    {
+                        if (!map.ContainsKey(mk))
+                        {
+                            map[mk] = mv;
+                        }
+                    }
+                }
+
+                i = blockEnd;
+                continue;
+            }
+
+            Node node;
+            if (IsBlockScalar(inline, out var literal))
+            {
+                node = BuildBlockScalar(lines, i + 1, blockEnd, literal);
+            }
+            else if (!string.IsNullOrEmpty(inline))
+            {
+                node = ResolveAlias(inline, anchors) ?? ParseInlineValue(inline);
             }
             else if (blockEnd > i + 1)
             {
                 var first = lines[i + 1];
                 node = first.Text.StartsWith('-')
-                    ? ParseSequence(lines, i + 1, blockEnd, first.Indent)
-                    : ParseMapping(lines, i + 1, blockEnd, first.Indent);
+                    ? ParseSequence(lines, i + 1, blockEnd, first.Indent, anchors)
+                    : ParseMapping(lines, i + 1, blockEnd, first.Indent, anchors);
             }
             else
             {
                 node = new ScalarNode(string.Empty);
+            }
+
+            if (anchorName is not null)
+            {
+                anchors[anchorName] = node;
             }
 
             if (!string.IsNullOrEmpty(key))
@@ -607,7 +837,7 @@ public static class ComposeImporter
         return new MappingNode(map);
     }
 
-    private static SequenceNode ParseSequence(List<Line> lines, int start, int end, int indent)
+    private static SequenceNode ParseSequence(List<Line> lines, int start, int end, int indent, Dictionary<string, Node> anchors)
     {
         var items = new List<Node>();
         var i = start;
@@ -628,24 +858,144 @@ public static class ComposeImporter
                 itemEnd++;
             }
 
+            var itemAnchor = StripAnchor(ref afterDash);
+
+            Node? item = null;
             if (!string.IsNullOrEmpty(afterDash))
             {
-                // For the compose fields we consume, sequence items are scalars ("80:80",
-                // "KEY=VALUE", "db") or inline flow lists.
-                items.Add(ParseInlineValue(afterDash));
+                // "- key: value" starts a mapping item (e.g. long-form ports/volumes). Any deeper
+                // continuation lines belong to that same mapping.
+                if (!afterDash.StartsWith('[') && !afterDash.StartsWith('{') && FindKeySeparator(afterDash) >= 0)
+                {
+                    var sub = new List<Line> { new Line(indent + 2, afterDash) };
+                    for (var k = i + 1; k < itemEnd; k++)
+                    {
+                        sub.Add(lines[k]);
+                    }
+
+                    item = ParseMapping(sub, 0, sub.Count, indent + 2, anchors);
+                }
+                else
+                {
+                    // Scalar / alias / inline flow list item ("80:80", "db", "*ref", "[a, b]").
+                    item = ResolveAlias(afterDash, anchors) ?? ParseInlineValue(afterDash);
+                }
             }
             else if (itemEnd > i + 1)
             {
                 var first = lines[i + 1];
-                items.Add(first.Text.StartsWith('-')
-                    ? ParseSequence(lines, i + 1, itemEnd, first.Indent)
-                    : ParseMapping(lines, i + 1, itemEnd, first.Indent));
+                item = first.Text.StartsWith('-')
+                    ? ParseSequence(lines, i + 1, itemEnd, first.Indent, anchors)
+                    : ParseMapping(lines, i + 1, itemEnd, first.Indent, anchors);
+            }
+
+            if (item is not null)
+            {
+                if (itemAnchor is not null)
+                {
+                    anchors[itemAnchor] = item;
+                }
+
+                items.Add(item);
             }
 
             i = itemEnd;
         }
 
         return new SequenceNode(items);
+    }
+
+    /// <summary>
+    /// If <paramref name="value"/> begins with a YAML anchor (<c>&amp;name</c>), removes it and returns
+    /// the anchor name; otherwise returns null and leaves the value unchanged.
+    /// </summary>
+    private static string? StripAnchor(ref string value)
+    {
+        if (string.IsNullOrEmpty(value) || value[0] != '&')
+        {
+            return null;
+        }
+
+        var end = 1;
+        while (end < value.Length && !char.IsWhiteSpace(value[end]))
+        {
+            end++;
+        }
+
+        var name = value[1..end];
+        value = value[end..].Trim();
+        return string.IsNullOrEmpty(name) ? null : name;
+    }
+
+    /// <summary>Resolves a <c>*alias</c> reference to its anchored node, or null if not an alias.</summary>
+    private static Node? ResolveAlias(string value, Dictionary<string, Node> anchors)
+    {
+        var v = value.Trim();
+        if (v.Length < 2 || v[0] != '*')
+        {
+            return null;
+        }
+
+        var name = v[1..].Trim();
+        return anchors.TryGetValue(name, out var node) ? node : new ScalarNode(string.Empty);
+    }
+
+    /// <summary>Resolves the mapping source(s) referenced by a merge key value (<c>*base</c> or <c>[*a, *b]</c>).</summary>
+    private static IEnumerable<MappingNode> ResolveMergeSources(string inline, Dictionary<string, Node> anchors)
+    {
+        var v = inline.Trim();
+        if (v.StartsWith('[') && v.EndsWith(']'))
+        {
+            foreach (var part in SplitFlow(v[1..^1]))
+            {
+                if (ResolveAlias(part.Trim(), anchors) is MappingNode m)
+                {
+                    yield return m;
+                }
+            }
+        }
+        else if (ResolveAlias(v, anchors) is MappingNode single)
+        {
+            yield return single;
+        }
+    }
+
+    /// <summary>True when a mapping value is a block scalar indicator (<c>|</c>, <c>&gt;</c> and chomping variants).</summary>
+    private static bool IsBlockScalar(string inline, out bool literal)
+    {
+        literal = false;
+        var v = inline.Trim();
+        if (v.Length == 0 || (v[0] != '|' && v[0] != '>'))
+        {
+            return false;
+        }
+
+        // The remainder may only be chomping/indentation indicators (-, +, digits).
+        for (var i = 1; i < v.Length; i++)
+        {
+            if (v[i] is not ('-' or '+') && !char.IsDigit(v[i]))
+            {
+                return false;
+            }
+        }
+
+        literal = v[0] == '|';
+        return true;
+    }
+
+    /// <summary>
+    /// Builds a block scalar from the deeper lines that follow. Literal (<c>|</c>) blocks join with
+    /// newlines; folded (<c>&gt;</c>) blocks join with spaces. Best-effort: blank lines are not preserved.
+    /// </summary>
+    private static ScalarNode BuildBlockScalar(List<Line> lines, int start, int end, bool literal)
+    {
+        var parts = new List<string>();
+        for (var i = start; i < end; i++)
+        {
+            parts.Add(lines[i].Text);
+        }
+
+        return new ScalarNode(string.Join(literal ? "\n" : " ", parts).Trim());
     }
 
     /// <summary>Parses an inline value: a flow sequence (<c>[a, b]</c>) or a plain scalar.</summary>

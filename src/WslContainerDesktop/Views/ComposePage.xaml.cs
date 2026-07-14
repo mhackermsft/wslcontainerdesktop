@@ -57,6 +57,14 @@ public sealed partial class ComposePage : Page
         }
     }
 
+    private void RestartButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            ViewModel.RestartCommand.Execute(row);
+        }
+    }
+
     private void RemoveButton_Click(object sender, RoutedEventArgs e)
     {
         if (RowOf(sender) is { } row)
