@@ -1011,7 +1011,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         IReadOnlyList<RunProfile> parsed;
         try
         {
-            parsed = ComposeImporter.Parse(dialog.Yaml);
+            parsed = ComposeImporter.Parse(dialog.Yaml, dialog.BaseDirectory);
         }
         catch (Exception ex)
         {

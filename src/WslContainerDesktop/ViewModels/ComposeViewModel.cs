@@ -162,7 +162,7 @@ public partial class ComposeViewModel : ObservableObject
         ComposeProject project;
         try
         {
-            project = ComposeImporter.ParseProject(dialog.Yaml);
+            project = ComposeImporter.ParseProject(dialog.Yaml, baseDirectory: dialog.BaseDirectory);
         }
         catch (Exception ex)
         {

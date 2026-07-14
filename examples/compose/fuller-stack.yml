@@ -77,6 +77,11 @@ services:
       - APP_ENV=demo
       - CACHE_HOST=cache
       - DB_HOST=db
+    # Extra vars pulled from a file next to this compose file. Relative env_file
+    # paths (and the sibling .env used for ${VAR} defaults) only resolve because
+    # the app imports compose files by path, not by paste.
+    env_file:
+      - web.env
     labels:
       com.example.tier: frontend
     depends_on:

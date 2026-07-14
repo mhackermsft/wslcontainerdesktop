@@ -64,9 +64,14 @@ public static class ComposeImporter
     /// Back-compat entry point: returns one <see cref="RunProfile"/> per service, ignoring
     /// orchestration metadata. Used by the "import as run profiles" flow.
     /// </summary>
-    public static IReadOnlyList<RunProfile> Parse(string yaml)
+    /// <param name="yaml">The compose document text.</param>
+    /// <param name="baseDirectory">
+    /// Directory the compose file was loaded from, used to resolve <c>.env</c> and relative
+    /// <c>env_file</c> / bind-mount paths. Null when the source has no on-disk location.
+    /// </param>
+    public static IReadOnlyList<RunProfile> Parse(string yaml, string? baseDirectory = null)
     {
-        var project = ParseProject(yaml);
+        var project = ParseProject(yaml, environment: null, baseDirectory);
         var profiles = new List<RunProfile>();
         foreach (var service in project.Services)
         {
@@ -88,12 +93,20 @@ public static class ComposeImporter
     /// </summary>
     /// <param name="yaml">The compose document text.</param>
     /// <param name="environment">
-    /// Variables used for <c>${VAR}</c> interpolation (e.g. loaded from a <c>.env</c> file); process
-    /// environment variables and inline <c>:-</c> defaults are consulted as a fallback.
+    /// Variables used for <c>${VAR}</c> interpolation; process environment variables and inline
+    /// <c>:-</c> defaults are consulted as a fallback.
     /// </param>
-    public static ComposeProject ParseProject(string yaml, IReadOnlyDictionary<string, string>? environment = null)
+    /// <param name="baseDirectory">
+    /// Directory the compose file was loaded from. When supplied, a sibling <c>.env</c> file seeds
+    /// interpolation defaults and relative <c>env_file</c> paths resolve against it.
+    /// </param>
+    public static ComposeProject ParseProject(
+        string yaml,
+        IReadOnlyDictionary<string, string>? environment = null,
+        string? baseDirectory = null)
     {
-        var lines = Tokenize(yaml, environment);
+        var effectiveEnv = BuildInterpolationEnvironment(environment, baseDirectory);
+        var lines = Tokenize(yaml, effectiveEnv);
         var anchors = new Dictionary<string, Node>(StringComparer.Ordinal);
         var root = ParseMapping(lines, 0, lines.Count, 0, anchors);
 
@@ -114,7 +127,7 @@ public static class ComposeImporter
                 continue;
             }
 
-            var service = BuildService(name, svc);
+            var service = BuildService(name, svc, baseDirectory);
             if (service is not null)
             {
                 project.Services.Add(service);
@@ -124,7 +137,37 @@ public static class ComposeImporter
         return project;
     }
 
-    private static ComposeService? BuildService(string serviceName, MappingNode svc)
+    /// <summary>
+    /// Merges an explicit interpolation environment with a sibling <c>.env</c> file (when a base
+    /// directory is given). Explicitly-provided variables win over <c>.env</c> entries.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string>? BuildInterpolationEnvironment(
+        IReadOnlyDictionary<string, string>? environment,
+        string? baseDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(baseDirectory))
+        {
+            return environment;
+        }
+
+        var merged = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value) in ReadEnvFile(Path.Combine(baseDirectory, ".env")))
+        {
+            merged[key] = value;
+        }
+
+        if (environment is not null)
+        {
+            foreach (var (key, value) in environment)
+            {
+                merged[key] = value; // explicit values take precedence over the .env file
+            }
+        }
+
+        return merged.Count == 0 ? environment : merged;
+    }
+
+    private static ComposeService? BuildService(string serviceName, MappingNode svc, string? baseDirectory)
     {
         var options = new RunContainerOptions
         {
@@ -141,7 +184,7 @@ public static class ComposeImporter
         };
 
         options.Labels = CollectLabels(svc.Child("labels"));
-        MergeEnvFiles(options, svc.Child("env_file"));
+        MergeEnvFiles(options, svc.Child("env_file"), baseDirectory);
         ApplyNetwork(options, svc);
         ApplyResourceLimits(options, svc);
 
@@ -308,10 +351,10 @@ public static class ComposeImporter
 
     /// <summary>
     /// Merges variables from service-level <c>env_file:</c> entries into the container environment.
-    /// Files are read relative to the current working directory (or by absolute path) on a best-effort
-    /// basis; entries already provided by <c>environment:</c> win and are never overwritten.
+    /// Relative paths resolve against <paramref name="baseDirectory"/> (the compose file's folder);
+    /// entries already provided by <c>environment:</c> win and are never overwritten.
     /// </summary>
-    private static void MergeEnvFiles(RunContainerOptions options, Node? node)
+    private static void MergeEnvFiles(RunContainerOptions options, Node? node, string? baseDirectory)
     {
         var paths = CollectStrings(node);
         if (paths.Count == 0)
@@ -329,13 +372,33 @@ public static class ComposeImporter
 
         foreach (var path in paths)
         {
-            foreach (var (key, value) in ReadEnvFile(path))
+            var resolved = ResolvePath(path, baseDirectory);
+            foreach (var (key, value) in ReadEnvFile(resolved))
             {
                 if (existing.Add(key))
                 {
                     options.EnvironmentVariables.Add($"{key}={value}");
                 }
             }
+        }
+    }
+
+    /// <summary>Resolves a possibly-relative path against the compose file's directory when known.</summary>
+    private static string ResolvePath(string path, string? baseDirectory)
+    {
+        var p = path.Trim();
+        if (string.IsNullOrEmpty(p) || string.IsNullOrWhiteSpace(baseDirectory) || Path.IsPathRooted(p))
+        {
+            return p;
+        }
+
+        try
+        {
+            return Path.GetFullPath(Path.Combine(baseDirectory, p));
+        }
+        catch
+        {
+            return p;
         }
     }
 

@@ -172,6 +172,10 @@ restarts). Because enforcement is in-process there is **no background daemon** â
 policies apply only while the app runs, and `ReconcileAsync` re-adopts still-present projects on the
 next launch. The Compose page lists projects with up/restart/down/remove; import is from that page.
 
+Import is **file-based** (the user picks the `docker-compose.yml` from disk) rather than paste-based,
+so the importer knows the file's folder: it seeds `${VAR}` interpolation defaults from a sibling
+`.env` file and resolves relative `env_file` paths against that folder.
+
 #### Compose feature support
 
 | Feature | Support |
@@ -179,7 +183,7 @@ next launch. The Compose page lists projects with up/restart/down/remove; import
 | `image`, `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `labels` | **Supported** |
 | `ports` (short `"h:c"` and long `target/published/protocol`) | **Supported** |
 | `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported** |
-| `environment` (list and map), `env_file` | **Supported** (`env_file` read from disk when the path is resolvable) |
+| `environment` (list and map), `env_file` | **Supported** â€” relative `env_file` paths resolve against the compose file's folder; a sibling `.env` seeds interpolation |
 | `networks` / `network_mode` (multiple per service) | **Supported in model/import**; `wslc run` attaches the **first** network at run time |
 | `${VAR}` / `${VAR:-default}` interpolation, anchors/aliases, `<<` merge, `\|`/`>` block scalars | **Supported** (block scalars are best-effort: blank lines not preserved) |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
