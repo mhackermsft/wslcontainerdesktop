@@ -50,9 +50,24 @@ public sealed class RunContainerDialog : ContentDialog
     private readonly List<RunProfile> _profileItems = new();
     private bool _applyingProfile;
 
+    // Fields captured on import/profile-apply that the form doesn't surface (workdir, user,
+    // entrypoint, dns, ulimits, labels, …). Carried through BuildOptions so a Run keeps them.
+    private RunContainerOptions? _appliedExtras;
+
+    // Options to prefill once the dialog is Opened. Editable ComboBoxes (image/network) only accept
+    // their Text after they're loaded, so a constructor-time ApplyOptions would drop them.
+    private RunContainerOptions? _pendingPrefill;
+    private IReadOnlyList<string>? _pendingWarnings;
+
     public RunContainerOptions? Options { get; private set; }
 
-    public RunContainerDialog(IWslcService wslc, IReadOnlyList<RegistryEntry> registries, IRunProfileStore profiles, string? prefillImage = null)
+    public RunContainerDialog(
+        IWslcService wslc,
+        IReadOnlyList<RegistryEntry> registries,
+        IRunProfileStore profiles,
+        string? prefillImage = null,
+        RunContainerOptions? prefillOptions = null,
+        IReadOnlyList<string>? importWarnings = null)
     {
         _wslc = wslc;
         _registries = registries;
@@ -240,6 +255,11 @@ public sealed class RunContainerDialog : ContentDialog
 
         ReloadProfiles(null);
 
+        // Defer prefill from a parsed `docker run` command until Opened (see OnOpened) so the
+        // editable image/network combos are ready to receive their values.
+        _pendingPrefill = prefillOptions;
+        _pendingWarnings = importWarnings;
+
         Opened += OnOpened;
         PrimaryButtonClick += OnPrimary;
     }
@@ -293,17 +313,24 @@ public sealed class RunContainerDialog : ContentDialog
     }
 
     /// <summary>Prefills every field from a saved profile so the user can tweak and run it.</summary>
-    private void ApplyProfile(RunProfile profile)
+    private void ApplyProfile(RunProfile profile) => ApplyOptions(profile.Options, profile.Name);
+
+    /// <summary>
+    /// Prefills the form from a set of options (a saved profile or a parsed <c>docker run</c>
+    /// command). Fields the form doesn't surface are retained in <see cref="_appliedExtras"/> so a
+    /// subsequent Run preserves them.
+    /// </summary>
+    private void ApplyOptions(RunContainerOptions options, string? profileName)
     {
-        var options = profile.Options;
+        _appliedExtras = options;
 
         if (!string.IsNullOrWhiteSpace(options.Image) && !_imageBox.Items.Contains(options.Image))
         {
             _imageBox.Items.Add(options.Image);
         }
 
-        _imageBox.Text = options.Image;
-        // The saved image is already fully qualified; keep the default registry so it isn't re-qualified.
+        _imageBox.Text = options.Image ?? string.Empty;
+        // An imported/saved image is already fully qualified; keep the default registry so it isn't re-qualified.
         _registryBox.SelectedIndex = 0;
         _nameBox.Text = options.Name ?? string.Empty;
         _networkBox.Text = options.Network ?? string.Empty;
@@ -315,7 +342,7 @@ public sealed class RunContainerDialog : ContentDialog
         _portsBox.Text = string.Join('\n', options.PortMappings);
         _envBox.Text = string.Join('\n', options.EnvironmentVariables);
         _volumesBox.Text = string.Join('\n', options.Volumes);
-        _profileNameBox.Text = profile.Name;
+        _profileNameBox.Text = profileName ?? string.Empty;
     }
 
     private void OnSaveProfile(object sender, RoutedEventArgs e)
@@ -402,6 +429,21 @@ public sealed class RunContainerDialog : ContentDialog
         {
             // Non-fatal; the user can still type a network name or use the default.
         }
+
+        // Now that the editable combos are loaded, apply any pending docker-run prefill.
+        if (_pendingPrefill is not null)
+        {
+            var prefill = _pendingPrefill;
+            var warnings = _pendingWarnings;
+            _pendingPrefill = null;
+            _pendingWarnings = null;
+
+            ApplyOptions(prefill, null);
+            if (warnings is { Count: > 0 })
+            {
+                ShowProfileStatus("Imported from docker run. Notes: " + string.Join("  •  ", warnings));
+            }
+        }
     }
 
     private void OnPrimary(ContentDialog sender, ContentDialogButtonClickEventArgs args)
@@ -443,11 +485,13 @@ public sealed class RunContainerDialog : ContentDialog
             image = registry.Qualify(image);
         }
 
+        var resolvedNetwork = ResolveNetwork();
+
         return new RunContainerOptions
         {
             Image = image,
             Name = string.IsNullOrWhiteSpace(_nameBox.Text) ? null : _nameBox.Text.Trim(),
-            Network = ResolveNetwork(),
+            Network = resolvedNetwork,
             Detached = _detached.IsChecked == true,
             RemoveOnExit = _removeOnExit.IsChecked == true,
             Interactive = _interactive.IsChecked == true,
@@ -456,6 +500,31 @@ public sealed class RunContainerDialog : ContentDialog
             PortMappings = SplitLines(_portsBox.Text),
             EnvironmentVariables = SplitLines(_envBox.Text),
             Volumes = SplitLines(_volumesBox.Text),
+
+            // Fields the form doesn't surface but were imported/loaded are preserved verbatim.
+            Entrypoint = _appliedExtras?.Entrypoint,
+            User = _appliedExtras?.User,
+            WorkingDir = _appliedExtras?.WorkingDir,
+            Hostname = _appliedExtras?.Hostname,
+            CpuLimit = _appliedExtras?.CpuLimit,
+            MemoryLimit = _appliedExtras?.MemoryLimit,
+            ShmSize = _appliedExtras?.ShmSize,
+            StopSignal = _appliedExtras?.StopSignal,
+            Domainname = _appliedExtras?.Domainname,
+
+            // Networks/Aliases are network-scoped; only keep them when a non-default network is
+            // actually selected in the form, so clearing the network box truly means "default bridge"
+            // (ToArguments falls back to Networks.First() when Network is empty).
+            Networks = resolvedNetwork is null ? new List<string>() : new List<string> { resolvedNetwork },
+            Aliases = resolvedNetwork is null
+                ? new List<string>()
+                : new List<string>(_appliedExtras?.Aliases ?? new List<string>()),
+            Dns = new List<string>(_appliedExtras?.Dns ?? new List<string>()),
+            DnsSearch = new List<string>(_appliedExtras?.DnsSearch ?? new List<string>()),
+            DnsOptions = new List<string>(_appliedExtras?.DnsOptions ?? new List<string>()),
+            Tmpfs = new List<string>(_appliedExtras?.Tmpfs ?? new List<string>()),
+            Ulimits = new List<string>(_appliedExtras?.Ulimits ?? new List<string>()),
+            Labels = new Dictionary<string, string>(_appliedExtras?.Labels ?? new Dictionary<string, string>()),
         };
     }
 

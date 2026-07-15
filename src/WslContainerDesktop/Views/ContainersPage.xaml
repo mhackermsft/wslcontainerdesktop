@@ -44,6 +44,14 @@
                         <TextBlock Text="Run a container" />
                     </StackPanel>
                 </Button>
+                <Button
+                    Command="{x:Bind ViewModel.ImportDockerRunCommand}"
+                    ToolTipService.ToolTip="Prefill the Run dialog from a pasted docker run command">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE8B5;" />
+                        <TextBlock Text="Import from docker run" />
+                    </StackPanel>
+                </Button>
                 <Button Command="{x:Bind ViewModel.RefreshCommand}">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="14" Glyph="&#xE72C;" />
@@ -365,6 +373,11 @@
                                                         <FontIcon Glyph="&#xEB51;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
+                                                <MenuFlyoutItem Click="SaveAsProfileMenu_Click" Text="Save as run profile">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE78C;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
                                                 <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" />
                                                 <MenuFlyoutSeparator />
                                                 <MenuFlyoutItem Click="RemoveMenu_Click" Text="Remove">
@@ -530,6 +543,11 @@
                                                     <MenuFlyoutItem Click="HealthCheckMenu_Click" Text="Health check…">
                                                         <MenuFlyoutItem.Icon>
                                                             <FontIcon Glyph="&#xEB51;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Click="SaveAsProfileMenu_Click" Text="Save as run profile">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE78C;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                     <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" />
