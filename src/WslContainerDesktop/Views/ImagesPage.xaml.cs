@@ -58,6 +58,14 @@ public sealed partial class ImagesPage : Page
         }
     }
 
+    private void PullUpdateMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (ImageOf(sender) is { } img)
+        {
+            ViewModel.PullUpdateCommand.Execute(img);
+        }
+    }
+
     private void PushMenu_Click(object sender, RoutedEventArgs e)
     {
         if (ImageOf(sender) is { } img)

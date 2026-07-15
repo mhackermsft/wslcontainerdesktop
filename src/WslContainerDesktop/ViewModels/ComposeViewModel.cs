@@ -159,15 +159,33 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
+        await ImportProjectFromYamlAsync(dialog.Yaml, baseDirectory: dialog.BaseDirectory);
+    }
+
+    /// <summary>
+    /// Imports a compose project from raw YAML text: parses it, warns about unsupported features,
+    /// lets the user name it, persists it, and offers to bring it up. Shared by the file-picker
+    /// import command and the one-click template gallery.
+    /// </summary>
+    /// <param name="yaml">The docker-compose YAML content.</param>
+    /// <param name="baseDirectory">Directory used to resolve relative env_file/.env paths, if any.</param>
+    /// <param name="suggestedName">Pre-selected project name (e.g. from a template); falls back to the compose <c>name:</c>.</param>
+    public async Task ImportProjectFromYamlAsync(string yaml, string? baseDirectory = null, string? suggestedName = null)
+    {
         ComposeProject project;
         try
         {
-            project = ComposeImporter.ParseProject(dialog.Yaml, baseDirectory: dialog.BaseDirectory);
+            project = ComposeImporter.ParseProject(yaml, baseDirectory: baseDirectory);
         }
         catch (Exception ex)
         {
             await _dialogs.ShowMessageAsync("Import failed", ex.Message);
             return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(suggestedName))
+        {
+            project.Name = suggestedName.Trim();
         }
 
         if (project.Services.Count == 0)
@@ -230,6 +248,44 @@ public partial class ComposeViewModel : ObservableObject
         {
             await BringUpAsync(project);
         }
+    }
+
+    /// <summary>
+    /// One-click template path: parse <paramref name="yaml"/>, import it as a project under
+    /// <paramref name="suggestedName"/>, and bring it up immediately — with no import warnings,
+    /// name, or confirmation prompts. Re-importing an already-imported project just refreshes it,
+    /// so a template's Launch button is idempotent. Errors are surfaced via the dialog service.
+    /// </summary>
+    public async Task ImportAndUpAsync(string yaml, string? suggestedName = null, string? baseDirectory = null)
+    {
+        ComposeProject project;
+        try
+        {
+            project = ComposeImporter.ParseProject(yaml, baseDirectory: baseDirectory);
+        }
+        catch (Exception ex)
+        {
+            await _dialogs.ShowMessageAsync("Launch failed", ex.Message);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(suggestedName))
+        {
+            project.Name = suggestedName.Trim();
+        }
+
+        if (project.Services.Count == 0)
+        {
+            await _dialogs.ShowMessageAsync(
+                "Nothing to launch",
+                "No services with an image were found in the compose file.");
+            return;
+        }
+
+        project.ApplyProjectNamespacing();
+        _store.Save(project);
+        await RefreshAsync();
+        await BringUpAsync(project);
     }
 
     [RelayCommand]

@@ -522,6 +522,65 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public Task<CommandResult> InspectImageAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["inspect", "--type", "image", id], ct);
 
+    /// <summary>
+    /// Returns the local <c>RepoDigests</c> for an image (e.g. "nginx@sha256:…"), read from
+    /// <c>wslc inspect</c>. These are the manifest digests of what was pulled and are compared
+    /// against the upstream registry digest to detect available updates. Empty if the image was
+    /// built locally or has never been pushed/pulled (no digest).
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetImageRepoDigestsAsync(string id, CancellationToken ct = default)
+    {
+        var result = await InspectImageAsync(id, ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            return Array.Empty<string>();
+        }
+
+        var json = result.StandardOutput.Trim();
+        if (string.IsNullOrEmpty(json))
+        {
+            return Array.Empty<string>();
+        }
+
+        if (json[0] == '\uFEFF')
+        {
+            json = json[1..];
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var element = root.ValueKind == JsonValueKind.Array
+                ? (root.GetArrayLength() > 0 ? root[0] : default)
+                : root;
+
+            if (element.ValueKind != JsonValueKind.Object ||
+                !element.TryGetProperty("RepoDigests", out var digests) ||
+                digests.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<string>();
+            }
+
+            var list = new List<string>();
+            foreach (var d in digests.EnumerateArray())
+            {
+                var value = d.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    list.Add(value);
+                }
+            }
+
+            return list;
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex, "Failed to parse RepoDigests from wslc inspect for {Id}.", id);
+            return Array.Empty<string>();
+        }
+    }
+
     public Task<CommandResult> BuildImageAsync(
         string contextPath,
         string tag,

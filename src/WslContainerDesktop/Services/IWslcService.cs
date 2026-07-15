@@ -87,6 +87,7 @@ public interface IWslcService
     Task<CommandResult> TagImageAsync(string source, string target, CancellationToken ct = default);
     Task<CommandResult> PruneImagesAsync(CancellationToken ct = default);
     Task<CommandResult> InspectImageAsync(string id, CancellationToken ct = default);
+    Task<IReadOnlyList<string>> GetImageRepoDigestsAsync(string id, CancellationToken ct = default);
     Task<CommandResult> BuildImageAsync(
         string contextPath,
         string tag,

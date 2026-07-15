@@ -15,13 +15,33 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json.Serialization;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace WslContainerDesktop.Models;
+
+/// <summary>Result of an "is a newer image available upstream?" check for an image tag.</summary>
+public enum ImageUpdateState
+{
+    /// <summary>Not checked, or not checkable (local-only image, digest-pinned reference).</summary>
+    Unknown,
+
+    /// <summary>A check is currently in flight.</summary>
+    Checking,
+
+    /// <summary>The local digest matches the registry's current digest for the tag.</summary>
+    UpToDate,
+
+    /// <summary>The registry has a different (newer) digest for the tag.</summary>
+    UpdateAvailable,
+
+    /// <summary>The check could not be completed (network error, private registry without creds).</summary>
+    CheckFailed,
+}
 
 /// <summary>
 /// An image row as returned by `wslc images --format json`.
 /// </summary>
-public sealed class ImageInfo
+public sealed partial class ImageInfo : ObservableObject
 {
     [JsonPropertyName("Id")]
     public string Id { get; set; } = string.Empty;
@@ -37,6 +57,30 @@ public sealed class ImageInfo
 
     [JsonPropertyName("Size")]
     public long Size { get; set; }
+
+    /// <summary>Live result of the upstream update check for this image's tag (not persisted).</summary>
+    [JsonIgnore]
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateAvailable))]
+    [NotifyPropertyChangedFor(nameof(IsCheckingUpdate))]
+    [NotifyPropertyChangedFor(nameof(UpdateTooltip))]
+    private ImageUpdateState _updateState = ImageUpdateState.Unknown;
+
+    [JsonIgnore]
+    public bool UpdateAvailable => UpdateState == ImageUpdateState.UpdateAvailable;
+
+    [JsonIgnore]
+    public bool IsCheckingUpdate => UpdateState == ImageUpdateState.Checking;
+
+    [JsonIgnore]
+    public string UpdateTooltip => UpdateState switch
+    {
+        ImageUpdateState.UpdateAvailable => "A newer image is available upstream. Pull to update.",
+        ImageUpdateState.UpToDate => "Up to date with the registry.",
+        ImageUpdateState.Checking => "Checking for updates…",
+        ImageUpdateState.CheckFailed => "Couldn't check for updates (private registry or network error).",
+        _ => "Update status unknown.",
+    };
 
     [JsonIgnore]
     public string ShortId

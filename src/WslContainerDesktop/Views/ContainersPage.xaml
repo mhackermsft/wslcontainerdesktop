@@ -39,51 +39,58 @@
 
         <!--  Toolbar  -->
         <Grid Grid.Row="1">
-            <StackPanel
-                Orientation="Horizontal"
-                Spacing="8"
-                Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
-                <Button Command="{x:Bind ViewModel.RunCommand}" Style="{ThemeResource AccentButtonStyle}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon FontSize="14" Glyph="&#xE768;" />
-                        <TextBlock Text="Run a container" />
-                    </StackPanel>
-                </Button>
-                <Button
-                    Command="{x:Bind ViewModel.ImportDockerRunCommand}"
-                    ToolTipService.ToolTip="Prefill the Run dialog from a pasted docker run command">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon FontSize="14" Glyph="&#xE8B5;" />
-                        <TextBlock Text="Import from docker run" />
-                    </StackPanel>
-                </Button>
-                <Button Command="{x:Bind ViewModel.RefreshCommand}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon FontSize="14" Glyph="&#xE72C;" />
-                        <TextBlock Text="Refresh" />
-                    </StackPanel>
-                </Button>
-                <Button Command="{x:Bind ViewModel.PruneCommand}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                        <TextBlock Text="Prune stopped" />
-                    </StackPanel>
-                </Button>
-                <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" ToolTipService.ToolTip="Select multiple containers">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon FontSize="14" Glyph="&#xE762;" />
-                        <TextBlock Text="Select" />
-                    </StackPanel>
-                </ToggleButton>
-            </StackPanel>
-            <StackPanel
-                HorizontalAlignment="Right"
-                Orientation="Horizontal"
-                Spacing="8"
-                Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
-                <TextBlock VerticalAlignment="Center" Text="Show all" />
-                <ToggleSwitch MinWidth="0" IsOn="{x:Bind ViewModel.ShowAll, Mode=TwoWay}" />
-            </StackPanel>
+            <Grid Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <converters:WrapPanel
+                    Grid.Column="0"
+                    HorizontalSpacing="8"
+                    VerticalSpacing="8">
+                    <Button Command="{x:Bind ViewModel.RunCommand}" Style="{ThemeResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE768;" />
+                            <TextBlock Text="Run a container" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Command="{x:Bind ViewModel.ImportDockerRunCommand}"
+                        ToolTipService.ToolTip="Prefill the Run dialog from a pasted docker run command">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE8B5;" />
+                            <TextBlock Text="Import from docker run" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{x:Bind ViewModel.RefreshCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                            <TextBlock Text="Refresh" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{x:Bind ViewModel.PruneCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                            <TextBlock Text="Prune stopped" />
+                        </StackPanel>
+                    </Button>
+                    <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" ToolTipService.ToolTip="Select multiple containers">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE762;" />
+                            <TextBlock Text="Select" />
+                        </StackPanel>
+                    </ToggleButton>
+                </converters:WrapPanel>
+                <StackPanel
+                    Grid.Column="1"
+                    Margin="12,0,0,0"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <TextBlock VerticalAlignment="Center" Text="Show all" />
+                    <ToggleSwitch MinWidth="0" IsOn="{x:Bind ViewModel.ShowAll, Mode=TwoWay}" />
+                </StackPanel>
+            </Grid>
 
             <!--  Bulk-action bar (shown while selecting)  -->
             <StackPanel

@@ -169,6 +169,24 @@ hostname for a running container, so those can't be captured and the save dialog
 common single-container fields only) using a small indentation-aware reader. Load/parse failures
 never crash the app.
 
+### Templates gallery (`TemplateCatalog`, `TemplateConfigStore`, `ImageUpdateService`)
+
+The **Templates** page (`TemplatesViewModel`) renders a curated, static catalog (`TemplateCatalog`)
+of `StackTemplate`s grouped by category. Single-container templates carry prefilled
+`RunContainerOptions`; Compose templates carry raw `docker-compose.yml` text. **Launch** starts a
+template directly with no dialog — single containers via `wslc run` (offering to replace a
+name-conflicting container first, since named volumes keep the data), Compose stacks via
+`ComposeViewModel.ImportAndUpAsync` (a non-interactive import + bring-up). A per-card **Settings**
+button opens the Run dialog (single container) or `ConfigureComposeDialog` (editable project name +
+YAML) to configure *before* starting; confirming both starts the template **and** saves the choices.
+Saved per-template configs are keyed by `StackTemplate.Id` and persisted to `template-configs.json`
+(next to `settings.json`) by `TemplateConfigStore`, so a later Launch reuses the most recent config.
+Load/persist failures never crash the app.
+
+`ImageUpdateService` powers the Images page's **Check for updates**: it reads each local image's
+repo-digests and compares them against the registry's current manifest digest, flagging images that
+are behind so the UI can show an **↓ Update** badge and offer a one-click pull.
+
 ### Compose projects (`ComposeProjectStore`, `ComposeProjectSupervisor`)
 
 For fuller compose support the app acts as the **orchestration layer above `wslc`**

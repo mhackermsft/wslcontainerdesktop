@@ -387,6 +387,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
         services.AddSingleton<IRunProfileStore, RunProfileStore>();
+        services.AddSingleton<ITemplateConfigStore, TemplateConfigStore>();
         services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();        services.AddSingleton<ComposeProjectSupervisor>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();
@@ -417,6 +418,9 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<HealthWatchdog>();
         services.AddSingleton<RestartPolicyWatchdog>();
         services.AddSingleton<IActivityLog, ActivityLog>();
+        services.AddSingleton<ITemplateCatalog, TemplateCatalog>();
+        services.AddSingleton(new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(20) });
+        services.AddSingleton<IImageUpdateService, ImageUpdateService>();
 
         services.AddSingleton<ContainersViewModel>();
         services.AddSingleton<ImagesViewModel>();
@@ -433,6 +437,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<KubernetesViewModel>();
         services.AddTransient<K8sDetailViewModel>();
         services.AddSingleton<ComposeViewModel>();
+        services.AddSingleton<TemplatesViewModel>();
 
         return services.BuildServiceProvider();
     }

@@ -34,6 +34,7 @@ public partial class ImagesViewModel : ObservableObject
     private readonly INotificationService _notifications;
     private readonly IRunProfileStore _profiles;
     private readonly IActivityLog _activity;
+    private readonly IImageUpdateService _updates;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -57,7 +58,7 @@ public partial class ImagesViewModel : ObservableObject
 
     public ObservableCollection<ImageInfo> Images { get; } = new();
 
-    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles, IActivityLog activity)
+    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles, IActivityLog activity, IImageUpdateService updates)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -67,6 +68,7 @@ public partial class ImagesViewModel : ObservableObject
         _notifications = notifications;
         _profiles = profiles;
         _activity = activity;
+        _updates = updates;
     }
 
     /// <summary>Saved run profiles that target the given image, for the one-click run submenu.</summary>
@@ -135,6 +137,104 @@ public partial class ImagesViewModel : ObservableObject
                 _notifications.NotifyImagePull(reference, success: true);
                 _activity.RecordImagePull(reference, success: true);
                 await RefreshAsync();
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Checks every tagged image against its upstream registry digest and updates each row's
+    /// <see cref="ImageInfo.UpdateState"/> so an "update available" badge can show. Runs the checks
+    /// concurrently; images with no tag or no registry digest are skipped.
+    /// </summary>
+    [RelayCommand]
+    private async Task CheckUpdatesAsync()
+    {
+        var candidates = Images
+            .Where(i => !string.IsNullOrEmpty(i.Tag) && i.Tag != "<none>")
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        StatusMessage = "Checking for image updates…";
+        foreach (var image in candidates)
+        {
+            image.UpdateState = ImageUpdateState.Checking;
+        }
+
+        var tasks = candidates.Select(async image =>
+        {
+            try
+            {
+                var digests = await _wslc.GetImageRepoDigestsAsync(image.Id);
+                image.UpdateState = await _updates.CheckAsync(image.Reference, digests);
+            }
+            catch
+            {
+                image.UpdateState = ImageUpdateState.CheckFailed;
+            }
+        });
+
+        await Task.WhenAll(tasks);
+
+        var available = candidates.Count(i => i.UpdateState == ImageUpdateState.UpdateAvailable);
+        StatusMessage = available == 0
+            ? "All images are up to date."
+            : $"{available} image{(available == 1 ? "" : "s")} can be updated.";
+    }
+
+    /// <summary>Pulls the latest image for a row that has an update available, then re-checks it.</summary>
+    [RelayCommand]
+    private async Task PullUpdateAsync(ImageInfo? image)
+    {
+        image ??= Selected;
+        if (image is null || string.IsNullOrWhiteSpace(image.Reference))
+        {
+            return;
+        }
+
+        var reference = image.Reference;
+        IsBusy = true;
+        StatusMessage = $"Pulling {reference}…";
+        try
+        {
+            await _authRefresher.EnsureFreshForReferenceAsync(reference);
+
+            var result = await _wslc.PullImageAsync(reference);
+            if (!result.Success)
+            {
+                await _dialogs.ShowMessageAsync("Pull failed", result.ErrorText);
+                StatusMessage = "Pull failed";
+                _notifications.NotifyImagePull(reference, success: false, result.ErrorText);
+                _activity.RecordImagePull(reference, success: false, result.ErrorText);
+                return;
+            }
+
+            StatusMessage = $"Updated {reference}";
+            _notifications.NotifyImagePull(reference, success: true);
+            _activity.RecordImagePull(reference, success: true);
+            await RefreshAsync();
+
+            // Re-check the freshly pulled tag so the badge clears.
+            var updated = Images.FirstOrDefault(i =>
+                string.Equals(i.Reference, reference, StringComparison.Ordinal));
+            if (updated is not null)
+            {
+                updated.UpdateState = ImageUpdateState.Checking;
+                try
+                {
+                    var digests = await _wslc.GetImageRepoDigestsAsync(updated.Id);
+                    updated.UpdateState = await _updates.CheckAsync(updated.Reference, digests);
+                }
+                catch
+                {
+                    updated.UpdateState = ImageUpdateState.CheckFailed;
+                }
             }
         }
         finally
