@@ -26,6 +26,7 @@ using Microsoft.UI.Xaml.Navigation;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using Windows.UI;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 
@@ -34,7 +35,14 @@ namespace WslContainerDesktop.Views;
 public sealed partial class ContainerDetailPage : Page
 {
     private const int MaxLogChars = 400_000;
+    private const int MaxLogLines = 6000;
     private readonly StringBuilder _logBuffer = new();
+    private readonly List<string> _lines = new();
+
+    // Search/highlight state for the Logs tab.
+    private readonly List<int> _matchLineIndices = new();
+    private int _currentMatchOrdinal = -1;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _renderTimer;
 
     // Context flyouts built in the constructor so event handlers have direct references.
     private readonly MenuFlyout _itemContextFlyout;
@@ -133,15 +141,35 @@ public sealed partial class ContainerDetailPage : Page
             _logBuffer.Remove(0, _logBuffer.Length - MaxLogChars);
         }
 
-        LogText.Text = _logBuffer.ToString();
-        LogScroll.UpdateLayout();
-        LogScroll.ChangeView(null, LogScroll.ScrollableHeight, null, disableAnimation: true);
+        _lines.Add(line);
+        if (_lines.Count > MaxLogLines)
+        {
+            _lines.RemoveRange(0, _lines.Count - MaxLogLines);
+        }
+
+        if (IsSearchOrHighlightActive)
+        {
+            // Throttle rebuilds while streaming so highlighting stays responsive.
+            ScheduleRender();
+        }
+        else
+        {
+            LogText.TextHighlighters.Clear();
+            LogText.Text = _logBuffer.ToString();
+            LogScroll.UpdateLayout();
+            LogScroll.ChangeView(null, LogScroll.ScrollableHeight, null, disableAnimation: true);
+        }
     }
 
     private void OnLogCleared()
     {
         _logBuffer.Clear();
+        _lines.Clear();
+        _matchLineIndices.Clear();
+        _currentMatchOrdinal = -1;
+        LogText.TextHighlighters.Clear();
         LogText.Text = string.Empty;
+        UpdateMatchUi();
     }
 
     private void OnSelectionCleared()
@@ -156,9 +184,309 @@ public sealed partial class ContainerDetailPage : Page
 
     private void WrapToggle_Click(object sender, RoutedEventArgs e)
     {
-        LogText.TextWrapping = WrapToggle.IsChecked == true
-            ? TextWrapping.Wrap
-            : TextWrapping.NoWrap;
+        var wrap = WrapToggle.IsChecked == true;
+        LogText.TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap;
+
+        // Wrapping only takes effect if the ScrollViewer stops offering unlimited
+        // horizontal space; otherwise the TextBlock is measured at infinite width.
+        LogScroll.HorizontalScrollMode = wrap
+            ? ScrollMode.Disabled
+            : ScrollMode.Auto;
+        LogScroll.HorizontalScrollBarVisibility = wrap
+            ? ScrollBarVisibility.Disabled
+            : ScrollBarVisibility.Auto;
+    }
+
+    // ---- Logs: search / filter / highlight ------------------------------
+
+    private bool IsSearchActive => !string.IsNullOrEmpty(SearchBox?.Text);
+
+    private bool IsSearchOrHighlightActive =>
+        IsSearchActive || HighlightErrorsToggle?.IsChecked == true;
+
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => RenderLogs();
+
+    private void SearchOption_Click(object sender, RoutedEventArgs e) => RenderLogs();
+
+    private void HighlightErrors_Click(object sender, RoutedEventArgs e) => RenderLogs();
+
+    private void ScheduleRender()
+    {
+        _renderTimer ??= DispatcherQueue.CreateTimer();
+        if (_renderTimer.IsRunning)
+        {
+            return;
+        }
+
+        _renderTimer.Interval = TimeSpan.FromMilliseconds(150);
+        _renderTimer.IsRepeating = false;
+        _renderTimer.Tick -= RenderTimer_Tick;
+        _renderTimer.Tick += RenderTimer_Tick;
+        _renderTimer.Start();
+    }
+
+    private void RenderTimer_Tick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args) =>
+        RenderLogs(autoScroll: true);
+
+    private void RenderLogs() => RenderLogs(autoScroll: false);
+
+    private void RenderLogs(bool autoScroll)
+    {
+        if (LogText is null)
+        {
+            return;
+        }
+
+        var query = SearchBox.Text ?? string.Empty;
+        var hasQuery = query.Length > 0;
+        var caseSensitive = CaseToggle.IsChecked == true;
+        var filter = FilterToggle.IsChecked == true && hasQuery;
+        var highlightErrors = HighlightErrorsToggle.IsChecked == true;
+        var comparison = caseSensitive
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
+
+        // Fast path: nothing active -> plain text, mirrors the original behavior.
+        if (!hasQuery && !highlightErrors)
+        {
+            LogText.TextHighlighters.Clear();
+            LogText.Text = _logBuffer.ToString();
+            _matchLineIndices.Clear();
+            _currentMatchOrdinal = -1;
+            UpdateMatchUi();
+            if (autoScroll)
+            {
+                LogScroll.UpdateLayout();
+                LogScroll.ChangeView(null, LogScroll.ScrollableHeight, null, disableAnimation: true);
+            }
+
+            return;
+        }
+
+        // Choose the lines to display (all, or only matching when filtering).
+        var displayLines = filter
+            ? _lines.Where(l => l.Contains(query, comparison)).ToList()
+            : _lines;
+
+        var text = string.Join(Environment.NewLine, displayLines);
+        LogText.Text = text;
+
+        var searchRanges = new List<Microsoft.UI.Xaml.Documents.TextRange>();
+        var errorRanges = new List<Microsoft.UI.Xaml.Documents.TextRange>();
+        var warnRanges = new List<Microsoft.UI.Xaml.Documents.TextRange>();
+        _matchLineIndices.Clear();
+
+        var offset = 0;
+        var newLineLen = Environment.NewLine.Length;
+        for (var i = 0; i < displayLines.Count; i++)
+        {
+            var line = displayLines[i];
+
+            if (highlightErrors)
+            {
+                var severity = ClassifySeverity(line);
+                if (severity == LogSeverity.Error)
+                {
+                    errorRanges.Add(new Microsoft.UI.Xaml.Documents.TextRange(offset, line.Length));
+                }
+                else if (severity == LogSeverity.Warning)
+                {
+                    warnRanges.Add(new Microsoft.UI.Xaml.Documents.TextRange(offset, line.Length));
+                }
+            }
+
+            if (hasQuery)
+            {
+                var lineHasMatch = false;
+                var searchStart = 0;
+                while (searchStart <= line.Length)
+                {
+                    var idx = line.IndexOf(query, searchStart, comparison);
+                    if (idx < 0)
+                    {
+                        break;
+                    }
+
+                    searchRanges.Add(new Microsoft.UI.Xaml.Documents.TextRange(offset + idx, query.Length));
+                    lineHasMatch = true;
+                    searchStart = idx + query.Length;
+                }
+
+                if (lineHasMatch)
+                {
+                    _matchLineIndices.Add(i);
+                }
+            }
+
+            offset += line.Length + newLineLen;
+        }
+
+        LogText.TextHighlighters.Clear();
+
+        if (errorRanges.Count > 0)
+        {
+            AddHighlighter(
+                errorRanges,
+                Color.FromArgb(0xFF, 0x3A, 0x1D, 0x1D),
+                Color.FromArgb(0xFF, 0xFF, 0x8A, 0x8A));
+        }
+
+        if (warnRanges.Count > 0)
+        {
+            AddHighlighter(
+                warnRanges,
+                Color.FromArgb(0xFF, 0x38, 0x2E, 0x16),
+                Color.FromArgb(0xFF, 0xF2, 0xC1, 0x4E));
+        }
+
+        if (searchRanges.Count > 0)
+        {
+            AddHighlighter(
+                searchRanges,
+                Color.FromArgb(0xFF, 0xFF, 0xD5, 0x4F),
+                Color.FromArgb(0xFF, 0x10, 0x10, 0x14));
+        }
+
+        // Clamp the current match ordinal to the new match set.
+        if (_matchLineIndices.Count == 0)
+        {
+            _currentMatchOrdinal = -1;
+        }
+        else if (_currentMatchOrdinal >= _matchLineIndices.Count)
+        {
+            _currentMatchOrdinal = _matchLineIndices.Count - 1;
+        }
+
+        UpdateMatchUi();
+
+        if (autoScroll)
+        {
+            LogScroll.UpdateLayout();
+            LogScroll.ChangeView(null, LogScroll.ScrollableHeight, null, disableAnimation: true);
+        }
+    }
+
+    private void AddHighlighter(
+        List<Microsoft.UI.Xaml.Documents.TextRange> ranges,
+        Color? background,
+        Color foreground)
+    {
+        var highlighter = new Microsoft.UI.Xaml.Documents.TextHighlighter
+        {
+            Foreground = new SolidColorBrush(foreground),
+            // Always set a background: TextHighlighter defaults to a system highlight
+            // color (yellow) when left unset, which would leak onto severity lines.
+            Background = new SolidColorBrush(background ?? Microsoft.UI.Colors.Transparent),
+        };
+
+        foreach (var range in ranges)
+        {
+            highlighter.Ranges.Add(range);
+        }
+
+        LogText.TextHighlighters.Add(highlighter);
+    }
+
+    private enum LogSeverity
+    {
+        None,
+        Warning,
+        Error,
+    }
+
+    private static LogSeverity ClassifySeverity(string line)
+    {
+        if (line.Contains("error", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("fatal", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("panic", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("exception", StringComparison.OrdinalIgnoreCase))
+        {
+            return LogSeverity.Error;
+        }
+
+        if (line.Contains("warn", StringComparison.OrdinalIgnoreCase))
+        {
+            return LogSeverity.Warning;
+        }
+
+        return LogSeverity.None;
+    }
+
+    private void UpdateMatchUi()
+    {
+        var count = _matchLineIndices.Count;
+        var hasMatches = count > 0;
+
+        if (!IsSearchActive)
+        {
+            MatchCountText.Text = string.Empty;
+        }
+        else if (!hasMatches)
+        {
+            MatchCountText.Text = "No results";
+        }
+        else
+        {
+            var ordinal = _currentMatchOrdinal >= 0 ? _currentMatchOrdinal + 1 : 1;
+            MatchCountText.Text = $"{ordinal}/{count}";
+        }
+
+        PrevMatchButton.IsEnabled = hasMatches;
+        NextMatchButton.IsEnabled = hasMatches;
+    }
+
+    private void PrevMatch_Click(object sender, RoutedEventArgs e) => MoveMatch(-1);
+
+    private void NextMatch_Click(object sender, RoutedEventArgs e) => MoveMatch(1);
+
+    private void MoveMatch(int direction)
+    {
+        if (_matchLineIndices.Count == 0)
+        {
+            return;
+        }
+
+        if (_currentMatchOrdinal < 0)
+        {
+            _currentMatchOrdinal = direction > 0 ? 0 : _matchLineIndices.Count - 1;
+        }
+        else
+        {
+            _currentMatchOrdinal =
+                (_currentMatchOrdinal + direction + _matchLineIndices.Count) % _matchLineIndices.Count;
+        }
+
+        ScrollToLine(_matchLineIndices[_currentMatchOrdinal]);
+        UpdateMatchUi();
+    }
+
+    private void ScrollToLine(int lineIndex)
+    {
+        var totalLines = Math.Max(LogText.Text.Split('\n').Length, 1);
+        LogScroll.UpdateLayout();
+        var fraction = totalLines <= 1 ? 0 : (double)lineIndex / totalLines;
+        var target = LogScroll.ScrollableHeight * fraction;
+        LogScroll.ChangeView(null, target, null, disableAnimation: true);
+    }
+
+    private async void ExportLogs_Click(object sender, RoutedEventArgs e)
+    {
+        var content = LogText.Text ?? string.Empty;
+
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = $"{ViewModel.Selected?.Name ?? "container"}-logs",
+        };
+        picker.FileTypeChoices.Add("Text file", new List<string> { ".txt" });
+        picker.FileTypeChoices.Add("Log file", new List<string> { ".log" });
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+
+        var file = await picker.PickSaveFileAsync();
+        if (file is not null)
+        {
+            await FileIO.WriteTextAsync(file, content);
+        }
     }
 
     // ---- Header / navigation --------------------------------------------

@@ -33,6 +33,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Full container lifecycle** — run, start, stop, restart, kill, remove, prune, logs, exec terminal, inspect, and live stats.
 - **Docker Compose** — import a `docker-compose.yml` and bring a whole multi-service stack **up / down / restart as a unit**, with dependency ordering, health/exit gating, and auto-heal. The desktop app acts as the orchestration layer above `wslc` — see [Docker Compose compatibility](#docker-compose-compatibility) for exactly what is and isn't supported.
 - **Images, volumes, networks** — pull, build, tag, push, inspect, and prune, all from a clean Fluent UI.
+- **Endpoints dashboard** — every published port across all running containers in one list, with clickable `localhost` links that open in your browser or copy to the clipboard.
 - **Built-in Kubernetes** — install a single-node **k3s** cluster into WSL and manage nodes, deployments, pods, services, and more, with port-forwarding and "Apply YAML".
 - **Registry management** — add public and private registries, and add an **Azure Container Registry with one click** using your existing Azure sign-in (no admin keys, tokens refreshed automatically).
 - **Live everywhere** — a background monitor drives per-container performance meters, the tray icon, and the status indicators without you lifting a finger.
@@ -188,7 +189,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - Start, Stop, Restart, Kill, Remove, and Prune stopped.
 - **Health &amp; auto-heal** — configure a per-container health probe (an in-container **command** via `wslc exec`, or a host-side **TCP** connect to a published port) with a check interval and a restart policy. The watchdog enforces the policy, auto-restarts up to *N* times when a workload goes unhealthy, then stops and alerts. Health shows as a **badge** (healthy / degraded / down) on the list and rolls into the tray glyph, with a tray toast on unhealthy transitions. Config persists across restarts.
 - Click a container for a **full-page detail view** with tabs:
-  - **Logs** — live streaming output with auto-scroll, wrap toggle, and clear.
+  - **Logs** — live streaming output with auto-scroll and wrap toggle, plus **search** (with match count and next/previous navigation), **filter to matching lines only**, **error/warning highlighting**, **export to a text file**, and clear.
   - **Summary** — id, state, image, ports, IP, network, start time, command, env vars, and mounts.
   - **Stats** — live CPU and memory meters plus network I/O, block I/O, and process (PID) count.
   - **Inspect** — full raw JSON.
@@ -216,6 +217,11 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 
 ### Networks
 - List, Create, Inspect, Remove, and Prune, including the default `bridge` network.
+
+### Endpoints
+- A unified, at-a-glance view of **every published port across all running containers** in one place, reachable from the **Endpoints** entry in the navigation pane.
+- Each row shows the container, host port, container port/protocol, and a clickable **`localhost:<port>`** address that **opens in your browser** (for TCP endpoints) or can be **copied** to the clipboard.
+- Updates live from the same engine poll as the dashboard and tray.
 
 ### Disk usage
 - A holistic **disk-usage & cleanup center**, reachable from the **Disk usage** entry at the bottom of the navigation pane (next to Settings), that summarizes how much space **images**, **containers**, and **volumes** consume and how much is reclaimable.

@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="WslContainerDesktop.Views.EndpointsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:WslContainerDesktop.ViewModels"
+    x:Name="Root"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
+    </Page.Resources>
+
+    <Grid Margin="24,16,24,16" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="2">
+            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Endpoints" />
+            <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{ThemeResource CaptionTextBlockStyle}"
+                Text="Every published port across your running containers, in one place." />
+        </StackPanel>
+
+        <StackPanel
+            Grid.Row="1"
+            Orientation="Horizontal"
+            Spacing="8">
+            <Button Command="{x:Bind ViewModel.RefreshCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                    <TextBlock Text="Refresh" />
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
+        <!--  Table: column header (wide only) + list  -->
+        <Grid Grid.Row="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup>
+                    <VisualState x:Name="HeaderWide">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MinWidth="640" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                    </VisualState>
+                    <VisualState x:Name="HeaderNarrow">
+                        <VisualState.StateTriggers>
+                            <converters:ControlSizeTrigger MaxWidth="640" TargetElement="{Binding ElementName=Root}" />
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+
+            <Border
+                x:Name="HeaderBorder"
+                Grid.Row="0"
+                Padding="16,8,20,8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="6,6,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.2*" MinWidth="160" />
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="120" />
+                        <ColumnDefinition Width="1.4*" MinWidth="160" />
+                        <ColumnDefinition Width="92" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="CONTAINER" />
+                    <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="HOST PORT" />
+                    <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="CONTAINER PORT" />
+                    <TextBlock Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" Text="ADDRESS" />
+                    <TextBlock
+                        Grid.Column="4"
+                        HorizontalAlignment="Right"
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="ACTIONS" />
+                </Grid>
+            </Border>
+
+            <Border
+                Grid.Row="1"
+                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="1,0,1,1"
+                CornerRadius="0,0,6,6">
+                <Grid>
+                    <ListView
+                        Padding="0,4"
+                        ItemsSource="{x:Bind ViewModel.Endpoints, Mode=OneWay}"
+                        SelectionMode="None">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="16,6,20,6" />
+                                <Setter Property="MinHeight" Value="48" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PortEndpointRow">
+                                <Grid x:Name="RowRoot">
+                                    <VisualStateManager.VisualStateGroups>
+                                        <VisualStateGroup>
+                                            <VisualState x:Name="RowWide">
+                                                <VisualState.StateTriggers>
+                                                    <converters:ControlSizeTrigger MinWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
+                                                </VisualState.StateTriggers>
+                                            </VisualState>
+                                            <VisualState x:Name="RowNarrow">
+                                                <VisualState.StateTriggers>
+                                                    <converters:ControlSizeTrigger MaxWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
+                                                </VisualState.StateTriggers>
+                                                <VisualState.Setters>
+                                                    <Setter Target="WideGrid.Visibility" Value="Collapsed" />
+                                                    <Setter Target="NarrowPanel.Visibility" Value="Visible" />
+                                                </VisualState.Setters>
+                                            </VisualState>
+                                        </VisualStateGroup>
+                                    </VisualStateManager.VisualStateGroups>
+
+                                    <Grid x:Name="WideGrid">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="1.2*" MinWidth="160" />
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="1.4*" MinWidth="160" />
+                                            <ColumnDefinition Width="92" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel
+                                            Grid.Column="0"
+                                            Margin="0,0,8,0"
+                                            VerticalAlignment="Center"
+                                            Orientation="Horizontal"
+                                            Spacing="10">
+                                            <FontIcon
+                                                FontSize="16"
+                                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                                Glyph="&#xE968;" />
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                FontFamily="Consolas"
+                                                FontSize="13"
+                                                Text="{x:Bind ContainerName}"
+                                                TextTrimming="CharacterEllipsis"
+                                                ToolTipService.ToolTip="{x:Bind ContainerName}" />
+                                        </StackPanel>
+
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            FontFamily="Consolas"
+                                            FontSize="13"
+                                            Text="{x:Bind HostPort}" />
+
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            FontSize="13"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind PortDisplay}" />
+
+                                        <HyperlinkButton
+                                            Grid.Column="3"
+                                            Margin="-4,0,0,0"
+                                            VerticalAlignment="Center"
+                                            Click="Open_Click"
+                                            Content="{x:Bind HostAddress}"
+                                            IsEnabled="{x:Bind IsHttp}"
+                                            ToolTipService.ToolTip="Open in browser" />
+
+                                        <StackPanel
+                                            Grid.Column="4"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Orientation="Horizontal"
+                                            Spacing="4">
+                                            <Button
+                                                Padding="7,5"
+                                                Click="Open_Click"
+                                                IsEnabled="{x:Bind IsHttp}"
+                                                ToolTipService.ToolTip="Open in browser">
+                                                <FontIcon FontSize="14" Glyph="&#xE774;" />
+                                            </Button>
+                                            <Button
+                                                Padding="7,5"
+                                                Click="Copy_Click"
+                                                ToolTipService.ToolTip="Copy address">
+                                                <FontIcon FontSize="14" Glyph="&#xE8C8;" />
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!--  Narrow: stacked card layout  -->
+                                    <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE968;" />
+                                            <TextBlock VerticalAlignment="Center" FontFamily="Consolas" FontSize="13" Text="{x:Bind ContainerName}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind ContainerName}" />
+                                        </StackPanel>
+
+                                        <Grid ColumnSpacing="8" RowSpacing="3">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="96" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="HOST PORT" />
+                                            <TextBlock Grid.Row="0" Grid.Column="1" FontFamily="Consolas" FontSize="13" Text="{x:Bind HostPort}" />
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="CONTAINER" />
+                                            <TextBlock Grid.Row="1" Grid.Column="1" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind PortDisplay}" />
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="ADDRESS" />
+                                            <HyperlinkButton Grid.Row="2" Grid.Column="1" Margin="-4,0,0,0" Click="Open_Click" Content="{x:Bind HostAddress}" IsEnabled="{x:Bind IsHttp}" ToolTipService.ToolTip="Open in browser" />
+                                        </Grid>
+
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <Button Padding="7,5" Click="Open_Click" IsEnabled="{x:Bind IsHttp}" ToolTipService.ToolTip="Open in browser">
+                                                <FontIcon FontSize="14" Glyph="&#xE774;" />
+                                            </Button>
+                                            <Button Padding="7,5" Click="Copy_Click" ToolTipService.ToolTip="Copy address">
+                                                <FontIcon FontSize="14" Glyph="&#xE8C8;" />
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <StackPanel
+                        Margin="0,60,0,0"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Top"
+                        Spacing="8"
+                        Visibility="{x:Bind ViewModel.Endpoints.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}">
+                        <FontIcon
+                            HorizontalAlignment="Center"
+                            FontSize="40"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Glyph="&#xE968;" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="No published ports. Start a container that publishes a port to see it here." />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

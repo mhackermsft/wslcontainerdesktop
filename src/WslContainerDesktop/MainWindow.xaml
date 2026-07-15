@@ -66,6 +66,11 @@
                         <FontIcon Glyph="&#xE968;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Endpoints" Tag="endpoints">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE774;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Registries" Tag="registries">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE753;" />

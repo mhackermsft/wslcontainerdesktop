@@ -131,6 +131,9 @@ public sealed partial class MainWindow : Window
                 case "networks":
                     NavFrame.Navigate(typeof(NetworksPage));
                     break;
+                case "endpoints":
+                    NavFrame.Navigate(typeof(EndpointsPage));
+                    break;
                 case "registries":
                     NavFrame.Navigate(typeof(RegistriesPage));
                     break;

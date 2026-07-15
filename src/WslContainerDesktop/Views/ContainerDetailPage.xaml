@@ -204,17 +204,97 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <StackPanel
-                    Grid.Row="0"
-                    HorizontalAlignment="Right"
-                    Orientation="Horizontal"
-                    Spacing="8">
-                    <ToggleButton
-                        x:Name="WrapToggle"
-                        Click="WrapToggle_Click"
-                        Content="Wrap" />
-                    <Button Click="ClearLogs_Click" Content="Clear" />
-                </StackPanel>
+                <Grid Grid.Row="0" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel
+                        Grid.Column="0"
+                        Orientation="Horizontal"
+                        Spacing="6">
+                        <TextBox
+                            x:Name="SearchBox"
+                            Width="240"
+                            MinWidth="120"
+                            PlaceholderText="Search logs…"
+                            TextChanged="SearchBox_TextChanged"
+                            ToolTipService.ToolTip="Filter and highlight matching lines" />
+                        <TextBlock
+                            x:Name="MatchCountText"
+                            MinWidth="64"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{ThemeResource CaptionTextBlockStyle}" />
+                        <Button
+                            x:Name="PrevMatchButton"
+                            Padding="7,5"
+                            Click="PrevMatch_Click"
+                            IsEnabled="False"
+                            ToolTipService.ToolTip="Previous match">
+                            <FontIcon FontSize="12" Glyph="&#xE70E;" />
+                        </Button>
+                        <Button
+                            x:Name="NextMatchButton"
+                            Padding="7,5"
+                            Click="NextMatch_Click"
+                            IsEnabled="False"
+                            ToolTipService.ToolTip="Next match">
+                            <FontIcon FontSize="12" Glyph="&#xE70D;" />
+                        </Button>
+                        <ToggleButton
+                            x:Name="CaseToggle"
+                            Padding="9,5"
+                            Click="SearchOption_Click"
+                            Content="Aa"
+                            ToolTipService.ToolTip="Match case" />
+                        <ToggleButton
+                            x:Name="FilterToggle"
+                            Padding="8,5"
+                            Click="SearchOption_Click"
+                            ToolTipService.ToolTip="Show only lines that match the search">
+                            <FontIcon FontSize="14" Glyph="&#xE71C;" />
+                        </ToggleButton>
+                    </StackPanel>
+
+                    <StackPanel
+                        Grid.Column="1"
+                        Orientation="Horizontal"
+                        Spacing="8">
+                        <ToggleButton
+                            x:Name="HighlightErrorsToggle"
+                            Padding="8,5"
+                            Click="HighlightErrors_Click"
+                            ToolTipService.ToolTip="Highlight error and warning lines">
+                            <FontIcon FontSize="14" Glyph="&#xE7BA;" />
+                        </ToggleButton>
+                        <ToggleButton
+                            x:Name="WrapToggle"
+                            Padding="8,5"
+                            Click="WrapToggle_Click"
+                            ToolTipService.ToolTip="Wrap long lines">
+                            <FontIcon FontSize="14" Glyph="&#xE751;" />
+                        </ToggleButton>
+                        <AppBarSeparator Margin="0" Padding="0" />
+                        <Button
+                            Click="ExportLogs_Click"
+                            ToolTipService.ToolTip="Save the visible log to a text file">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon FontSize="13" Glyph="&#xE74E;" />
+                                <TextBlock Text="Export" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            Click="ClearLogs_Click"
+                            ToolTipService.ToolTip="Clear the log view">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon FontSize="13" Glyph="&#xE74D;" />
+                                <TextBlock Text="Clear" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
 
                 <Border
                     Grid.Row="1"
