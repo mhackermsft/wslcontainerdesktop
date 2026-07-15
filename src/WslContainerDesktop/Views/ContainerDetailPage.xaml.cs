@@ -268,7 +268,10 @@ public sealed partial class ContainerDetailPage : Page
             ? _lines.Where(l => l.Contains(query, comparison)).ToList()
             : _lines;
 
-        var text = string.Join(Environment.NewLine, displayLines);
+        // Join with a single '\n' so string offsets used for TextHighlighter ranges
+        // match the character indices of LogText.Text exactly (avoids any '\r\n'
+        // width ambiguity).
+        var text = string.Join('\n', displayLines);
         LogText.Text = text;
 
         var searchRanges = new List<Microsoft.UI.Xaml.Documents.TextRange>();
@@ -277,7 +280,7 @@ public sealed partial class ContainerDetailPage : Page
         _matchLineIndices.Clear();
 
         var offset = 0;
-        var newLineLen = Environment.NewLine.Length;
+        const int newLineLen = 1;
         for (var i = 0; i < displayLines.Count; i++)
         {
             var line = displayLines[i];
