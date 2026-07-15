@@ -172,13 +172,10 @@ public sealed class ActivityLog : IActivityLog
             {
                 changed |= DiffContainers(snapshot.Containers);
             }
-            else
-            {
-                // Engine is down: drop the baseline so recovery re-seeds instead of emitting
-                // a flood of "started" for containers that were already running.
-                _lastContainerStates.Clear();
-                _lastContainerNames.Clear();
-            }
+            // While the engine is down we neither diff nor clear the baseline. Keeping the
+            // last-known container states means the first healthy snapshot after recovery is
+            // compared against them, so still-running containers produce no spurious "started"
+            // events (only genuine changes during the outage are reported).
 
             if (changed)
             {
