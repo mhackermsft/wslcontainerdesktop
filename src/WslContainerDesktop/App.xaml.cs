@@ -424,6 +424,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<ShellViewModel>();
         services.AddSingleton<DashboardViewModel>();
+        services.AddSingleton<PortsViewModel>();
         services.AddSingleton<KubernetesViewModel>();
         services.AddTransient<K8sDetailViewModel>();
         services.AddSingleton<ComposeViewModel>();
