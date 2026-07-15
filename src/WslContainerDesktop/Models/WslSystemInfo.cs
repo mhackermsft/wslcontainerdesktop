@@ -50,19 +50,3 @@ public sealed class WslPlatformInfo
     /// <summary>The registered distros and their run state.</summary>
     public IReadOnlyList<WslDistroStatus> Distros { get; init; } = System.Array.Empty<WslDistroStatus>();
 }
-
-/// <summary>Outcome of a <see cref="Services.IWslSystemService.CompactAsync"/> operation.</summary>
-public sealed class WslCompactResult
-{
-    /// <summary>True when the compaction completed (diskpart returned success).</summary>
-    public bool Success { get; init; }
-
-    /// <summary>Bytes reclaimed (size before minus size after); never negative.</summary>
-    public long FreedBytes { get; init; }
-
-    /// <summary>Human-readable detail, shown to the user on success or failure.</summary>
-    public string Message { get; init; } = string.Empty;
-
-    /// <summary>True when the user declined the elevation (UAC) prompt.</summary>
-    public bool Cancelled { get; init; }
-}

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -25,13 +24,12 @@ namespace WslContainerDesktop.Services;
 
 /// <summary>
 /// Host-level WSL virtual-machine operations. Reads distro/engine virtual disks straight from the
-/// filesystem and the Lxss registry, and shells out to <c>wsl.exe</c> and <c>diskpart.exe</c> for
-/// platform info, shutdown, and vhdx compaction. All calls go through <see cref="ProcessExecutor"/>.
+/// filesystem and the Lxss registry, and shells out to <c>wsl.exe</c> for platform info, distro
+/// disk-usage measurement, and shutdown. All calls go through <see cref="ProcessExecutor"/>.
 /// </summary>
-public sealed class WslSystemService(IWslcService wslc, ILogger<WslSystemService> logger) : IWslSystemService
+public sealed class WslSystemService(ILogger<WslSystemService> logger) : IWslSystemService
 {
     private const string LxssKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Lxss";
-    private const int ErrorCancelled = 1223; // ERROR_CANCELLED — user declined the UAC prompt.
 
     // ---- Configuration -------------------------------------------------
 
@@ -207,268 +205,10 @@ public sealed class WslSystemService(IWslcService wslc, ILogger<WslSystemService
         return result;
     }
 
-    // ---- Virtual disks -------------------------------------------------
-
-    public Task<IReadOnlyList<WslVirtualDisk>> ListVirtualDisksAsync(CancellationToken ct = default) =>
-        Task.Run<IReadOnlyList<WslVirtualDisk>>(() => ListVirtualDisks(), ct);
-
-    private List<WslVirtualDisk> ListVirtualDisks()
-    {
-        var disks = new List<WslVirtualDisk>();
-
-        // Registered distros: HKCU\...\Lxss\<guid> → DistributionName + BasePath\ext4.vhdx.
-        try
-        {
-            using var lxss = Registry.CurrentUser.OpenSubKey(LxssKeyPath);
-            if (lxss is not null)
-            {
-                foreach (var guid in lxss.GetSubKeyNames())
-                {
-                    using var entry = lxss.OpenSubKey(guid);
-                    var name = entry?.GetValue("DistributionName") as string;
-                    var basePath = entry?.GetValue("BasePath") as string;
-                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(basePath))
-                    {
-                        continue;
-                    }
-
-                    // BasePath is often prefixed with the \\?\ extended-length marker.
-                    if (basePath.StartsWith(@"\\?\", StringComparison.Ordinal))
-                    {
-                        basePath = basePath[4..];
-                    }
-
-                    var vhdx = Path.Combine(basePath, "ext4.vhdx");
-                    if (TryGetSize(vhdx, out var size))
-                    {
-                        disks.Add(new WslVirtualDisk
-                        {
-                            Name = name,
-                            Kind = WslDiskKind.Distro,
-                            VhdxPath = vhdx,
-                            SizeBytes = size,
-                        });
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to enumerate WSL distro disks from the registry.");
-        }
-
-        // wslc container engine storage: %LOCALAPPDATA%\wslc\sessions\<session>\storage.vhdx.
-        try
-        {
-            var sessionsRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "wslc", "sessions");
-            if (Directory.Exists(sessionsRoot))
-            {
-                foreach (var sessionDir in Directory.EnumerateDirectories(sessionsRoot))
-                {
-                    var vhdx = Path.Combine(sessionDir, "storage.vhdx");
-                    if (TryGetSize(vhdx, out var size))
-                    {
-                        var sessionName = Path.GetFileName(sessionDir);
-                        disks.Add(new WslVirtualDisk
-                        {
-                            Name = $"Container engine storage ({sessionName})",
-                            Kind = WslDiskKind.EngineStorage,
-                            VhdxPath = vhdx,
-                            SizeBytes = size,
-                        });
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to enumerate wslc engine storage disks.");
-        }
-
-        return disks
-            .OrderByDescending(d => d.Kind == WslDiskKind.EngineStorage)
-            .ThenByDescending(d => d.SizeBytes)
-            .ToList();
-    }
-
-    private static bool TryGetSize(string path, out long size)
-    {
-        size = 0;
-        try
-        {
-            var info = new FileInfo(path);
-            if (!info.Exists)
-            {
-                return false;
-            }
-
-            size = info.Length;
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    // ---- Shutdown / compaction ----------------------------------------
+    // ---- Shutdown ------------------------------------------------------
 
     public Task<CommandResult> ShutdownWslAsync(CancellationToken ct = default) =>
         RunWslAsync(ct, "--shutdown");
-
-    public async Task<WslCompactResult> CompactAsync(WslVirtualDisk disk, CancellationToken ct = default)
-    {
-        if (!TryGetSize(disk.VhdxPath, out var before))
-        {
-            return new WslCompactResult { Success = false, Message = "The virtual disk file was not found." };
-        }
-
-        // Release the file: terminate the wslc session (engine storage) and shut WSL down (distros).
-        // Both are best-effort; the compaction reports a clear diskpart error if the file is still held.
-        try
-        {
-            await wslc.RestartSessionAsync(ct).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "wslc session terminate before compaction failed (continuing).");
-        }
-
-        var shutdown = await ShutdownWslAsync(ct).ConfigureAwait(false);
-        if (!shutdown.Success)
-        {
-            logger.LogDebug("wsl --shutdown before compaction reported: {Error}", shutdown.ErrorText);
-        }
-
-        // Give the VM host a moment to release the vhdx handles before diskpart attaches it.
-        await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
-
-        var scriptPath = WriteDiskpartScript(disk.VhdxPath);
-        try
-        {
-            var (exitCode, cancelled) = await RunDiskpartElevatedAsync(scriptPath, ct).ConfigureAwait(false);
-            if (cancelled)
-            {
-                return new WslCompactResult
-                {
-                    Success = false,
-                    Cancelled = true,
-                    Message = "Compaction was cancelled at the administrator prompt.",
-                };
-            }
-
-            TryGetSize(disk.VhdxPath, out var after);
-            var freed = Math.Max(0, before - after);
-
-            if (exitCode != 0)
-            {
-                return new WslCompactResult
-                {
-                    Success = false,
-                    FreedBytes = freed,
-                    Message = $"diskpart exited with code {exitCode}. The disk may have been in use; " +
-                        "try closing running containers and retrying.",
-                };
-            }
-
-            return new WslCompactResult { Success = true, FreedBytes = freed, Message = "Compaction complete." };
-        }
-        finally
-        {
-            TryDelete(scriptPath);
-        }
-    }
-
-    /// <summary>Writes a diskpart script that attaches the vhdx read-only, compacts it, and detaches.</summary>
-    private static string WriteDiskpartScript(string vhdxPath)
-    {
-        var script = string.Join(Environment.NewLine,
-            $"select vdisk file=\"{vhdxPath}\"",
-            "attach vdisk readonly",
-            "compact vdisk",
-            "detach vdisk",
-            "exit",
-            string.Empty);
-
-        var dir = ResolveScratchDirectory();
-        Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, $"wcd-compact-{Guid.NewGuid():N}.txt");
-        File.WriteAllText(path, script, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        return path;
-    }
-
-    /// <summary>
-    /// A real (non-redirected) directory the elevated diskpart child can read. Mirrors the log
-    /// directory resolution so the packaged app hands out the concrete container path.
-    /// </summary>
-    private static string ResolveScratchDirectory()
-    {
-        try
-        {
-            return Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "WslContainerDesktop");
-        }
-        catch
-        {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "WslContainerDesktop");
-        }
-    }
-
-    /// <summary>
-    /// Runs diskpart with the given script under elevation (UAC). Output cannot be captured through
-    /// the shell-execute/runas launch, so the caller measures the vhdx size delta instead. Returns
-    /// the exit code and whether the user declined the elevation prompt.
-    /// </summary>
-    private async Task<(int ExitCode, bool Cancelled)> RunDiskpartElevatedAsync(string scriptPath, CancellationToken ct)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "diskpart.exe",
-            Arguments = $"/s \"{scriptPath}\"",
-            UseShellExecute = true,
-            Verb = "runas",
-            WindowStyle = ProcessWindowStyle.Hidden,
-        };
-
-        try
-        {
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return (-1, false);
-            }
-
-            await process.WaitForExitAsync(ct).ConfigureAwait(false);
-            return (process.ExitCode, false);
-        }
-        catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorCancelled)
-        {
-            return (-1, true);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "diskpart elevated launch failed.");
-            return (-1, false);
-        }
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // Best-effort cleanup of a scratch file; ignore.
-        }
-    }
 
     // ---- wsl.exe plumbing ---------------------------------------------
 

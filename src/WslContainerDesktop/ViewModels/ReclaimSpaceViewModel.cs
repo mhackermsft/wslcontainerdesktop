@@ -34,7 +34,6 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     private const int TopImageCount = 5;
 
     private readonly IWslcService _wslc;
-    private readonly IWslSystemService _system;
     private readonly DialogService _dialogs;
 
     private long _imagesTotalBytes;
@@ -86,13 +85,9 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     /// <summary>Anonymous volumes with no correlated container (safe to prune).</summary>
     public ObservableCollection<VolumeInfo> UnusedVolumes { get; } = new();
 
-    /// <summary>WSL virtual disks (distro <c>ext4.vhdx</c> and engine <c>storage.vhdx</c>) that can be compacted.</summary>
-    public ObservableCollection<WslVirtualDisk> VirtualDisks { get; } = new();
-
-    public ReclaimSpaceViewModel(IWslcService wslc, IWslSystemService system, DialogService dialogs)
+    public ReclaimSpaceViewModel(IWslcService wslc, DialogService dialogs)
     {
         _wslc = wslc;
-        _system = system;
         _dialogs = dialogs;
     }
 
@@ -155,8 +150,6 @@ public partial class ReclaimSpaceViewModel : ObservableObject
                 UnusedVolumes.Add(volume);
             }
 
-            await RefreshVirtualDisksAsync();
-
             TotalReclaimableSize = FormatHelpers.HumanSize(_imagesReclaimableBytes);
             StatusMessage = _imagesReclaimableBytes > 0
                 ? $"Up to {TotalReclaimableSize} reclaimable from dangling images"
@@ -170,74 +163,6 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         finally
         {
             IsBusy = false;
-        }
-    }
-
-    /// <summary>Loads the WSL virtual disks and their current on-disk sizes (best-effort).</summary>
-    private async Task RefreshVirtualDisksAsync()
-    {
-        try
-        {
-            var disks = await _system.ListVirtualDisksAsync();
-            VirtualDisks.Clear();
-            foreach (var disk in disks)
-            {
-                VirtualDisks.Add(disk);
-            }
-        }
-        catch
-        {
-            // Enumerating the vhdx files is best-effort; a failure here must not break the page.
-        }
-    }
-
-    /// <summary>
-    /// Compacts a WSL virtual disk to reclaim unused space. This shuts WSL down (stopping the
-    /// container engine and all containers) and requires administrator elevation, so it is
-    /// confirmed first and reports how much space was freed.
-    /// </summary>
-    [RelayCommand]
-    private async Task CompactDiskAsync(WslVirtualDisk? disk)
-    {
-        if (disk is null)
-        {
-            return;
-        }
-
-        var ok = await _dialogs.ShowConfirmAsync(
-            "Compact virtual disk",
-            $"Compact “{disk.Name}” (currently {FormatHelpers.HumanSize(disk.SizeBytes)})?\n\n" +
-            "This shuts WSL down — stopping the container engine and every running container — " +
-            "and needs administrator approval. Your data is preserved; only unused space is reclaimed.",
-            "Compact");
-        if (!ok)
-        {
-            return;
-        }
-
-        IsBusy = true;
-        StatusMessage = $"Compacting {disk.Name}…";
-        try
-        {
-            var result = await _system.CompactAsync(disk);
-            if (result.Cancelled)
-            {
-                StatusMessage = "Compaction cancelled";
-            }
-            else if (result.Success)
-            {
-                await _dialogs.ShowMessageAsync("Compaction complete",
-                    $"Reclaimed {FormatHelpers.HumanSize(result.FreedBytes)} from {disk.Name}.");
-            }
-            else
-            {
-                await _dialogs.ShowMessageAsync("Compaction failed", result.Message);
-            }
-        }
-        finally
-        {
-            IsBusy = false;
-            await RefreshAsync();
         }
     }
 

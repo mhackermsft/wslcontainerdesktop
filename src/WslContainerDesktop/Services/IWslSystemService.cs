@@ -20,8 +20,8 @@ namespace WslContainerDesktop.Services;
 
 /// <summary>
 /// Host-level operations on the WSL virtual machine itself (as opposed to the container engine):
-/// reading resource limits from <c>.wslconfig</c>, enumerating distro/engine virtual disks and
-/// their sizes, shutting WSL down, and compacting a <c>.vhdx</c> to reclaim unused space.
+/// reading resource limits from <c>.wslconfig</c>, reporting platform/distro info, and shutting
+/// WSL down.
 /// </summary>
 public interface IWslSystemService
 {
@@ -31,19 +31,6 @@ public interface IWslSystemService
     /// <summary>Reads host WSL platform info (<c>wsl --version</c>) and the distro list (<c>wsl -l -v</c>).</summary>
     Task<WslPlatformInfo> GetPlatformInfoAsync(CancellationToken ct = default);
 
-    /// <summary>
-    /// Enumerates the WSL virtual disks on the host: each registered distro's <c>ext4.vhdx</c> and
-    /// the wslc engine's <c>storage.vhdx</c>, with each file's current on-disk size.
-    /// </summary>
-    Task<IReadOnlyList<WslVirtualDisk>> ListVirtualDisksAsync(CancellationToken ct = default);
-
     /// <summary>Shuts down all WSL distros (<c>wsl --shutdown</c>), releasing their virtual disks.</summary>
     Task<CommandResult> ShutdownWslAsync(CancellationToken ct = default);
-
-    /// <summary>
-    /// Compacts a virtual disk to reclaim unused blocks. Terminates the wslc session and shuts WSL
-    /// down first (so the file is not in use), then runs <c>diskpart</c> elevated. Reports the bytes
-    /// reclaimed. Requires the user to accept a UAC elevation prompt.
-    /// </summary>
-    Task<WslCompactResult> CompactAsync(WslVirtualDisk disk, CancellationToken ct = default);
 }
