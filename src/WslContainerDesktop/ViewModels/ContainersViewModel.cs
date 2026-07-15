@@ -1323,6 +1323,76 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Captures a running container's settings (via <c>wslc inspect</c>, diffed against its image) as
+    /// a reusable run profile. Binds and hostname aren't recoverable from a running container, so they
+    /// are reported as not captured.
+    /// </summary>
+    [RelayCommand]
+    private async Task SaveAsProfileAsync(ContainerRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var containerResult = await _wslc.InspectContainerAsync(row.Id);
+            if (!containerResult.Success || string.IsNullOrWhiteSpace(containerResult.StandardOutput))
+            {
+                await _dialogs.ShowMessageAsync("Save as run profile",
+                    $"Couldn't inspect {row.Name}: {containerResult.ErrorText}");
+                return;
+            }
+
+            string? imageJson = null;
+            try
+            {
+                var imageRef = string.IsNullOrWhiteSpace(row.Image) ? null : row.Image;
+                if (imageRef is not null)
+                {
+                    var imageResult = await _wslc.InspectImageAsync(imageRef);
+                    if (imageResult.Success)
+                    {
+                        imageJson = imageResult.StandardOutput;
+                    }
+                }
+            }
+            catch
+            {
+                // Non-fatal: without the image diff we keep image-baked env/cmd too.
+            }
+
+            var options = ContainerConfigImporter.FromInspect(containerResult.StandardOutput, imageJson);
+            if (options is null)
+            {
+                await _dialogs.ShowMessageAsync("Save as run profile",
+                    $"Couldn't read a usable configuration from {row.Name}.");
+                return;
+            }
+
+            var notCaptured = new[] { "volume/bind mounts", "hostname" };
+            var suggested = string.IsNullOrWhiteSpace(options.Name) ? row.Name : options.Name!;
+
+            var dialog = new SaveRunProfileDialog(suggested, options, notCaptured);
+            var result = await _dialogs.ShowDialogAsync(dialog);
+            if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary ||
+                string.IsNullOrWhiteSpace(dialog.ProfileName))
+            {
+                return;
+            }
+
+            _profiles.Save(new RunProfile { Name = dialog.ProfileName, Options = options });
+            StatusMessage = $"Saved run profile \"{dialog.ProfileName}\" from {row.Name}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     [RelayCommand]
     private void OpenPort(ContainerRowViewModel? row)
     {

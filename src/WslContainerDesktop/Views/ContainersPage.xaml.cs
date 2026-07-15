@@ -106,6 +106,14 @@ public sealed partial class ContainersPage : Page
         }
     }
 
+    private void SaveAsProfileMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            ViewModel.SaveAsProfileCommand.Execute(row);
+        }
+    }
+
     private void RemoveMenu_Click(object sender, RoutedEventArgs e)
     {
         if (RowOf(sender) is { } row)

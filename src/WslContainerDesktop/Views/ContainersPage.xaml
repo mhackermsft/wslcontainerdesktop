@@ -365,6 +365,11 @@
                                                         <FontIcon Glyph="&#xEB51;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
+                                                <MenuFlyoutItem Click="SaveAsProfileMenu_Click" Text="Save as run profile">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE78C;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
                                                 <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" />
                                                 <MenuFlyoutSeparator />
                                                 <MenuFlyoutItem Click="RemoveMenu_Click" Text="Remove">
@@ -530,6 +535,11 @@
                                                     <MenuFlyoutItem Click="HealthCheckMenu_Click" Text="Health check…">
                                                         <MenuFlyoutItem.Icon>
                                                             <FontIcon Glyph="&#xEB51;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Click="SaveAsProfileMenu_Click" Text="Save as run profile">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE78C;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                     <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" />

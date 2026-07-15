@@ -50,6 +50,10 @@ public sealed class RunContainerDialog : ContentDialog
     private readonly List<RunProfile> _profileItems = new();
     private bool _applyingProfile;
 
+    // Fields captured on import/profile-apply that the form doesn't surface (workdir, user,
+    // entrypoint, dns, ulimits, labels, …). Carried through BuildOptions so a Run keeps them.
+    private RunContainerOptions? _appliedExtras;
+
     public RunContainerOptions? Options { get; private set; }
 
     public RunContainerDialog(IWslcService wslc, IReadOnlyList<RegistryEntry> registries, IRunProfileStore profiles, string? prefillImage = null)
@@ -185,11 +189,18 @@ public sealed class RunContainerDialog : ContentDialog
         };
         deleteProfileButton.Click += OnDeleteProfile;
 
+        var importButton = new Button
+        {
+            Content = "Import from docker run…",
+            VerticalAlignment = VerticalAlignment.Bottom,
+        };
+        importButton.Click += OnImportDockerRun;
+
         var profileButtons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
-            Children = { _profileNameBox, saveProfileButton, deleteProfileButton },
+            Children = { _profileNameBox, saveProfileButton, deleteProfileButton, importButton },
         };
 
         _profileStatus = new TextBlock
@@ -293,17 +304,24 @@ public sealed class RunContainerDialog : ContentDialog
     }
 
     /// <summary>Prefills every field from a saved profile so the user can tweak and run it.</summary>
-    private void ApplyProfile(RunProfile profile)
+    private void ApplyProfile(RunProfile profile) => ApplyOptions(profile.Options, profile.Name);
+
+    /// <summary>
+    /// Prefills the form from a set of options (a saved profile or a parsed <c>docker run</c>
+    /// command). Fields the form doesn't surface are retained in <see cref="_appliedExtras"/> so a
+    /// subsequent Run preserves them.
+    /// </summary>
+    private void ApplyOptions(RunContainerOptions options, string? profileName)
     {
-        var options = profile.Options;
+        _appliedExtras = options;
 
         if (!string.IsNullOrWhiteSpace(options.Image) && !_imageBox.Items.Contains(options.Image))
         {
             _imageBox.Items.Add(options.Image);
         }
 
-        _imageBox.Text = options.Image;
-        // The saved image is already fully qualified; keep the default registry so it isn't re-qualified.
+        _imageBox.Text = options.Image ?? string.Empty;
+        // An imported/saved image is already fully qualified; keep the default registry so it isn't re-qualified.
         _registryBox.SelectedIndex = 0;
         _nameBox.Text = options.Name ?? string.Empty;
         _networkBox.Text = options.Network ?? string.Empty;
@@ -315,7 +333,38 @@ public sealed class RunContainerDialog : ContentDialog
         _portsBox.Text = string.Join('\n', options.PortMappings);
         _envBox.Text = string.Join('\n', options.EnvironmentVariables);
         _volumesBox.Text = string.Join('\n', options.Volumes);
-        _profileNameBox.Text = profile.Name;
+        _profileNameBox.Text = profileName ?? string.Empty;
+    }
+
+    private async void OnImportDockerRun(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ImportDockerRunDialog { XamlRoot = XamlRoot };
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary || dialog.Options is null)
+        {
+            return;
+        }
+
+        // Clear the profile selection so the import isn't mistaken for the previously picked profile.
+        _applyingProfile = true;
+        try
+        {
+            _profileBox.SelectedIndex = 0;
+        }
+        finally
+        {
+            _applyingProfile = false;
+        }
+
+        ApplyOptions(dialog.Options, null);
+
+        var message = "Imported settings from the docker run command.";
+        if (dialog.Warnings.Count > 0)
+        {
+            message += " Notes: " + string.Join("  •  ", dialog.Warnings);
+        }
+
+        ShowProfileStatus(message);
     }
 
     private void OnSaveProfile(object sender, RoutedEventArgs e)
@@ -443,11 +492,13 @@ public sealed class RunContainerDialog : ContentDialog
             image = registry.Qualify(image);
         }
 
+        var resolvedNetwork = ResolveNetwork();
+
         return new RunContainerOptions
         {
             Image = image,
             Name = string.IsNullOrWhiteSpace(_nameBox.Text) ? null : _nameBox.Text.Trim(),
-            Network = ResolveNetwork(),
+            Network = resolvedNetwork,
             Detached = _detached.IsChecked == true,
             RemoveOnExit = _removeOnExit.IsChecked == true,
             Interactive = _interactive.IsChecked == true,
@@ -456,6 +507,31 @@ public sealed class RunContainerDialog : ContentDialog
             PortMappings = SplitLines(_portsBox.Text),
             EnvironmentVariables = SplitLines(_envBox.Text),
             Volumes = SplitLines(_volumesBox.Text),
+
+            // Fields the form doesn't surface but were imported/loaded are preserved verbatim.
+            Entrypoint = _appliedExtras?.Entrypoint,
+            User = _appliedExtras?.User,
+            WorkingDir = _appliedExtras?.WorkingDir,
+            Hostname = _appliedExtras?.Hostname,
+            CpuLimit = _appliedExtras?.CpuLimit,
+            MemoryLimit = _appliedExtras?.MemoryLimit,
+            ShmSize = _appliedExtras?.ShmSize,
+            StopSignal = _appliedExtras?.StopSignal,
+            Domainname = _appliedExtras?.Domainname,
+
+            // Networks/Aliases are network-scoped; only keep them when a non-default network is
+            // actually selected in the form, so clearing the network box truly means "default bridge"
+            // (ToArguments falls back to Networks.First() when Network is empty).
+            Networks = resolvedNetwork is null ? new List<string>() : new List<string> { resolvedNetwork },
+            Aliases = resolvedNetwork is null
+                ? new List<string>()
+                : new List<string>(_appliedExtras?.Aliases ?? new List<string>()),
+            Dns = new List<string>(_appliedExtras?.Dns ?? new List<string>()),
+            DnsSearch = new List<string>(_appliedExtras?.DnsSearch ?? new List<string>()),
+            DnsOptions = new List<string>(_appliedExtras?.DnsOptions ?? new List<string>()),
+            Tmpfs = new List<string>(_appliedExtras?.Tmpfs ?? new List<string>()),
+            Ulimits = new List<string>(_appliedExtras?.Ulimits ?? new List<string>()),
+            Labels = new Dictionary<string, string>(_appliedExtras?.Labels ?? new Dictionary<string, string>()),
         };
     }
 
