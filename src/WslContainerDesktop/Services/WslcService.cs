@@ -368,8 +368,13 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     {
         // wslc exposes no `diff` primitive, so the changeset is emulated: walk the running
         // container's rootfs and compare it against a pristine baseline walk of the same image.
+        //
+        // NOTE: `find … -exec stat …` exits non-zero when stat fails for any single entry, which
+        // happens routinely on a live rootfs when a transient file (e.g. under /run or /tmp)
+        // vanishes mid-walk. That's expected and stdout is still complete, so success is judged by
+        // whether the walk produced output rather than by the process exit code.
         var containerResult = await ExecShellAsync(id, DiffWalkScript, ct).ConfigureAwait(false);
-        if (!containerResult.Success)
+        if (string.IsNullOrWhiteSpace(containerResult.StandardOutput))
         {
             throw new InvalidOperationException(
                 "Could not read the container filesystem. The container must be running and include a POSIX shell.");
@@ -383,7 +388,7 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         var baselineResult = await runner
             .RunAsync(["run", "--rm", "--entrypoint", "sh", image, "-c", DiffWalkScript], ct)
             .ConfigureAwait(false);
-        if (!baselineResult.Success || string.IsNullOrWhiteSpace(baselineResult.StandardOutput))
+        if (string.IsNullOrWhiteSpace(baselineResult.StandardOutput))
         {
             throw new InvalidOperationException(
                 $"Could not build a filesystem baseline from image '{image}'. " +
