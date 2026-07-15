@@ -511,7 +511,7 @@ public sealed partial class ContainerDetailPage : Page
 
     private void DetailTabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
-        if (LogsPanel is null || SummaryPanel is null || InspectPanel is null || StatsPanel is null || FilesPanel is null)
+        if (LogsPanel is null || SummaryPanel is null || InspectPanel is null || StatsPanel is null || FilesPanel is null || ChangesPanel is null)
         {
             return;
         }
@@ -522,12 +522,20 @@ public sealed partial class ContainerDetailPage : Page
         StatsPanel.Visibility = selected == TabStats ? Visibility.Visible : Visibility.Collapsed;
         FilesPanel.Visibility = selected == TabFiles ? Visibility.Visible : Visibility.Collapsed;
         InspectPanel.Visibility = selected == TabInspect ? Visibility.Visible : Visibility.Collapsed;
+        ChangesPanel.Visibility = selected == TabChanges ? Visibility.Visible : Visibility.Collapsed;
 
         if (selected == TabFiles)
         {
             _ = ViewModel.EnsureFilesLoadedAsync();
         }
+        else if (selected == TabChanges)
+        {
+            _ = ViewModel.EnsureChangesLoadedAsync();
+        }
     }
+
+    private async void ChangesRefresh_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.RefreshChangesAsync();
 
     // ---- Files tab — toolbar buttons ------------------------------------
 

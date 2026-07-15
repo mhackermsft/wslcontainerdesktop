@@ -197,6 +197,8 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
   - **Summary** — id, state, image, ports, IP, network, start time, command, env vars, and mounts.
   - **Stats** — live CPU and memory meters plus network I/O, block I/O, and process (PID) count.
   - **Inspect** — full raw JSON.
+  - **Files** — browse the container filesystem, preview text files, upload/download via drag-and-drop, and create/rename/delete paths.
+  - **Changes** — a `docker diff` equivalent listing every file **added (A)**, **changed (C)**, or **deleted (D)** relative to the container's image, so you can see exactly what a running container has written. (Emulated by comparing the container's rootfs against a fresh walk of its image; needs a running container with a shell.)
 - Open an interactive terminal (`exec -it`) or open a published port in the browser.
 
 ### Docker Compose

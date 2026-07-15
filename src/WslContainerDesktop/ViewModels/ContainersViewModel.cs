@@ -100,6 +100,15 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(HasSelectedFile))]
     private ContainerFileEntry? _selectedFile;
 
+    // ---- Filesystem changes (Changes tab) ----
+    [ObservableProperty]
+    private bool _isChangesBusy;
+
+    [ObservableProperty]
+    private string _changesStatusMessage = "Open the Changes tab to compare the container against its image.";
+
+    private bool _hasAttemptedChangesLoad;
+
     // ---- Live stats (Stats tab) ----
     [ObservableProperty]
     private string _statCpu = "-";
@@ -136,6 +145,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     public ObservableCollection<string> DetailMounts { get; } = new();
 
     public ObservableCollection<ContainerFileEntry> DetailFiles { get; } = new();
+
+    public ObservableCollection<ContainerFsChange> DetailChanges { get; } = new();
 
     public bool HasSelection => Selected is not null;
 
@@ -205,6 +216,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         DetailWorkingDir = "-";
         DetailInspectJson = string.Empty;
         ResetFilesState(value);
+        ResetChangesState(value);
 
         if (value is null)
         {
@@ -283,6 +295,86 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     public Task RefreshFilesAsync() => LoadFilesAsync(FilesCurrentPath);
+
+    public Task EnsureChangesLoadedAsync()
+    {
+        if (_hasAttemptedChangesLoad || Selected is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return LoadChangesAsync();
+    }
+
+    public Task RefreshChangesAsync() => LoadChangesAsync();
+
+    private async Task LoadChangesAsync()
+    {
+        var selected = Selected;
+        if (selected is null)
+        {
+            return;
+        }
+
+        _hasAttemptedChangesLoad = true;
+
+        if (!selected.IsRunning)
+        {
+            DetailChanges.Clear();
+            ChangesStatusMessage = "The container must be running to compare it against its image.";
+            return;
+        }
+
+        IsChangesBusy = true;
+        ChangesStatusMessage = "Comparing the container against its image…";
+        try
+        {
+            var changes = await _wslc.DiffContainerAsync(selected.Id, selected.Image);
+
+            // Guard against a selection change while awaiting.
+            if (Selected?.Id != selected.Id)
+            {
+                return;
+            }
+
+            DetailChanges.Clear();
+            foreach (var change in changes)
+            {
+                DetailChanges.Add(change);
+            }
+
+            ChangesStatusMessage = changes.Count == 0
+                ? "No filesystem changes relative to the image."
+                : $"{changes.Count} change(s) relative to the image.";
+        }
+        catch (Exception ex)
+        {
+            if (Selected?.Id == selected.Id)
+            {
+                DetailChanges.Clear();
+                ChangesStatusMessage = ex.Message;
+            }
+
+            _logger.LogDebug(ex, "Container filesystem diff failed.");
+        }
+        finally
+        {
+            if (Selected?.Id == selected.Id)
+            {
+                IsChangesBusy = false;
+            }
+        }
+    }
+
+    private void ResetChangesState(ContainerRowViewModel? selected)
+    {
+        _hasAttemptedChangesLoad = false;
+        IsChangesBusy = false;
+        DetailChanges.Clear();
+        ChangesStatusMessage = selected?.IsRunning == true
+            ? "Open the Changes tab to compare the container against its image."
+            : "The container must be running to compare it against its image.";
+    }
 
     public Task NavigateUpAsync()
     {

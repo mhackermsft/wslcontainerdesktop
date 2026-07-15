@@ -187,6 +187,18 @@ Load/persist failures never crash the app.
 repo-digests and compares them against the registry's current manifest digest, flagging images that
 are behind so the UI can show an **↓ Update** badge and offer a one-click pull.
 
+### Container filesystem diff (`WslcService.DiffContainerAsync`)
+
+The container detail **Changes** tab is a `docker diff` equivalent. Because `wslc` exposes no `diff`
+primitive, the changeset is **emulated**: the running container's root filesystem is walked via
+`wslc exec … find / -xdev -exec stat …` and compared against a pristine baseline walk of the same
+image (`wslc run --rm --entrypoint sh <image> -c …`). `-xdev` keeps the walk on the root device, so
+pseudo filesystems and volumes drop out automatically; the container's own `/proc/mounts` targets
+(plus `/.dockerenv`) are additionally excluded so engine-injected bind mounts like `/etc/hosts` and
+`/etc/resolv.conf` don't show up as spurious changes. Comparing the `mode|size|mtime` of each path
+yields **added / changed / deleted** entries. The baseline requires an image with a shell, so
+distroless/scratch images surface a friendly message instead of a diff.
+
 ### Compose projects (`ComposeProjectStore`, `ComposeProjectSupervisor`)
 
 For fuller compose support the app acts as the **orchestration layer above `wslc`**

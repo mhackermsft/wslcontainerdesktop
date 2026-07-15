@@ -14,6 +14,7 @@
         <converters:StateToBrushConverter x:Key="StateToBrush" />
         <converters:StateToStringConverter x:Key="StateToString" />
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <converters:HexToBrushConverter x:Key="HexToBrush" />
     </Page.Resources>
 
     <Grid Margin="24,14,24,16" RowSpacing="12">
@@ -191,6 +192,11 @@
             <SelectorBarItem x:Name="TabFiles" Text="Files">
                 <SelectorBarItem.Icon>
                     <FontIcon Glyph="&#xE838;" />
+                </SelectorBarItem.Icon>
+            </SelectorBarItem>
+            <SelectorBarItem x:Name="TabChanges" Text="Changes">
+                <SelectorBarItem.Icon>
+                    <FontIcon Glyph="&#xE1CB;" />
                 </SelectorBarItem.Icon>
             </SelectorBarItem>
         </SelectorBar>
@@ -886,6 +892,114 @@
                         TextWrapping="NoWrap" />
                 </ScrollViewer>
             </Border>
+
+            <!--  ===== Changes (docker diff equivalent) =====  -->
+            <Grid
+                x:Name="ChangesPanel"
+                RowSpacing="8"
+                Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!--  Toolbar  -->
+                <Grid Grid.Row="0" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Button
+                        Grid.Column="0"
+                        Height="32"
+                        Padding="10,0"
+                        Click="ChangesRefresh_Click"
+                        ToolTipService.ToolTip="Recompute changes">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="13" Glyph="&#xE72C;" />
+                            <TextBlock
+                                FontSize="12"
+                                Text="Refresh"
+                                VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <TextBlock
+                        Grid.Column="1"
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Files added (A), changed (C), or deleted (D) versus the image."
+                        TextTrimming="CharacterEllipsis"
+                        VerticalAlignment="Center" />
+                    <ProgressRing
+                        Grid.Column="2"
+                        Width="18"
+                        Height="18"
+                        IsActive="{x:Bind ViewModel.IsChangesBusy, Mode=OneWay}"
+                        Visibility="{x:Bind ViewModel.IsChangesBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                </Grid>
+
+                <!--  Change list  -->
+                <Border
+                    Grid.Row="1"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                    <Grid>
+                        <ListView
+                            x:Name="ChangesList"
+                            Padding="4"
+                            IsItemClickEnabled="False"
+                            ItemsSource="{x:Bind ViewModel.DetailChanges, Mode=OneWay}"
+                            SelectionMode="None">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:ContainerFsChange">
+                                    <Grid ColumnSpacing="10" Padding="6,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border
+                                            Grid.Column="0"
+                                            Width="22"
+                                            Height="22"
+                                            Background="{x:Bind KindColorHex, Converter={StaticResource HexToBrush}}"
+                                            CornerRadius="4"
+                                            ToolTipService.ToolTip="{x:Bind KindLabel}"
+                                            VerticalAlignment="Center">
+                                            <TextBlock
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Foreground="White"
+                                                HorizontalAlignment="Center"
+                                                Text="{x:Bind KindGlyph}"
+                                                VerticalAlignment="Center" />
+                                        </Border>
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            FontFamily="Cascadia Mono, Consolas"
+                                            FontSize="12"
+                                            IsTextSelectionEnabled="True"
+                                            Text="{x:Bind Path}"
+                                            TextTrimming="CharacterEllipsis"
+                                            VerticalAlignment="Center" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+                </Border>
+
+                <!--  Status bar  -->
+                <TextBlock
+                    Grid.Row="2"
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind ViewModel.ChangesStatusMessage, Mode=OneWay}"
+                    TextTrimming="CharacterEllipsis" />
+            </Grid>
         </Grid>
     </Grid>
 </Page>
