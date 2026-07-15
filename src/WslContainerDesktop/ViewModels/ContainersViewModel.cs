@@ -1121,9 +1121,31 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private void Refresh() => RequestRefresh();
 
     [RelayCommand]
-    private async Task RunAsync()
+    private Task RunAsync() => ShowRunDialogAsync(null, null);
+
+    /// <summary>
+    /// Prompts for a pasted <c>docker run</c> command (a top-level toolbar action), then opens the Run
+    /// dialog pre-filled with the parsed options. The two dialogs are shown sequentially so no nested
+    /// <see cref="Microsoft.UI.Xaml.Controls.ContentDialog"/> is ever open.
+    /// </summary>
+    [RelayCommand]
+    private async Task ImportDockerRunAsync()
     {
-        var dialog = new RunContainerDialog(_wslc, _settings.Registries, _profiles);
+        var import = new ImportDockerRunDialog();
+        var result = await _dialogs.ShowDialogAsync(import);
+        if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary || import.Options is null)
+        {
+            return;
+        }
+
+        await ShowRunDialogAsync(import.Options, import.Warnings);
+    }
+
+    private async Task ShowRunDialogAsync(RunContainerOptions? prefillOptions, IReadOnlyList<string>? importWarnings)
+    {
+        var dialog = new RunContainerDialog(
+            _wslc, _settings.Registries, _profiles,
+            prefillOptions: prefillOptions, importWarnings: importWarnings);
         var result = await _dialogs.ShowDialogAsync(dialog);
         if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary || dialog.Options is null)
         {

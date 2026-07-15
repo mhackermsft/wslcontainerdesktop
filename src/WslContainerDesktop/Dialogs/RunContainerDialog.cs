@@ -54,9 +54,20 @@ public sealed class RunContainerDialog : ContentDialog
     // entrypoint, dns, ulimits, labels, …). Carried through BuildOptions so a Run keeps them.
     private RunContainerOptions? _appliedExtras;
 
+    // Options to prefill once the dialog is Opened. Editable ComboBoxes (image/network) only accept
+    // their Text after they're loaded, so a constructor-time ApplyOptions would drop them.
+    private RunContainerOptions? _pendingPrefill;
+    private IReadOnlyList<string>? _pendingWarnings;
+
     public RunContainerOptions? Options { get; private set; }
 
-    public RunContainerDialog(IWslcService wslc, IReadOnlyList<RegistryEntry> registries, IRunProfileStore profiles, string? prefillImage = null)
+    public RunContainerDialog(
+        IWslcService wslc,
+        IReadOnlyList<RegistryEntry> registries,
+        IRunProfileStore profiles,
+        string? prefillImage = null,
+        RunContainerOptions? prefillOptions = null,
+        IReadOnlyList<string>? importWarnings = null)
     {
         _wslc = wslc;
         _registries = registries;
@@ -189,18 +200,11 @@ public sealed class RunContainerDialog : ContentDialog
         };
         deleteProfileButton.Click += OnDeleteProfile;
 
-        var importButton = new Button
-        {
-            Content = "Import from docker run…",
-            VerticalAlignment = VerticalAlignment.Bottom,
-        };
-        importButton.Click += OnImportDockerRun;
-
         var profileButtons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
-            Children = { _profileNameBox, saveProfileButton, deleteProfileButton, importButton },
+            Children = { _profileNameBox, saveProfileButton, deleteProfileButton },
         };
 
         _profileStatus = new TextBlock
@@ -250,6 +254,11 @@ public sealed class RunContainerDialog : ContentDialog
         }
 
         ReloadProfiles(null);
+
+        // Defer prefill from a parsed `docker run` command until Opened (see OnOpened) so the
+        // editable image/network combos are ready to receive their values.
+        _pendingPrefill = prefillOptions;
+        _pendingWarnings = importWarnings;
 
         Opened += OnOpened;
         PrimaryButtonClick += OnPrimary;
@@ -336,37 +345,6 @@ public sealed class RunContainerDialog : ContentDialog
         _profileNameBox.Text = profileName ?? string.Empty;
     }
 
-    private async void OnImportDockerRun(object sender, RoutedEventArgs e)
-    {
-        var dialog = new ImportDockerRunDialog { XamlRoot = XamlRoot };
-        var result = await dialog.ShowAsync();
-        if (result != ContentDialogResult.Primary || dialog.Options is null)
-        {
-            return;
-        }
-
-        // Clear the profile selection so the import isn't mistaken for the previously picked profile.
-        _applyingProfile = true;
-        try
-        {
-            _profileBox.SelectedIndex = 0;
-        }
-        finally
-        {
-            _applyingProfile = false;
-        }
-
-        ApplyOptions(dialog.Options, null);
-
-        var message = "Imported settings from the docker run command.";
-        if (dialog.Warnings.Count > 0)
-        {
-            message += " Notes: " + string.Join("  •  ", dialog.Warnings);
-        }
-
-        ShowProfileStatus(message);
-    }
-
     private void OnSaveProfile(object sender, RoutedEventArgs e)
     {
         var options = BuildOptions();
@@ -450,6 +428,21 @@ public sealed class RunContainerDialog : ContentDialog
         catch
         {
             // Non-fatal; the user can still type a network name or use the default.
+        }
+
+        // Now that the editable combos are loaded, apply any pending docker-run prefill.
+        if (_pendingPrefill is not null)
+        {
+            var prefill = _pendingPrefill;
+            var warnings = _pendingWarnings;
+            _pendingPrefill = null;
+            _pendingWarnings = null;
+
+            ApplyOptions(prefill, null);
+            if (warnings is { Count: > 0 })
+            {
+                ShowProfileStatus("Imported from docker run. Notes: " + string.Join("  •  ", warnings));
+            }
         }
     }
 

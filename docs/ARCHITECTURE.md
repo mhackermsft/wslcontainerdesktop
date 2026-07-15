@@ -156,16 +156,18 @@ persisted to `run-profiles.json` next to `settings.json`, so a workload can be r
 click without re-entering the same options. The Run dialog offers a profile picker (prefill) plus
 *Save as profile* / *Delete*; the Images page exposes a per-image **Run profile** submenu.
 
-The Run dialog can also **Import from `docker run`** (`DockerRunParser` → `ImportDockerRunDialog`):
-a pasted `docker run`/`podman run` command line is tokenized (honoring quotes and `\` line
-continuations) and mapped onto `RunContainerOptions`; unrepresentable flags are reported as warnings
-rather than failing. Conversely, a **running container can be saved as a profile**
-(`ContainerConfigImporter` → `SaveRunProfileDialog`): the container's `wslc inspect` JSON is diffed
-against the image's `inspect` so only user-specified env/cmd/entrypoint/workdir/user are kept.
-`wslc inspect` doesn't expose volume/bind mounts or hostname for a running container, so those can't
-be captured and the save dialog says so. `ComposeImporter` seeds profiles from a *basic*
-`docker-compose.yml` (one profile per service, common single-container fields only) using a small
-indentation-aware reader. Load/parse failures never crash the app.
+The Containers toolbar has an **Import from docker run** button (`DockerRunParser` →
+`ImportDockerRunDialog`): a pasted `docker run`/`podman run` command line is tokenized (honoring
+quotes and `\` line continuations) and mapped onto `RunContainerOptions`, then the Run dialog opens
+pre-filled; unrepresentable flags are reported as warnings rather than failing. (The two dialogs are
+shown sequentially so no nested `ContentDialog` is ever open.) Conversely, a **running container can
+be saved as a profile** (`ContainerConfigImporter` → `SaveRunProfileDialog`): the container's
+`wslc inspect` JSON is diffed against the image's `inspect` so only user-specified
+env/cmd/entrypoint/workdir/user are kept. `wslc inspect` doesn't expose volume/bind mounts or
+hostname for a running container, so those can't be captured and the save dialog says so.
+`ComposeImporter` seeds profiles from a *basic* `docker-compose.yml` (one profile per service,
+common single-container fields only) using a small indentation-aware reader. Load/parse failures
+never crash the app.
 
 ### Compose projects (`ComposeProjectStore`, `ComposeProjectSupervisor`)
 
