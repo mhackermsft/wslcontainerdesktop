@@ -357,6 +357,114 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
     public Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default) =>
         runner.RunAsync(["exec", id, "sh", "-c", command], ct);
 
+    // Walks a filesystem staying on the root device (-xdev skips /proc, /sys, /dev, tmpfs, and
+    // bind-mounted volumes automatically) and emits one "mode|size|mtime|path" line per entry.
+    // %f/%s/%Y are numeric so a maxsplit of 4 keeps a path containing '|' intact.
+    private const string DiffWalkScript =
+        "find / -xdev -exec stat -c '%f|%s|%Y|%n' {} + 2>/dev/null";
+
+    public async Task<IReadOnlyList<ContainerFsChange>> DiffContainerAsync(
+        string id, string image, CancellationToken ct = default)
+    {
+        // wslc exposes no `diff` primitive, so the changeset is emulated: walk the running
+        // container's rootfs and compare it against a pristine baseline walk of the same image.
+        var containerResult = await ExecShellAsync(id, DiffWalkScript, ct).ConfigureAwait(false);
+        if (!containerResult.Success)
+        {
+            throw new InvalidOperationException(
+                "Could not read the container filesystem. The container must be running and include a POSIX shell.");
+        }
+
+        if (string.IsNullOrWhiteSpace(image))
+        {
+            throw new InvalidOperationException("The container's image is unknown, so no baseline is available.");
+        }
+
+        var baselineResult = await runner
+            .RunAsync(["run", "--rm", "--entrypoint", "sh", image, "-c", DiffWalkScript], ct)
+            .ConfigureAwait(false);
+        if (!baselineResult.Success || string.IsNullOrWhiteSpace(baselineResult.StandardOutput))
+        {
+            throw new InvalidOperationException(
+                $"Could not build a filesystem baseline from image '{image}'. " +
+                "The image may not include a shell (e.g. distroless or scratch).");
+        }
+
+        // Exclude the container's mount targets (and the engine-injected /.dockerenv) so
+        // bind-mounted files (/etc/hosts, /etc/resolv.conf, …), volumes, and pseudo filesystems
+        // aren't reported as spurious changes — matching `docker diff` behavior.
+        var excluded = new HashSet<string>(StringComparer.Ordinal) { "/.dockerenv" };
+        var mountResult = await ExecShellAsync(id, "awk '{print $2}' /proc/mounts 2>/dev/null", ct)
+            .ConfigureAwait(false);
+        if (mountResult.Success)
+        {
+            foreach (var line in mountResult.StandardOutput.Split('\n'))
+            {
+                var target = line.Trim();
+                if (target.Length > 0)
+                {
+                    excluded.Add(target);
+                }
+            }
+        }
+
+        var container = ParseDiffWalk(containerResult.StandardOutput);
+        var baseline = ParseDiffWalk(baselineResult.StandardOutput);
+
+        var changes = new List<ContainerFsChange>();
+        foreach (var (path, meta) in container)
+        {
+            if (excluded.Contains(path))
+            {
+                continue;
+            }
+
+            if (!baseline.TryGetValue(path, out var baseMeta))
+            {
+                changes.Add(new ContainerFsChange { Kind = FsChangeKind.Added, Path = path });
+            }
+            else if (!string.Equals(meta, baseMeta, StringComparison.Ordinal))
+            {
+                changes.Add(new ContainerFsChange { Kind = FsChangeKind.Changed, Path = path });
+            }
+        }
+
+        foreach (var path in baseline.Keys)
+        {
+            if (!excluded.Contains(path) && !container.ContainsKey(path))
+            {
+                changes.Add(new ContainerFsChange { Kind = FsChangeKind.Deleted, Path = path });
+            }
+        }
+
+        changes.Sort(static (a, b) => string.CompareOrdinal(a.Path, b.Path));
+        return changes;
+    }
+
+    private static Dictionary<string, string> ParseDiffWalk(string output)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var raw in output.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            // "mode|size|mtime|path"; keep the metadata triple as the comparison key.
+            var parts = line.Split('|', 4);
+            if (parts.Length != 4)
+            {
+                continue;
+            }
+
+            map[parts[3]] = string.Concat(parts[0], "|", parts[1], "|", parts[2]);
+        }
+
+        return map;
+    }
+
     /// <summary>
     /// Detects whether a running container has GPU passthrough by checking for the WSL
     /// DirectX kernel device (/dev/dxg), which is only mounted when the container was started
