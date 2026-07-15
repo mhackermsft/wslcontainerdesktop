@@ -140,6 +140,15 @@ credentials are stored** — only registry host/username metadata; the actual lo
 the engine's credential store. Corrupt settings never crash the app (they fall back to defaults
 and log a warning).
 
+### WSL virtual machine (`WslSystemService`)
+
+Host-level operations on the **WSL VM itself**, as opposed to the container engine, backing the
+*WSL engine* page. It reads `.wslconfig` resource limits (`[wsl2]` memory/processors/swap), reports
+platform info via `wsl --version` and the distro list via `wsl -l -v` (both run with `WSL_UTF8=1`
+so `wsl.exe` emits UTF-8, not UTF-16LE), and shuts WSL down via `ShutdownWslAsync`
+(`wsl --shutdown`). Note that a WSL `.vhdx` grows but never shrinks on its own; the reliable way to
+reclaim space is pruning images/containers/volumes on the *Disk usage* page.
+
 ### Run profiles (`RunProfileStore`, `ComposeImporter`)
 
 Reusable named run configurations (image, name, ports, env vars, volumes, network, flags) are

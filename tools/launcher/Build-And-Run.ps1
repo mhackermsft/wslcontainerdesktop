@@ -13,7 +13,10 @@ $ErrorActionPreference = 'Stop'
 $projectDir  = Join-Path $PSScriptRoot '..\..\src\WslContainerDesktop'
 $project     = Join-Path $projectDir 'WslContainerDesktop.csproj'
 $packageName = '393193CD-4A5B-4502-BC94-7C6AF142CD28'
-$manifest    = Join-Path $projectDir 'bin\x64\Debug\net10.0-windows10.0.26100.0\win-x64\AppX\AppxManifest.xml'
+# Register from the OutDir *root* manifest, which `dotnet build` regenerates on
+# every build. The `...\win-x64\AppX\` subfolder is a stale VS deploy artifact
+# that a command-line build never refreshes, so registering it launches old bits.
+$manifest    = Join-Path $projectDir 'bin\x64\Debug\net10.0-windows10.0.26100.0\win-x64\AppxManifest.xml'
 
 # Locate dotnet.
 $dotnet = 'C:\Program Files\dotnet\dotnet.exe'

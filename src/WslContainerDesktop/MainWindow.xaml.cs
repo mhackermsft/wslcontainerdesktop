@@ -125,6 +125,9 @@ public sealed partial class MainWindow : Window
                 case "reclaim":
                     NavFrame.Navigate(typeof(ReclaimSpacePage));
                     break;
+                case "wsl":
+                    NavFrame.Navigate(typeof(WslEnginePage));
+                    break;
                 case "networks":
                     NavFrame.Navigate(typeof(NetworksPage));
                     break;
