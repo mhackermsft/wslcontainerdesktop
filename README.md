@@ -49,52 +49,103 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 
 ## Screenshots
 
-### Dashboard
-An at-a-glance overview with summary cards, a total-CPU meter, and a live per-container performance table.
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Dashboard" width="960"><br>
+  <sub><b>Dashboard</b> — summary cards, a total-CPU meter, and a live per-container performance table.</sub>
+</p>
 
-![Dashboard](docs/screenshots/dashboard.png)
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/containers.png" alt="Containers"><br>
+      <sub><b>Containers</b> — live, color-coded list with Compose grouping and inline actions; click any row for a full detail view.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/container-detail-changes.png" alt="Filesystem changes"><br>
+      <sub><b>Filesystem changes</b> — a <code>docker diff</code>–style view of every file added, changed, or deleted versus the image.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/templates.png" alt="Templates"><br>
+      <sub><b>Templates</b> — one-click stacks for databases, web tools, developer sandboxes, and multi-service projects.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/images.png" alt="Images"><br>
+      <sub><b>Images</b> — pull, build, tag, push, inspect, and prune, with <b>update-available</b> badges.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/compose.png" alt="Docker Compose"><br>
+      <sub><b>Docker Compose</b> — bring a whole multi-service stack up / down / restart as a unit, with dependency ordering and auto-heal.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/kubernetes-dashboard.png" alt="Kubernetes"><br>
+      <sub><b>Kubernetes</b> — install and manage a single-node <b>k3s</b> cluster right inside the app, with a metrics dashboard and "Apply YAML".</sub>
+    </td>
+  </tr>
+</table>
 
-### Containers
-A live list with color-coded state and inline actions — with containers that belong to a **Docker Compose** project grouped together under the project name. Click any row for a full detail view.
+<details>
+<summary><b>📸 More screenshots</b> — container logs &amp; stats, endpoints, activity, registries, volumes, networks, Kubernetes deployments, disk usage, settings</summary>
 
-![Containers](docs/screenshots/containers.png)
+<br>
 
-Container detail — **live logs** and a **Stats** tab (CPU, memory, network / block I/O, PIDs):
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/container-detail-logs.png" alt="Container logs"><br>
+      <sub><b>Container logs</b> — live streaming output with search, filter, error highlighting, wrap, and export.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/container-detail-stats.png" alt="Container stats"><br>
+      <sub><b>Container stats</b> — live CPU and memory meters plus network I/O, block I/O, and PID count.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/endpoints.png" alt="Endpoints"><br>
+      <sub><b>Endpoints</b> — every published port across all running containers, with clickable <code>localhost</code> links.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/activity.png" alt="Activity"><br>
+      <sub><b>Activity</b> — a persisted, filterable timeline of engine, container, and image events.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/registries.png" alt="Registries"><br>
+      <sub><b>Registries</b> — manage public and private registries with a live login-status indicator and one-click <b>Add from Azure</b>.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/kubernetes-deployments.png" alt="Kubernetes deployments"><br>
+      <sub><b>Kubernetes deployments</b> — a Podman-style resource explorer across nodes, deployments, pods, and services.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/volumes.png" alt="Volumes"><br>
+      <sub><b>Volumes</b> — create, inspect, remove, and prune named volumes.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/networks.png" alt="Networks"><br>
+      <sub><b>Networks</b> — list, create, inspect, remove, and prune, including the default <code>bridge</code>.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/disk-usage.png" alt="Disk usage"><br>
+      <sub><b>Disk usage</b> — what images, containers, and volumes consume, what's reclaimable, and one-click <b>Reclaim all</b>.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/settings.png" alt="Settings"><br>
+      <sub><b>Settings</b> — point at <code>wslc.exe</code>, tune tray/startup behavior, toggle notifications per category, and switch theme.</sub>
+    </td>
+  </tr>
+</table>
 
-![Container logs](docs/screenshots/container-detail-logs.png)
-![Container stats](docs/screenshots/container-detail-stats.png)
-
-### Docker Compose
-Import a `docker-compose.yml` and bring the whole multi-service stack up, down, or restart it as a unit — with dependency ordering, health gating, and auto-heal enforced while the app runs.
-
-![Compose](docs/screenshots/compose.png)
-
-### Images, Volumes & Networks
-
-![Images](docs/screenshots/images.png)
-![Volumes](docs/screenshots/volumes.png)
-![Networks](docs/screenshots/networks.png)
-
-### Registries
-Manage the registries available when running or pulling images — with a live login-status indicator and one-click **Add from Azure**.
-
-![Registries](docs/screenshots/registries.png)
-
-### Kubernetes
-Install and manage a single-node **k3s** cluster right inside the app: a metrics dashboard, a Podman-style resource explorer, "Apply YAML", and port forwarding.
-
-![Kubernetes dashboard](docs/screenshots/kubernetes-dashboard.png)
-![Kubernetes deployments](docs/screenshots/kubernetes-deployments.png)
-
-### Disk usage
-A holistic disk-usage & cleanup center: what images, containers, and volumes consume, how much is reclaimable, and one-click prune or **Reclaim all**.
-
-![Disk usage](docs/screenshots/disk-usage.png)
-
-### Settings
-Point the app at `wslc.exe`, tune tray/startup behavior, toggle toast notifications per category, and switch theme.
-
-![Settings](docs/screenshots/settings.png)
+</details>
 
 ---
 
