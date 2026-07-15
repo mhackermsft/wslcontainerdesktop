@@ -64,7 +64,17 @@ public static class ContainerConfigImporter
             }
         }
 
-        var image = GetString(container, "Image");
+        container.TryGetProperty("Config", out var config);
+
+        // The runnable image reference (e.g. "nginx:alpine"). Docker-schema inspect puts it in
+        // Config.Image (top-level Image is the digest/ID there); this wslc build puts the reference at
+        // top-level Image and leaves Config.Image empty. Prefer Config.Image, fall back to top-level.
+        var image = GetString(config, "Image");
+        if (string.IsNullOrWhiteSpace(image))
+        {
+            image = GetString(container, "Image");
+        }
+
         if (string.IsNullOrWhiteSpace(image))
         {
             return null;
@@ -77,8 +87,6 @@ public static class ContainerConfigImporter
         {
             options.Name = name!.TrimStart('/').Trim();
         }
-
-        container.TryGetProperty("Config", out var config);
 
         // Environment: keep only entries not baked into the image.
         var imageEnv = imageConfig is { } ic ? new HashSet<string>(GetStringArray(ic, "Env"), StringComparer.Ordinal) : null;
