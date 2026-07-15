@@ -102,6 +102,10 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _monitor.StatusChanged += OnEngineStatusChanged;
         _monitor.Start();
 
+        // Activity feed: synthesizes a persisted event timeline from engine snapshot diffs.
+        // Resolved and attached here (UI thread) so it captures transitions from the first poll.
+        Services.GetRequiredService<IActivityLog>().Attach();
+
         // Health watchdog rides on the monitor's polling and enforces per-container probes.
         _watchdog = Services.GetRequiredService<HealthWatchdog>();
         _watchdog.HealthChanged += OnHealthChanged;
@@ -383,8 +387,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
         services.AddSingleton<IRunProfileStore, RunProfileStore>();
-        services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();
-        services.AddSingleton<ComposeProjectSupervisor>();
+        services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();        services.AddSingleton<ComposeProjectSupervisor>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();
@@ -413,6 +416,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         services.AddSingleton<HealthWatchdog>();
         services.AddSingleton<RestartPolicyWatchdog>();
+        services.AddSingleton<IActivityLog, ActivityLog>();
 
         services.AddSingleton<ContainersViewModel>();
         services.AddSingleton<ImagesViewModel>();
@@ -425,6 +429,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ShellViewModel>();
         services.AddSingleton<DashboardViewModel>();
         services.AddSingleton<PortsViewModel>();
+        services.AddSingleton<ActivityViewModel>();
         services.AddSingleton<KubernetesViewModel>();
         services.AddTransient<K8sDetailViewModel>();
         services.AddSingleton<ComposeViewModel>();

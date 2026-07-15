@@ -34,6 +34,8 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Docker Compose** — import a `docker-compose.yml` and bring a whole multi-service stack **up / down / restart as a unit**, with dependency ordering, health/exit gating, and auto-heal. The desktop app acts as the orchestration layer above `wslc` — see [Docker Compose compatibility](#docker-compose-compatibility) for exactly what is and isn't supported.
 - **Images, volumes, networks** — pull, build, tag, push, inspect, and prune, all from a clean Fluent UI.
 - **Endpoints dashboard** — every published port across all running containers in one list, with clickable `localhost` links that open in your browser or copy to the clipboard.
+- **Bulk actions** — a **Select** mode on the Containers, Images, Volumes, and Networks lists lets you multi-select rows and start, stop, or remove many at once.
+- **Activity feed** — a persisted, filterable timeline of engine, container, and image events (start/stop/create/remove, pull/build, engine up/down) so you can see what happened and when.
 - **Built-in Kubernetes** — install a single-node **k3s** cluster into WSL and manage nodes, deployments, pods, services, and more, with port-forwarding and "Apply YAML".
 - **Registry management** — add public and private registries, and add an **Azure Container Registry with one click** using your existing Azure sign-in (no admin keys, tokens refreshed automatically).
 - **Live everywhere** — a background monitor drives per-container performance meters, the tray icon, and the status indicators without you lifting a finger.
@@ -222,6 +224,16 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - A unified, at-a-glance view of **every published port across all running containers** in one place, reachable from the **Endpoints** entry in the navigation pane.
 - Each row shows the container, host port, container port/protocol, and a clickable **`localhost:<port>`** address that **opens in your browser** (for TCP endpoints) or can be **copied** to the clipboard.
 - Updates live from the same engine poll as the dashboard and tray.
+
+### Activity
+- A persisted **timeline of engine, container, and image events**, reachable from the **Activity** entry in the navigation pane.
+- Captures **container lifecycle** (created / started / stopped / removed) and **engine up/down** from the background monitor, plus **image pull/build** outcomes (successes and failures) recorded directly — independent of your toast-notification settings.
+- **Filter** by category (All / Engine / Container / Image); each entry shows an icon, title, optional detail (short id or error), a category chip, and an **absolute date &amp; time**.
+- Events **persist to disk** (a rolling 500-event log) so the timeline survives restarts; **Clear** empties it.
+
+### Bulk actions
+- The **Containers**, **Images**, **Volumes**, and **Networks** lists have a **Select** toggle that turns on multi-select checkboxes and swaps the toolbar for a bulk-action bar showing the selected count.
+- Select several rows and act on them together: **Start / Stop / Remove** on Containers, and **Remove** on Images, Volumes, and Networks (built-in networks are skipped). **Cancel** exits Select mode.
 
 ### Disk usage
 - A holistic **disk-usage & cleanup center**, reachable from the **Disk usage** entry at the bottom of the navigation pane (next to Settings), that summarizes how much space **images**, **containers**, and **volumes** consume and how much is reclaimable.

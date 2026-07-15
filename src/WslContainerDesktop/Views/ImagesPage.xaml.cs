@@ -125,4 +125,23 @@ public sealed partial class ImagesPage : Page
             ViewModel.RunProfileCommand.Execute(profile);
         }
     }
+
+    private void List_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ViewModel.IsSelectionMode)
+        {
+            ViewModel.SelectedCount = ImagesList.SelectedItems.Count;
+        }
+    }
+
+    private async void BulkRemove_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = ImagesList.SelectedItems.OfType<ImageInfo>().ToList();
+        await ViewModel.BulkRemoveAsync(selected);
+    }
+
+    private void BulkCancel_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.IsSelectionMode = false;
+    }
 }

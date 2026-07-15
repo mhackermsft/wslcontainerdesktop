@@ -71,6 +71,11 @@
                         <FontIcon Glyph="&#xE774;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Activity" Tag="activity">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE81C;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Registries" Tag="registries">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE753;" />

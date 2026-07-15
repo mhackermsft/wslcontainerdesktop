@@ -38,6 +38,17 @@ public partial class NetworksViewModel : ObservableObject
     [ObservableProperty]
     private NetworkInfo? _selected;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectionSummary))]
+    private bool _isSelectionMode;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectionSummary))]
+    private int _selectedCount;
+
+    /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
+    public string SelectionSummary => $"{SelectedCount} selected";
+
     public ObservableCollection<NetworkInfo> Networks { get; } = new();
 
     public NetworksViewModel(IWslcService wslc, DialogService dialogs)
@@ -151,6 +162,70 @@ public partial class NetworksViewModel : ObservableObject
         }
 
         await ExecuteAsync(() => _wslc.PruneNetworksAsync());
+    }
+
+    partial void OnIsSelectionModeChanged(bool value)
+    {
+        if (!value)
+        {
+            SelectedCount = 0;
+        }
+    }
+
+    /// <summary>Removes every selected (removable) network after one confirmation, then exits selection mode.</summary>
+    public async Task BulkRemoveAsync(IReadOnlyList<NetworkInfo> networks)
+    {
+        var items = networks?.Where(n => n is not null && n.CanModify).ToList() ?? new List<NetworkInfo>();
+        if (items.Count == 0)
+        {
+            IsSelectionMode = false;
+            return;
+        }
+
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Remove networks",
+            $"Remove {items.Count} network(s)? (Built-in networks are skipped.)\n\n{BulkNames(items.Select(n => n.Name))}",
+            "Remove");
+        if (!ok)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        var failures = new List<string>();
+        try
+        {
+            foreach (var n in items)
+            {
+                var result = await _wslc.RemoveNetworkAsync(n.Name);
+                if (!result.Success)
+                {
+                    failures.Add(n.Name);
+                }
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        IsSelectionMode = false;
+        await RefreshAsync();
+
+        if (failures.Count > 0)
+        {
+            await _dialogs.ShowMessageAsync(
+                "Some networks were not removed",
+                $"{failures.Count} of {items.Count} could not be removed (they may still have attached containers):\n\n{BulkNames(failures)}");
+        }
+    }
+
+    private static string BulkNames(IEnumerable<string> names)
+    {
+        var list = names.ToList();
+        const int max = 12;
+        var shown = string.Join("\n", list.Take(max).Select(n => "• " + n));
+        return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
     }
 
     private async Task ExecuteAsync(Func<Task<CommandResult>> action)
