@@ -146,6 +146,9 @@ public sealed partial class MainWindow : Window
                 case "compose":
                     NavFrame.Navigate(typeof(ComposePage));
                     break;
+                case "templates":
+                    NavFrame.Navigate(typeof(TemplatesPage));
+                    break;
             }
         }
     }

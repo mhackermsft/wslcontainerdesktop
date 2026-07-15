@@ -33,6 +33,8 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Full container lifecycle** — run, start, stop, restart, kill, remove, prune, logs, exec terminal, inspect, and live stats.
 - **Docker Compose** — import a `docker-compose.yml` and bring a whole multi-service stack **up / down / restart as a unit**, with dependency ordering, health/exit gating, and auto-heal. The desktop app acts as the orchestration layer above `wslc` — see [Docker Compose compatibility](#docker-compose-compatibility) for exactly what is and isn't supported.
 - **Images, volumes, networks** — pull, build, tag, push, inspect, and prune, all from a clean Fluent UI.
+- **Templates gallery** — a catalog of curated **one-click stacks** (databases, web tools, developer sandboxes, and multi-service Compose projects). **Launch** starts them immediately with sensible defaults; a per-card **Settings** button lets you configure first, and your choices are remembered for next time.
+- **Image update badges** — **Check for updates** compares your local image digests against the registry and flags out-of-date images with an **↓ Update** badge, so you can pull the newer version in one click.
 - **Endpoints dashboard** — every published port across all running containers in one list, with clickable `localhost` links that open in your browser or copy to the clipboard.
 - **Bulk actions** — a **Select** mode on the Containers, Images, Volumes, and Networks lists lets you multi-select rows and start, stop, or remove many at once.
 - **Activity feed** — a persisted, filterable timeline of engine, container, and image events (start/stop/create/remove, pull/build, engine up/down) so you can see what happened and when.
@@ -208,6 +210,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 ### Images
 - List with repository, tag, ID, size, and age.
 - **Pull**, **Build** (from a Dockerfile + context), **Tag**, **Push**, **Inspect**, **Remove**, and **Prune**.
+- **Check for updates** — compares each local image's digest against its registry and flags images that are behind with an **↓ Update** badge; pull the newer version straight from the row's **⋯** menu.
 - Run a new container directly from an image.
 - **Saved run profiles** — save an image's ports/env/volumes/network/name/flags as a reusable, named profile, prefill the Run dialog from one, and launch it in one click from the image's **⋯ → Run profile** menu. Profiles persist across restarts. (For full multi-service orchestration, use the [Docker Compose](#docker-compose) page instead.)
 - Pull / Build / Push dialogs include a **registry selector** with a live "resolved reference" preview.
@@ -246,6 +249,13 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - **Add from Azure** — a guided wizard that verifies the Azure CLI, signs you in, lists your subscriptions and Azure Container Registries, and adds the one you pick. It authenticates using your **Azure identity** (a short-lived token via `az acr login --expose-token`), so **no admin username, password, or key is required**.
 - **Live login status** per registry, with tokens for Azure registries **refreshed automatically** in the background and just-in-time before an app-initiated pull, run, or push.
 - Credentials are handed to the container engine's own credential store — the app never persists your passwords.
+
+### Templates
+- A gallery of curated **one-click stacks**, reachable from the **Templates** entry in the navigation pane, grouped into **Databases** (PostgreSQL, MySQL, MongoDB, Redis), **Web &amp; tools** (Nginx, Adminer, MinIO, RabbitMQ), **Developer** sandboxes, and multi-service **Stacks**.
+- **Launch** starts a template **immediately with sensible defaults — no dialog**. If a container from a previous launch already exists, Launch offers to **replace** it with the current configuration (data in named volumes is preserved).
+- A per-card **⚙️ Settings** button lets you **configure before starting**: single-container templates open the full **Run a container** dialog prefilled; Compose stacks open an editable **project name + YAML** editor. Saving both **starts the template and remembers your configuration**, so the next Launch reuses it. Saved configs persist across restarts (`template-configs.json`).
+- **Developer sandboxes** — keep-alive **Python, Node.js, .NET SDK, Java, Go, and Rust** environments (latest supported versions) with a persistent `/workspace` volume; open the container's **Terminal** action for a shell.
+- **Compose stacks** — templates like **WordPress + MySQL** and **PostgreSQL + pgAdmin** are imported and brought up as a multi-service project in one click.
 
 ### Kubernetes
 - **Install / uninstall** a single-node **k3s** cluster inside your WSL distro, with streaming progress.

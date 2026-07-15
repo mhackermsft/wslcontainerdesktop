@@ -103,6 +103,40 @@ public sealed class RunContainerOptions
     /// <summary>Container domain name (compose <c>domainname:</c>, maps to <c>--domainname</c>).</summary>
     public string? Domainname { get; set; }
 
+    /// <summary>Deep-copies these options so callers (e.g. templates) can hand out an editable instance
+    /// without mutating a shared source.</summary>
+    public RunContainerOptions Clone() => new()
+    {
+        Image = Image,
+        Name = Name,
+        Detached = Detached,
+        RemoveOnExit = RemoveOnExit,
+        Interactive = Interactive,
+        AllGpus = AllGpus,
+        Command = Command,
+        Entrypoint = Entrypoint,
+        User = User,
+        WorkingDir = WorkingDir,
+        Hostname = Hostname,
+        CpuLimit = CpuLimit,
+        MemoryLimit = MemoryLimit,
+        Network = Network,
+        Networks = new List<string>(Networks),
+        PortMappings = new List<string>(PortMappings),
+        EnvironmentVariables = new List<string>(EnvironmentVariables),
+        Volumes = new List<string>(Volumes),
+        Labels = new Dictionary<string, string>(Labels, StringComparer.Ordinal),
+        Aliases = new List<string>(Aliases),
+        Dns = new List<string>(Dns),
+        DnsSearch = new List<string>(DnsSearch),
+        DnsOptions = new List<string>(DnsOptions),
+        Tmpfs = new List<string>(Tmpfs),
+        Ulimits = new List<string>(Ulimits),
+        ShmSize = ShmSize,
+        StopSignal = StopSignal,
+        Domainname = Domainname,
+    };
+
     public List<string> ToArguments()
     {
         var args = new List<string> { "run" };
