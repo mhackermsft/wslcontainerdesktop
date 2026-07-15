@@ -17,6 +17,8 @@
         <converters:RelativeTimeConverter x:Key="RelativeTime" />
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
         <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
+        <converters:BoolToSelectionModeConverter x:Key="BoolToSelMode" />
+        <converters:InverseBoolConverter x:Key="InverseBool" />
     </Page.Resources>
 
     <Grid Margin="24,16,24,16" RowSpacing="12">
@@ -37,7 +39,10 @@
 
         <!--  Toolbar  -->
         <Grid Grid.Row="1">
-            <StackPanel Orientation="Horizontal" Spacing="8">
+            <StackPanel
+                Orientation="Horizontal"
+                Spacing="8"
+                Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
                 <Button Command="{x:Bind ViewModel.RunCommand}" Style="{ThemeResource AccentButtonStyle}">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="14" Glyph="&#xE768;" />
@@ -64,13 +69,55 @@
                         <TextBlock Text="Prune stopped" />
                     </StackPanel>
                 </Button>
+                <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" ToolTipService.ToolTip="Select multiple containers">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE762;" />
+                        <TextBlock Text="Select" />
+                    </StackPanel>
+                </ToggleButton>
             </StackPanel>
             <StackPanel
                 HorizontalAlignment="Right"
                 Orientation="Horizontal"
-                Spacing="8">
+                Spacing="8"
+                Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
                 <TextBlock VerticalAlignment="Center" Text="Show all" />
                 <ToggleSwitch MinWidth="0" IsOn="{x:Bind ViewModel.ShowAll, Mode=TwoWay}" />
+            </StackPanel>
+
+            <!--  Bulk-action bar (shown while selecting)  -->
+            <StackPanel
+                Orientation="Horizontal"
+                Spacing="8"
+                Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontWeight="SemiBold"
+                    Text="{x:Bind ViewModel.SelectionSummary, Mode=OneWay}" />
+                <Button Click="BulkStart_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE768;" />
+                        <TextBlock Text="Start" />
+                    </StackPanel>
+                </Button>
+                <Button Click="BulkStop_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE71A;" />
+                        <TextBlock Text="Stop" />
+                    </StackPanel>
+                </Button>
+                <Button Click="BulkRemove_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                        <TextBlock Text="Remove" />
+                    </StackPanel>
+                </Button>
+                <Button Click="BulkCancel_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE711;" />
+                        <TextBlock Text="Cancel" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Grid>
 
@@ -142,9 +189,10 @@
                 <ListView
                     x:Name="ContainersList"
                     Padding="0,4"
-                    IsItemClickEnabled="True"
+                    IsItemClickEnabled="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource InverseBool}}"
                     ItemClick="ContainersList_ItemClick"
-                    SelectionMode="None">
+                    SelectionChanged="ContainersList_SelectionChanged"
+                    SelectionMode="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToSelMode}, ConverterParameter=None}">
                     <ListView.GroupStyle>
                         <GroupStyle HidesIfEmpty="True">
                             <GroupStyle.HeaderTemplate>

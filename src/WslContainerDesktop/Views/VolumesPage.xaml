@@ -14,6 +14,7 @@
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
         <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
         <converters:RelativeTimeConverter x:Key="RelativeTime" />
+        <converters:BoolToSelectionModeConverter x:Key="BoolToSelMode" />
     </Page.Resources>
 
     <Grid Margin="24,16,24,16" RowSpacing="12">
@@ -34,7 +35,8 @@
         <StackPanel
             Grid.Row="1"
             Orientation="Horizontal"
-            Spacing="8">
+            Spacing="8"
+            Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
             <Button Command="{x:Bind ViewModel.CreateCommand}" Style="{ThemeResource AccentButtonStyle}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE710;" />
@@ -51,6 +53,36 @@
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
                     <TextBlock Text="Prune" />
+                </StackPanel>
+            </Button>
+            <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" ToolTipService.ToolTip="Select multiple volumes">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="14" Glyph="&#xE762;" />
+                    <TextBlock Text="Select" />
+                </StackPanel>
+            </ToggleButton>
+        </StackPanel>
+
+        <!--  Bulk-action bar (shown while selecting)  -->
+        <StackPanel
+            Grid.Row="1"
+            Orientation="Horizontal"
+            Spacing="8"
+            Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+            <TextBlock
+                VerticalAlignment="Center"
+                FontWeight="SemiBold"
+                Text="{x:Bind ViewModel.SelectionSummary, Mode=OneWay}" />
+            <Button Click="BulkRemove_Click">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                    <TextBlock Text="Remove selected" />
+                </StackPanel>
+            </Button>
+            <Button Click="BulkCancel_Click">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="14" Glyph="&#xE711;" />
+                    <TextBlock Text="Cancel" />
                 </StackPanel>
             </Button>
         </StackPanel>
@@ -116,10 +148,12 @@
             CornerRadius="0,0,6,6">
             <Grid>
                 <ListView
+                    x:Name="VolumesList"
                     Padding="0,4"
                     ItemsSource="{x:Bind ViewModel.Volumes, Mode=OneWay}"
                     SelectedItem="{x:Bind ViewModel.Selected, Mode=TwoWay}"
-                    SelectionMode="Single">
+                    SelectionChanged="List_SelectionChanged"
+                    SelectionMode="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToSelMode}}">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />

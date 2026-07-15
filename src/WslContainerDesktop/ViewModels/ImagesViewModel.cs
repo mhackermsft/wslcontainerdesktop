@@ -33,6 +33,7 @@ public partial class ImagesViewModel : ObservableObject
     private readonly RegistryAuthRefresher _authRefresher;
     private readonly INotificationService _notifications;
     private readonly IRunProfileStore _profiles;
+    private readonly IActivityLog _activity;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -43,9 +44,20 @@ public partial class ImagesViewModel : ObservableObject
     [ObservableProperty]
     private ImageInfo? _selected;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectionSummary))]
+    private bool _isSelectionMode;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectionSummary))]
+    private int _selectedCount;
+
+    /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
+    public string SelectionSummary => $"{SelectedCount} selected";
+
     public ObservableCollection<ImageInfo> Images { get; } = new();
 
-    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles)
+    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles, IActivityLog activity)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -54,6 +66,7 @@ public partial class ImagesViewModel : ObservableObject
         _authRefresher = authRefresher;
         _notifications = notifications;
         _profiles = profiles;
+        _activity = activity;
     }
 
     /// <summary>Saved run profiles that target the given image, for the one-click run submenu.</summary>
@@ -114,11 +127,13 @@ public partial class ImagesViewModel : ObservableObject
                 await _dialogs.ShowMessageAsync("Pull failed", result.ErrorText);
                 StatusMessage = "Pull failed";
                 _notifications.NotifyImagePull(reference, success: false, result.ErrorText);
+                _activity.RecordImagePull(reference, success: false, result.ErrorText);
             }
             else
             {
                 StatusMessage = $"Pulled {reference}";
                 _notifications.NotifyImagePull(reference, success: true);
+                _activity.RecordImagePull(reference, success: true);
                 await RefreshAsync();
             }
         }
@@ -222,6 +237,74 @@ public partial class ImagesViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    partial void OnIsSelectionModeChanged(bool value)
+    {
+        if (!value)
+        {
+            SelectedCount = 0;
+        }
+    }
+
+    /// <summary>Removes every selected image after one confirmation, then exits selection mode.</summary>
+    public async Task BulkRemoveAsync(IReadOnlyList<ImageInfo> images)
+    {
+        var items = images?.Where(i => i is not null).ToList() ?? new List<ImageInfo>();
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Remove images",
+            $"Remove {items.Count} image(s)?\n\n{BulkNames(items.Select(i => i.Reference))}",
+            "Remove");
+        if (!ok)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = $"Removing {items.Count} image(s)…";
+        var failures = new List<string>();
+        try
+        {
+            foreach (var image in items)
+            {
+                var result = await _wslc.RemoveImageAsync(image.Id);
+                if (!result.Success)
+                {
+                    failures.Add(image.Reference);
+                }
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        IsSelectionMode = false;
+        await RefreshAsync();
+
+        if (failures.Count > 0)
+        {
+            await _dialogs.ShowMessageAsync(
+                "Some images were not removed",
+                $"{failures.Count} of {items.Count} could not be removed (they may be in use by a container):\n\n{BulkNames(failures)}");
+        }
+        else
+        {
+            StatusMessage = $"Removed {items.Count} image(s)";
+        }
+    }
+
+    private static string BulkNames(IEnumerable<string> names)
+    {
+        var list = names.ToList();
+        const int max = 12;
+        var shown = string.Join("\n", list.Take(max).Select(n => "• " + n));
+        return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
     }
 
     [RelayCommand]
@@ -359,10 +442,12 @@ public partial class ImagesViewModel : ObservableObject
                 await _dialogs.ShowMessageAsync("Build failed", result.ErrorText);
                 StatusMessage = "Build failed";
                 _notifications.NotifyImageBuild(dialog.ImageTag, success: false, result.ErrorText);
+                _activity.RecordImageBuild(dialog.ImageTag, success: false, result.ErrorText);
             }
             else
             {
                 _notifications.NotifyImageBuild(dialog.ImageTag, success: true);
+                _activity.RecordImageBuild(dialog.ImageTag, success: true);
                 await _dialogs.ShowMessageAsync("Build complete", result.StandardOutput);
                 await RefreshAsync();
             }

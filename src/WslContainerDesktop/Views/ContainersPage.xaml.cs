@@ -47,6 +47,29 @@ public sealed partial class ContainersPage : Page
         }
     }
 
+    private void ContainersList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ViewModel.IsSelectionMode)
+        {
+            ViewModel.SelectedCount = ContainersList.SelectedItems.Count;
+        }
+    }
+
+    private System.Collections.Generic.List<ContainerRowViewModel> SelectedRows() =>
+        ContainersList.SelectedItems.OfType<ContainerRowViewModel>().ToList();
+
+    private async void BulkStart_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.BulkStartAsync(SelectedRows());
+
+    private async void BulkStop_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.BulkStopAsync(SelectedRows());
+
+    private async void BulkRemove_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.BulkRemoveAsync(SelectedRows());
+
+    private void BulkCancel_Click(object sender, RoutedEventArgs e) =>
+        ViewModel.IsSelectionMode = false;
+
     private static ContainerRowViewModel? RowOf(object sender) =>
         (sender as FrameworkElement)?.DataContext as ContainerRowViewModel;
 

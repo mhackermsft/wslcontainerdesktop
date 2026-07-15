@@ -38,6 +38,17 @@ public partial class VolumesViewModel : ObservableObject
     [ObservableProperty]
     private VolumeInfo? _selected;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectionSummary))]
+    private bool _isSelectionMode;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectionSummary))]
+    private int _selectedCount;
+
+    /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
+    public string SelectionSummary => $"{SelectedCount} selected";
+
     public ObservableCollection<VolumeInfo> Volumes { get; } = new();
 
     public VolumesViewModel(IWslcService wslc, DialogService dialogs)
@@ -207,6 +218,69 @@ public partial class VolumesViewModel : ObservableObject
         }
 
         await ExecuteAsync(() => _wslc.PruneVolumesAsync());
+    }
+
+    partial void OnIsSelectionModeChanged(bool value)
+    {
+        if (!value)
+        {
+            SelectedCount = 0;
+        }
+    }
+
+    /// <summary>Removes every selected volume after a single confirmation, then exits selection mode.</summary>
+    public async Task BulkRemoveAsync(IReadOnlyList<VolumeInfo> volumes)
+    {
+        var items = volumes?.Where(v => v is not null).ToList() ?? new List<VolumeInfo>();
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Remove volumes",
+            $"Remove {items.Count} volume(s)? Data in these volumes will be lost.\n\n{BulkNames(items.Select(v => v.Name))}",
+            "Remove");
+        if (!ok)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        var failures = new List<string>();
+        try
+        {
+            foreach (var v in items)
+            {
+                var result = await _wslc.RemoveVolumeAsync(v.Name);
+                if (!result.Success)
+                {
+                    failures.Add(v.Name);
+                }
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        IsSelectionMode = false;
+        await RefreshAsync();
+
+        if (failures.Count > 0)
+        {
+            await _dialogs.ShowMessageAsync(
+                "Some volumes were not removed",
+                $"{failures.Count} of {items.Count} could not be removed (they may still be attached to a container):\n\n{BulkNames(failures)}");
+        }
+    }
+
+    private static string BulkNames(IEnumerable<string> names)
+    {
+        var list = names.ToList();
+        const int max = 12;
+        var shown = string.Join("\n", list.Take(max).Select(n => "• " + n));
+        return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
     }
 
     private async Task ExecuteAsync(Func<Task<CommandResult>> action, string? volumeName = null)

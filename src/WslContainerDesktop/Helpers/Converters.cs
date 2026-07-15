@@ -133,6 +133,42 @@ public sealed class EmptyToVisibilityConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+/// <summary>bool -> ListViewSelectionMode. true = Multiple; false = Single, or None when
+/// ConverterParameter is "None" (used by the containers list, whose default is None).</summary>
+public sealed class BoolToSelectionModeConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var multi = value is bool b && b;
+        if (multi)
+        {
+            return Microsoft.UI.Xaml.Controls.ListViewSelectionMode.Multiple;
+        }
+
+        return parameter is string p && string.Equals(p, "None", StringComparison.OrdinalIgnoreCase)
+            ? Microsoft.UI.Xaml.Controls.ListViewSelectionMode.None
+            : Microsoft.UI.Xaml.Controls.ListViewSelectionMode.Single;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>bool -> brush for activity rows (true = error red, false = accent).</summary>
+public sealed class ErrorToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var isError = value is bool b && b;
+        return isError
+            ? new SolidColorBrush(Color.FromArgb(255, 230, 70, 70))
+            : (object)Application.Current.Resources["AccentTextFillColorPrimaryBrush"];
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>bool -> status brush (true = green healthy, false = red).</summary>
 public sealed class BoolToStatusBrushConverter : IValueConverter
 {

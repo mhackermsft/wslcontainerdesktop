@@ -53,6 +53,17 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private bool _showAll = true;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectionSummary))]
+    private bool _isSelectionMode;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectionSummary))]
+    private int _selectedCount;
+
+    /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
+    public string SelectionSummary => $"{SelectedCount} selected";
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
     private ContainerRowViewModel? _selected;
 
@@ -1227,6 +1238,125 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         {
             SelectionCleared?.Invoke();
         }
+    }
+
+    partial void OnIsSelectionModeChanged(bool value)
+    {
+        if (!value)
+        {
+            SelectedCount = 0;
+        }
+    }
+
+    /// <summary>Starts every selected stopped container, then exits selection mode.</summary>
+    public async Task BulkStartAsync(IReadOnlyList<ContainerRowViewModel> rows)
+    {
+        var items = (rows ?? Array.Empty<ContainerRowViewModel>()).Where(r => r is not null && !r.IsRunning).ToList();
+        if (items.Count == 0)
+        {
+            IsSelectionMode = false;
+            return;
+        }
+
+        await RunBulkAsync($"Starting {items.Count} container(s)…", items, r => _wslc.StartContainerAsync(r.Id));
+    }
+
+    /// <summary>Stops every selected running container (suppressing exit toasts/restarts), then exits selection mode.</summary>
+    public async Task BulkStopAsync(IReadOnlyList<ContainerRowViewModel> rows)
+    {
+        var items = (rows ?? Array.Empty<ContainerRowViewModel>()).Where(r => r is not null && r.IsRunning).ToList();
+        if (items.Count == 0)
+        {
+            IsSelectionMode = false;
+            return;
+        }
+
+        foreach (var r in items)
+        {
+            _monitor.SuppressExitNotification(r.Id);
+            _restartWatchdog.SuppressRestart(r.Name);
+        }
+
+        await RunBulkAsync($"Stopping {items.Count} container(s)…", items, r => _wslc.StopContainerAsync(r.Id));
+    }
+
+    /// <summary>Removes every selected container after one confirmation, then exits selection mode.</summary>
+    public async Task BulkRemoveAsync(IReadOnlyList<ContainerRowViewModel> rows)
+    {
+        var items = (rows ?? Array.Empty<ContainerRowViewModel>()).Where(r => r is not null).ToList();
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Remove containers",
+            $"Remove {items.Count} container(s)? This cannot be undone.\n\n{BulkNames(items.Select(r => r.Name))}",
+            "Remove");
+        if (!ok)
+        {
+            return;
+        }
+
+        var removingSelected = Selected is not null && items.Any(r => r.Id == Selected.Id);
+        foreach (var r in items)
+        {
+            _monitor.SuppressExitNotification(r.Id);
+        }
+
+        await RunBulkAsync($"Removing {items.Count} container(s)…", items, r => _wslc.RemoveContainerAsync(r.Id), showConfirm: false);
+
+        if (removingSelected)
+        {
+            SelectionCleared?.Invoke();
+        }
+    }
+
+    private async Task RunBulkAsync(string message, IReadOnlyList<ContainerRowViewModel> items, Func<ContainerRowViewModel, Task<CommandResult>> op, bool showConfirm = true)
+    {
+        IsBusy = true;
+        StatusMessage = message;
+        var failures = new List<string>();
+        try
+        {
+            foreach (var r in items)
+            {
+                try
+                {
+                    var result = await op(r);
+                    if (!result.Success)
+                    {
+                        failures.Add(r.Name);
+                    }
+                }
+                catch
+                {
+                    failures.Add(r.Name);
+                }
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+            IsSelectionMode = false;
+            _monitor.RequestRefresh();
+        }
+
+        StatusMessage = failures.Count == 0 ? "Done" : $"{failures.Count} of {items.Count} failed";
+        if (failures.Count > 0)
+        {
+            await _dialogs.ShowMessageAsync(
+                "Some containers failed",
+                $"{failures.Count} of {items.Count} operations failed:\n\n{BulkNames(failures)}");
+        }
+    }
+
+    private static string BulkNames(IEnumerable<string> names)
+    {
+        var list = names.ToList();
+        const int max = 12;
+        var shown = string.Join("\n", list.Take(max).Select(n => "• " + n));
+        return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
     }
 
     [RelayCommand]
