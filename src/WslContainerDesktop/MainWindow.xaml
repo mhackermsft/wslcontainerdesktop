@@ -84,6 +84,11 @@
             </NavigationView.MenuItems>
 
             <NavigationView.FooterMenuItems>
+                <NavigationViewItem Content="WSL engine" Tag="wsl">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE977;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Disk usage" Tag="reclaim">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xEDA2;" />

@@ -298,6 +298,73 @@
                             Visibility="{x:Bind ViewModel.UnusedVolumes.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
                     </StackPanel>
                 </Border>
+
+                <!--  WSL virtual disks  -->
+                <TextBlock
+                    Margin="2,4,0,0"
+                    Style="{ThemeResource BodyStrongTextBlockStyle}"
+                    Text="WSL virtual disks" />
+                <TextBlock
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Text="WSL disks grow as data is written but never shrink on their own. Compacting reclaims unused space; it shuts WSL down and needs administrator approval."
+                    TextWrapping="Wrap" />
+                <Border Style="{StaticResource ListCard}">
+                    <StackPanel Spacing="2">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.VirtualDisks, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="models:WslVirtualDisk">
+                                    <Grid Padding="0,6" ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" MinWidth="140" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="90" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon
+                                            Grid.Column="0"
+                                            VerticalAlignment="Center"
+                                            FontSize="15"
+                                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                            Glyph="{x:Bind Glyph}" />
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            FontSize="13"
+                                            Text="{x:Bind Name}"
+                                            ToolTipService.ToolTip="{x:Bind VhdxPath}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind KindLabel}" />
+                                        <TextBlock
+                                            Grid.Column="3"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            FontSize="13"
+                                            Text="{x:Bind SizeBytes, Converter={StaticResource BytesToSize}}" />
+                                        <Button
+                                            Grid.Column="4"
+                                            Margin="8,0,0,0"
+                                            Command="{Binding ElementName=Root, Path=ViewModel.CompactDiskCommand}"
+                                            CommandParameter="{x:Bind}"
+                                            Content="Compact" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock
+                            Margin="0,8"
+                            HorizontalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="No WSL virtual disks found."
+                            Visibility="{x:Bind ViewModel.VirtualDisks.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
 

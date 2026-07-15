@@ -140,6 +140,21 @@ credentials are stored** — only registry host/username metadata; the actual lo
 the engine's credential store. Corrupt settings never crash the app (they fall back to defaults
 and log a warning).
 
+### WSL virtual machine (`WslSystemService`)
+
+Host-level operations on the **WSL VM itself**, as opposed to the container engine, backing the
+*WSL engine* page and the *Disk usage* page's disk-compaction. It reads `.wslconfig` resource
+limits (`[wsl2]` memory/processors/swap), reports platform info via `wsl --version` and the distro
+list via `wsl -l -v` (both run with `WSL_UTF8=1` so `wsl.exe` emits UTF-8, not UTF-16LE), and
+enumerates the on-disk `.vhdx` files: each registered distro's `ext4.vhdx` (found via the
+`HKCU\…\Lxss` registry `BasePath`) and the wslc engine's `storage.vhdx` (under
+`%LOCALAPPDATA%\wslc\sessions\<session>\`). Because a WSL `.vhdx` grows but never shrinks on its
+own, `CompactAsync` reclaims unused blocks: it terminates the wslc session
+(`IWslcService.RestartSessionAsync`) and runs `wsl --shutdown` to release the file, then runs
+`diskpart` **elevated** (`runas`) with an *attach read-only → compact → detach* script. diskpart's
+output can't be captured through the shell-execute launch, so the freed space is measured as the
+file's size delta; a declined UAC prompt surfaces as a cancel, not an error.
+
 ### Run profiles (`RunProfileStore`, `ComposeImporter`)
 
 Reusable named run configurations (image, name, ports, env vars, volumes, network, flags) are

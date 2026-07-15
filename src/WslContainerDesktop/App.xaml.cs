@@ -378,6 +378,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<ProcessRunner>();
         services.AddSingleton<IWslcService, WslcService>();
+        services.AddSingleton<IWslSystemService, WslSystemService>();
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
@@ -417,6 +418,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ImagesViewModel>();
         services.AddSingleton<VolumesViewModel>();
         services.AddSingleton<ReclaimSpaceViewModel>();
+        services.AddSingleton<WslEngineViewModel>();
         services.AddSingleton<NetworksViewModel>();
         services.AddSingleton<RegistriesViewModel>();
         services.AddSingleton<SettingsViewModel>();
