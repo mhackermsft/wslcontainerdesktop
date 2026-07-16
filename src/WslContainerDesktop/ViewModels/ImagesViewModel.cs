@@ -476,9 +476,28 @@ public partial class ImagesViewModel : ObservableObject
 
         IsBusy = true;
         StatusMessage = $"Pushing {reference}… (this can take a while)";
+        var addedTransientTag = false;
         try
         {
             await _authRefresher.EnsureFreshForReferenceAsync(reference);
+
+            // wslc can only push a reference that already exists locally, and a registry
+            // destination is encoded in the image name. Add the fully-qualified name as a
+            // transient alias for the push; it's removed in the finally so the local image
+            // keeps whatever name it had before (the alias copies no data — just a pointer).
+            if (!string.Equals(reference, image.Reference, StringComparison.Ordinal))
+            {
+                var tagResult = await _wslc.TagImageAsync(image.Id, reference);
+                if (!tagResult.Success)
+                {
+                    await _dialogs.ShowMessageAsync("Push failed",
+                        $"Couldn't tag the image as {reference}.\n\n{tagResult.ErrorText}");
+                    StatusMessage = "Push failed";
+                    return;
+                }
+
+                addedTransientTag = true;
+            }
 
             var result = await _wslc.PushImageAsync(reference);
             if (!result.Success)
@@ -497,6 +516,13 @@ public partial class ImagesViewModel : ObservableObject
         }
         finally
         {
+            // Remove only the alias we added; the image content and its original name are
+            // untouched because the image still carries at least one other reference.
+            if (addedTransientTag)
+            {
+                await _wslc.RemoveImageAsync(reference, force: true);
+            }
+
             IsBusy = false;
         }
     }

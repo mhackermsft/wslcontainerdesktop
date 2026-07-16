@@ -29,6 +29,7 @@ public sealed class PushImageDialog : ContentDialog
     private readonly ComboBox _registryBox;
     private readonly TextBox _referenceBox;
     private readonly TextBlock _preview;
+    private readonly TextBlock _error;
     private readonly IReadOnlyList<RegistryEntry> _registries;
 
     /// <summary>The fully-resolved reference to push.</summary>
@@ -74,7 +75,7 @@ public sealed class PushImageDialog : ContentDialog
         _referenceBox = new TextBox
         {
             Header = "Image reference",
-            PlaceholderText = "e.g. myrepo/myimage:latest",
+            PlaceholderText = "e.g. myrepo/myimage:1.0",
             Text = prefillReference ?? string.Empty,
         };
         _referenceBox.TextChanged += (_, _) => UpdatePreview();
@@ -87,10 +88,17 @@ public sealed class PushImageDialog : ContentDialog
             TextWrapping = TextWrapping.Wrap,
         };
 
+        _error = new TextBlock
+        {
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+        };
+
         Content = new StackPanel
         {
             Spacing = 10,
-            Children = { _registryBox, _referenceBox, _preview },
+            Children = { _registryBox, _referenceBox, _preview, _error },
         };
 
         UpdatePreview();
@@ -108,6 +116,11 @@ public sealed class PushImageDialog : ContentDialog
         _preview.Text = string.IsNullOrEmpty(input)
             ? "Will push: —"
             : $"Will push: {SelectedRegistry.Qualify(input)}";
+
+        if (_error is not null)
+        {
+            _error.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void OnPrimary(ContentDialog sender, ContentDialogButtonClickEventArgs args)
@@ -120,6 +133,50 @@ public sealed class PushImageDialog : ContentDialog
             return;
         }
 
-        Reference = SelectedRegistry.Qualify(input);
+        var target = SelectedRegistry.Qualify(input);
+        var tag = ExtractTag(target);
+
+        if (string.IsNullOrEmpty(tag))
+        {
+            ShowError("Add an explicit version tag (for example :1.0). " +
+                "Without one the push defaults to \"latest\", which doesn't identify the actual version.");
+            args.Cancel = true;
+            _referenceBox.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        Reference = target;
+    }
+
+    private void ShowError(string message)
+    {
+        _error.Text = message;
+        _error.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Returns the explicit tag portion of an image reference, or null if it has none.
+    /// Ignores any registry host <c>host:port</c> (a colon before the last '/') and any
+    /// <c>@sha256:…</c> digest.
+    /// </summary>
+    private static string? ExtractTag(string reference)
+    {
+        var value = reference.Trim();
+        var at = value.IndexOf('@');
+        if (at >= 0)
+        {
+            value = value[..at];
+        }
+
+        var lastSlash = value.LastIndexOf('/');
+        var lastComponent = lastSlash >= 0 ? value[(lastSlash + 1)..] : value;
+        var colon = lastComponent.IndexOf(':');
+        if (colon < 0)
+        {
+            return null;
+        }
+
+        var tag = lastComponent[(colon + 1)..].Trim();
+        return tag.Length == 0 ? null : tag;
     }
 }
