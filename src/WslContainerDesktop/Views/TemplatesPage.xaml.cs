@@ -14,11 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
+using Windows.Storage;
+using Windows.Storage.Pickers;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Services;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
@@ -47,19 +52,136 @@ public sealed partial class TemplatesPage : Page
         }
     }
 
-    private void ConfigureButton_Click(object sender, RoutedEventArgs e)
+    private void ConfigureMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is StackTemplate template)
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
         {
             ViewModel.ConfigureCommand.Execute(template);
         }
     }
 
-    private void RemoveButton_Click(object sender, RoutedEventArgs e)
+    private void RemoveDeploymentMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is StackTemplate template)
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
         {
             ViewModel.RemoveCommand.Execute(template);
         }
     }
+
+    private void HideMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
+        {
+            ViewModel.ToggleHiddenCommand.Execute(template);
+        }
+    }
+
+    private void DeleteTemplateMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
+        {
+            ViewModel.DeleteTemplateCommand.Execute(template);
+        }
+    }
+
+    private void NewTemplateButton_Click(object sender, RoutedEventArgs e) =>
+        ViewModel.CreateTemplateCommand.Execute(null);
+
+    private void EditMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
+        {
+            ViewModel.EditTemplateCommand.Execute(template);
+        }
+    }
+
+    private void DuplicateMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
+        {
+            ViewModel.DuplicateTemplateCommand.Execute(template);
+        }
+    }
+
+    private void ExportMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not StackTemplate template)
+        {
+            return;
+        }
+
+        UiSafe.Run(async () =>
+        {
+            var file = await PickSaveFileAsync(SanitizeFileName(template.Name));
+            if (file is not null)
+            {
+                await FileIO.WriteTextAsync(file, ViewModel.ExportToJson(template));
+                ViewModel.StatusMessage = $"Exported \"{template.Name}\" to {file.Name}.";
+            }
+        });
+    }
+
+    private void ExportAllButton_Click(object sender, RoutedEventArgs e)
+    {
+        UiSafe.Run(async () =>
+        {
+            if (!await ViewModel.EnsureHasUserTemplatesForExportAsync())
+            {
+                return;
+            }
+
+            var file = await PickSaveFileAsync("my-templates");
+            if (file is not null)
+            {
+                await FileIO.WriteTextAsync(file, ViewModel.ExportAllUserToJson());
+                ViewModel.StatusMessage = $"Exported your custom templates to {file.Name}.";
+            }
+        });
+    }
+
+    private void ImportButton_Click(object sender, RoutedEventArgs e)
+    {
+        UiSafe.Run(async () =>
+        {
+            var picker = new FileOpenPicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            };
+            picker.FileTypeFilter.Add(TemplatePortability.FileExtension);
+            picker.FileTypeFilter.Add(".json");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+
+            var json = await FileIO.ReadTextAsync(file);
+            await ViewModel.ImportFromJsonAsync(json);
+        });
+    }
+
+    private async System.Threading.Tasks.Task<StorageFile?> PickSaveFileAsync(string suggestedName)
+    {
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = suggestedName,
+        };
+        picker.FileTypeChoices.Add(
+            "WSL template", new List<string> { TemplatePortability.FileExtension });
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+        return await picker.PickSaveFileAsync();
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        var cleaned = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "template" : cleaned;
+    }
+
+    private static nint GetMainWindowHandle() =>
+        Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
 }

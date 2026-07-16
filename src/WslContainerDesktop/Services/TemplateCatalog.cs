@@ -21,19 +21,37 @@ namespace WslContainerDesktop.Services;
 /// <summary>Provides the curated set of one-click stack templates shown in the gallery.</summary>
 public interface ITemplateCatalog
 {
+    /// <summary>All templates: the code-baked built-ins plus the user's stored/imported templates.</summary>
     IReadOnlyList<StackTemplate> Templates { get; }
+
+    /// <summary>Raised when the effective template set changes (a user template was added/edited/removed).</summary>
+    event EventHandler? Changed;
 }
 
 /// <summary>
-/// A static, bundled catalog of popular images and multi-service stacks. All templates use public
-/// images (Docker Hub or Microsoft Container Registry) so they run without registry credentials.
-/// Single-container templates prefill the Run dialog; compose templates import as a project. Data
-/// services use a named volume so restarts don't lose state; developer sandboxes stay alive with a
-/// keep-alive command and mount a persistent <c>/workspace</c> volume.
+/// A static, bundled catalog of popular images and multi-service stacks, merged with the user's own
+/// stored and imported templates (see <see cref="IUserTemplateStore"/>). All built-in templates use
+/// public images (Docker Hub or Microsoft Container Registry) so they run without registry
+/// credentials. Single-container templates prefill the Run dialog; compose templates import as a
+/// project. Data services use a named volume so restarts don't lose state; developer sandboxes stay
+/// alive with a keep-alive command and mount a persistent <c>/workspace</c> volume.
 /// </summary>
 public sealed class TemplateCatalog : ITemplateCatalog
 {
-    public IReadOnlyList<StackTemplate> Templates { get; } = Build();
+    private readonly IUserTemplateStore _userTemplates;
+    private readonly IReadOnlyList<StackTemplate> _builtIns = Build();
+
+    public TemplateCatalog(IUserTemplateStore userTemplates)
+    {
+        _userTemplates = userTemplates;
+        _userTemplates.Changed += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public event EventHandler? Changed;
+
+    /// <summary>The built-ins followed by the user's stored/imported templates.</summary>
+    public IReadOnlyList<StackTemplate> Templates =>
+        _builtIns.Concat(_userTemplates.Templates).ToList();
 
     private static IReadOnlyList<StackTemplate> Build()
     {

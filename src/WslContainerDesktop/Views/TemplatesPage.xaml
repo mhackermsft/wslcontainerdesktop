@@ -22,13 +22,59 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Spacing="6">
-            <StackPanel Spacing="2">
-                <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Templates" />
-                <TextBlock
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Style="{ThemeResource CaptionTextBlockStyle}"
-                    Text="One-click stacks — launch a common image or multi-service project in seconds." />
-            </StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Templates" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="One-click stacks — launch a common image or multi-service project in seconds." />
+                </StackPanel>
+                <StackPanel
+                    Grid.Column="1"
+                    VerticalAlignment="Top"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <Button
+                        AutomationProperties.Name="New template"
+                        Click="NewTemplateButton_Click"
+                        Style="{StaticResource AccentButtonStyle}"
+                        ToolTipService.ToolTip="Create a new custom template">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="14" Glyph="&#xE710;" />
+                            <TextBlock Text="New template" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        AutomationProperties.Name="Import templates"
+                        Click="ImportButton_Click"
+                        ToolTipService.ToolTip="Import templates from a file">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="14" Glyph="&#xE896;" />
+                            <TextBlock Text="Import" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        AutomationProperties.Name="Export all custom templates"
+                        Click="ExportAllButton_Click"
+                        ToolTipService.ToolTip="Export your custom and imported templates to a file">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="14" Glyph="&#xE898;" />
+                            <TextBlock Text="Export all" />
+                        </StackPanel>
+                    </Button>
+                    <ToggleSwitch
+                        MinWidth="0"
+                        VerticalAlignment="Center"
+                        IsOn="{x:Bind ViewModel.ShowHidden, Mode=TwoWay}"
+                        OffContent="Show hidden"
+                        OnContent="Show hidden" />
+                </StackPanel>
+            </Grid>
 
             <!--  Launch progress + status feedback  -->
             <Border
@@ -85,7 +131,8 @@
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1"
-                        CornerRadius="8">
+                        CornerRadius="8"
+                        Opacity="{x:Bind CardOpacity, Mode=OneWay}">
                         <Grid RowSpacing="8">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -121,54 +168,60 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
 
-                                <!--  Kind badge, replaced by a "Deployed" pill while the template is up  -->
-                                <Border
+                                <!--  Source / kind / deployment badges  -->
+                                <StackPanel
                                     Grid.Column="0"
-                                    Padding="8,2"
-                                    HorizontalAlignment="Left"
                                     VerticalAlignment="Center"
-                                    Background="{ThemeResource ControlFillColorSecondaryBrush}"
-                                    CornerRadius="10"
-                                    Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
-                                    <TextBlock
-                                        FontSize="11"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        Text="{x:Bind KindLabel}" />
-                                </Border>
-
-                                <Border
-                                    Grid.Column="0"
-                                    Padding="8,2"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Center"
-                                    Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
-                                    CornerRadius="10"
-                                    Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <FontIcon
-                                            VerticalAlignment="Center"
-                                            FontSize="10"
-                                            Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                                            Glyph="&#xE73E;" />
+                                    Orientation="Horizontal"
+                                    Spacing="4">
+                                    <Border
+                                        Padding="8,2"
+                                        VerticalAlignment="Center"
+                                        Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                        CornerRadius="10">
                                         <TextBlock
                                             FontSize="11"
-                                            Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                                            Text="Deployed" />
-                                    </StackPanel>
-                                </Border>
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind KindLabel}" />
+                                    </Border>
+
+                                    <!--  "Custom" / "Imported" badge for user-owned templates  -->
+                                    <Border
+                                        Padding="8,2"
+                                        VerticalAlignment="Center"
+                                        Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                        CornerRadius="10"
+                                        Visibility="{x:Bind IsUserManaged, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock
+                                            FontSize="11"
+                                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                            Text="{x:Bind SourceLabel}" />
+                                    </Border>
+
+                                    <Border
+                                        Padding="8,2"
+                                        VerticalAlignment="Center"
+                                        Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
+                                        CornerRadius="10"
+                                        Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon
+                                                VerticalAlignment="Center"
+                                                FontSize="10"
+                                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                                Glyph="&#xE73E;" />
+                                            <TextBlock
+                                                FontSize="11"
+                                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                                Text="Deployed" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
 
                                 <StackPanel
                                     Grid.Column="1"
                                     Orientation="Horizontal"
                                     Spacing="6">
-                                    <Button
-                                        Padding="8"
-                                        AutomationProperties.Name="Configure"
-                                        Click="ConfigureButton_Click"
-                                        IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
-                                        ToolTipService.ToolTip="Configure before launching (saved for next time)">
-                                        <FontIcon FontSize="14" Glyph="&#xE713;" />
-                                    </Button>
                                     <Button
                                         Click="LaunchButton_Click"
                                         IsEnabled="{x:Bind CanLaunch, Mode=OneWay}"
@@ -195,25 +248,89 @@
                                             </StackPanel>
                                         </Grid>
                                     </Button>
+
+                                    <!--  Secondary actions: text-labelled so nothing is ambiguous  -->
                                     <Button
                                         Padding="8"
-                                        AutomationProperties.Name="Remove"
-                                        Click="RemoveButton_Click"
-                                        IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
-                                        ToolTipService.ToolTip="Remove — stop and delete this deployment"
-                                        Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                        <Grid>
-                                            <FontIcon
-                                                FontSize="14"
-                                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                                                Glyph="&#xE74D;"
-                                                Visibility="{x:Bind IsRemoving, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
-                                            <ProgressRing
-                                                Width="14"
-                                                Height="14"
-                                                IsActive="{x:Bind IsRemoving, Mode=OneWay}"
-                                                Visibility="{x:Bind IsRemoving, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
-                                        </Grid>
+                                        AutomationProperties.Name="More actions"
+                                        ToolTipService.ToolTip="More actions">
+                                        <FontIcon FontSize="14" Glyph="&#xE712;" />
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem
+                                                    Click="ConfigureMenuItem_Click"
+                                                    IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                                    Tag="{x:Bind}"
+                                                    Text="Configure…">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE713;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem
+                                                    Click="DuplicateMenuItem_Click"
+                                                    Tag="{x:Bind}"
+                                                    Text="Duplicate…">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE8C8;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem
+                                                    Click="EditMenuItem_Click"
+                                                    Tag="{x:Bind}"
+                                                    Text="Edit…"
+                                                    Visibility="{x:Bind IsUserManaged, Converter={StaticResource BoolToVis}}">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE70F;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem
+                                                    Click="ExportMenuItem_Click"
+                                                    Tag="{x:Bind}"
+                                                    Text="Export…">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE898;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem
+                                                    Click="RemoveDeploymentMenuItem_Click"
+                                                    IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                                    Tag="{x:Bind}"
+                                                    Text="Remove deployment"
+                                                    Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE738;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem
+                                                    Click="HideMenuItem_Click"
+                                                    Tag="{x:Bind}"
+                                                    Text="Hide"
+                                                    Visibility="{x:Bind IsHidden, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xED1A;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem
+                                                    Click="HideMenuItem_Click"
+                                                    Tag="{x:Bind}"
+                                                    Text="Unhide"
+                                                    Visibility="{x:Bind IsHidden, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE7B3;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem
+                                                    Click="DeleteTemplateMenuItem_Click"
+                                                    Tag="{x:Bind}"
+                                                    Text="Delete template"
+                                                    Visibility="{x:Bind IsUserManaged, Converter={StaticResource BoolToVis}}">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE74D;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                            </MenuFlyout>
+                                        </Button.Flyout>
                                     </Button>
                                 </StackPanel>
                             </Grid>

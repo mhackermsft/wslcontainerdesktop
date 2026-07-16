@@ -54,11 +54,17 @@ public partial class TemplatesViewModel : ObservableObject
     private readonly RegistryAuthRefresher _authRefresher;
     private readonly IRunProfileStore _profiles;
     private readonly ITemplateConfigStore _configs;
+    private readonly IUserTemplateStore _userTemplates;
+    private readonly ITemplateVisibilityStore _visibility;
     private readonly ComposeViewModel _compose;
     private readonly DispatcherQueue _dispatcher;
 
     [ObservableProperty]
     private bool _isBusy;
+
+    /// <summary>When true, hidden templates are shown (dimmed) instead of filtered out of the gallery.</summary>
+    [ObservableProperty]
+    private bool _showHidden;
 
     [ObservableProperty]
     private string _statusMessage = "Pick a template to get started.";
@@ -74,6 +80,8 @@ public partial class TemplatesViewModel : ObservableObject
         RegistryAuthRefresher authRefresher,
         IRunProfileStore profiles,
         ITemplateConfigStore configs,
+        IUserTemplateStore userTemplates,
+        ITemplateVisibilityStore visibility,
         ComposeViewModel compose)
     {
         _catalog = catalog;
@@ -84,18 +92,59 @@ public partial class TemplatesViewModel : ObservableObject
         _authRefresher = authRefresher;
         _profiles = profiles;
         _configs = configs;
+        _userTemplates = userTemplates;
+        _visibility = visibility;
         _compose = compose;
 
-        foreach (var group in _catalog.Templates.GroupBy(t => t.Category))
+        _dispatcher = DispatcherQueue.GetForCurrentThread();
+        RebuildGroups();
+
+        _monitor.StatusChanged += OnStatusChanged;
+        _catalog.Changed += OnCatalogOrVisibilityChanged;
+        _visibility.Changed += OnCatalogOrVisibilityChanged;
+    }
+
+    private void OnCatalogOrVisibilityChanged(object? sender, EventArgs e) => RunOnUi(RebuildGroups);
+
+    partial void OnShowHiddenChanged(bool value) => RebuildGroups();
+
+    /// <summary>
+    /// Rebuilds the grouped gallery from the composite catalog: stamps each template's hidden state,
+    /// applies the "Show hidden" filter, groups by category, and re-applies live deployment state.
+    /// The catalog returns stable instances, so transient card state survives a rebuild.
+    /// </summary>
+    private void RebuildGroups()
+    {
+        var all = _catalog.Templates;
+        foreach (var template in all)
+        {
+            template.IsHidden = _visibility.IsHidden(template.Id);
+        }
+
+        var visible = all.Where(t => ShowHidden || !t.IsHidden);
+
+        Groups.Clear();
+        foreach (var group in visible.GroupBy(t => t.Category))
         {
             Groups.Add(new TemplateGroup(group.Key, group));
         }
 
-        _dispatcher = DispatcherQueue.GetForCurrentThread();
-        _monitor.StatusChanged += OnStatusChanged;
         if (_monitor.Latest is not null)
         {
             UpdateDeploymentState(_monitor.Latest);
+        }
+    }
+
+    /// <summary>Runs an action on the UI thread, marshaling via the captured dispatcher if needed.</summary>
+    private void RunOnUi(Action action)
+    {
+        if (_dispatcher.HasThreadAccess)
+        {
+            action();
+        }
+        else
+        {
+            _dispatcher.TryEnqueue(() => action());
         }
     }
 
@@ -274,6 +323,207 @@ public partial class TemplatesViewModel : ObservableObject
         {
             template.IsRemoving = false;
         }
+    }
+
+    /// <summary>
+    /// Hides or unhides a template in the gallery. Applies to any template (built-in or user); a
+    /// hidden template is filtered out unless the "Show hidden" toggle is on.
+    /// </summary>
+    [RelayCommand]
+    private void ToggleHidden(StackTemplate? template)
+    {
+        if (template is null)
+        {
+            return;
+        }
+
+        _visibility.SetHidden(template.Id, !template.IsHidden);
+    }
+
+    /// <summary>
+    /// Permanently deletes a user-authored or imported template (never a built-in) after
+    /// confirmation, also dropping its saved launch config and hidden state. Deployed resources are
+    /// left untouched — this removes the template definition, not any running instance.
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteTemplateAsync(StackTemplate? template)
+    {
+        if (template is null || !template.IsUserManaged)
+        {
+            return;
+        }
+
+        var confirmed = await _dialogs.ShowConfirmAsync(
+            $"Delete the \"{template.Name}\" template?",
+            "This removes the template from your gallery. Any containers it already launched are not "
+                + "affected — use \"Remove deployment\" first if you also want to tear those down.",
+            "Delete");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _userTemplates.Delete(template.Id);
+        _configs.Delete(template.Id);
+        _visibility.SetHidden(template.Id, false);
+        StatusMessage = $"Deleted the \"{template.Name}\" template.";
+    }
+
+    /// <summary>Opens the editor to author a brand-new user template, saving it on confirm.</summary>
+    [RelayCommand]
+    private Task CreateTemplateAsync() => ShowEditorAsync(source: null, isDuplicate: false);
+
+    /// <summary>Opens the editor to edit an existing user/imported template in place.</summary>
+    [RelayCommand]
+    private Task EditTemplateAsync(StackTemplate? template)
+    {
+        if (template is null || !template.IsUserManaged)
+        {
+            return Task.CompletedTask;
+        }
+
+        return ShowEditorAsync(template, isDuplicate: false);
+    }
+
+    /// <summary>Opens the editor prefilled from any template (including a built-in) to create a copy.</summary>
+    [RelayCommand]
+    private Task DuplicateTemplateAsync(StackTemplate? template)
+    {
+        if (template is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return ShowEditorAsync(template, isDuplicate: true);
+    }
+
+    private async Task ShowEditorAsync(StackTemplate? source, bool isDuplicate)
+    {
+        var categories = _catalog.Templates.Select(t => t.Category);
+        var dialog = new TemplateEditorDialog(categories, source, isDuplicate);
+        if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary || dialog.Result is null)
+        {
+            return;
+        }
+
+        var template = dialog.Result;
+        // A fresh definition supersedes any stale saved launch override for this id.
+        _configs.Delete(template.Id);
+        _userTemplates.Save(template);
+
+        var verb = source is null ? "Created" : (isDuplicate ? "Created a copy" : "Saved");
+        StatusMessage = $"{verb}: \"{template.Name}\".";
+    }
+
+    /// <summary>True when the user has at least one custom/imported template that could be exported.</summary>
+    public bool HasUserManagedTemplates => _userTemplates.Templates.Count > 0;
+
+    /// <summary>Serializes a single template to export-file JSON (see <see cref="TemplatePortability"/>).</summary>
+    public string ExportToJson(StackTemplate template) => TemplatePortability.Serialize(new[] { template });
+
+    /// <summary>Serializes all of the user's custom/imported templates to export-file JSON.</summary>
+    public string ExportAllUserToJson() => TemplatePortability.Serialize(_userTemplates.Templates);
+
+    /// <summary>
+    /// Guards the "Export all" action: returns true when there is something to export, otherwise
+    /// tells the user there are no custom templates yet and returns false.
+    /// </summary>
+    public async Task<bool> EnsureHasUserTemplatesForExportAsync()
+    {
+        if (HasUserManagedTemplates)
+        {
+            return true;
+        }
+
+        await _dialogs.ShowMessageAsync(
+            "Nothing to export",
+            "You don't have any custom or imported templates yet. Create or import one first, or "
+                + "use a card's Export… to share a built-in template.");
+        return false;
+    }
+
+    /// <summary>
+    /// Imports templates from an export file's JSON. Parsing errors are surfaced to the user; on
+    /// success the user confirms, then each template is added non-destructively as an
+    /// <see cref="TemplateSource.Imported"/> copy — a fresh unique id and a de-duplicated name are
+    /// assigned so nothing existing (built-in or user) is ever overwritten.
+    /// </summary>
+    public async Task ImportFromJsonAsync(string json)
+    {
+        IReadOnlyList<StackTemplate> parsed;
+        try
+        {
+            parsed = TemplatePortability.Parse(json);
+        }
+        catch (Exception ex)
+        {
+            await _dialogs.ShowMessageAsync("Import failed", ex.Message);
+            return;
+        }
+
+        var confirmed = await _dialogs.ShowConfirmAsync(
+            "Import templates?",
+            $"Import {parsed.Count} template(s) into your gallery? Anything that clashes with an "
+                + "existing template is imported as a separate copy — nothing is overwritten.",
+            "Import");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var ids = new HashSet<string>(
+            _catalog.Templates.Select(t => t.Id), StringComparer.OrdinalIgnoreCase);
+        var names = new HashSet<string>(
+            _catalog.Templates.Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
+
+        var toSave = new List<StackTemplate>();
+        foreach (var template in parsed)
+        {
+            template.Source = TemplateSource.Imported;
+            template.IsHidden = false;
+
+            if (string.IsNullOrWhiteSpace(template.Id) || ids.Contains(template.Id))
+            {
+                template.Id = MakeUniqueId(ids);
+            }
+
+            ids.Add(template.Id);
+
+            if (names.Contains(template.Name))
+            {
+                template.Name = MakeUniqueName(template.Name, names);
+            }
+
+            names.Add(template.Name);
+            toSave.Add(template);
+        }
+
+        _userTemplates.SaveRange(toSave);
+        StatusMessage = $"Imported {toSave.Count} template(s).";
+    }
+
+    private static string MakeUniqueId(HashSet<string> existing)
+    {
+        string id;
+        do
+        {
+            id = "imported-" + Guid.NewGuid().ToString("N")[..8];
+        }
+        while (existing.Contains(id));
+
+        return id;
+    }
+
+    private static string MakeUniqueName(string name, HashSet<string> existing)
+    {
+        var candidate = $"{name} (imported)";
+        var counter = 2;
+        while (existing.Contains(candidate))
+        {
+            candidate = $"{name} (imported {counter++})";
+        }
+
+        return candidate;
     }
 
     private async Task RemoveComposeAsync(StackTemplate template, bool removeVolumes)
