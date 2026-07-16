@@ -310,6 +310,17 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
             return basic;
         }
 
+        // Only ever send the stored credential to an https token endpoint. The realm is taken
+        // verbatim from the registry's challenge header; a compromised/misconfigured registry could
+        // name an http:// or third-party realm, which would leak the secret in cleartext. Requiring
+        // https means a bad realm results in a failed browse rather than a credential disclosure.
+        if (!Uri.TryCreate(realm, UriKind.Absolute, out var realmUri) ||
+            !string.Equals(realmUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Ignoring non-https Bearer token realm from registry challenge.");
+            return null;
+        }
+
         var service = parameters.GetValueOrDefault("service");
         var effectiveScope = parameters.GetValueOrDefault("scope");
         if (string.IsNullOrWhiteSpace(effectiveScope))
