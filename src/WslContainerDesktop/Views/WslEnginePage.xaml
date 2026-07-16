@@ -83,6 +83,34 @@
                                 IsActive="{x:Bind ViewModel.IsCheckingUpdate, Mode=OneWay}" />
                         </StackPanel>
 
+                        <!--  Installed + latest available versions (latest depends on the channel toggle)  -->
+                        <StackPanel Spacing="4">
+                            <TextBlock>
+                                <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Installed version:" />
+                                <Run Text="{x:Bind ViewModel.WslVersion, Mode=OneWay}" />
+                            </TextBlock>
+                            <TextBlock>
+                                <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Latest available:" />
+                                <Run Text="{x:Bind ViewModel.LatestWslVersion, Mode=OneWay}" />
+                            </TextBlock>
+                        </StackPanel>
+
+                        <!--  Up to date  -->
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            Visibility="{x:Bind ViewModel.IsUpToDate, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                Glyph="&#xE73E;" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                Text="WSL is up to date." />
+                        </StackPanel>
+
+                        <!--  Update available  -->
                         <InfoBar
                             IsClosable="False"
                             IsOpen="{x:Bind ViewModel.UpdateAvailable, Mode=OneWay}"
@@ -97,6 +125,7 @@
                             </InfoBar.ActionButton>
                         </InfoBar>
 
+                        <!--  Check failed  -->
                         <InfoBar
                             IsClosable="False"
                             IsOpen="{x:Bind ViewModel.UpdateCheckFailed, Mode=OneWay}"
@@ -112,7 +141,7 @@
                         <TextBlock
                             FontSize="12"
                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                            Text="When on, update checks and 'wsl --update --pre-release' consider pre-release WSL builds."
+                            Text="Include beta (pre-release) WSL builds when checking for and installing updates."
                             TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>

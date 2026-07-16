@@ -70,6 +70,14 @@ public partial class WslEngineViewModel : ObservableObject
     [ObservableProperty]
     private bool _updateAvailable;
 
+    /// <summary>True when the installed WSL version is current for the selected channel.</summary>
+    [ObservableProperty]
+    private bool _isUpToDate;
+
+    /// <summary>Latest WSL version available on the selected channel (from the release feed).</summary>
+    [ObservableProperty]
+    private string _latestWslVersion = "Unknown";
+
     /// <summary>Message shown in the update notice InfoBar.</summary>
     [ObservableProperty]
     private string _updateMessage = string.Empty;
@@ -166,13 +174,17 @@ public partial class WslEngineViewModel : ObservableObject
     private async Task CheckForUpdateAsync()
     {
         IsCheckingUpdate = true;
+        UpdateAvailable = false;
+        IsUpToDate = false;
         try
         {
             var info = await _system.CheckForUpdateAsync(IncludePreRelease);
             if (info.CheckFailed)
             {
                 UpdateAvailable = false;
+                IsUpToDate = false;
                 UpdateMessage = string.Empty;
+                LatestWslVersion = "Unknown";
                 UpdateCheckFailed = true;
                 UpdateCheckFailedMessage = info.FailureReason ?? "Could not check for WSL updates.";
                 return;
@@ -180,7 +192,9 @@ public partial class WslEngineViewModel : ObservableObject
 
             UpdateCheckFailed = false;
             UpdateCheckFailedMessage = string.Empty;
+            LatestWslVersion = string.IsNullOrWhiteSpace(info.LatestVersion) ? "Unknown" : info.LatestVersion;
             UpdateAvailable = info.UpdateAvailable;
+            IsUpToDate = !info.UpdateAvailable;
             UpdateMessage = info.UpdateAvailable
                 ? $"WSL {info.LatestVersion} is available (installed {info.InstalledVersion})."
                 : string.Empty;
