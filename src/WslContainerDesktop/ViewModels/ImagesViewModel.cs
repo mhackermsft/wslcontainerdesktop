@@ -476,9 +476,37 @@ public partial class ImagesViewModel : ObservableObject
 
         IsBusy = true;
         StatusMessage = $"Pushing {reference}… (this can take a while)";
+
+        // Snapshot the names this image already carries so cleanup only removes an alias we
+        // actually added — never a tag the user already had. Comparing the engine's own
+        // normalized references catches collisions that raw string equality would miss
+        // (e.g. Docker Hub where "nginx:1.0" resolves to "docker.io/library/nginx:1.0").
+        var namesBefore = await ReferencesForImageAsync(image.Id);
+        var transientAliases = new List<string>();
         try
         {
             await _authRefresher.EnsureFreshForReferenceAsync(reference);
+
+            // A registry destination is encoded in the image name, and wslc can only push a
+            // reference that exists locally. Add the fully-qualified name as an alias for the
+            // push; it copies no data — just another pointer to the same image content.
+            var tagResult = await _wslc.TagImageAsync(image.Id, reference);
+            if (!tagResult.Success)
+            {
+                await _dialogs.ShowMessageAsync("Push failed",
+                    $"Couldn't tag the image as {reference}.\n\n{tagResult.ErrorText}");
+                StatusMessage = "Push failed";
+                return;
+            }
+
+            // Whatever new reference the tag introduced is the transient alias to undo later.
+            // If the reference already existed, the tag was a no-op and nothing is removed.
+            // The Count guard ensures we only trust a valid pre-push snapshot before diffing.
+            if (namesBefore.Count > 0)
+            {
+                var namesAfter = await ReferencesForImageAsync(image.Id);
+                transientAliases = namesAfter.Except(namesBefore, StringComparer.Ordinal).ToList();
+            }
 
             var result = await _wslc.PushImageAsync(reference);
             if (!result.Success)
@@ -497,8 +525,30 @@ public partial class ImagesViewModel : ObservableObject
         }
         finally
         {
+            // Remove only the aliases the tag step introduced, so the local image keeps the
+            // exact names it had before the push. Untagging a still-multi-referenced image
+            // never deletes its content or the user's original tags.
+            foreach (var alias in transientAliases)
+            {
+                await _wslc.RemoveImageAsync(alias, force: true);
+            }
+
             IsBusy = false;
         }
+    }
+
+    /// <summary>
+    /// The set of image references (names) currently pointing at the given image id, as the
+    /// engine reports them (already normalized). Used to detect which alias a tag step adds so
+    /// only that alias is later removed. Failures degrade to an empty set (cleanup is skipped).
+    /// </summary>
+    private async Task<HashSet<string>> ReferencesForImageAsync(string imageId)
+    {
+        var all = await _wslc.ListImagesAsync();
+        return all
+            .Where(i => string.Equals(i.Id, imageId, StringComparison.OrdinalIgnoreCase))
+            .Select(i => i.Reference)
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     [RelayCommand]
