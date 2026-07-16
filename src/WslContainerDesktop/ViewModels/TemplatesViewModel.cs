@@ -54,11 +54,17 @@ public partial class TemplatesViewModel : ObservableObject
     private readonly RegistryAuthRefresher _authRefresher;
     private readonly IRunProfileStore _profiles;
     private readonly ITemplateConfigStore _configs;
+    private readonly IUserTemplateStore _userTemplates;
+    private readonly ITemplateVisibilityStore _visibility;
     private readonly ComposeViewModel _compose;
     private readonly DispatcherQueue _dispatcher;
 
     [ObservableProperty]
     private bool _isBusy;
+
+    /// <summary>When true, hidden templates are shown (dimmed) instead of filtered out of the gallery.</summary>
+    [ObservableProperty]
+    private bool _showHidden;
 
     [ObservableProperty]
     private string _statusMessage = "Pick a template to get started.";
@@ -74,6 +80,8 @@ public partial class TemplatesViewModel : ObservableObject
         RegistryAuthRefresher authRefresher,
         IRunProfileStore profiles,
         ITemplateConfigStore configs,
+        IUserTemplateStore userTemplates,
+        ITemplateVisibilityStore visibility,
         ComposeViewModel compose)
     {
         _catalog = catalog;
@@ -84,18 +92,59 @@ public partial class TemplatesViewModel : ObservableObject
         _authRefresher = authRefresher;
         _profiles = profiles;
         _configs = configs;
+        _userTemplates = userTemplates;
+        _visibility = visibility;
         _compose = compose;
 
-        foreach (var group in _catalog.Templates.GroupBy(t => t.Category))
+        _dispatcher = DispatcherQueue.GetForCurrentThread();
+        RebuildGroups();
+
+        _monitor.StatusChanged += OnStatusChanged;
+        _catalog.Changed += OnCatalogOrVisibilityChanged;
+        _visibility.Changed += OnCatalogOrVisibilityChanged;
+    }
+
+    private void OnCatalogOrVisibilityChanged(object? sender, EventArgs e) => RunOnUi(RebuildGroups);
+
+    partial void OnShowHiddenChanged(bool value) => RebuildGroups();
+
+    /// <summary>
+    /// Rebuilds the grouped gallery from the composite catalog: stamps each template's hidden state,
+    /// applies the "Show hidden" filter, groups by category, and re-applies live deployment state.
+    /// The catalog returns stable instances, so transient card state survives a rebuild.
+    /// </summary>
+    private void RebuildGroups()
+    {
+        var all = _catalog.Templates;
+        foreach (var template in all)
+        {
+            template.IsHidden = _visibility.IsHidden(template.Id);
+        }
+
+        var visible = all.Where(t => ShowHidden || !t.IsHidden);
+
+        Groups.Clear();
+        foreach (var group in visible.GroupBy(t => t.Category))
         {
             Groups.Add(new TemplateGroup(group.Key, group));
         }
 
-        _dispatcher = DispatcherQueue.GetForCurrentThread();
-        _monitor.StatusChanged += OnStatusChanged;
         if (_monitor.Latest is not null)
         {
             UpdateDeploymentState(_monitor.Latest);
+        }
+    }
+
+    /// <summary>Runs an action on the UI thread, marshaling via the captured dispatcher if needed.</summary>
+    private void RunOnUi(Action action)
+    {
+        if (_dispatcher.HasThreadAccess)
+        {
+            action();
+        }
+        else
+        {
+            _dispatcher.TryEnqueue(() => action());
         }
     }
 
@@ -274,6 +323,50 @@ public partial class TemplatesViewModel : ObservableObject
         {
             template.IsRemoving = false;
         }
+    }
+
+    /// <summary>
+    /// Hides or unhides a template in the gallery. Applies to any template (built-in or user); a
+    /// hidden template is filtered out unless the "Show hidden" toggle is on.
+    /// </summary>
+    [RelayCommand]
+    private void ToggleHidden(StackTemplate? template)
+    {
+        if (template is null)
+        {
+            return;
+        }
+
+        _visibility.SetHidden(template.Id, !template.IsHidden);
+    }
+
+    /// <summary>
+    /// Permanently deletes a user-authored or imported template (never a built-in) after
+    /// confirmation, also dropping its saved launch config and hidden state. Deployed resources are
+    /// left untouched — this removes the template definition, not any running instance.
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteTemplateAsync(StackTemplate? template)
+    {
+        if (template is null || !template.IsUserManaged)
+        {
+            return;
+        }
+
+        var confirmed = await _dialogs.ShowConfirmAsync(
+            $"Delete the \"{template.Name}\" template?",
+            "This removes the template from your gallery. Any containers it already launched are not "
+                + "affected — use \"Remove deployment\" first if you also want to tear those down.",
+            "Delete");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _userTemplates.Delete(template.Id);
+        _configs.Delete(template.Id);
+        _visibility.SetHidden(template.Id, false);
+        StatusMessage = $"Deleted the \"{template.Name}\" template.";
     }
 
     private async Task RemoveComposeAsync(StackTemplate template, bool removeVolumes)

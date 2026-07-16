@@ -47,19 +47,35 @@ public sealed partial class TemplatesPage : Page
         }
     }
 
-    private void ConfigureButton_Click(object sender, RoutedEventArgs e)
+    private void ConfigureMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is StackTemplate template)
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
         {
             ViewModel.ConfigureCommand.Execute(template);
         }
     }
 
-    private void RemoveButton_Click(object sender, RoutedEventArgs e)
+    private void RemoveDeploymentMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is StackTemplate template)
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
         {
             ViewModel.RemoveCommand.Execute(template);
+        }
+    }
+
+    private void HideMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
+        {
+            ViewModel.ToggleHiddenCommand.Execute(template);
+        }
+    }
+
+    private void DeleteTemplateMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
+        {
+            ViewModel.DeleteTemplateCommand.Execute(template);
         }
     }
 }

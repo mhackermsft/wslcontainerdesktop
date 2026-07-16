@@ -134,7 +134,12 @@ public sealed partial class StackTemplate : ObservableObject
     /// </summary>
     [ObservableProperty]
     [property: System.Text.Json.Serialization.JsonIgnore]
+    [NotifyPropertyChangedFor(nameof(CardOpacity))]
     private bool _isHidden;
+
+    /// <summary>Dims the card while it is hidden (only visible when "Show hidden" is on).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public double CardOpacity => IsHidden ? 0.5 : 1.0;
 
     /// <summary>True while the card is launching or removing — used to disable all card actions.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
