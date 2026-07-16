@@ -369,6 +369,52 @@ public partial class TemplatesViewModel : ObservableObject
         StatusMessage = $"Deleted the \"{template.Name}\" template.";
     }
 
+    /// <summary>Opens the editor to author a brand-new user template, saving it on confirm.</summary>
+    [RelayCommand]
+    private Task CreateTemplateAsync() => ShowEditorAsync(source: null, isDuplicate: false);
+
+    /// <summary>Opens the editor to edit an existing user/imported template in place.</summary>
+    [RelayCommand]
+    private Task EditTemplateAsync(StackTemplate? template)
+    {
+        if (template is null || !template.IsUserManaged)
+        {
+            return Task.CompletedTask;
+        }
+
+        return ShowEditorAsync(template, isDuplicate: false);
+    }
+
+    /// <summary>Opens the editor prefilled from any template (including a built-in) to create a copy.</summary>
+    [RelayCommand]
+    private Task DuplicateTemplateAsync(StackTemplate? template)
+    {
+        if (template is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return ShowEditorAsync(template, isDuplicate: true);
+    }
+
+    private async Task ShowEditorAsync(StackTemplate? source, bool isDuplicate)
+    {
+        var categories = _catalog.Templates.Select(t => t.Category);
+        var dialog = new TemplateEditorDialog(categories, source, isDuplicate);
+        if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary || dialog.Result is null)
+        {
+            return;
+        }
+
+        var template = dialog.Result;
+        // A fresh definition supersedes any stale saved launch override for this id.
+        _configs.Delete(template.Id);
+        _userTemplates.Save(template);
+
+        var verb = source is null ? "Created" : (isDuplicate ? "Created a copy" : "Saved");
+        StatusMessage = $"{verb}: \"{template.Name}\".";
+    }
+
     /// <summary>True when the user has at least one custom/imported template that could be exported.</summary>
     public bool HasUserManagedTemplates => _userTemplates.Templates.Count > 0;
 

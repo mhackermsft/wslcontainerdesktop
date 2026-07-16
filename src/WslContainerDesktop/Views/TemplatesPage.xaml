@@ -40,6 +40,16 @@
                     Orientation="Horizontal"
                     Spacing="8">
                     <Button
+                        AutomationProperties.Name="New template"
+                        Click="NewTemplateButton_Click"
+                        Style="{StaticResource AccentButtonStyle}"
+                        ToolTipService.ToolTip="Create a new custom template">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="14" Glyph="&#xE710;" />
+                            <TextBlock Text="New template" />
+                        </StackPanel>
+                    </Button>
+                    <Button
                         AutomationProperties.Name="Import templates"
                         Click="ImportButton_Click"
                         ToolTipService.ToolTip="Import templates from a file">
@@ -254,6 +264,23 @@
                                                     Text="Configure…">
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE713;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem
+                                                    Click="DuplicateMenuItem_Click"
+                                                    Tag="{x:Bind}"
+                                                    Text="Duplicate…">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE8C8;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem
+                                                    Click="EditMenuItem_Click"
+                                                    Tag="{x:Bind}"
+                                                    Text="Edit…"
+                                                    Visibility="{x:Bind IsUserManaged, Converter={StaticResource BoolToVis}}">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE70F;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
                                                 <MenuFlyoutItem

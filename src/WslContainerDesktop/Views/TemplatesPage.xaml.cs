@@ -83,6 +83,25 @@ public sealed partial class TemplatesPage : Page
         }
     }
 
+    private void NewTemplateButton_Click(object sender, RoutedEventArgs e) =>
+        ViewModel.CreateTemplateCommand.Execute(null);
+
+    private void EditMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
+        {
+            ViewModel.EditTemplateCommand.Execute(template);
+        }
+    }
+
+    private void DuplicateMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is StackTemplate template)
+        {
+            ViewModel.DuplicateTemplateCommand.Execute(template);
+        }
+    }
+
     private async void ExportMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not StackTemplate template)
