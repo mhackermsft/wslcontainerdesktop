@@ -64,6 +64,59 @@
                     </Button>
                 </StackPanel>
 
+                <!--  WSL updates  -->
+                <Border Style="{StaticResource StatCard}">
+                    <StackPanel Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                Glyph="&#xE895;" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                FontWeight="SemiBold"
+                                Text="WSL updates" />
+                            <ProgressRing
+                                Width="16"
+                                Height="16"
+                                VerticalAlignment="Center"
+                                IsActive="{x:Bind ViewModel.IsCheckingUpdate, Mode=OneWay}" />
+                        </StackPanel>
+
+                        <InfoBar
+                            IsClosable="False"
+                            IsOpen="{x:Bind ViewModel.UpdateAvailable, Mode=OneWay}"
+                            Message="{x:Bind ViewModel.UpdateMessage, Mode=OneWay}"
+                            Severity="Informational"
+                            Title="Update available">
+                            <InfoBar.ActionButton>
+                                <Button
+                                    Command="{x:Bind ViewModel.UpdateWslCommand}"
+                                    Content="Update now"
+                                    Style="{ThemeResource AccentButtonStyle}" />
+                            </InfoBar.ActionButton>
+                        </InfoBar>
+
+                        <InfoBar
+                            IsClosable="False"
+                            IsOpen="{x:Bind ViewModel.UpdateCheckFailed, Mode=OneWay}"
+                            Message="{x:Bind ViewModel.UpdateCheckFailedMessage, Mode=OneWay}"
+                            Severity="Warning"
+                            Title="Couldn't check for updates" />
+
+                        <ToggleSwitch
+                            Header="Include pre-release updates"
+                            IsOn="{x:Bind ViewModel.IncludePreRelease, Mode=TwoWay}"
+                            OffContent="Stable channel only"
+                            OnContent="Pre-release builds included" />
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Text="When on, update checks and 'wsl --update --pre-release' consider pre-release WSL builds."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
                 <!--  Engine status banner  -->
                 <Border Style="{StaticResource StatCard}">
                     <StackPanel Spacing="10">

@@ -33,4 +33,20 @@ public interface IWslSystemService
 
     /// <summary>Shuts down all WSL distros (<c>wsl --shutdown</c>), releasing their virtual disks.</summary>
     Task<CommandResult> ShutdownWslAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Checks whether a newer WSL app version is available by comparing the installed version
+    /// against the latest release published on the <c>microsoft/WSL</c> GitHub repository.
+    /// <c>wsl --update</c> has no offline "check only" mode, so availability is inferred from that
+    /// release feed. Never throws — a network/parse failure is reported via
+    /// <see cref="Models.WslUpdateInfo.CheckFailed"/>.
+    /// </summary>
+    /// <param name="includePreRelease">When true, pre-release versions are considered.</param>
+    Task<WslUpdateInfo> CheckForUpdateAsync(bool includePreRelease, CancellationToken ct = default);
+
+    /// <summary>
+    /// Applies the WSL update (<c>wsl --update</c>, plus <c>--pre-release</c> when
+    /// <paramref name="includePreRelease"/> is true). This downloads and installs the update.
+    /// </summary>
+    Task<CommandResult> UpdateWslAsync(bool includePreRelease, CancellationToken ct = default);
 }

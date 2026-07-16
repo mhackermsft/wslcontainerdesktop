@@ -36,6 +36,7 @@ public partial class WslEngineViewModel : ObservableObject
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
     private readonly DialogService _dialogs;
+    private readonly ISettingsService _settings;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -60,6 +61,31 @@ public partial class WslEngineViewModel : ObservableObject
     [ObservableProperty]
     private string _kernelVersion = "Unknown";
 
+    // ---- Updates ----
+    /// <summary>True while an update-availability check is in flight.</summary>
+    [ObservableProperty]
+    private bool _isCheckingUpdate;
+
+    /// <summary>True when a newer WSL version is available for the selected channel.</summary>
+    [ObservableProperty]
+    private bool _updateAvailable;
+
+    /// <summary>Message shown in the update notice InfoBar.</summary>
+    [ObservableProperty]
+    private string _updateMessage = string.Empty;
+
+    /// <summary>True when the last update check could not be completed (e.g. offline).</summary>
+    [ObservableProperty]
+    private bool _updateCheckFailed;
+
+    /// <summary>Message shown when the update check failed.</summary>
+    [ObservableProperty]
+    private string _updateCheckFailedMessage = string.Empty;
+
+    /// <summary>Include pre-release WSL builds when checking for and applying updates.</summary>
+    [ObservableProperty]
+    private bool _includePreRelease;
+
     // ---- .wslconfig ----
     [ObservableProperty]
     private string _memoryLimit = "—";
@@ -76,12 +102,14 @@ public partial class WslEngineViewModel : ObservableObject
     /// <summary>Registered distros and their run state.</summary>
     public ObservableCollection<WslDistroStatus> Distros { get; } = new();
 
-    public WslEngineViewModel(IWslSystemService system, IWslcService wslc, StatusMonitor monitor, DialogService dialogs)
+    public WslEngineViewModel(IWslSystemService system, IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings)
     {
         _system = system;
         _wslc = wslc;
         _monitor = monitor;
         _dialogs = dialogs;
+        _settings = settings;
+        _includePreRelease = settings.WslUpdatePreRelease;
     }
 
     [RelayCommand]
@@ -124,6 +152,94 @@ public partial class WslEngineViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+        }
+
+        // Update availability is a network round-trip; run it after the page is populated so it
+        // never blocks the core status from rendering.
+        await CheckForUpdateAsync();
+    }
+
+    /// <summary>
+    /// Checks the WSL release feed for a newer version on the selected channel and updates the
+    /// notice banner. Never throws — a failed check is surfaced as a soft warning.
+    /// </summary>
+    private async Task CheckForUpdateAsync()
+    {
+        IsCheckingUpdate = true;
+        try
+        {
+            var info = await _system.CheckForUpdateAsync(IncludePreRelease);
+            if (info.CheckFailed)
+            {
+                UpdateAvailable = false;
+                UpdateMessage = string.Empty;
+                UpdateCheckFailed = true;
+                UpdateCheckFailedMessage = info.FailureReason ?? "Could not check for WSL updates.";
+                return;
+            }
+
+            UpdateCheckFailed = false;
+            UpdateCheckFailedMessage = string.Empty;
+            UpdateAvailable = info.UpdateAvailable;
+            UpdateMessage = info.UpdateAvailable
+                ? $"WSL {info.LatestVersion} is available (installed {info.InstalledVersion})."
+                : string.Empty;
+        }
+        finally
+        {
+            IsCheckingUpdate = false;
+        }
+    }
+
+    /// <summary>Persists the pre-release preference and re-checks availability on the new channel.</summary>
+    partial void OnIncludePreReleaseChanged(bool value)
+    {
+        _settings.WslUpdatePreRelease = value;
+        _settings.Save();
+        _ = CheckForUpdateAsync();
+    }
+
+    /// <summary>
+    /// Applies the available WSL update via <c>wsl --update</c> (adding <c>--pre-release</c> when the
+    /// pre-release channel is selected). This downloads and installs the update, so it is confirmed
+    /// first; WSL is shut down as part of the update.
+    /// </summary>
+    [RelayCommand]
+    private async Task UpdateWslAsync()
+    {
+        var channel = IncludePreRelease ? " (including pre-release builds)" : string.Empty;
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Update WSL",
+            $"Download and install the latest WSL update{channel}? This stops all running distros " +
+            "and containers while the update is applied.",
+            "Update");
+        if (!ok)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = "Updating WSL…";
+        try
+        {
+            var result = await _system.UpdateWslAsync(IncludePreRelease);
+            _monitor.RequestRefresh();
+            if (result.Success)
+            {
+                await _dialogs.ShowMessageAsync("WSL update",
+                    string.IsNullOrWhiteSpace(result.StandardOutput)
+                        ? "WSL is up to date."
+                        : result.StandardOutput.Trim());
+            }
+            else
+            {
+                await _dialogs.ShowMessageAsync("Update failed", result.ErrorText);
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+            await RefreshAsync();
         }
     }
 
