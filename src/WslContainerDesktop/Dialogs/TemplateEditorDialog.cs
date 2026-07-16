@@ -39,7 +39,8 @@ public sealed class TemplateEditorDialog : ContentDialog
     private readonly TextBox _nameBox;
     private readonly ComboBox _categoryBox;
     private readonly TextBox _descriptionBox;
-    private readonly TextBox _glyphBox;
+    private readonly GridView _glyphGrid;
+    private string _selectedGlyph;
     private readonly TextBox _noteBox;
     private readonly RadioButton _containerKind;
     private readonly RadioButton _composeKind;
@@ -105,11 +106,14 @@ public sealed class TemplateEditorDialog : ContentDialog
             PlaceholderText = "Short one-line summary shown on the card",
         };
 
-        _glyphBox = new TextBox
+        _selectedGlyph = NormalizeGlyph(source?.Glyph);
+        _glyphGrid = BuildGlyphPicker(_selectedGlyph);
+        _glyphGrid.SelectionChanged += (_, _) =>
         {
-            Header = "Icon glyph (Segoe MDL2, optional)",
-            Text = source?.Glyph ?? DefaultGlyph,
-            PlaceholderText = DefaultGlyph,
+            if (_glyphGrid.SelectedItem is FontIcon { Tag: string g })
+            {
+                _selectedGlyph = g;
+            }
         };
 
         _noteBox = new TextBox
@@ -195,7 +199,7 @@ public sealed class TemplateEditorDialog : ContentDialog
                 _nameBox,
                 _categoryBox,
                 _descriptionBox,
-                _glyphBox,
+                _glyphGrid,
                 _noteBox,
                 new TextBlock { Text = "Type", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
                 kindRow,
@@ -270,7 +274,7 @@ public sealed class TemplateEditorDialog : ContentDialog
                 Name = name,
                 Category = category,
                 Description = _descriptionBox.Text?.Trim() ?? string.Empty,
-                Glyph = NormalizeGlyph(_glyphBox.Text),
+                Glyph = _selectedGlyph,
                 Note = EmptyToNull(_noteBox.Text),
                 Kind = StackTemplateKind.Compose,
                 ComposeYaml = yaml,
@@ -300,7 +304,7 @@ public sealed class TemplateEditorDialog : ContentDialog
             Name = name,
             Category = category,
             Description = _descriptionBox.Text?.Trim() ?? string.Empty,
-            Glyph = NormalizeGlyph(_glyphBox.Text),
+            Glyph = _selectedGlyph,
             Note = EmptyToNull(_noteBox.Text),
             Kind = StackTemplateKind.SingleContainer,
             RunOptions = _baseOptions,
@@ -324,6 +328,60 @@ public sealed class TemplateEditorDialog : ContentDialog
     {
         var glyph = (text ?? string.Empty).Trim();
         return glyph.Length == 0 ? DefaultGlyph : glyph;
+    }
+
+    /// <summary>
+    /// A curated palette of Segoe Fluent / MDL2 glyphs so authors pick an icon visually instead of
+    /// hunting Unicode codepoints. The template's current glyph is always included (and preselected)
+    /// even if it isn't in the palette, so editing never loses a hand-picked icon.
+    /// </summary>
+    private static readonly string[] GlyphChoices =
+    {
+        "\uE7B8", "\uE8B7", "\uE8F1", "\uE7C3", "\uE8A5", "\uE753", "\uE774", "\uE80F",
+        "\uE945", "\uE734", "\uE72E", "\uE90F", "\uE713", "\uE71D", "\uE896", "\uE898",
+        "\uE895", "\uE946", "\uE768", "\uE8C8", "\uE710", "\uE839", "\uE704", "\uE968",
+        "\uE9D9", "\uEB05", "\uE72C", "\uE787", "\uE716", "\uE77B", "\uE115", "\uE7C1",
+    };
+
+    private static GridView BuildGlyphPicker(string selectedGlyph)
+    {
+        var grid = new GridView
+        {
+            Header = "Icon glyph",
+            SelectionMode = ListViewSelectionMode.Single,
+            IsItemClickEnabled = false,
+            Height = 148,
+            Padding = new Thickness(2),
+        };
+        ScrollViewer.SetVerticalScrollBarVisibility(grid, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(grid, ScrollBarVisibility.Disabled);
+
+        var codes = new List<string>(GlyphChoices);
+        if (!codes.Contains(selectedGlyph))
+        {
+            codes.Insert(0, selectedGlyph);
+        }
+
+        FontIcon? preselect = null;
+        foreach (var code in codes)
+        {
+            var icon = new FontIcon
+            {
+                Glyph = code,
+                FontSize = 22,
+                Width = 40,
+                Height = 40,
+                Tag = code,
+            };
+            grid.Items.Add(icon);
+            if (code == selectedGlyph)
+            {
+                preselect = icon;
+            }
+        }
+
+        grid.SelectedItem = preselect;
+        return grid;
     }
 
     private static string NormalizeToCrLf(string text) =>
