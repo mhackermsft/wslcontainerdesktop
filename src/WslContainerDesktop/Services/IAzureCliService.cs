@@ -41,4 +41,10 @@ public interface IAzureCliService
     /// (`az acr login --expose-token`). Returns (loginServer, token) or null on failure.
     /// </summary>
     Task<(string LoginServer, string Token)?> GetAcrTokenAsync(string acrName, string subscriptionId, CancellationToken ct = default);
+
+    /// <summary>Lists the repositories in an ACR (`az acr repository list`).</summary>
+    Task<IReadOnlyList<string>> ListAcrRepositoriesAsync(string acrName, string subscriptionId, CancellationToken ct = default);
+
+    /// <summary>Lists the tags of a repository in an ACR (`az acr repository show-tags`), newest first.</summary>
+    Task<IReadOnlyList<string>> ListAcrTagsAsync(string acrName, string repository, string subscriptionId, CancellationToken ct = default);
 }

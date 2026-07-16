@@ -165,6 +165,64 @@ public sealed class AzureCliService : IAzureCliService
         }
     }
 
+    public async Task<IReadOnlyList<string>> ListAcrRepositoriesAsync(string acrName, string subscriptionId, CancellationToken ct = default)
+    {
+        var result = await RunAsync(
+            new[] { "acr", "repository", "list", "--name", acrName, "--subscription", subscriptionId, "-o", "json" }, ct)
+            .ConfigureAwait(false);
+        return ParseStringArray(result, $"`az acr repository list` for registry {acrName}");
+    }
+
+    public async Task<IReadOnlyList<string>> ListAcrTagsAsync(string acrName, string repository, string subscriptionId, CancellationToken ct = default)
+    {
+        var result = await RunAsync(
+            new[]
+            {
+                "acr", "repository", "show-tags", "--name", acrName, "--repository", repository,
+                "--subscription", subscriptionId, "--orderby", "time_desc", "-o", "json",
+            }, ct)
+            .ConfigureAwait(false);
+        return ParseStringArray(result, $"`az acr repository show-tags` for {acrName}/{repository}");
+    }
+
+    /// <summary>Parses an `az ... -o json` response that is a flat array of strings.</summary>
+    private IReadOnlyList<string> ParseStringArray(CommandResult? result, string context)
+    {
+        if (result is null || !result.Success)
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(result.StandardOutput);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<string>();
+            }
+
+            var list = new List<string>();
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (el.ValueKind == JsonValueKind.String)
+                {
+                    var s = el.GetString();
+                    if (!string.IsNullOrWhiteSpace(s))
+                    {
+                        list.Add(s);
+                    }
+                }
+            }
+
+            return list;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse {Context} output.", context);
+            return Array.Empty<string>();
+        }
+    }
+
     // ---- az resolution + process plumbing -------------------------------
 
     private async Task<string?> ResolveAzPathAsync(CancellationToken ct)

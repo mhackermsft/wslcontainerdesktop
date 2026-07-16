@@ -35,6 +35,7 @@ public partial class ImagesViewModel : ObservableObject
     private readonly IRunProfileStore _profiles;
     private readonly IActivityLog _activity;
     private readonly IImageUpdateService _updates;
+    private readonly IRegistryCatalogService _catalog;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -58,7 +59,7 @@ public partial class ImagesViewModel : ObservableObject
 
     public ObservableCollection<ImageInfo> Images { get; } = new();
 
-    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles, IActivityLog activity, IImageUpdateService updates)
+    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles, IActivityLog activity, IImageUpdateService updates, IRegistryCatalogService catalog)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -69,6 +70,7 @@ public partial class ImagesViewModel : ObservableObject
         _profiles = profiles;
         _activity = activity;
         _updates = updates;
+        _catalog = catalog;
     }
 
     /// <summary>Saved run profiles that target the given image, for the one-click run submenu.</summary>
@@ -104,7 +106,7 @@ public partial class ImagesViewModel : ObservableObject
     [RelayCommand]
     private async Task PullAsync()
     {
-        var dialog = new PullImageDialog(_settings.Registries);
+        var dialog = new PullImageDialog(_settings.Registries, _catalog);
         if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary)
         {
             return;
