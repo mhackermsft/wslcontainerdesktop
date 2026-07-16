@@ -36,6 +36,33 @@ public sealed class WslDistroStatus
 }
 
 /// <summary>
+/// Result of checking for an available WSL update by comparing the installed WSL app version
+/// against the latest release published on the <c>microsoft/WSL</c> GitHub repository. There is no
+/// offline "check only" mode in <c>wsl --update</c>, so availability is inferred from that release
+/// feed.
+/// </summary>
+public sealed class WslUpdateInfo
+{
+    /// <summary>The installed WSL app version (e.g. "2.9.4.0"), or empty when it can't be read.</summary>
+    public string InstalledVersion { get; init; } = string.Empty;
+
+    /// <summary>The latest available version for the selected channel (e.g. "2.9.5"), or empty when unknown.</summary>
+    public string LatestVersion { get; init; } = string.Empty;
+
+    /// <summary>True when a newer WSL version is available than the one installed.</summary>
+    public bool UpdateAvailable { get; init; }
+
+    /// <summary>True when the check considered pre-release versions.</summary>
+    public bool IncludedPreRelease { get; init; }
+
+    /// <summary>True when the availability check could not be completed (e.g. no network).</summary>
+    public bool CheckFailed { get; init; }
+
+    /// <summary>Human-readable reason the check failed, when <see cref="CheckFailed"/> is true.</summary>
+    public string? FailureReason { get; init; }
+}
+
+/// <summary>
 /// Host-level WSL platform information (<c>wsl --version</c>): the WSL app version and the
 /// Linux kernel version. Empty strings mean the value could not be determined.
 /// </summary>

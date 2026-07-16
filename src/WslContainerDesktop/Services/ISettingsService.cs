@@ -48,6 +48,9 @@ public interface ISettingsService
     /// <summary>WSL distro to host the k3s cluster. Null/empty uses the WSL default distro.</summary>
     string? WslDistro { get; set; }
 
+    /// <summary>Include WSL pre-release versions when checking for and applying updates (<c>wsl --update --pre-release</c>).</summary>
+    bool WslUpdatePreRelease { get; set; }
+
     /// <summary>
     /// SHA-256 (lowercase hex) of the last k3s installer script (get.k3s.io) the user has
     /// approved. Used to detect if the remote installer changes between installs/upgrades.

@@ -40,6 +40,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public bool NotifyContainerEvents { get; set; } = true;
     public bool NotifyEngineEvents { get; set; } = true;
     public string? WslDistro { get; set; }
+    public bool WslUpdatePreRelease { get; set; }
     public string? K3sInstallerSha256 { get; set; }
     public List<RegistryEntry> Registries { get; set; } = new() { RegistryEntry.DockerHub() };
     public List<HealthCheckConfig> HealthChecks { get; set; } = new();
@@ -75,6 +76,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             NotifyContainerEvents = dto.NotifyContainerEvents;
             NotifyEngineEvents = dto.NotifyEngineEvents;
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
+            WslUpdatePreRelease = dto.WslUpdatePreRelease;
             K3sInstallerSha256 = string.IsNullOrWhiteSpace(dto.K3sInstallerSha256) ? null : dto.K3sInstallerSha256.Trim().ToLowerInvariant();
 
             // Load registries, always keeping a single Docker Hub default at the top.
@@ -190,6 +192,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 NotifyContainerEvents = NotifyContainerEvents,
                 NotifyEngineEvents = NotifyEngineEvents,
                 WslDistro = WslDistro,
+                WslUpdatePreRelease = WslUpdatePreRelease,
                 K3sInstallerSha256 = K3sInstallerSha256,
                 Registries = Registries
                     .Where(r => !r.IsDefault && !string.IsNullOrWhiteSpace(r.Host))
@@ -261,6 +264,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public bool NotifyContainerEvents { get; set; } = true;
         public bool NotifyEngineEvents { get; set; } = true;
         public string? WslDistro { get; set; }
+        public bool WslUpdatePreRelease { get; set; }
         public string? K3sInstallerSha256 { get; set; }
         public List<RegistryDto>? Registries { get; set; }
         public List<HealthCheckDto>? HealthChecks { get; set; }

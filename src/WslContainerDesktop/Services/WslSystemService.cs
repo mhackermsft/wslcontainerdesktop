@@ -15,7 +15,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Diagnostics;
+using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using WslContainerDesktop.Models;
@@ -27,9 +29,12 @@ namespace WslContainerDesktop.Services;
 /// filesystem and the Lxss registry, and shells out to <c>wsl.exe</c> for platform info, distro
 /// disk-usage measurement, and shutdown. All calls go through <see cref="ProcessExecutor"/>.
 /// </summary>
-public sealed class WslSystemService(ILogger<WslSystemService> logger) : IWslSystemService
+public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClient http) : IWslSystemService
 {
     private const string LxssKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Lxss";
+
+    /// <summary>GitHub releases feed for the WSL app, newest first.</summary>
+    private const string WslReleasesUrl = "https://api.github.com/repos/microsoft/WSL/releases?per_page=30";
 
     // ---- Configuration -------------------------------------------------
 
@@ -203,6 +208,159 @@ public sealed class WslSystemService(ILogger<WslSystemService> logger) : IWslSys
         }
 
         return result;
+    }
+
+    // ---- Updates -------------------------------------------------------
+
+    public async Task<WslUpdateInfo> CheckForUpdateAsync(bool includePreRelease, CancellationToken ct = default)
+    {
+        var installed = string.Empty;
+        try
+        {
+            var platform = await GetPlatformInfoAsync(ct).ConfigureAwait(false);
+            installed = platform.WslVersion;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not read installed WSL version for update check.");
+        }
+
+        string latestRaw;
+        try
+        {
+            latestRaw = await GetLatestReleaseVersionAsync(includePreRelease, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "WSL update check against GitHub releases failed.");
+            return new WslUpdateInfo
+            {
+                InstalledVersion = installed,
+                IncludedPreRelease = includePreRelease,
+                CheckFailed = true,
+                FailureReason = "Could not reach the WSL release feed. Check your internet connection and try again.",
+            };
+        }
+
+        var installedVersion = ParseVersion(installed);
+        if (installedVersion is null)
+        {
+            return new WslUpdateInfo
+            {
+                InstalledVersion = installed,
+                LatestVersion = latestRaw,
+                IncludedPreRelease = includePreRelease,
+                CheckFailed = true,
+                FailureReason = "Could not determine the installed WSL version.",
+            };
+        }
+
+        var latestVersion = ParseVersion(latestRaw);
+        if (latestVersion is null)
+        {
+            return new WslUpdateInfo
+            {
+                InstalledVersion = installed,
+                IncludedPreRelease = includePreRelease,
+                CheckFailed = true,
+                FailureReason = "Could not determine the latest available WSL version.",
+            };
+        }
+
+        var available = latestVersion > installedVersion;
+
+        return new WslUpdateInfo
+        {
+            InstalledVersion = installed,
+            LatestVersion = latestRaw,
+            UpdateAvailable = available,
+            IncludedPreRelease = includePreRelease,
+        };
+    }
+
+    public Task<CommandResult> UpdateWslAsync(bool includePreRelease, CancellationToken ct = default) =>
+        includePreRelease
+            ? RunWslAsync(ct, "--update", "--pre-release")
+            : RunWslAsync(ct, "--update");
+
+    /// <summary>
+    /// Fetches the highest release version from the <c>microsoft/WSL</c> GitHub releases feed,
+    /// honoring the <paramref name="includePreRelease"/> channel. Drafts are always ignored.
+    /// </summary>
+    private async Task<string> GetLatestReleaseVersionAsync(bool includePreRelease, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, WslReleasesUrl);
+        // GitHub requires a User-Agent; the versioned media type keeps the payload stable.
+        request.Headers.TryAddWithoutValidation("User-Agent", "WslContainerDesktop");
+        request.Headers.TryAddWithoutValidation("Accept", "application/vnd.github+json");
+
+        using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
+
+        Version? best = null;
+        var bestRaw = string.Empty;
+        foreach (var release in doc.RootElement.EnumerateArray())
+        {
+            if (release.TryGetProperty("draft", out var draft) && draft.GetBoolean())
+            {
+                continue;
+            }
+
+            var isPreRelease = release.TryGetProperty("prerelease", out var pre) && pre.GetBoolean();
+            if (isPreRelease && !includePreRelease)
+            {
+                continue;
+            }
+
+            if (!release.TryGetProperty("tag_name", out var tag))
+            {
+                continue;
+            }
+
+            var raw = tag.GetString() ?? string.Empty;
+            var parsed = ParseVersion(raw);
+            if (parsed is not null && (best is null || parsed > best))
+            {
+                best = parsed;
+                bestRaw = raw.TrimStart('v', 'V').Trim();
+            }
+        }
+
+        return bestRaw;
+    }
+
+    /// <summary>
+    /// Parses a WSL version string into a comparable <see cref="Version"/>. Handles a leading
+    /// <c>v</c>, any suffix after a <c>-</c> or whitespace, and pads to four components so that
+    /// "2.9.4" and "2.9.4.0" compare equal.
+    /// </summary>
+    internal static Version? ParseVersion(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var text = value.Trim().TrimStart('v', 'V');
+        var cut = text.IndexOfAny(new[] { '-', ' ', '+' });
+        if (cut > 0)
+        {
+            text = text[..cut];
+        }
+
+        if (!Version.TryParse(text, out var version))
+        {
+            return null;
+        }
+
+        return new Version(
+            version.Major,
+            version.Minor,
+            version.Build < 0 ? 0 : version.Build,
+            version.Revision < 0 ? 0 : version.Revision);
     }
 
     // ---- Shutdown ------------------------------------------------------
