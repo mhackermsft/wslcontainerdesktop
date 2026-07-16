@@ -243,10 +243,31 @@ public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClien
         }
 
         var installedVersion = ParseVersion(installed);
+        if (installedVersion is null)
+        {
+            return new WslUpdateInfo
+            {
+                InstalledVersion = installed,
+                LatestVersion = latestRaw,
+                IncludedPreRelease = includePreRelease,
+                CheckFailed = true,
+                FailureReason = "Could not determine the installed WSL version.",
+            };
+        }
+
         var latestVersion = ParseVersion(latestRaw);
-        var available = installedVersion is not null
-            && latestVersion is not null
-            && latestVersion > installedVersion;
+        if (latestVersion is null)
+        {
+            return new WslUpdateInfo
+            {
+                InstalledVersion = installed,
+                IncludedPreRelease = includePreRelease,
+                CheckFailed = true,
+                FailureReason = "Could not determine the latest available WSL version.",
+            };
+        }
+
+        var available = latestVersion > installedVersion;
 
         return new WslUpdateInfo
         {

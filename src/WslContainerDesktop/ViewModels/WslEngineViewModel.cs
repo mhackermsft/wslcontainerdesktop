@@ -110,6 +110,9 @@ public partial class WslEngineViewModel : ObservableObject
     /// <summary>Registered distros and their run state.</summary>
     public ObservableCollection<WslDistroStatus> Distros { get; } = new();
 
+    /// <summary>Cancels an in-flight update check when a newer one supersedes it (e.g. toggle change).</summary>
+    private CancellationTokenSource? _updateCts;
+
     public WslEngineViewModel(IWslSystemService system, IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings)
     {
         _system = system;
@@ -173,12 +176,24 @@ public partial class WslEngineViewModel : ObservableObject
     /// </summary>
     private async Task CheckForUpdateAsync()
     {
+        // Supersede any in-flight check so a slower earlier channel can't overwrite a newer one.
+        _updateCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _updateCts = cts;
+        var token = cts.Token;
+
         IsCheckingUpdate = true;
         UpdateAvailable = false;
         IsUpToDate = false;
         try
         {
-            var info = await _system.CheckForUpdateAsync(IncludePreRelease);
+            var info = await _system.CheckForUpdateAsync(IncludePreRelease, token);
+            if (token.IsCancellationRequested)
+            {
+                // A newer check took over; leave the UI to that one.
+                return;
+            }
+
             if (info.CheckFailed)
             {
                 UpdateAvailable = false;
@@ -199,9 +214,19 @@ public partial class WslEngineViewModel : ObservableObject
                 ? $"WSL {info.LatestVersion} is available (installed {info.InstalledVersion})."
                 : string.Empty;
         }
+        catch (OperationCanceledException)
+        {
+            // Superseded; ignore.
+        }
         finally
         {
-            IsCheckingUpdate = false;
+            if (_updateCts == cts)
+            {
+                IsCheckingUpdate = false;
+                _updateCts = null;
+            }
+
+            cts.Dispose();
         }
     }
 
