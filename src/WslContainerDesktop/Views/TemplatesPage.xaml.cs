@@ -14,11 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Services;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
@@ -78,4 +82,77 @@ public sealed partial class TemplatesPage : Page
             ViewModel.DeleteTemplateCommand.Execute(template);
         }
     }
+
+    private async void ExportMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not StackTemplate template)
+        {
+            return;
+        }
+
+        var file = await PickSaveFileAsync(SanitizeFileName(template.Name));
+        if (file is not null)
+        {
+            await FileIO.WriteTextAsync(file, ViewModel.ExportToJson(template));
+            ViewModel.StatusMessage = $"Exported \"{template.Name}\" to {file.Name}.";
+        }
+    }
+
+    private async void ExportAllButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!await ViewModel.EnsureHasUserTemplatesForExportAsync())
+        {
+            return;
+        }
+
+        var file = await PickSaveFileAsync("my-templates");
+        if (file is not null)
+        {
+            await FileIO.WriteTextAsync(file, ViewModel.ExportAllUserToJson());
+            ViewModel.StatusMessage = $"Exported your custom templates to {file.Name}.";
+        }
+    }
+
+    private async void ImportButton_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+        };
+        picker.FileTypeFilter.Add(TemplatePortability.FileExtension);
+        picker.FileTypeFilter.Add(".json");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        var json = await FileIO.ReadTextAsync(file);
+        await ViewModel.ImportFromJsonAsync(json);
+    }
+
+    private async System.Threading.Tasks.Task<StorageFile?> PickSaveFileAsync(string suggestedName)
+    {
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = suggestedName,
+        };
+        picker.FileTypeChoices.Add(
+            "WSL template", new List<string> { TemplatePortability.FileExtension });
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+        return await picker.PickSaveFileAsync();
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        var cleaned = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "template" : cleaned;
+    }
+
+    private static nint GetMainWindowHandle() =>
+        Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
 }

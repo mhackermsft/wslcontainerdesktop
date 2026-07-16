@@ -34,12 +34,36 @@
                         Style="{ThemeResource CaptionTextBlockStyle}"
                         Text="One-click stacks — launch a common image or multi-service project in seconds." />
                 </StackPanel>
-                <ToggleSwitch
+                <StackPanel
                     Grid.Column="1"
                     VerticalAlignment="Top"
-                    IsOn="{x:Bind ViewModel.ShowHidden, Mode=TwoWay}"
-                    OffContent="Show hidden"
-                    OnContent="Show hidden" />
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <Button
+                        AutomationProperties.Name="Import templates"
+                        Click="ImportButton_Click"
+                        ToolTipService.ToolTip="Import templates from a file">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="14" Glyph="&#xE896;" />
+                            <TextBlock Text="Import" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        AutomationProperties.Name="Export all custom templates"
+                        Click="ExportAllButton_Click"
+                        ToolTipService.ToolTip="Export your custom and imported templates to a file">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="14" Glyph="&#xE898;" />
+                            <TextBlock Text="Export all" />
+                        </StackPanel>
+                    </Button>
+                    <ToggleSwitch
+                        MinWidth="0"
+                        VerticalAlignment="Center"
+                        IsOn="{x:Bind ViewModel.ShowHidden, Mode=TwoWay}"
+                        OffContent="Show hidden"
+                        OnContent="Show hidden" />
+                </StackPanel>
             </Grid>
 
             <!--  Launch progress + status feedback  -->
@@ -230,6 +254,14 @@
                                                     Text="Configure…">
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE713;" />
+                                                    </MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                                <MenuFlyoutItem
+                                                    Click="ExportMenuItem_Click"
+                                                    Tag="{x:Bind}"
+                                                    Text="Export…">
+                                                    <MenuFlyoutItem.Icon>
+                                                        <FontIcon Glyph="&#xE898;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
                                                 <MenuFlyoutItem

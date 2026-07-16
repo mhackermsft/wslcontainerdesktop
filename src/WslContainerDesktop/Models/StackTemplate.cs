@@ -45,33 +45,33 @@ public enum TemplateSource
 /// </summary>
 public sealed partial class StackTemplate : ObservableObject
 {
-    public required string Id { get; init; }
+    public required string Id { get; set; }
 
     /// <summary>Display name, e.g. "PostgreSQL".</summary>
-    public required string Name { get; init; }
+    public required string Name { get; set; }
 
     /// <summary>Grouping shown as a section header, e.g. "Databases".</summary>
-    public required string Category { get; init; }
+    public required string Category { get; set; }
 
     /// <summary>Short one-line description shown on the card.</summary>
-    public required string Description { get; init; }
+    public required string Description { get; set; }
 
     /// <summary>Segoe MDL2 glyph for the card icon.</summary>
-    public string Glyph { get; init; } = "\uE7B8"; // generic package
+    public string Glyph { get; set; } = "\uE7B8"; // generic package
 
-    public StackTemplateKind Kind { get; init; } = StackTemplateKind.SingleContainer;
+    public StackTemplateKind Kind { get; set; } = StackTemplateKind.SingleContainer;
 
     /// <summary>Prefilled run options for <see cref="StackTemplateKind.SingleContainer"/> templates.</summary>
-    public RunContainerOptions? RunOptions { get; init; }
+    public RunContainerOptions? RunOptions { get; set; }
 
     /// <summary>Raw docker-compose YAML for <see cref="StackTemplateKind.Compose"/> templates.</summary>
-    public string? ComposeYaml { get; init; }
+    public string? ComposeYaml { get; set; }
 
     /// <summary>Default project name suggested when importing a compose template.</summary>
-    public string? ComposeProjectName { get; init; }
+    public string? ComposeProjectName { get; set; }
 
     /// <summary>Optional note surfaced to the user (e.g. default credentials) before launching.</summary>
-    public string? Note { get; init; }
+    public string? Note { get; set; }
 
     /// <summary>
     /// Where this template came from. Built-ins are code-baked (hide-only); User/Imported templates

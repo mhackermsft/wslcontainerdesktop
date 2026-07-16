@@ -369,6 +369,117 @@ public partial class TemplatesViewModel : ObservableObject
         StatusMessage = $"Deleted the \"{template.Name}\" template.";
     }
 
+    /// <summary>True when the user has at least one custom/imported template that could be exported.</summary>
+    public bool HasUserManagedTemplates => _userTemplates.Templates.Count > 0;
+
+    /// <summary>Serializes a single template to export-file JSON (see <see cref="TemplatePortability"/>).</summary>
+    public string ExportToJson(StackTemplate template) => TemplatePortability.Serialize(new[] { template });
+
+    /// <summary>Serializes all of the user's custom/imported templates to export-file JSON.</summary>
+    public string ExportAllUserToJson() => TemplatePortability.Serialize(_userTemplates.Templates);
+
+    /// <summary>
+    /// Guards the "Export all" action: returns true when there is something to export, otherwise
+    /// tells the user there are no custom templates yet and returns false.
+    /// </summary>
+    public async Task<bool> EnsureHasUserTemplatesForExportAsync()
+    {
+        if (HasUserManagedTemplates)
+        {
+            return true;
+        }
+
+        await _dialogs.ShowMessageAsync(
+            "Nothing to export",
+            "You don't have any custom or imported templates yet. Create or import one first, or "
+                + "use a card's Export… to share a built-in template.");
+        return false;
+    }
+
+    /// <summary>
+    /// Imports templates from an export file's JSON. Parsing errors are surfaced to the user; on
+    /// success the user confirms, then each template is added non-destructively as an
+    /// <see cref="TemplateSource.Imported"/> copy — a fresh unique id and a de-duplicated name are
+    /// assigned so nothing existing (built-in or user) is ever overwritten.
+    /// </summary>
+    public async Task ImportFromJsonAsync(string json)
+    {
+        IReadOnlyList<StackTemplate> parsed;
+        try
+        {
+            parsed = TemplatePortability.Parse(json);
+        }
+        catch (Exception ex)
+        {
+            await _dialogs.ShowMessageAsync("Import failed", ex.Message);
+            return;
+        }
+
+        var confirmed = await _dialogs.ShowConfirmAsync(
+            "Import templates?",
+            $"Import {parsed.Count} template(s) into your gallery? Anything that clashes with an "
+                + "existing template is imported as a separate copy — nothing is overwritten.",
+            "Import");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var ids = new HashSet<string>(
+            _catalog.Templates.Select(t => t.Id), StringComparer.OrdinalIgnoreCase);
+        var names = new HashSet<string>(
+            _catalog.Templates.Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
+
+        var toSave = new List<StackTemplate>();
+        foreach (var template in parsed)
+        {
+            template.Source = TemplateSource.Imported;
+            template.IsHidden = false;
+
+            if (string.IsNullOrWhiteSpace(template.Id) || ids.Contains(template.Id))
+            {
+                template.Id = MakeUniqueId(ids);
+            }
+
+            ids.Add(template.Id);
+
+            if (names.Contains(template.Name))
+            {
+                template.Name = MakeUniqueName(template.Name, names);
+            }
+
+            names.Add(template.Name);
+            toSave.Add(template);
+        }
+
+        _userTemplates.SaveRange(toSave);
+        StatusMessage = $"Imported {toSave.Count} template(s).";
+    }
+
+    private static string MakeUniqueId(HashSet<string> existing)
+    {
+        string id;
+        do
+        {
+            id = "imported-" + Guid.NewGuid().ToString("N")[..8];
+        }
+        while (existing.Contains(id));
+
+        return id;
+    }
+
+    private static string MakeUniqueName(string name, HashSet<string> existing)
+    {
+        var candidate = $"{name} (imported)";
+        var counter = 2;
+        while (existing.Contains(candidate))
+        {
+            candidate = $"{name} (imported {counter++})";
+        }
+
+        return candidate;
+    }
+
     private async Task RemoveComposeAsync(StackTemplate template, bool removeVolumes)
     {
         var (_, name) = ResolveComposeConfig(template);
