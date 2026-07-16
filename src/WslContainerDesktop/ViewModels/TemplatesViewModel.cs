@@ -17,6 +17,8 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Dialogs;
 using WslContainerDesktop.Models;
@@ -53,6 +55,7 @@ public partial class TemplatesViewModel : ObservableObject
     private readonly IRunProfileStore _profiles;
     private readonly ITemplateConfigStore _configs;
     private readonly ComposeViewModel _compose;
+    private readonly DispatcherQueue _dispatcher;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -87,6 +90,62 @@ public partial class TemplatesViewModel : ObservableObject
         {
             Groups.Add(new TemplateGroup(group.Key, group));
         }
+
+        _dispatcher = DispatcherQueue.GetForCurrentThread();
+        _monitor.StatusChanged += OnStatusChanged;
+        if (_monitor.Latest is not null)
+        {
+            UpdateDeploymentState(_monitor.Latest);
+        }
+    }
+
+    private void OnStatusChanged(object? sender, EngineStatusSnapshot e)
+    {
+        if (_dispatcher.HasThreadAccess)
+        {
+            UpdateDeploymentState(e);
+        }
+        else
+        {
+            _dispatcher.TryEnqueue(() => UpdateDeploymentState(e));
+        }
+    }
+
+    /// <summary>Recomputes each template's <see cref="StackTemplate.IsDeployed"/> from the live snapshot.</summary>
+    private void UpdateDeploymentState(EngineStatusSnapshot snapshot)
+    {
+        var containers = snapshot.Containers;
+        foreach (var group in Groups)
+        {
+            foreach (var template in group)
+            {
+                template.IsDeployed = IsTemplateDeployed(template, containers);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A compose template is deployed when any container is named <c>{project}_*</c> (the supervisor's
+    /// naming); a single-container template is deployed when a container with its configured name exists.
+    /// </summary>
+    private bool IsTemplateDeployed(StackTemplate template, IReadOnlyList<ContainerInfo> containers)
+    {
+        if (template.Kind == StackTemplateKind.Compose)
+        {
+            var (_, name) = ResolveComposeConfig(template);
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+
+            var prefix = name + "_";
+            return containers.Any(c => c.Name.TrimStart('/').StartsWith(prefix, StringComparison.Ordinal));
+        }
+
+        var containerName = ResolveContainerOptions(template)?.Name;
+        return !string.IsNullOrWhiteSpace(containerName)
+            && containers.Any(c => string.Equals(
+                c.Name.TrimStart('/'), containerName, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -138,6 +197,148 @@ public partial class TemplatesViewModel : ObservableObject
         else
         {
             await ConfigureContainerAsync(template);
+        }
+    }
+
+    /// <summary>
+    /// One-click teardown for a deployed template: removes its container(s) and network(s), and —
+    /// if the user opts in via the confirmation checkbox — its data volumes, returning the system to
+    /// its pre-launch state.
+    /// </summary>
+    [RelayCommand]
+    private async Task RemoveAsync(StackTemplate? template)
+    {
+        if (template is null || template.IsBusyCard || !template.IsDeployed)
+        {
+            return;
+        }
+
+        var volumesCheck = new CheckBox
+        {
+            Content = "Also delete data volumes (permanently deletes stored data)",
+            IsChecked = false,
+        };
+        var dialog = new ContentDialog
+        {
+            Title = $"Remove {template.Name}?",
+            Content = new StackPanel
+            {
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = template.Kind == StackTemplateKind.Compose
+                            ? "Stops and removes this stack's containers and its network."
+                            : "Stops and removes this container.",
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    volumesCheck,
+                },
+            },
+            PrimaryButtonText = "Remove",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+
+        if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var removeVolumes = volumesCheck.IsChecked == true;
+
+        template.IsRemoving = true;
+        StatusMessage = $"Removing {template.Name}…";
+        try
+        {
+            if (template.Kind == StackTemplateKind.Compose)
+            {
+                await RemoveComposeAsync(template, removeVolumes);
+            }
+            else
+            {
+                await RemoveContainerAsync(template, removeVolumes);
+            }
+
+            var volumeNote = removeVolumes ? " and its data volumes" : string.Empty;
+            StatusMessage = $"{template.Name}{volumeNote} removed.";
+            _monitor.RequestRefresh();
+        }
+        catch (Exception ex)
+        {
+            await _dialogs.ShowMessageAsync("Remove failed", ex.Message);
+            StatusMessage = "Remove failed";
+        }
+        finally
+        {
+            template.IsRemoving = false;
+        }
+    }
+
+    private async Task RemoveComposeAsync(StackTemplate template, bool removeVolumes)
+    {
+        var (_, name) = ResolveComposeConfig(template);
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            await _compose.RemoveProjectAsync(name!, removeVolumes);
+        }
+    }
+
+    private async Task RemoveContainerAsync(StackTemplate template, bool removeVolumes)
+    {
+        var options = ResolveContainerOptions(template);
+        var name = options?.Name;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        var existing = (await _wslc.ListContainersAsync(all: true))
+            .FirstOrDefault(c => string.Equals(
+                c.Name.TrimStart('/'), name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            await _wslc.RemoveContainerAsync(existing.Id, force: true);
+        }
+
+        if (removeVolumes && options is not null)
+        {
+            foreach (var volumeName in NamedVolumeSources(options.Volumes))
+            {
+                try
+                {
+                    await _wslc.RemoveVolumeAsync(volumeName);
+                }
+                catch
+                {
+                    // Best-effort: a volume still in use or already gone must not fail the removal.
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extracts named-volume sources from <c>source:target[:mode]</c> mount specs. Bind mounts (the
+    /// source is a path) and drive letters are skipped so only managed named volumes are removed.
+    /// </summary>
+    private static IEnumerable<string> NamedVolumeSources(IEnumerable<string> volumes)
+    {
+        foreach (var spec in volumes)
+        {
+            var colon = spec.IndexOf(':');
+            if (colon <= 0)
+            {
+                continue;
+            }
+
+            var source = spec[..colon];
+            if (source.Length <= 1 || source.Contains('/') || source.Contains('\\'))
+            {
+                continue;
+            }
+
+            yield return source;
         }
     }
 
@@ -269,6 +470,7 @@ public partial class TemplatesViewModel : ObservableObject
             await _compose.ImportAndUpAsync(yaml, suggestedName: name);
             var note = string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note}";
             StatusMessage = $"{template.Name} launched{note}. See it in the Containers view.";
+            _monitor.RequestRefresh();
         }
         finally
         {

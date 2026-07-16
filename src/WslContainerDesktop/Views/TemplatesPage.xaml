@@ -121,17 +121,40 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
 
+                                <!--  Kind badge, replaced by a "Deployed" pill while the template is up  -->
                                 <Border
                                     Grid.Column="0"
                                     Padding="8,2"
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorSecondaryBrush}"
-                                    CornerRadius="10">
+                                    CornerRadius="10"
+                                    Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
                                     <TextBlock
                                         FontSize="11"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                         Text="{x:Bind KindLabel}" />
+                                </Border>
+
+                                <Border
+                                    Grid.Column="0"
+                                    Padding="8,2"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
+                                    CornerRadius="10"
+                                    Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon
+                                            VerticalAlignment="Center"
+                                            FontSize="10"
+                                            Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                            Glyph="&#xE73E;" />
+                                        <TextBlock
+                                            FontSize="11"
+                                            Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                            Text="Deployed" />
+                                    </StackPanel>
                                 </Border>
 
                                 <StackPanel
@@ -142,13 +165,13 @@
                                         Padding="8"
                                         AutomationProperties.Name="Configure"
                                         Click="ConfigureButton_Click"
-                                        IsEnabled="{x:Bind IsLaunching, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                        IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
                                         ToolTipService.ToolTip="Configure before launching (saved for next time)">
                                         <FontIcon FontSize="14" Glyph="&#xE713;" />
                                     </Button>
                                     <Button
                                         Click="LaunchButton_Click"
-                                        IsEnabled="{x:Bind IsLaunching, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                        IsEnabled="{x:Bind CanLaunch, Mode=OneWay}"
                                         Style="{ThemeResource AccentButtonStyle}">
                                         <Grid>
                                             <StackPanel
@@ -170,6 +193,26 @@
                                                     IsActive="{x:Bind IsLaunching, Mode=OneWay}" />
                                                 <TextBlock Text="Launching…" />
                                             </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                    <Button
+                                        Padding="8"
+                                        AutomationProperties.Name="Remove"
+                                        Click="RemoveButton_Click"
+                                        IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                        ToolTipService.ToolTip="Remove — stop and delete this deployment"
+                                        Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <Grid>
+                                            <FontIcon
+                                                FontSize="14"
+                                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                                Glyph="&#xE74D;"
+                                                Visibility="{x:Bind IsRemoving, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                                            <ProgressRing
+                                                Width="14"
+                                                Height="14"
+                                                IsActive="{x:Bind IsRemoving, Mode=OneWay}"
+                                                Visibility="{x:Bind IsRemoving, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                                         </Grid>
                                     </Button>
                                 </StackPanel>

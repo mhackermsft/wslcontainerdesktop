@@ -54,4 +54,12 @@ public sealed partial class TemplatesPage : Page
             ViewModel.ConfigureCommand.Execute(template);
         }
     }
+
+    private void RemoveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is StackTemplate template)
+        {
+            ViewModel.RemoveCommand.Execute(template);
+        }
+    }
 }

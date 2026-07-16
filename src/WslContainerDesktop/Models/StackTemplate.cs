@@ -68,5 +68,34 @@ public sealed partial class StackTemplate : ObservableObject
     /// buttons. Not part of the static catalog data — set transiently by the Templates view model.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBusyCard))]
+    [NotifyPropertyChangedFor(nameof(CanLaunch))]
     private bool _isLaunching;
+
+    /// <summary>
+    /// True while this template is being removed (torn down). Set transiently by the Templates view
+    /// model so the card can show a spinner and disable its buttons.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBusyCard))]
+    [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    private bool _isRemoving;
+
+    /// <summary>
+    /// True when this template currently has running/created resources (its container or compose
+    /// project exists). Recomputed from the live engine snapshot; drives the "Deployed" badge and the
+    /// Remove button. Not part of the static catalog data.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    private bool _isDeployed;
+
+    /// <summary>True while the card is launching or removing — used to disable all card actions.</summary>
+    public bool IsBusyCard => IsLaunching || IsRemoving;
+
+    /// <summary>
+    /// True when the Launch button should be enabled: not busy and not already deployed. A deployed
+    /// template must be removed before it can be launched again, so Launch is visibly disabled.
+    /// </summary>
+    public bool CanLaunch => !IsBusyCard && !IsDeployed;
 }
