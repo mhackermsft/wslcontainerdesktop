@@ -21,6 +21,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 using WslContainerDesktop.ViewModels;
@@ -102,54 +103,63 @@ public sealed partial class TemplatesPage : Page
         }
     }
 
-    private async void ExportMenuItem_Click(object sender, RoutedEventArgs e)
+    private void ExportMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not StackTemplate template)
         {
             return;
         }
 
-        var file = await PickSaveFileAsync(SanitizeFileName(template.Name));
-        if (file is not null)
+        UiSafe.Run(async () =>
         {
-            await FileIO.WriteTextAsync(file, ViewModel.ExportToJson(template));
-            ViewModel.StatusMessage = $"Exported \"{template.Name}\" to {file.Name}.";
-        }
+            var file = await PickSaveFileAsync(SanitizeFileName(template.Name));
+            if (file is not null)
+            {
+                await FileIO.WriteTextAsync(file, ViewModel.ExportToJson(template));
+                ViewModel.StatusMessage = $"Exported \"{template.Name}\" to {file.Name}.";
+            }
+        });
     }
 
-    private async void ExportAllButton_Click(object sender, RoutedEventArgs e)
+    private void ExportAllButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!await ViewModel.EnsureHasUserTemplatesForExportAsync())
+        UiSafe.Run(async () =>
         {
-            return;
-        }
+            if (!await ViewModel.EnsureHasUserTemplatesForExportAsync())
+            {
+                return;
+            }
 
-        var file = await PickSaveFileAsync("my-templates");
-        if (file is not null)
-        {
-            await FileIO.WriteTextAsync(file, ViewModel.ExportAllUserToJson());
-            ViewModel.StatusMessage = $"Exported your custom templates to {file.Name}.";
-        }
+            var file = await PickSaveFileAsync("my-templates");
+            if (file is not null)
+            {
+                await FileIO.WriteTextAsync(file, ViewModel.ExportAllUserToJson());
+                ViewModel.StatusMessage = $"Exported your custom templates to {file.Name}.";
+            }
+        });
     }
 
-    private async void ImportButton_Click(object sender, RoutedEventArgs e)
+    private void ImportButton_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FileOpenPicker
+        UiSafe.Run(async () =>
         {
-            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-        };
-        picker.FileTypeFilter.Add(TemplatePortability.FileExtension);
-        picker.FileTypeFilter.Add(".json");
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+            var picker = new FileOpenPicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            };
+            picker.FileTypeFilter.Add(TemplatePortability.FileExtension);
+            picker.FileTypeFilter.Add(".json");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
 
-        var file = await picker.PickSingleFileAsync();
-        if (file is null)
-        {
-            return;
-        }
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                return;
+            }
 
-        var json = await FileIO.ReadTextAsync(file);
-        await ViewModel.ImportFromJsonAsync(json);
+            var json = await FileIO.ReadTextAsync(file);
+            await ViewModel.ImportFromJsonAsync(json);
+        });
     }
 
     private async System.Threading.Tasks.Task<StorageFile?> PickSaveFileAsync(string suggestedName)
