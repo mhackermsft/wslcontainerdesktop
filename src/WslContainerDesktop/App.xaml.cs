@@ -388,6 +388,8 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
         services.AddSingleton<IRunProfileStore, RunProfileStore>();
         services.AddSingleton<ITemplateConfigStore, TemplateConfigStore>();
+        services.AddSingleton<IUserTemplateStore, UserTemplateStore>();
+        services.AddSingleton<ITemplateVisibilityStore, TemplateVisibilityStore>();
         services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();        services.AddSingleton<ComposeProjectSupervisor>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();

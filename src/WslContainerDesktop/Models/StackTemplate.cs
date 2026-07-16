@@ -25,6 +25,19 @@ public enum StackTemplateKind
     Compose,
 }
 
+/// <summary>Where a template came from, which governs whether it can be edited or deleted.</summary>
+public enum TemplateSource
+{
+    /// <summary>Shipped in the app (code-baked). Can be hidden but never edited or deleted.</summary>
+    BuiltIn,
+
+    /// <summary>Authored by the user in-app. Can be edited, duplicated, and deleted.</summary>
+    User,
+
+    /// <summary>Brought in via Import. Can be edited, duplicated, and deleted.</summary>
+    Imported,
+}
+
 /// <summary>
 /// A curated, one-click template from the gallery. Single-container templates prefill the Run
 /// dialog with <see cref="RunOptions"/>; compose templates import <see cref="ComposeYaml"/> as a
@@ -60,7 +73,28 @@ public sealed partial class StackTemplate : ObservableObject
     /// <summary>Optional note surfaced to the user (e.g. default credentials) before launching.</summary>
     public string? Note { get; init; }
 
+    /// <summary>
+    /// Where this template came from. Built-ins are code-baked (hide-only); User/Imported templates
+    /// live in <c>user-templates.json</c> and can be edited, duplicated, and deleted. Mutable so the
+    /// stores can normalize it on load/save.
+    /// </summary>
+    public TemplateSource Source { get; set; } = TemplateSource.BuiltIn;
+
+    /// <summary>True when the user owns this template (authored or imported) and may edit/delete it.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsUserManaged => Source is TemplateSource.User or TemplateSource.Imported;
+
+    /// <summary>Short human-readable badge for the template's source, shown on the card.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string SourceLabel => Source switch
+    {
+        TemplateSource.User => "Custom",
+        TemplateSource.Imported => "Imported",
+        _ => "Built-in",
+    };
+
     /// <summary>Human-readable badge summarizing the template kind, shown on the card.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public string KindLabel => Kind == StackTemplateKind.Compose ? "Compose stack" : "Container";
 
     /// <summary>
@@ -70,6 +104,7 @@ public sealed partial class StackTemplate : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBusyCard))]
     [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    [property: System.Text.Json.Serialization.JsonIgnore]
     private bool _isLaunching;
 
     /// <summary>
@@ -79,6 +114,7 @@ public sealed partial class StackTemplate : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBusyCard))]
     [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    [property: System.Text.Json.Serialization.JsonIgnore]
     private bool _isRemoving;
 
     /// <summary>
@@ -88,14 +124,26 @@ public sealed partial class StackTemplate : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    [property: System.Text.Json.Serialization.JsonIgnore]
     private bool _isDeployed;
 
+    /// <summary>
+    /// True when the user has hidden this template from the gallery. Recomputed from the visibility
+    /// store; drives filtering and the "Show hidden" dimmed presentation. Not persisted on the
+    /// template itself (the hidden-Id set lives in <c>template-visibility.json</c>).
+    /// </summary>
+    [ObservableProperty]
+    [property: System.Text.Json.Serialization.JsonIgnore]
+    private bool _isHidden;
+
     /// <summary>True while the card is launching or removing — used to disable all card actions.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool IsBusyCard => IsLaunching || IsRemoving;
 
     /// <summary>
     /// True when the Launch button should be enabled: not busy and not already deployed. A deployed
     /// template must be removed before it can be launched again, so Launch is visibly disabled.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool CanLaunch => !IsBusyCard && !IsDeployed;
 }
