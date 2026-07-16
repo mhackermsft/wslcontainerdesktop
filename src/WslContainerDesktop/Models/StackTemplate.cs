@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using CommunityToolkit.Mvvm.ComponentModel;
+
 namespace WslContainerDesktop.Models;
 
 /// <summary>Whether a template launches a single container or imports a multi-service compose stack.</summary>
@@ -28,7 +30,7 @@ public enum StackTemplateKind
 /// dialog with <see cref="RunOptions"/>; compose templates import <see cref="ComposeYaml"/> as a
 /// new Compose project. Templates are static, bundled data (see <c>TemplateCatalog</c>).
 /// </summary>
-public sealed class StackTemplate
+public sealed partial class StackTemplate : ObservableObject
 {
     public required string Id { get; init; }
 
@@ -60,4 +62,11 @@ public sealed class StackTemplate
 
     /// <summary>Human-readable badge summarizing the template kind, shown on the card.</summary>
     public string KindLabel => Kind == StackTemplateKind.Compose ? "Compose stack" : "Container";
+
+    /// <summary>
+    /// True while this template is being launched, so the card can show a spinner and disable its
+    /// buttons. Not part of the static catalog data — set transiently by the Templates view model.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isLaunching;
 }

@@ -96,18 +96,26 @@ public partial class TemplatesViewModel : ObservableObject
     [RelayCommand]
     private async Task LaunchAsync(StackTemplate? template)
     {
-        if (template is null)
+        if (template is null || template.IsLaunching)
         {
             return;
         }
 
-        if (template.Kind == StackTemplateKind.Compose)
+        template.IsLaunching = true;
+        try
         {
-            await LaunchComposeAsync(template);
+            if (template.Kind == StackTemplateKind.Compose)
+            {
+                await LaunchComposeAsync(template);
+            }
+            else
+            {
+                await LaunchContainerAsync(template);
+            }
         }
-        else
+        finally
         {
-            await LaunchContainerAsync(template);
+            template.IsLaunching = false;
         }
     }
 
@@ -212,7 +220,7 @@ public partial class TemplatesViewModel : ObservableObject
         }
 
         IsBusy = true;
-        StatusMessage = $"Starting {template.Name}…";
+        StatusMessage = $"Starting {template.Name}… downloading the image if needed, this can take a moment.";
         try
         {
             // `wslc run` auto-pulls if the image is absent, so refresh Azure auth first.
@@ -226,9 +234,8 @@ public partial class TemplatesViewModel : ObservableObject
             }
             else
             {
-                StatusMessage = string.IsNullOrWhiteSpace(template.Note)
-                    ? $"{template.Name} started"
-                    : $"{template.Name} started — {template.Note}";
+                var note = string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note}";
+                StatusMessage = $"{template.Name} started{note}. See it in the Containers view.";
                 _monitor.RequestRefresh();
             }
         }
@@ -256,13 +263,12 @@ public partial class TemplatesViewModel : ObservableObject
         }
 
         IsBusy = true;
-        StatusMessage = $"Launching {template.Name}…";
+        StatusMessage = $"Launching {template.Name}… pulling images and starting services, this can take a moment.";
         try
         {
             await _compose.ImportAndUpAsync(yaml, suggestedName: name);
-            StatusMessage = string.IsNullOrWhiteSpace(template.Note)
-                ? $"{template.Name} launched"
-                : $"{template.Name} launched — {template.Note}";
+            var note = string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note}";
+            StatusMessage = $"{template.Name} launched{note}. See it in the Containers view.";
         }
         finally
         {
