@@ -28,6 +28,15 @@ public interface IRegistryCredentialStore
     /// when available. The secret itself is never read.
     /// </summary>
     bool IsLoggedIn(string server, out string? username);
+
+    /// <summary>
+    /// Reads the stored username and secret for <paramref name="server"/> so a caller can
+    /// authenticate directly to a registry's HTTP API (e.g. to browse its catalog). Returns
+    /// true only when a credential exists. The secret is returned to the caller but must never
+    /// be logged or persisted. Used only for generic (non-Azure) registries; Azure registries
+    /// browse via the signed-in `az` session instead.
+    /// </summary>
+    bool TryGetCredential(string server, out string? username, out string? password);
 }
 
 /// <summary>
@@ -61,8 +70,25 @@ public sealed class RegistryCredentialStore(ILogger<RegistryCredentialStore> log
         return false;
     }
 
-    /// <summary>
-    /// The server names to probe. For a Docker Hub login the engine may store the credential under
+    public bool TryGetCredential(string server, out string? username, out string? password)
+    {
+        username = null;
+        password = null;
+        if (string.IsNullOrWhiteSpace(server))
+        {
+            return false;
+        }
+
+        foreach (var candidate in CandidateServers(server))
+        {
+            if (TryReadSecret(TargetPrefix + candidate, out username, out password))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
     /// any of Docker's canonical aliases depending on how the server was passed, so all are checked.
     /// </summary>
     private static IEnumerable<string> CandidateServers(string server)
@@ -103,6 +129,46 @@ public sealed class RegistryCredentialStore(ILogger<RegistryCredentialStore> log
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Failed to read credential {Target}.", target);
+            return false;
+        }
+        finally
+        {
+            if (handle != IntPtr.Zero)
+            {
+                CredFree(handle);
+            }
+        }
+    }
+
+    /// <summary>Reads the secret blob (UTF-8) alongside the username. wslc's wincred backend
+    /// stores the password as UTF-8 bytes in the credential blob.</summary>
+    private bool TryReadSecret(string target, out string? username, out string? password)
+    {
+        username = null;
+        password = null;
+        var handle = IntPtr.Zero;
+        try
+        {
+            if (!CredReadW(target, CRED_TYPE_GENERIC, 0, out handle))
+            {
+                return false;
+            }
+
+            var cred = Marshal.PtrToStructure<CREDENTIAL>(handle);
+            username = string.IsNullOrWhiteSpace(cred.UserName) ? null : cred.UserName;
+
+            if (cred.CredentialBlob != IntPtr.Zero && cred.CredentialBlobSize > 0)
+            {
+                var bytes = new byte[cred.CredentialBlobSize];
+                Marshal.Copy(cred.CredentialBlob, bytes, 0, cred.CredentialBlobSize);
+                password = System.Text.Encoding.UTF8.GetString(bytes);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Failed to read credential secret {Target}.", target);
             return false;
         }
         finally
