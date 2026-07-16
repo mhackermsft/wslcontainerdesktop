@@ -3,11 +3,17 @@
     x:Class="WslContainerDesktop.Views.TemplatesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:WslContainerDesktop.Models"
     x:Name="Root"
     mc:Ignorable="d">
+
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <converters:InverseBoolConverter x:Key="InverseBool" />
+    </Page.Resources>
 
     <Grid Margin="24,16,24,16" RowSpacing="12">
         <Grid.RowDefinitions>
@@ -15,12 +21,41 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Spacing="2">
-            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Templates" />
-            <TextBlock
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Style="{ThemeResource CaptionTextBlockStyle}"
-                Text="One-click stacks — launch a common image or multi-service project in seconds." />
+        <StackPanel Grid.Row="0" Spacing="6">
+            <StackPanel Spacing="2">
+                <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Templates" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{ThemeResource CaptionTextBlockStyle}"
+                    Text="One-click stacks — launch a common image or multi-service project in seconds." />
+            </StackPanel>
+
+            <!--  Launch progress + status feedback  -->
+            <Border
+                Padding="12,8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="6">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <ProgressRing
+                        Width="16"
+                        Height="16"
+                        VerticalAlignment="Center"
+                        IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                    <FontIcon
+                        VerticalAlignment="Center"
+                        FontSize="14"
+                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                        Glyph="&#xE946;"
+                        Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
         </StackPanel>
 
         <GridView
@@ -86,17 +121,40 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
 
+                                <!--  Kind badge, replaced by a "Deployed" pill while the template is up  -->
                                 <Border
                                     Grid.Column="0"
                                     Padding="8,2"
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorSecondaryBrush}"
-                                    CornerRadius="10">
+                                    CornerRadius="10"
+                                    Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
                                     <TextBlock
                                         FontSize="11"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                         Text="{x:Bind KindLabel}" />
+                                </Border>
+
+                                <Border
+                                    Grid.Column="0"
+                                    Padding="8,2"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
+                                    CornerRadius="10"
+                                    Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon
+                                            VerticalAlignment="Center"
+                                            FontSize="10"
+                                            Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                            Glyph="&#xE73E;" />
+                                        <TextBlock
+                                            FontSize="11"
+                                            Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                            Text="Deployed" />
+                                    </StackPanel>
                                 </Border>
 
                                 <StackPanel
@@ -107,16 +165,55 @@
                                         Padding="8"
                                         AutomationProperties.Name="Configure"
                                         Click="ConfigureButton_Click"
+                                        IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
                                         ToolTipService.ToolTip="Configure before launching (saved for next time)">
                                         <FontIcon FontSize="14" Glyph="&#xE713;" />
                                     </Button>
                                     <Button
                                         Click="LaunchButton_Click"
+                                        IsEnabled="{x:Bind CanLaunch, Mode=OneWay}"
                                         Style="{ThemeResource AccentButtonStyle}">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <FontIcon FontSize="13" Glyph="&#xE768;" />
-                                            <TextBlock Text="Launch" />
-                                        </StackPanel>
+                                        <Grid>
+                                            <StackPanel
+                                                Orientation="Horizontal"
+                                                Spacing="6"
+                                                Visibility="{x:Bind IsLaunching, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+                                                <FontIcon FontSize="13" Glyph="&#xE768;" />
+                                                <TextBlock Text="Launch" />
+                                            </StackPanel>
+                                            <StackPanel
+                                                Orientation="Horizontal"
+                                                Spacing="6"
+                                                Visibility="{x:Bind IsLaunching, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                <ProgressRing
+                                                    Width="14"
+                                                    Height="14"
+                                                    VerticalAlignment="Center"
+                                                    Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                                    IsActive="{x:Bind IsLaunching, Mode=OneWay}" />
+                                                <TextBlock Text="Launching…" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                    <Button
+                                        Padding="8"
+                                        AutomationProperties.Name="Remove"
+                                        Click="RemoveButton_Click"
+                                        IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                                        ToolTipService.ToolTip="Remove — stop and delete this deployment"
+                                        Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <Grid>
+                                            <FontIcon
+                                                FontSize="14"
+                                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                                Glyph="&#xE74D;"
+                                                Visibility="{x:Bind IsRemoving, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                                            <ProgressRing
+                                                Width="14"
+                                                Height="14"
+                                                IsActive="{x:Bind IsRemoving, Mode=OneWay}"
+                                                Visibility="{x:Bind IsRemoving, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                                        </Grid>
                                     </Button>
                                 </StackPanel>
                             </Grid>

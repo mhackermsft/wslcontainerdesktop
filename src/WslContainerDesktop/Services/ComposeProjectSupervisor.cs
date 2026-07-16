@@ -465,6 +465,17 @@ public sealed class ComposeProjectSupervisor
             try
             {
                 var run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
+
+                // The list-based pre-run cleanup above can miss a container (a racing up, or a
+                // container the list momentarily didn't return), leaving the run to fail with a
+                // name conflict even though the engine is otherwise healthy. Recover by force-
+                // removing the conflicting name and retrying once so `up` stays idempotent.
+                if (!run.Success && IsNameConflict(run))
+                {
+                    await _wslc.RemoveContainerAsync(name, force: true, ct).ConfigureAwait(false);
+                    run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
+                }
+
                 if (!run.Success)
                 {
                     return new ComposeServiceResult(service.Name, false, Summarize(run));
@@ -1051,6 +1062,18 @@ public sealed class ComposeProjectSupervisor
         }
 
         return string.IsNullOrEmpty(text) ? $"wslc exited with code {result.ExitCode}" : text;
+    }
+
+    /// <summary>
+    /// True when a <c>wslc run</c> failed because the container name is already taken
+    /// (<c>ERROR_ALREADY_EXISTS</c> / "already in use"). Used to force-remove the stale container and
+    /// retry so <c>up</c> is idempotent even if the pre-run cleanup missed it.
+    /// </summary>
+    private static bool IsNameConflict(CommandResult result)
+    {
+        var text = $"{result.StandardError}\n{result.StandardOutput}";
+        return text.Contains("already in use", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("ERROR_ALREADY_EXISTS", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>User-facing message for both the explicit wslc mount-limit error and the silent

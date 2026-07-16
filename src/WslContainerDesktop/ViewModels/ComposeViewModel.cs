@@ -288,6 +288,19 @@ public partial class ComposeViewModel : ObservableObject
         await BringUpAsync(project);
     }
 
+    /// <summary>
+    /// Tears a template-launched project fully down: stops and removes its containers and networks
+    /// (and, when <paramref name="removeVolumes"/> is true, its data volumes), then deletes the
+    /// stored project definition so the system is back to its pre-launch state. Used by the Templates
+    /// page's one-click Remove. External resources are always preserved by the supervisor.
+    /// </summary>
+    public async Task RemoveProjectAsync(string projectName, bool removeVolumes)
+    {
+        await _supervisor.DownAsync(projectName, removeVolumes);
+        _store.Delete(projectName);
+        await RefreshAsync();
+    }
+
     [RelayCommand]
     private async Task UpAsync(ComposeProjectRow? row)
     {

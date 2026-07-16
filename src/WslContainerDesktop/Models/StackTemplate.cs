@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using CommunityToolkit.Mvvm.ComponentModel;
+
 namespace WslContainerDesktop.Models;
 
 /// <summary>Whether a template launches a single container or imports a multi-service compose stack.</summary>
@@ -28,7 +30,7 @@ public enum StackTemplateKind
 /// dialog with <see cref="RunOptions"/>; compose templates import <see cref="ComposeYaml"/> as a
 /// new Compose project. Templates are static, bundled data (see <c>TemplateCatalog</c>).
 /// </summary>
-public sealed class StackTemplate
+public sealed partial class StackTemplate : ObservableObject
 {
     public required string Id { get; init; }
 
@@ -60,4 +62,40 @@ public sealed class StackTemplate
 
     /// <summary>Human-readable badge summarizing the template kind, shown on the card.</summary>
     public string KindLabel => Kind == StackTemplateKind.Compose ? "Compose stack" : "Container";
+
+    /// <summary>
+    /// True while this template is being launched, so the card can show a spinner and disable its
+    /// buttons. Not part of the static catalog data — set transiently by the Templates view model.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBusyCard))]
+    [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    private bool _isLaunching;
+
+    /// <summary>
+    /// True while this template is being removed (torn down). Set transiently by the Templates view
+    /// model so the card can show a spinner and disable its buttons.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBusyCard))]
+    [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    private bool _isRemoving;
+
+    /// <summary>
+    /// True when this template currently has running/created resources (its container or compose
+    /// project exists). Recomputed from the live engine snapshot; drives the "Deployed" badge and the
+    /// Remove button. Not part of the static catalog data.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanLaunch))]
+    private bool _isDeployed;
+
+    /// <summary>True while the card is launching or removing — used to disable all card actions.</summary>
+    public bool IsBusyCard => IsLaunching || IsRemoving;
+
+    /// <summary>
+    /// True when the Launch button should be enabled: not busy and not already deployed. A deployed
+    /// template must be removed before it can be launched again, so Launch is visibly disabled.
+    /// </summary>
+    public bool CanLaunch => !IsBusyCard && !IsDeployed;
 }
