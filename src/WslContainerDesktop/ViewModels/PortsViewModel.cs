@@ -109,7 +109,7 @@ public partial class PortsViewModel : ObservableObject
         // visibly flicker. Skip the update entirely when the endpoint set is unchanged.
         var signature = string.Join(
             "|",
-            rows.Select(r => $"{r.ContainerId}:{r.HostPort}:{r.ContainerPort}:{r.Protocol}"));
+            rows.Select(r => $"{r.ContainerId}:{r.ContainerName}:{r.HostPort}:{r.ContainerPort}:{r.Protocol}"));
         if (signature == _signature && Endpoints.Count == rows.Count)
         {
             return;
