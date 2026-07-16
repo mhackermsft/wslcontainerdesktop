@@ -83,24 +83,32 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1"
                 CornerRadius="6">
-                <StackPanel Orientation="Horizontal" Spacing="10">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
                     <ProgressRing
+                        Grid.Column="0"
                         Width="16"
                         Height="16"
                         VerticalAlignment="Center"
                         IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
                     <FontIcon
+                        Grid.Column="1"
                         VerticalAlignment="Center"
                         FontSize="14"
                         Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                         Glyph="&#xE946;"
                         Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
                     <TextBlock
+                        Grid.Column="2"
                         VerticalAlignment="Center"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
                         TextWrapping="Wrap" />
-                </StackPanel>
+                </Grid>
             </Border>
         </StackPanel>
 
