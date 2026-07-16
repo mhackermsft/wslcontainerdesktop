@@ -54,6 +54,9 @@ public partial class PortsViewModel : ObservableObject
     private readonly StatusMonitor _monitor;
     private readonly DispatcherQueue _dispatcher;
 
+    /// <summary>Signature of the endpoints currently shown, used to skip no-op rebuilds.</summary>
+    private string _signature = string.Empty;
+
     [ObservableProperty]
     private bool _hasEndpoints;
 
@@ -101,6 +104,18 @@ public partial class PortsViewModel : ObservableObject
             .OrderBy(r => r.HostPort)
             .ThenBy(r => r.ContainerName, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        // StatusMonitor polls on a timer; rebuilding the collection every tick makes the list
+        // visibly flicker. Skip the update entirely when the endpoint set is unchanged.
+        var signature = string.Join(
+            "|",
+            rows.Select(r => $"{r.ContainerId}:{r.HostPort}:{r.ContainerPort}:{r.Protocol}"));
+        if (signature == _signature && Endpoints.Count == rows.Count)
+        {
+            return;
+        }
+
+        _signature = signature;
 
         Endpoints.Clear();
         foreach (var row in rows)

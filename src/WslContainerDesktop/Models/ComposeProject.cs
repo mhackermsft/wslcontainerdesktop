@@ -263,6 +263,8 @@ public sealed class ComposeProject
             return;
         }
 
+        EnsureDefaultNetwork();
+
         var volumeRenames = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var volume in Volumes.Where(v => !v.External && !string.IsNullOrWhiteSpace(v.Name)))
         {
@@ -312,6 +314,39 @@ public sealed class ComposeProject
                     service.Options.Network = primary;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Implements Compose's implicit <c>default</c> network. Every service that does not attach to an
+    /// explicit network (and is not using <c>host</c>/<c>none</c>/<c>container:</c> network mode) joins
+    /// a single project-wide network so services can resolve each other by service name — Compose's
+    /// built-in DNS discovery. This matters because the engine's <em>default bridge</em> provides no
+    /// name resolution, so inter-service hostnames (e.g. WordPress's <c>WORDPRESS_DB_HOST: db</c>) fail
+    /// unless the containers share a user-defined network. The synthesized network is named
+    /// <c>default</c> here and is prefixed to <c>{project}_default</c> by the namespacing pass that
+    /// follows. Call before the rename maps are built.
+    /// </summary>
+    private void EnsureDefaultNetwork()
+    {
+        var attach = Services
+            .Where(s => s.Options.Network is null && s.Options.Networks.Count == 0)
+            .ToList();
+        if (attach.Count == 0)
+        {
+            return;
+        }
+
+        const string defaultName = "default";
+        if (!Networks.Any(n => string.Equals(n.Name, defaultName, StringComparison.Ordinal)))
+        {
+            Networks.Add(new ComposeNetwork { Name = defaultName });
+        }
+
+        foreach (var service in attach)
+        {
+            service.Options.Network = defaultName;
+            service.Options.Networks.Add(defaultName);
         }
     }
 
