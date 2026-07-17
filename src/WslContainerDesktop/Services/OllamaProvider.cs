@@ -77,10 +77,166 @@ public sealed class OllamaProvider(HttpClient http, ISettingsService settings) :
 
     private static string Trim(string text) => text.Length <= 500 ? text : text[..500] + "…";
 
-    public Task<string> RunTurnAsync(
+    public async Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
-        CancellationToken ct) =>
-        throw new NotSupportedException("The Container AI Assistant requires a tool-capable provider. Choose GitHub Copilot, Azure OpenAI, or OpenAI-compatible in Settings.");
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.AiOllamaModel))
+        {
+            throw new InvalidOperationException("Choose an Ollama model in Settings first.");
+        }
+
+        var endpoint = NormalizeBase(settings.AiOllamaEndpoint, "http://localhost:11434");
+        var model = settings.AiOllamaModel.Trim();
+        var messages = history.ToList();
+        for (var i = 0; i < 8; i++)
+        {
+            using var response = await http.PostAsJsonAsync(new Uri(endpoint, "/api/chat"), new
+            {
+                model,
+                stream = false,
+                messages = messages.Select(ToOllamaMessage).ToList(),
+                tools = tools.Select(ToOllamaTool).ToList(),
+                options = new { temperature = 0.2 },
+            }, ct).ConfigureAwait(false);
+
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"Ollama chat request failed ({(int)response.StatusCode}): {Trim(body)}. The model '{model}' must support tool calling (e.g. llama3.1, qwen2.5, mistral-nemo).");
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var messageElement = doc.RootElement.GetProperty("message");
+            var turn = ParseToolTurn(messageElement);
+            if (turn.ToolCalls.Count == 0)
+            {
+                return string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : turn.AssistantText!;
+            }
+
+            messages.Add(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls });
+            foreach (var call in turn.ToolCalls)
+            {
+                var toolResult = await invokeToolAsync(call, ct).ConfigureAwait(false);
+                messages.Add(new AiChatMessage
+                {
+                    Role = "tool",
+                    ToolCallId = call.Id,
+                    ToolName = call.Name,
+                    Content = toolResult,
+                });
+            }
+        }
+
+        throw new InvalidOperationException("Stopped because the assistant reached the tool-iteration limit.");
+    }
+
+    private static object ToOllamaMessage(AiChatMessage message)
+    {
+        if (message.Role == "tool")
+        {
+            // Ollama identifies tool results by name, not an id.
+            return new
+            {
+                role = "tool",
+                tool_name = message.ToolName ?? string.Empty,
+                content = message.Content ?? string.Empty,
+            };
+        }
+
+        if (message.ToolCalls.Count > 0)
+        {
+            return new
+            {
+                role = "assistant",
+                content = message.Content ?? string.Empty,
+                tool_calls = message.ToolCalls.Select(c => new
+                {
+                    function = new
+                    {
+                        name = c.Name,
+                        // Ollama expects arguments as a JSON object, not a stringified payload.
+                        arguments = ParseArguments(c.ArgumentsJson),
+                    },
+                }).ToList(),
+            };
+        }
+
+        return new { role = message.Role, content = message.Content ?? string.Empty };
+    }
+
+    private static object ToOllamaTool(AiToolDefinition tool)
+    {
+        using var schema = JsonDocument.Parse(tool.JsonSchemaParameters);
+        return new
+        {
+            type = "function",
+            function = new
+            {
+                name = tool.Name,
+                description = tool.Description,
+                parameters = schema.RootElement.Clone(),
+            },
+        };
+    }
+
+    private static JsonElement ParseArguments(string argumentsJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson);
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            using var doc = JsonDocument.Parse("{}");
+            return doc.RootElement.Clone();
+        }
+    }
+
+    private static AiToolTurn ParseToolTurn(JsonElement message)
+    {
+        var text = message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String
+            ? content.GetString()
+            : null;
+        var calls = new List<AiToolCall>();
+        if (message.TryGetProperty("tool_calls", out var toolCalls) && toolCalls.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var call in toolCalls.EnumerateArray())
+            {
+                if (!call.TryGetProperty("function", out var function) ||
+                    !function.TryGetProperty("name", out var nameElement))
+                {
+                    continue;
+                }
+
+                var name = nameElement.GetString();
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                // Ollama returns arguments as a JSON object; normalize to the string form our model uses.
+                var argumentsJson = "{}";
+                if (function.TryGetProperty("arguments", out var arguments))
+                {
+                    argumentsJson = arguments.ValueKind == JsonValueKind.String
+                        ? arguments.GetString() ?? "{}"
+                        : arguments.GetRawText();
+                }
+
+                calls.Add(new AiToolCall
+                {
+                    // Ollama does not supply tool-call ids; synthesize one for internal tracking.
+                    Id = Guid.NewGuid().ToString("N"),
+                    Name = name,
+                    ArgumentsJson = argumentsJson,
+                });
+            }
+        }
+
+        return new AiToolTurn { AssistantText = text, ToolCalls = calls };
+    }
 }
