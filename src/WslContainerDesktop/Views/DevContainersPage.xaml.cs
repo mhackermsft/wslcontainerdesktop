@@ -35,6 +35,9 @@ public sealed partial class DevContainersPage : Page
 
     public DevContainersViewModel ViewModel { get; }
 
+    public static Visibility BoolToVisibility(bool value) =>
+        value ? Visibility.Visible : Visibility.Collapsed;
+
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
@@ -90,14 +93,6 @@ public sealed partial class DevContainersPage : Page
         if (RowOf(sender) is { } row)
         {
             ViewModel.OpenTerminalCommand.Execute(row);
-        }
-    }
-
-    private void VsCodeButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (RowOf(sender) is { } row)
-        {
-            ViewModel.OpenVsCodeCommand.Execute(row);
         }
     }
 

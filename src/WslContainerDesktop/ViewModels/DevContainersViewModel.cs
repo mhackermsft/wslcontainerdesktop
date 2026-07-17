@@ -115,6 +115,11 @@ public partial class DevContainersViewModel(
 
     public async Task ImportFolderAsync(string workspacePath)
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         IsBusy = true;
         try
         {
@@ -188,7 +193,13 @@ public partial class DevContainersViewModel(
             return;
         }
 
+        if (IsBusy)
+        {
+            return;
+        }
+
         IsBusy = true;
+        StatusMessage = $"Stopping \"{row.Name}\"…";
         try
         {
             await supervisor.StopAsync(row.Config);
@@ -214,6 +225,11 @@ public partial class DevContainersViewModel(
             return;
         }
 
+        if (IsBusy)
+        {
+            return;
+        }
+
         var ok = await dialogs.ShowConfirmAsync("Remove dev container", $"Stop, remove, and forget \"{row.Name}\"?", "Remove");
         if (!ok)
         {
@@ -221,6 +237,7 @@ public partial class DevContainersViewModel(
         }
 
         IsBusy = true;
+        StatusMessage = $"Removing \"{row.Name}\"…";
         try
         {
             await supervisor.RemoveAsync(row.Config);
@@ -247,18 +264,13 @@ public partial class DevContainersViewModel(
         }
     }
 
-    [RelayCommand]
-    private void OpenVsCode(DevContainerRow? row)
-    {
-        row ??= Selected;
-        if (row is not null)
-        {
-            supervisor.OpenInVsCode(row.Config);
-        }
-    }
-
     private async Task RunOperationAsync(DevContainerRow row, Func<Task<DevContainerOperationResult>> operation, string progress, string failureTitle)
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         IsBusy = true;
         StatusMessage = $"{progress} \"{row.Name}\"…";
         try

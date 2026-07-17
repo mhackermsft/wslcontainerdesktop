@@ -305,25 +305,6 @@ public sealed class DevContainerSupervisor(
         runner.RunInteractive(["exec", "-it", containerId, "sh", "-lc", command]);
     }
 
-    public void OpenInVsCode(DevContainerConfig config)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "code",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add(config.WorkspacePath);
-            Process.Start(psi);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Could not launch VS Code for {Path}.", config.WorkspacePath);
-        }
-    }
-
     private async Task RunHostLifecycleAsync(DevContainerConfig config, CancellationToken ct)
     {
         foreach (var command in config.Lifecycle.Initialize.Where(c => !string.IsNullOrWhiteSpace(c)))
@@ -491,7 +472,33 @@ public sealed class DevContainerSupervisor(
     private static string Summarize(CommandResult result)
     {
         var text = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
-        return string.IsNullOrWhiteSpace(text) ? $"wslc exited with {result.ExitCode}" : text.Trim();
+        text = string.IsNullOrWhiteSpace(text) ? $"wslc exited with {result.ExitCode}" : text.Trim();
+
+        if (IsVolumeMountLimit(result))
+        {
+            return "The WSL container engine hit its per-session volume mount limit (15 volumes). " +
+                   "This is a known wslc preview limitation. Restart the container session with " +
+                   "\"wslc system session terminate\" (or restart WSL), then try again. " +
+                   "Original error: " + text;
+        }
+
+        return text;
+    }
+
+    // wslc caps mounted volumes per session at 15. When exhausted, a build either reports
+    // "Too many volumes have been mounted" outright, or its context mounts empty and buildkit
+    // fails the COPY with a "failed to calculate checksum ... : not found" error. Both mean the
+    // same thing: the session is out of mount slots and needs to be restarted.
+    private static bool IsVolumeMountLimit(CommandResult result)
+    {
+        var text = (result.StandardError + "\n" + result.StandardOutput).ToLowerInvariant();
+        if (text.Contains("too many volumes have been mounted", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return text.Contains("failed to calculate checksum", StringComparison.Ordinal)
+            && text.Contains(": not found", StringComparison.Ordinal);
     }
 
     private static bool IsNameConflict(CommandResult result)

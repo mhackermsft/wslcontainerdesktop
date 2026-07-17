@@ -27,5 +27,4 @@ public interface IDevContainerSupervisor
     Task StopAsync(DevContainerConfig config, CancellationToken ct = default);
     Task RemoveAsync(DevContainerConfig config, CancellationToken ct = default);
     void OpenTerminal(DevContainerConfig config, string containerId);
-    void OpenInVsCode(DevContainerConfig config);
 }

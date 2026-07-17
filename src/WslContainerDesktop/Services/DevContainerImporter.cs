@@ -253,7 +253,9 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
     {
         service.Options.WorkingDir = config.WorkspaceFolder;
         service.Options.User = string.IsNullOrWhiteSpace(config.ContainerUser) ? config.RemoteUser : config.ContainerUser;
-        if (!string.IsNullOrWhiteSpace(config.WorkspaceMount))
+        var alreadyMountsWorkspace = service.Options.Volumes.Any(v =>
+            string.Equals(MountTarget(v), config.WorkspaceFolder, StringComparison.Ordinal));
+        if (!string.IsNullOrWhiteSpace(config.WorkspaceMount) && !alreadyMountsWorkspace)
         {
             service.Options.Volumes.Add(config.WorkspaceMount);
         }
@@ -499,6 +501,31 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// Extracts the container (target) path from a short-form volume spec (<c>source:target[:mode]</c>),
+    /// tolerating a Windows drive-letter colon in the source. Returns the whole value for an anonymous
+    /// volume (no separator). Used to detect whether a Compose service already mounts the workspace.
+    /// </summary>
+    private static string MountTarget(string spec)
+    {
+        var trimmed = spec.Trim();
+        var searchStart = 0;
+        if (trimmed.Length >= 2 && char.IsLetter(trimmed[0]) && trimmed[1] == ':')
+        {
+            searchStart = 2;
+        }
+
+        var firstColon = trimmed.IndexOf(':', searchStart);
+        if (firstColon < 0)
+        {
+            return trimmed;
+        }
+
+        var rest = trimmed[(firstColon + 1)..];
+        var modeColon = rest.IndexOf(':');
+        return (modeColon < 0 ? rest : rest[..modeColon]).Trim();
     }
 
     private static string NormalizeMount(string mount)

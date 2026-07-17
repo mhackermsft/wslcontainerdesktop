@@ -68,6 +68,9 @@ public partial class SettingsViewModel : ObservableObject
     private bool _notifyEngineEvents;
 
     [ObservableProperty]
+    private string _devContainerNpmRegistry = string.Empty;
+
+    [ObservableProperty]
     private string _engineVersion = "Unknown";
 
     [ObservableProperty]
@@ -109,6 +112,7 @@ public partial class SettingsViewModel : ObservableObject
         _notifyImageEvents = settings.NotifyImageEvents;
         _notifyContainerEvents = settings.NotifyContainerEvents;
         _notifyEngineEvents = settings.NotifyEngineEvents;
+        _devContainerNpmRegistry = settings.DevContainerNpmRegistry ?? string.Empty;
         _selectedThemeIndex = settings.Theme switch
         {
             "Light" => 1,
@@ -162,6 +166,12 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnNotifyEngineEventsChanged(bool value)
     {
         _settings.NotifyEngineEvents = value;
+        _settings.Save();
+    }
+
+    partial void OnDevContainerNpmRegistryChanged(string value)
+    {
+        _settings.DevContainerNpmRegistry = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         _settings.Save();
     }
 

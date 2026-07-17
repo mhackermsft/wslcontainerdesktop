@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:WslContainerDesktop.Views"
     xmlns:vm="using:WslContainerDesktop.ViewModels"
     mc:Ignorable="d">
 
@@ -101,7 +102,6 @@
                                         <Button HorizontalAlignment="Stretch" Click="RebuildButton_Click" Content="Rebuild" />
                                         <Button HorizontalAlignment="Stretch" Click="RebuildNoCacheButton_Click" Content="Rebuild (no cache)" />
                                         <Button HorizontalAlignment="Stretch" Click="TerminalButton_Click" Content="Open Terminal" />
-                                        <Button HorizontalAlignment="Stretch" Click="VsCodeButton_Click" Content="Open in VS Code" />
                                         <Button HorizontalAlignment="Stretch" Click="StopButton_Click" Content="Stop" />
                                         <Button HorizontalAlignment="Stretch" Click="RemoveButton_Click" Content="Remove" />
                                     </StackPanel>
@@ -111,6 +111,24 @@
                     </ListView.ItemTemplate>
                 </ListView>
             </Border>
+        </Grid>
+
+        <Grid
+            Grid.Row="0"
+            Grid.RowSpan="4"
+            Background="{ThemeResource SmokeFillColorDefaultBrush}"
+            Visibility="{x:Bind local:DevContainersPage.BoolToVisibility(ViewModel.IsBusy), Mode=OneWay}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                <ProgressRing
+                    Width="48"
+                    Height="48"
+                    IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    Style="{ThemeResource BodyStrongTextBlockStyle}"
+                    Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                    TextAlignment="Center" />
+            </StackPanel>
         </Grid>
     </Grid>
 </Page>

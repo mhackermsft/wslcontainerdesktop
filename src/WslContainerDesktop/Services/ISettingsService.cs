@@ -52,6 +52,14 @@ public interface ISettingsService
     bool WslUpdatePreRelease { get; set; }
 
     /// <summary>
+    /// Optional npm registry URL injected into Dev Container feature builds (as
+    /// <c>NPM_CONFIG_REGISTRY</c>). Lets node/npm-based features build behind a corporate
+    /// proxy that blocks the public registry (e.g. <c>https://packagefeedproxy.microsoft.io/npm/</c>).
+    /// Null/empty leaves the feature's default registry untouched.
+    /// </summary>
+    string? DevContainerNpmRegistry { get; set; }
+
+    /// <summary>
     /// SHA-256 (lowercase hex) of the last k3s installer script (get.k3s.io) the user has
     /// approved. Used to detect if the remote installer changes between installs/upgrades.
     /// Null until the first install establishes the trust-on-first-use pin.

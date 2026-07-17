@@ -29,6 +29,7 @@ namespace WslContainerDesktop.Services;
 /// <summary>Resolves Dev Container Features and stages a derived Dockerfile build context.</summary>
 public sealed partial class DevContainerFeatureResolver(
     HttpClient http,
+    ISettingsService settings,
     ILogger<DevContainerFeatureResolver> logger) : IDevContainerFeatureResolver
 {
     private static readonly JsonDocumentOptions JsonOptions = new()
@@ -71,7 +72,7 @@ public sealed partial class DevContainerFeatureResolver(
         }
 
         var dockerfile = Path.Combine(root, "Dockerfile");
-        await File.WriteAllTextAsync(dockerfile, BuildDockerfile(baseImage, config, resolved), ct).ConfigureAwait(false);
+        await File.WriteAllTextAsync(dockerfile, BuildDockerfile(baseImage, config, resolved, settings.DevContainerNpmRegistry), ct).ConfigureAwait(false);
         return new DevContainerDerivedImage
         {
             ContextPath = root,
@@ -330,11 +331,22 @@ public sealed partial class DevContainerFeatureResolver(
         return result;
     }
 
-    private static string BuildDockerfile(string baseImage, DevContainerConfig config, IReadOnlyList<ResolvedDevContainerFeature> features)
+    private static string BuildDockerfile(string baseImage, DevContainerConfig config, IReadOnlyList<ResolvedDevContainerFeature> features, string? npmRegistry)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"FROM {baseImage}");
         sb.AppendLine("USER root");
+
+        // When a corporate npm registry/proxy is configured, point every npm-based feature
+        // install at it so builds work behind networks that block the public registry.
+        // npm, pnpm and yarn all honour npm_config_registry.
+        if (!string.IsNullOrWhiteSpace(npmRegistry))
+        {
+            var registry = npmRegistry.Trim();
+            sb.AppendLine($"ENV NPM_CONFIG_REGISTRY={DockerQuote(registry)}");
+            sb.AppendLine($"ENV npm_config_registry={DockerQuote(registry)}");
+        }
+
         for (var i = 0; i < features.Count; i++)
         {
             var feature = config.Features.First(f => string.Equals(f.Id, features[i].Id, StringComparison.OrdinalIgnoreCase));

@@ -506,7 +506,7 @@ public static class ComposeImporter
             WorkingDir = svc.Scalar("working_dir")?.Trim(),
             Hostname = svc.Scalar("hostname")?.Trim(),
             PortMappings = CollectPorts(svc.Child("ports")),
-            Volumes = CollectVolumes(svc.Child("volumes")),
+            Volumes = CollectVolumes(svc.Child("volumes")).Select(v => NormalizeVolumeSpec(v, baseDirectory)).ToList(),
             EnvironmentVariables = CollectKeyValues(svc.Child("environment")),
         };
 
@@ -1108,6 +1108,89 @@ public static class ComposeImporter
         {
             return p;
         }
+    }
+
+    /// <summary>
+    /// Normalizes a short-form volume spec (<c>source:target[:mode]</c>) so it is usable by the WSL
+    /// container engine: relative bind-mount host sources (starting with <c>.</c>) are resolved to an
+    /// absolute path against the compose file's directory (matching Docker Compose semantics), and
+    /// macOS/Docker consistency hints (<c>cached</c>, <c>delegated</c>, <c>consistent</c>) — which are
+    /// no-ops the WSL engine rejects — are stripped. Named volumes and absolute paths are left intact.
+    /// </summary>
+    private static string NormalizeVolumeSpec(string spec, string? baseDirectory)
+    {
+        var trimmed = spec.Trim();
+        if (trimmed.Length == 0)
+        {
+            return trimmed;
+        }
+
+        var (source, target, mode) = SplitVolumeSpec(trimmed);
+        if (target is null)
+        {
+            return trimmed;
+        }
+
+        if (source is not null
+            && !string.IsNullOrWhiteSpace(baseDirectory)
+            && (source.StartsWith("./", StringComparison.Ordinal)
+                || source.StartsWith("../", StringComparison.Ordinal)
+                || source.StartsWith(".\\", StringComparison.Ordinal)
+                || source.StartsWith("..\\", StringComparison.Ordinal)
+                || source == "."
+                || source == ".."))
+        {
+            source = ResolvePath(source, baseDirectory);
+        }
+
+        if (mode is not null)
+        {
+            var kept = mode
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(m => !m.Equals("cached", StringComparison.OrdinalIgnoreCase)
+                    && !m.Equals("delegated", StringComparison.OrdinalIgnoreCase)
+                    && !m.Equals("consistent", StringComparison.OrdinalIgnoreCase));
+            mode = string.Join(',', kept);
+        }
+
+        var result = source is null ? target : $"{source}:{target}";
+        if (!string.IsNullOrWhiteSpace(mode))
+        {
+            result += $":{mode}";
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Splits a short-form volume spec into source / target / mode, tolerating a Windows drive-letter
+    /// colon in the source (e.g. <c>C:\host:/container</c>). A spec with no separator is treated as an
+    /// anonymous volume (source is null, the whole value is the container path).
+    /// </summary>
+    private static (string? Source, string? Target, string? Mode) SplitVolumeSpec(string spec)
+    {
+        var searchStart = 0;
+        if (spec.Length >= 2 && char.IsLetter(spec[0]) && spec[1] == ':')
+        {
+            searchStart = 2;
+        }
+
+        var firstColon = spec.IndexOf(':', searchStart);
+        if (firstColon < 0)
+        {
+            return (null, spec, null);
+        }
+
+        var source = spec[..firstColon];
+        var rest = spec[(firstColon + 1)..];
+
+        var modeColon = rest.IndexOf(':');
+        if (modeColon < 0)
+        {
+            return (source, rest, null);
+        }
+
+        return (source, rest[..modeColon], rest[(modeColon + 1)..]);
     }
 
     /// <summary>Reads a <c>.env</c>-style file into KEY/VALUE pairs. Returns empty when unreadable.</summary>
