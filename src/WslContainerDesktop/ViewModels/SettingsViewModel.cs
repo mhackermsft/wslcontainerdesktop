@@ -37,6 +37,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IAiDiagnosticsService _aiDiagnostics;
     private readonly IAiCredentialStore _aiCredentials;
     private readonly ILocalAiSetupService _localAi;
+    private readonly IAiAvailabilityService _aiAvailability;
     private readonly ILogger<SettingsViewModel> _logger;
     private readonly HttpClient _http;
 
@@ -196,7 +197,7 @@ public partial class SettingsViewModel : ObservableObject
         return groups;
     }
 
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, HttpClient http, ILogger<SettingsViewModel> logger)
+    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, HttpClient http, ILogger<SettingsViewModel> logger)
     {
         _settings = settings;
         _wslc = wslc;
@@ -206,6 +207,7 @@ public partial class SettingsViewModel : ObservableObject
         _aiDiagnostics = aiDiagnostics;
         _aiCredentials = aiCredentials;
         _localAi = localAi;
+        _aiAvailability = aiAvailability;
         _http = http;
         _logger = logger;
 
@@ -546,6 +548,7 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             AiStatus = await _aiDiagnostics.TestProviderAsync();
+            await _aiAvailability.RefreshAsync();
             await _dialogs.ShowMessageAsync("AI provider OK", AiStatus);
         }
         catch (Exception ex)
@@ -904,6 +907,9 @@ public partial class SettingsViewModel : ObservableObject
             await WarmUpModelAsync(endpoint, model, CancellationToken.None);
 
             AiStatus = $"Local AI is ready. Using Ollama with '{model}'.";
+
+            // The warm model is now reachable — re-probe so the AI buttons appear immediately.
+            await _aiAvailability.RefreshAsync();
         }
         catch (Exception ex)
         {
@@ -942,6 +948,7 @@ public partial class SettingsViewModel : ObservableObject
             AiStatus = result.Success
                 ? (removeVolume ? "Removed the local AI container and its models." : "Removed the local AI container (models kept).")
                 : "Could not remove the local AI container: " + result.ErrorText;
+            await _aiAvailability.RefreshAsync();
         }
         catch (Exception ex)
         {
