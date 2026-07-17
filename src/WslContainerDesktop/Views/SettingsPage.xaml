@@ -334,9 +334,44 @@
                                 <TextBox
                                     Header="Ollama endpoint"
                                     Text="{x:Bind ViewModel.AiOllamaEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                <TextBox
-                                    Header="Ollama model"
-                                    Text="{x:Bind ViewModel.AiOllamaModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        Grid.Column="0"
+                                        HorizontalAlignment="Stretch"
+                                        DisplayMemberPath="DisplayName"
+                                        Header="Ollama model (installed)"
+                                        ItemsSource="{x:Bind ViewModel.OllamaModels, Mode=OneWay}"
+                                        SelectedValue="{x:Bind ViewModel.AiOllamaModel, Mode=TwoWay}"
+                                        SelectedValuePath="Id" />
+                                    <Button
+                                        Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Command="{x:Bind ViewModel.RefreshOllamaModelsCommand}"
+                                        Content="Refresh" />
+                                </Grid>
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox
+                                        Grid.Column="0"
+                                        Header="Pull a model"
+                                        PlaceholderText="qwen2.5:7b"
+                                        Text="{x:Bind ViewModel.OllamaPullModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Button
+                                        Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Command="{x:Bind ViewModel.PullOllamaModelCommand}"
+                                        Content="Pull" />
+                                </Grid>
+                                <ProgressBar
+                                    IsIndeterminate="True"
+                                    Visibility="{x:Bind ViewModel.IsOllamaBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                             </StackPanel>
                             <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowAzureOpenAiSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <TextBox

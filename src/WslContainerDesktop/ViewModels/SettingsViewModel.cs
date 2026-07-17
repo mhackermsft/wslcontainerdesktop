@@ -15,6 +15,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Collections.ObjectModel;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitHub.Copilot;
@@ -34,9 +37,11 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IAiDiagnosticsService _aiDiagnostics;
     private readonly IAiCredentialStore _aiCredentials;
     private readonly ILogger<SettingsViewModel> _logger;
+    private readonly HttpClient _http;
 
     private bool _suppressStartupWrite;
     private bool _suppressAiModelWrite;
+    private bool _suppressAiOllamaModelWrite;
 
     [ObservableProperty]
     private string _wslcPath;
@@ -92,6 +97,14 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private string _aiOllamaModel = string.Empty;
+
+    [ObservableProperty]
+    private string _ollamaPullModel = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshOllamaModelsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PullOllamaModelCommand))]
+    private bool _isOllamaBusy;
 
     [ObservableProperty]
     private string _aiAzureOpenAiEndpoint = string.Empty;
@@ -170,7 +183,9 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<AiModelOption> GitHubCopilotModels { get; } = new() { new AiModelOption("auto", "auto") };
 
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILogger<SettingsViewModel> logger)
+    public ObservableCollection<AiModelOption> OllamaModels { get; } = new();
+
+    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, HttpClient http, ILogger<SettingsViewModel> logger)
     {
         _settings = settings;
         _wslc = wslc;
@@ -179,6 +194,7 @@ public partial class SettingsViewModel : ObservableObject
         _fileLogger = fileLogger;
         _aiDiagnostics = aiDiagnostics;
         _aiCredentials = aiCredentials;
+        _http = http;
         _logger = logger;
 
         _wslcPath = settings.WslcPath;
@@ -276,6 +292,10 @@ public partial class SettingsViewModel : ObservableObject
         {
             _ = LoadGitHubCopilotModelsAsync();
         }
+        else if (_settings.AiProvider == AiProviderKind.Ollama)
+        {
+            _ = LoadOllamaModelsAsync();
+        }
     }
 
     partial void OnAiOllamaEndpointChanged(string value)
@@ -286,7 +306,12 @@ public partial class SettingsViewModel : ObservableObject
 
     partial void OnAiOllamaModelChanged(string value)
     {
-        _settings.AiOllamaModel = value;
+        if (_suppressAiOllamaModelWrite)
+        {
+            return;
+        }
+
+        _settings.AiOllamaModel = value ?? string.Empty;
         _settings.Save();
     }
 
@@ -678,6 +703,209 @@ public partial class SettingsViewModel : ObservableObject
             options.Add(new AiModelOption(id, displayName));
         }
     }
+
+    private bool CanRunOllamaCommand() => !IsOllamaBusy;
+
+    [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
+    private async Task RefreshOllamaModelsAsync() => await LoadOllamaModelsAsync();
+
+    public async Task LoadOllamaModelsAsync()
+    {
+        if (CurrentAiProvider != AiProviderKind.Ollama)
+        {
+            return;
+        }
+
+        var persisted = _settings.AiOllamaModel?.Trim() ?? string.Empty;
+        try
+        {
+            IsOllamaBusy = true;
+            AiStatus = "Loading installed Ollama models…";
+            var endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
+            using var response = await _http.GetAsync(new Uri(endpoint, "api/tags"));
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"Ollama returned {(int)response.StatusCode}: {body}");
+            }
+
+            var names = new List<string>();
+            using (var doc = JsonDocument.Parse(body))
+            {
+                if (doc.RootElement.TryGetProperty("models", out var models) && models.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var model in models.EnumerateArray())
+                    {
+                        if (model.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String)
+                        {
+                            var value = name.GetString();
+                            if (!string.IsNullOrWhiteSpace(value))
+                            {
+                                names.Add(value!);
+                            }
+                        }
+                    }
+                }
+            }
+
+            ReplaceOllamaModels(names, persisted);
+            AiStatus = names.Count == 0
+                ? "No Ollama models installed. Pull one below (for example qwen2.5:7b)."
+                : $"Loaded {names.Count} installed Ollama model(s).";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load Ollama models.");
+            ReplaceOllamaModels([], persisted);
+            AiStatus = "Could not reach Ollama at the configured endpoint. Make sure Ollama is running. Details: " + ex.Message;
+        }
+        finally
+        {
+            IsOllamaBusy = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
+    private async Task PullOllamaModelAsync()
+    {
+        var name = OllamaPullModel?.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            AiStatus = "Enter a model name to pull (for example qwen2.5:7b).";
+            return;
+        }
+
+        try
+        {
+            IsOllamaBusy = true;
+            AiStatus = $"Pulling '{name}'…";
+            var endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
+
+            // Pulls can take minutes for multi-GB models, so use a dedicated client with no timeout
+            // and stream the NDJSON progress rather than the shared 20s HttpClient.
+            using var client = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(endpoint, "api/pull"))
+            {
+                Content = JsonContent.Create(new { model = name, stream = true }),
+            };
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                AiStatus = $"Pull failed ({(int)response.StatusCode}): {Truncate(err)}";
+                return;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var reader = new System.IO.StreamReader(stream);
+            while (await reader.ReadLineAsync() is { } line)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
+                    {
+                        AiStatus = $"Pull failed: {error.GetString()}";
+                        return;
+                    }
+
+                    var status = root.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String
+                        ? s.GetString() ?? string.Empty
+                        : string.Empty;
+                    if (root.TryGetProperty("total", out var totalEl) && totalEl.TryGetInt64(out var total) && total > 0
+                        && root.TryGetProperty("completed", out var compEl) && compEl.TryGetInt64(out var completed))
+                    {
+                        var pct = Math.Clamp(completed * 100.0 / total, 0, 100);
+                        AiStatus = $"Pulling {name}: {status} {pct:0}% ({FormatBytes(completed)} / {FormatBytes(total)})";
+                    }
+                    else if (!string.IsNullOrWhiteSpace(status))
+                    {
+                        AiStatus = $"Pulling {name}: {status}";
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Ignore non-JSON progress lines.
+                }
+            }
+
+            OllamaPullModel = string.Empty;
+            await LoadOllamaModelsAsync();
+            AiOllamaModel = name;
+            AiStatus = $"Pulled '{name}' and selected it.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Ollama pull failed.");
+            AiStatus = "Pull failed: " + ex.Message;
+        }
+        finally
+        {
+            IsOllamaBusy = false;
+        }
+    }
+
+    private void ReplaceOllamaModels(IReadOnlyCollection<string> names, string persisted)
+    {
+        _suppressAiOllamaModelWrite = true;
+        try
+        {
+            OllamaModels.Clear();
+            foreach (var name in names
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+            {
+                OllamaModels.Add(new AiModelOption(name, name));
+            }
+
+            if (!string.IsNullOrWhiteSpace(persisted)
+                && !OllamaModels.Any(m => string.Equals(m.Id, persisted, StringComparison.OrdinalIgnoreCase)))
+            {
+                OllamaModels.Add(new AiModelOption(persisted, $"{persisted} (not installed)"));
+            }
+        }
+        finally
+        {
+            _suppressAiOllamaModelWrite = false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(persisted))
+        {
+            _suppressAiOllamaModelWrite = true;
+            AiOllamaModel = string.Empty;
+            _suppressAiOllamaModelWrite = false;
+            AiOllamaModel = persisted;
+        }
+    }
+
+    private static Uri NormalizeOllamaEndpoint(string? value)
+    {
+        var text = string.IsNullOrWhiteSpace(value) ? "http://localhost:11434" : value.Trim();
+        return new Uri(text.EndsWith('/') ? text : text + "/", UriKind.Absolute);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+
+        return $"{size:0.#} {units[unit]}";
+    }
+
+    private static string Truncate(string text) => text.Length <= 300 ? text : text[..300] + "…";
 
     public async Task LoadVersionAsync()
     {
