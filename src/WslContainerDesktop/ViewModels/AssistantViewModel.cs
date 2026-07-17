@@ -27,14 +27,18 @@ public partial class AssistantViewModel : ObservableObject
 {
     private readonly IContainerAssistant _assistant;
     private CancellationTokenSource? _sendCts;
+    private int _turnSeq;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
+
+    private const string GreetingText =
+        "I can manage WSL containers, images, volumes, networks, compose templates, and scoped k3s actions through approved tools only. What would you like to do?";
 
     public ObservableCollection<AssistantChatMessage> Messages { get; } = new()
     {
         new AssistantChatMessage
         {
             Role = AssistantMessageRole.Assistant,
-            Text = "I can manage WSL containers, images, volumes, networks, compose templates, and scoped k3s actions through approved tools only. What would you like to do?",
+            Text = GreetingText,
         },
     };
 
@@ -120,13 +124,34 @@ public partial class AssistantViewModel : ObservableObject
         await _assistant.RejectAsync(approval);
     }
 
+    [RelayCommand]
+    private void NewChat()
+    {
+        // Invalidate any in-flight turn so its result/cancellation message is discarded.
+        _turnSeq++;
+        _sendCts?.Cancel();
+        _sendCts = null;
+        _assistant.Reset();
+        Messages.Clear();
+        Messages.Add(new AssistantChatMessage { Role = AssistantMessageRole.Assistant, Text = GreetingText });
+        PendingApproval = null;
+        Draft = string.Empty;
+        IsBusy = false;
+    }
+
     private async Task RunAssistantAsync(Func<CancellationToken, Task<AssistantTurnResult>> run)
     {
+        var generation = ++_turnSeq;
         IsBusy = true;
         _sendCts = new CancellationTokenSource();
         try
         {
             var result = await run(_sendCts.Token);
+            if (generation != _turnSeq)
+            {
+                return;
+            }
+
             foreach (var message in result.Messages)
             {
                 Messages.Add(message);
@@ -136,9 +161,12 @@ public partial class AssistantViewModel : ObservableObject
         }
         finally
         {
-            _sendCts.Dispose();
-            _sendCts = null;
-            IsBusy = false;
+            if (generation == _turnSeq)
+            {
+                _sendCts?.Dispose();
+                _sendCts = null;
+                IsBusy = false;
+            }
         }
     }
 }

@@ -27,4 +27,6 @@ public interface IContainerAssistant
     Task<AssistantTurnResult> ApproveAsync(AssistantApprovalRequest approval, CancellationToken ct = default);
 
     Task<AssistantTurnResult> RejectAsync(AssistantApprovalRequest approval, CancellationToken ct = default);
+
+    void Reset();
 }

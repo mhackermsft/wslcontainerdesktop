@@ -16,9 +16,10 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Padding="16" ColumnSpacing="12">
+        <Grid Padding="16" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Spacing="2">
@@ -30,9 +31,22 @@
             </StackPanel>
             <Button
                 Grid.Column="1"
+                VerticalAlignment="Top"
+                AutomationProperties.Name="Start a new chat"
+                Command="{x:Bind ViewModel.NewChatCommand}"
+                Style="{StaticResource SubtleButtonStyle}"
+                ToolTipService.ToolTip="Start a new chat">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="16" Glyph="&#xE710;" />
+                    <TextBlock Text="New chat" />
+                </StackPanel>
+            </Button>
+            <Button
+                Grid.Column="2"
                 Width="40"
                 Height="32"
                 Padding="0"
+                VerticalAlignment="Top"
                 AutomationProperties.Name="Close assistant"
                 Click="Close_Click"
                 Style="{StaticResource SubtleButtonStyle}">

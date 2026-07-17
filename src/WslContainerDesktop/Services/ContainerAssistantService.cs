@@ -106,6 +106,23 @@ public sealed class ContainerAssistantService(
         return Task.FromResult(new AssistantTurnResult());
     }
 
+    public void Reset()
+    {
+        lock (_stateGate)
+        {
+            foreach (var pending in _pending.Values)
+            {
+                pending.Decision.TrySetCanceled();
+            }
+
+            _pending.Clear();
+            _history.Clear();
+            _history.Add(new AiChatMessage { Role = "system", Content = SystemPrompt });
+        }
+
+        ApprovalChanged?.Invoke(this, null);
+    }
+
     private async Task<string> InvokeToolAsync(AiToolCall call, CancellationToken ct)
     {
         var resolved = await tools.ResolveAsync(call, ct).ConfigureAwait(false);
