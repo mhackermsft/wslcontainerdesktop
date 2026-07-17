@@ -218,9 +218,16 @@
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1"
             CornerRadius="6"
+            MaxHeight="360"
             Visibility="{x:Bind ViewModel.AiHasPreview, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-            <StackPanel Spacing="10">
-                <Grid ColumnSpacing="12">
+            <Grid RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
@@ -242,40 +249,50 @@
                         </StackPanel>
                     </Button>
                 </Grid>
-                <ProgressBar IsIndeterminate="{x:Bind ViewModel.IsAiBusy, Mode=OneWay}" Visibility="{x:Bind ViewModel.IsAiBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
-                <Expander
-                    HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Stretch"
-                    Header="What will be sent (redacted)">
-                    <ScrollViewer MaxHeight="220">
-                        <TextBlock
-                            FontFamily="Cascadia Mono, Consolas"
-                            FontSize="12"
-                            IsTextSelectionEnabled="True"
-                            Text="{x:Bind ViewModel.AiPreviewPayload, Mode=OneWay}"
-                            TextWrapping="Wrap" />
-                    </ScrollViewer>
-                </Expander>
-                <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.AiHasDiagnosis, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="6">
-                            <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Summary" />
-                            <TextBlock Text="{x:Bind ViewModel.AiSummary, Mode=OneWay}" TextWrapping="Wrap" />
-                            <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Likely cause" />
-                            <TextBlock Text="{x:Bind ViewModel.AiLikelyCause, Mode=OneWay}" TextWrapping="Wrap" />
-                            <TextBlock
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="{x:Bind ViewModel.AiConfidence, Mode=OneWay}" />
-                        </StackPanel>
-                        <Button
-                            Grid.Column="1"
-                            Command="{x:Bind ViewModel.CopyAiSuggestedFixCommand}"
-                            Content="Copy suggested fix" />
-                    </Grid>
+
+                <ProgressBar
+                    Grid.Row="1"
+                    IsIndeterminate="{x:Bind ViewModel.IsAiBusy, Mode=OneWay}"
+                    Visibility="{x:Bind ViewModel.IsAiBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+
+                <ScrollViewer
+                    Grid.Row="2"
+                    VerticalScrollBarVisibility="Auto"
+                    VerticalScrollMode="Auto">
+                    <StackPanel Spacing="10">
+                        <Expander
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch"
+                            Header="What will be sent (redacted)">
+                            <ScrollViewer MaxHeight="220">
+                                <TextBlock
+                                    FontFamily="Cascadia Mono, Consolas"
+                                    FontSize="12"
+                                    IsTextSelectionEnabled="True"
+                                    Text="{x:Bind ViewModel.AiPreviewPayload, Mode=OneWay}"
+                                    TextWrapping="Wrap" />
+                            </ScrollViewer>
+                        </Expander>
+                        <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.AiHasDiagnosis, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Spacing="6">
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Summary" />
+                                    <TextBlock Text="{x:Bind ViewModel.AiSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Likely cause" />
+                                    <TextBlock Text="{x:Bind ViewModel.AiLikelyCause, Mode=OneWay}" TextWrapping="Wrap" />
+                                    <TextBlock
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind ViewModel.AiConfidence, Mode=OneWay}" />
+                                </StackPanel>
+                                <Button
+                                    Grid.Column="1"
+                                    Command="{x:Bind ViewModel.CopyAiSuggestedFixCommand}"
+                                    Content="Copy suggested fix" />
+                            </Grid>
                     <Expander
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Stretch"
@@ -321,8 +338,10 @@
                             </ItemsControl>
                         </StackPanel>
                     </Border>
-                </StackPanel>
-            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
         </Border>
 
         <!--  Tab content  -->
