@@ -290,7 +290,7 @@
                         MinWidth="260"
                         SelectedIndex="{x:Bind ViewModel.SelectedAiProviderIndex, Mode=TwoWay}">
                         <ComboBoxItem Content="None" />
-                        <ComboBoxItem Content="GitHub Copilot (recommended; integration seam)" />
+                        <ComboBoxItem Content="GitHub Copilot (recommended)" />
                         <ComboBoxItem Content="Ollama (local)" />
                         <ComboBoxItem Content="Azure OpenAI" />
                         <ComboBoxItem Content="OpenAI-compatible" />
@@ -299,38 +299,46 @@
                         IsOpen="True"
                         Severity="Informational"
                         Title="Data sharing notice"
-                        Message="Container logs, inspect JSON, filesystem diff entries, and recent activity are redacted and truncated before sending to the selected provider. Suggested fixes are copy-only and never run automatically." />
+                        Message="Container logs, inspect JSON, filesystem diff entries, and recent activity are redacted and truncated before sending to the selected provider. Suggested fixes are copy-only and never run automatically."
+                        Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                     <Expander
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Stretch"
-                        Header="Provider settings">
+                        Header="Provider settings"
+                        Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <StackPanel Spacing="10">
-                            <Button
-                                Command="{x:Bind ViewModel.SignInGitHubCopilotCommand}"
-                                Content="GitHub Copilot sign-in info" />
-                            <TextBox
-                                Header="GitHub Copilot model"
-                                Text="{x:Bind ViewModel.AiGitHubCopilotModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Header="Ollama endpoint"
-                                Text="{x:Bind ViewModel.AiOllamaEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Header="Ollama model"
-                                Text="{x:Bind ViewModel.AiOllamaModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Header="Azure OpenAI endpoint"
-                                PlaceholderText="https://your-resource.openai.azure.com"
-                                Text="{x:Bind ViewModel.AiAzureOpenAiEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Header="Azure OpenAI deployment"
-                                Text="{x:Bind ViewModel.AiAzureOpenAiDeployment, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Header="OpenAI-compatible endpoint"
-                                Text="{x:Bind ViewModel.AiOpenAiEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Header="OpenAI-compatible model"
-                                Text="{x:Bind ViewModel.AiOpenAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <Grid ColumnSpacing="8">
+                            <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowGitHubCopilotSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <Button
+                                    Command="{x:Bind ViewModel.SignInGitHubCopilotCommand}"
+                                    Content="GitHub Copilot sign-in info" />
+                                <TextBox
+                                    Header="GitHub Copilot model"
+                                    PlaceholderText="auto"
+                                    Text="{x:Bind ViewModel.AiGitHubCopilotModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowOllamaSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <TextBox
+                                    Header="Ollama endpoint"
+                                    Text="{x:Bind ViewModel.AiOllamaEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox
+                                    Header="Ollama model"
+                                    Text="{x:Bind ViewModel.AiOllamaModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowAzureOpenAiSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <TextBox
+                                    Header="Azure OpenAI endpoint"
+                                    PlaceholderText="https://your-resource.openai.azure.com"
+                                    Text="{x:Bind ViewModel.AiAzureOpenAiEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox
+                                    Header="Azure OpenAI deployment"
+                                    Text="{x:Bind ViewModel.AiAzureOpenAiDeployment, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowOpenAiSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <TextBox
+                                    Header="OpenAI-compatible model"
+                                    Text="{x:Bind ViewModel.AiOpenAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <Grid ColumnSpacing="8" Visibility="{x:Bind ViewModel.ShowAiSecretSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -348,7 +356,7 @@
                             </Grid>
                         </StackPanel>
                     </Expander>
-                    <Grid ColumnSpacing="12">
+                    <Grid ColumnSpacing="12" Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />

@@ -74,6 +74,12 @@ public partial class SettingsViewModel : ObservableObject
     private bool _aiFeaturesEnabled;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAiProviderSettings))]
+    [NotifyPropertyChangedFor(nameof(ShowGitHubCopilotSettings))]
+    [NotifyPropertyChangedFor(nameof(ShowOllamaSettings))]
+    [NotifyPropertyChangedFor(nameof(ShowAzureOpenAiSettings))]
+    [NotifyPropertyChangedFor(nameof(ShowOpenAiSettings))]
+    [NotifyPropertyChangedFor(nameof(ShowAiSecretSettings))]
     private int _selectedAiProviderIndex;
 
     [ObservableProperty]
@@ -110,6 +116,22 @@ public partial class SettingsViewModel : ObservableObject
     private bool _isBusy;
 
     public string AppVersion { get; } = ResolveAppVersion();
+
+    public bool ShowAiProviderSettings => CurrentAiProvider != AiProviderKind.None;
+
+    public bool ShowGitHubCopilotSettings => CurrentAiProvider == AiProviderKind.GitHubCopilot;
+
+    public bool ShowOllamaSettings => CurrentAiProvider == AiProviderKind.Ollama;
+
+    public bool ShowAzureOpenAiSettings => CurrentAiProvider == AiProviderKind.AzureOpenAi;
+
+    public bool ShowOpenAiSettings => CurrentAiProvider == AiProviderKind.OpenAi;
+
+    public bool ShowAiSecretSettings => CurrentAiProvider is AiProviderKind.GitHubCopilot or AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi;
+
+    private AiProviderKind CurrentAiProvider => Enum.IsDefined(typeof(AiProviderKind), SelectedAiProviderIndex)
+        ? (AiProviderKind)SelectedAiProviderIndex
+        : AiProviderKind.None;
 
     /// <summary>
     /// The app's version for display. Reads the packaged identity version (which the release

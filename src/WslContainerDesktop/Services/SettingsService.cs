@@ -47,7 +47,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public string AiAzureOpenAiDeployment { get; set; } = string.Empty;
     public string AiOpenAiEndpoint { get; set; } = "https://api.openai.com/v1";
     public string AiOpenAiModel { get; set; } = "gpt-4o-mini";
-    public string AiGitHubCopilotModel { get; set; } = "gpt-5";
+    public string AiGitHubCopilotModel { get; set; } = "auto";
     public string? WslDistro { get; set; }
     public bool WslUpdatePreRelease { get; set; }
     public string? K3sInstallerSha256 { get; set; }
@@ -94,7 +94,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             AiAzureOpenAiDeployment = dto.AiAzureOpenAiDeployment ?? string.Empty;
             AiOpenAiEndpoint = string.IsNullOrWhiteSpace(dto.AiOpenAiEndpoint) ? "https://api.openai.com/v1" : dto.AiOpenAiEndpoint;
             AiOpenAiModel = string.IsNullOrWhiteSpace(dto.AiOpenAiModel) ? "gpt-4o-mini" : dto.AiOpenAiModel;
-            AiGitHubCopilotModel = string.IsNullOrWhiteSpace(dto.AiGitHubCopilotModel) ? "gpt-5" : dto.AiGitHubCopilotModel;
+            AiGitHubCopilotModel = string.IsNullOrWhiteSpace(dto.AiGitHubCopilotModel) ? "auto" : dto.AiGitHubCopilotModel;
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
             WslUpdatePreRelease = dto.WslUpdatePreRelease;
             K3sInstallerSha256 = string.IsNullOrWhiteSpace(dto.K3sInstallerSha256) ? null : dto.K3sInstallerSha256.Trim().ToLowerInvariant();

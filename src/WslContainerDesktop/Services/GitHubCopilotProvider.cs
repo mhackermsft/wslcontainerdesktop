@@ -28,6 +28,7 @@ public sealed class GitHubCopilotProvider(
     ILogger<GitHubCopilotProvider> logger) : IAiProvider
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(3);
+    private const string DefaultModel = "auto";
 
     public AiProviderKind Kind => AiProviderKind.GitHubCopilot;
 
@@ -35,19 +36,19 @@ public sealed class GitHubCopilotProvider(
 
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
-        var content = await RunCopilotAsync(request, ct).ConfigureAwait(false);
-        return AiProviderJson.ParseDiagnosis(content);
+        var result = await RunCopilotAsync(request, ct).ConfigureAwait(false);
+        return AiProviderJson.ParseDiagnosis(result.Content);
     }
 
     public async Task<string> TestAsync(CancellationToken ct)
     {
-        _ = await RunCopilotAsync(new AiPromptRequest(
+        var result = await RunCopilotAsync(new AiPromptRequest(
             "Return JSON only.",
             "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), ct).ConfigureAwait(false);
-        return $"GitHub Copilot responded using model '{Model}'.";
+        return $"GitHub Copilot responded using model '{result.Model}'.";
     }
 
-    private async Task<string> RunCopilotAsync(AiPromptRequest request, CancellationToken ct)
+    private async Task<CopilotRunResult> RunCopilotAsync(AiPromptRequest request, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(RequestTimeout);
@@ -56,10 +57,11 @@ public sealed class GitHubCopilotProvider(
         {
             await using var client = CreateClient();
             await client.StartAsync(timeout.Token).ConfigureAwait(false);
+            var model = await ResolveModelAsync(client, timeout.Token).ConfigureAwait(false);
 
             await using var session = await client.CreateSessionAsync(new SessionConfig
             {
-                Model = Model,
+                Model = model,
                 SystemMessage = new SystemMessageConfig
                 {
                     Mode = SystemMessageMode.Replace,
@@ -96,7 +98,7 @@ public sealed class GitHubCopilotProvider(
 
             await session.SendAsync(new MessageOptions { Prompt = request.UserPrompt }, timeout.Token).ConfigureAwait(false);
             await done.Task.ConfigureAwait(false);
-            return content.ToString();
+            return new CopilotRunResult(content.ToString(), model);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -106,7 +108,8 @@ public sealed class GitHubCopilotProvider(
         {
             logger.LogDebug(ex, "GitHub Copilot diagnostics failed.");
             throw new InvalidOperationException(
-                "GitHub Copilot is not ready. Sign in to the Copilot CLI (or save a GitHub token in Settings), verify Copilot entitlement, and ensure the Copilot SDK runtime is available.",
+                "GitHub Copilot is not ready. Sign in to the Copilot CLI (or save a GitHub token in Settings), " +
+                "verify Copilot entitlement, and ensure the installed Copilot CLI is available. Details: " + ex.Message,
                 ex);
         }
     }
@@ -117,6 +120,7 @@ public sealed class GitHubCopilotProvider(
             && !string.IsNullOrWhiteSpace(token);
         return new CopilotClient(new CopilotClientOptions
         {
+            Connection = RuntimeConnection.ForStdio(FindCopilotCliPath()),
             GitHubToken = hasToken ? token : null,
             UseLoggedInUser = hasToken ? false : true,
             BaseDirectory = SafeBaseDirectory(),
@@ -125,9 +129,58 @@ public sealed class GitHubCopilotProvider(
         });
     }
 
-    private string Model => string.IsNullOrWhiteSpace(settings.AiGitHubCopilotModel)
-        ? "gpt-5"
-        : settings.AiGitHubCopilotModel.Trim();
+    private async Task<string> ResolveModelAsync(CopilotClient client, CancellationToken ct)
+    {
+        var requested = string.IsNullOrWhiteSpace(settings.AiGitHubCopilotModel)
+            ? DefaultModel
+            : settings.AiGitHubCopilotModel.Trim();
+
+        try
+        {
+            var models = await client.ListModelsAsync(ct).ConfigureAwait(false);
+            if (models.Any(m => string.Equals(m.Id, requested, StringComparison.OrdinalIgnoreCase)))
+            {
+                return requested;
+            }
+
+            var fallback = models.FirstOrDefault(m => string.Equals(m.Id, DefaultModel, StringComparison.OrdinalIgnoreCase))
+                ?? models.FirstOrDefault();
+            if (fallback is not null)
+            {
+                logger.LogDebug("GitHub Copilot model {RequestedModel} is unavailable; falling back to {FallbackModel}.", requested, fallback.Id);
+                return fallback.Id;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Failed to list GitHub Copilot models; using configured model {Model}.", requested);
+        }
+
+        return requested;
+    }
+
+    private static string? FindCopilotCliPath()
+    {
+        var candidates = new List<string?>();
+        candidates.Add(Environment.GetEnvironmentVariable("COPILOT_CLI_PATH"));
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        candidates.Add(Path.Combine(localAppData, "Microsoft", "WinGet", "Links", "copilot.exe"));
+        candidates.Add(Path.Combine(appData, "npm", "copilot.cmd"));
+
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            candidates.Add(Path.Combine(directory, "copilot.exe"));
+            candidates.Add(Path.Combine(directory, "copilot.cmd"));
+        }
+
+        return candidates
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p!)
+            .FirstOrDefault(File.Exists);
+    }
 
     private static string SafeBaseDirectory() => Path.Combine(SafeLocalCache(), "copilot-sdk");
 
@@ -145,4 +198,5 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
+    private sealed record CopilotRunResult(string Content, string Model);
 }
