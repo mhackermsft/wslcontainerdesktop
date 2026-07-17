@@ -437,6 +437,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IActivityLog, ActivityLog>();
         services.AddSingleton<ITemplateCatalog, TemplateCatalog>();
         services.AddSingleton(new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(20) });
+        services.AddSingleton<AiHttpClient>();
         services.AddSingleton<IImageUpdateService, ImageUpdateService>();
 
         services.AddSingleton<ContainersViewModel>();

@@ -21,7 +21,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class OpenAiProvider(HttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider, IAiChatProvider
+public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider, IAiChatProvider
 {
     public AiProviderKind Kind => AiProviderKind.OpenAi;
 

@@ -20,7 +20,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class OllamaProvider(HttpClient http, ISettingsService settings) : IAiProvider, IAiChatProvider
+public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings) : IAiProvider, IAiChatProvider
 {
     public AiProviderKind Kind => AiProviderKind.Ollama;
 

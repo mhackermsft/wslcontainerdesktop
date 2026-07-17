@@ -20,7 +20,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class AzureOpenAiProvider(HttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider, IAiChatProvider
+public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider, IAiChatProvider
 {
     private const string ApiVersion = "2024-10-21";
 
