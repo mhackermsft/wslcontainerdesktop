@@ -135,6 +135,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _aiHasDiagnosis;
 
+    [ObservableProperty]
+    private bool _aiPanelCollapsed;
+
     private AiPromptRequest? _pendingAiRequest;
 
     private bool _hasAttemptedChangesLoad;
@@ -270,6 +273,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         IsAiBusy = false;
         AiHasPreview = false;
         AiPreviewPayload = string.Empty;
+        AiPanelCollapsed = false;
         AiStatusMessage = "Click Diagnose to build a redacted preview before sending anything.";
         AiSummary = string.Empty;
         AiLikelyCause = string.Empty;
@@ -1714,6 +1718,12 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             // ignore browser launch failures
         }
     }
+
+    [RelayCommand]
+    private void ToggleAiPanelCollapsed() => AiPanelCollapsed = !AiPanelCollapsed;
+
+    [RelayCommand]
+    private void DismissAiDiagnosis() => ResetAiState();
 
     [RelayCommand]
     private async Task PrepareAiDiagnosisAsync()

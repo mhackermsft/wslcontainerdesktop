@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:local="using:WslContainerDesktop.Views"
     xmlns:models="using:WslContainerDesktop.Models"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -239,15 +240,32 @@
                             Text="{x:Bind ViewModel.AiStatusMessage, Mode=OneWay}"
                             TextWrapping="Wrap" />
                     </StackPanel>
-                    <Button
+                    <StackPanel
                         Grid.Column="1"
-                        Command="{x:Bind ViewModel.SendAiDiagnosisCommand}"
-                        Style="{ThemeResource AccentButtonStyle}">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon FontSize="13" Glyph="&#xE724;" />
-                            <TextBlock Text="Send diagnosis" />
-                        </StackPanel>
-                    </Button>
+                        Orientation="Horizontal"
+                        Spacing="6"
+                        VerticalAlignment="Top">
+                        <Button
+                            Command="{x:Bind ViewModel.SendAiDiagnosisCommand}"
+                            Style="{ThemeResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon FontSize="13" Glyph="&#xE724;" />
+                                <TextBlock Text="Send diagnosis" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            AutomationProperties.Name="{x:Bind local:ContainerDetailPage.CollapseTooltip(ViewModel.AiPanelCollapsed), Mode=OneWay}"
+                            Command="{x:Bind ViewModel.ToggleAiPanelCollapsedCommand}"
+                            ToolTipService.ToolTip="{x:Bind local:ContainerDetailPage.CollapseTooltip(ViewModel.AiPanelCollapsed), Mode=OneWay}">
+                            <FontIcon FontSize="13" Glyph="{x:Bind local:ContainerDetailPage.CollapseGlyph(ViewModel.AiPanelCollapsed), Mode=OneWay}" />
+                        </Button>
+                        <Button
+                            AutomationProperties.Name="Dismiss diagnosis"
+                            Command="{x:Bind ViewModel.DismissAiDiagnosisCommand}"
+                            ToolTipService.ToolTip="Dismiss">
+                            <FontIcon FontSize="13" Glyph="&#xE711;" />
+                        </Button>
+                    </StackPanel>
                 </Grid>
 
                 <ProgressBar
@@ -258,7 +276,8 @@
                 <ScrollViewer
                     Grid.Row="2"
                     VerticalScrollBarVisibility="Auto"
-                    VerticalScrollMode="Auto">
+                    VerticalScrollMode="Auto"
+                    Visibility="{x:Bind local:ContainerDetailPage.InvertBoolToVisibility(ViewModel.AiPanelCollapsed), Mode=OneWay}">
                     <StackPanel Spacing="10">
                         <Expander
                             HorizontalAlignment="Stretch"
