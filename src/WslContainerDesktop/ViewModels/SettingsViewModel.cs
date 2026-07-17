@@ -898,6 +898,11 @@ public partial class SettingsViewModel : ObservableObject
             AiFeaturesEnabled = true;
 
             await LoadOllamaModelsAsync();
+
+            // Warm up so the model is resident in memory before the user opens the assistant.
+            AiStatus = "Warming up the model…";
+            await WarmUpModelAsync(endpoint, model, CancellationToken.None);
+
             AiStatus = $"Local AI is ready. Using Ollama with '{model}'.";
         }
         catch (Exception ex)
@@ -959,6 +964,34 @@ public partial class SettingsViewModel : ObservableObject
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Sends a tiny non-streaming chat so Ollama loads the model into memory. Failures are
+    /// non-fatal — warm-up is only a latency optimization for the first assistant message.
+    /// </summary>
+    private async Task WarmUpModelAsync(Uri endpoint, string model, CancellationToken ct)
+    {
+        try
+        {
+            // First load of a multi-GB model can take a while, so don't use the shared 20s client.
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            using var response = await client.PostAsJsonAsync(
+                new Uri(endpoint, "api/chat"),
+                new
+                {
+                    model,
+                    messages = new[] { new { role = "user", content = "Hello" } },
+                    stream = false,
+                    keep_alive = "30m",
+                },
+                ct);
+            response.EnsureSuccessStatusCode();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Ollama warm-up failed (non-fatal).");
         }
     }
 
