@@ -386,6 +386,38 @@
                             Command="{x:Bind ViewModel.TestAiProviderCommand}"
                             Content="Test" />
                     </Grid>
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Container AI Assistant permissions"
+                        Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="12">
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Read-only tools run automatically. State-changing categories require approval by default; destructive actions and container exec always require approval."
+                                TextWrapping="Wrap" />
+                            <ToggleSwitch
+                                Header="Create / run containers and pull images"
+                                IsOn="{x:Bind ViewModel.AiAssistantAutoCreateRun, Mode=TwoWay}"
+                                OffContent="Require approval"
+                                OnContent="Run automatically" />
+                            <ToggleSwitch
+                                Header="Start / stop / restart containers"
+                                IsOn="{x:Bind ViewModel.AiAssistantAutoLifecycle, Mode=TwoWay}"
+                                OffContent="Require approval"
+                                OnContent="Run automatically" />
+                            <ToggleSwitch
+                                Header="Compose and template deploys"
+                                IsOn="{x:Bind ViewModel.AiAssistantAutoComposeTemplate, Mode=TwoWay}"
+                                OffContent="Require approval"
+                                OnContent="Run automatically" />
+                            <ToggleSwitch
+                                Header="k3s changes"
+                                IsOn="{x:Bind ViewModel.AiAssistantAutoKubernetes, Mode=TwoWay}"
+                                OffContent="Require approval"
+                                OnContent="Run automatically" />
+                        </StackPanel>
+                    </Expander>
                 </StackPanel>
             </Border>
 

@@ -48,6 +48,10 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public string AiOpenAiEndpoint { get; set; } = "https://api.openai.com/v1";
     public string AiOpenAiModel { get; set; } = "gpt-4o-mini";
     public string AiGitHubCopilotModel { get; set; } = "auto";
+    public bool AiAssistantAutoCreateRun { get; set; }
+    public bool AiAssistantAutoLifecycle { get; set; }
+    public bool AiAssistantAutoComposeTemplate { get; set; }
+    public bool AiAssistantAutoKubernetes { get; set; }
     public string? WslDistro { get; set; }
     public bool WslUpdatePreRelease { get; set; }
     public string? K3sInstallerSha256 { get; set; }
@@ -95,6 +99,10 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             AiOpenAiEndpoint = string.IsNullOrWhiteSpace(dto.AiOpenAiEndpoint) ? "https://api.openai.com/v1" : dto.AiOpenAiEndpoint;
             AiOpenAiModel = string.IsNullOrWhiteSpace(dto.AiOpenAiModel) ? "gpt-4o-mini" : dto.AiOpenAiModel;
             AiGitHubCopilotModel = string.IsNullOrWhiteSpace(dto.AiGitHubCopilotModel) ? "auto" : dto.AiGitHubCopilotModel;
+            AiAssistantAutoCreateRun = dto.AiAssistantAutoCreateRun;
+            AiAssistantAutoLifecycle = dto.AiAssistantAutoLifecycle;
+            AiAssistantAutoComposeTemplate = dto.AiAssistantAutoComposeTemplate;
+            AiAssistantAutoKubernetes = dto.AiAssistantAutoKubernetes;
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
             WslUpdatePreRelease = dto.WslUpdatePreRelease;
             K3sInstallerSha256 = string.IsNullOrWhiteSpace(dto.K3sInstallerSha256) ? null : dto.K3sInstallerSha256.Trim().ToLowerInvariant();
@@ -220,6 +228,10 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 AiOpenAiEndpoint = AiOpenAiEndpoint,
                 AiOpenAiModel = AiOpenAiModel,
                 AiGitHubCopilotModel = AiGitHubCopilotModel,
+                AiAssistantAutoCreateRun = AiAssistantAutoCreateRun,
+                AiAssistantAutoLifecycle = AiAssistantAutoLifecycle,
+                AiAssistantAutoComposeTemplate = AiAssistantAutoComposeTemplate,
+                AiAssistantAutoKubernetes = AiAssistantAutoKubernetes,
                 WslDistro = WslDistro,
                 WslUpdatePreRelease = WslUpdatePreRelease,
                 K3sInstallerSha256 = K3sInstallerSha256,
@@ -301,6 +313,10 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public string? AiOpenAiEndpoint { get; set; }
         public string? AiOpenAiModel { get; set; }
         public string? AiGitHubCopilotModel { get; set; }
+        public bool AiAssistantAutoCreateRun { get; set; }
+        public bool AiAssistantAutoLifecycle { get; set; }
+        public bool AiAssistantAutoComposeTemplate { get; set; }
+        public bool AiAssistantAutoKubernetes { get; set; }
         public string? WslDistro { get; set; }
         public bool WslUpdatePreRelease { get; set; }
         public string? K3sInstallerSha256 { get; set; }

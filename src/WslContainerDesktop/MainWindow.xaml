@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:WslContainerDesktop"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -29,6 +30,19 @@
                 <ImageIconSource ImageSource="Assets/AppIcon.ico" />
             </TitleBar.IconSource>
         </TitleBar>
+
+        <Button
+            x:Name="AssistantButton"
+            Grid.Row="0"
+            Margin="0,8,144,8"
+            Padding="12,0"
+            HorizontalAlignment="Right"
+            AutomationProperties.Name="Open Container AI Assistant"
+            Click="AssistantButton_Click"
+            ToolTipService.ToolTip="Container AI Assistant"
+            Visibility="Collapsed">
+            <FontIcon Glyph="&#xE8D4;" />
+        </Button>
 
         <NavigationView
             x:Name="NavView"
@@ -177,5 +191,28 @@
                     Visibility="{x:Bind Shell.KubernetesVisibility, Mode=OneWay}" />
             </StackPanel>
         </Border>
+
+        <Grid
+            x:Name="AssistantOverlay"
+            Grid.RowSpan="3"
+            Background="#66000000"
+            Visibility="Collapsed">
+            <Button
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                Background="Transparent"
+                BorderThickness="0"
+                Click="AssistantScrim_Click" />
+            <Border
+                Width="480"
+                MinWidth="380"
+                MaxWidth="640"
+                HorizontalAlignment="Right"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="1,0,0,0">
+                <controls:AssistantPanel x:Name="AssistantPanel" CloseRequested="AssistantPanel_CloseRequested" />
+            </Border>
+        </Grid>
     </Grid>
 </Window>

@@ -65,6 +65,14 @@ public interface ISettingsService
 
     string AiGitHubCopilotModel { get; set; }
 
+    bool AiAssistantAutoCreateRun { get; set; }
+
+    bool AiAssistantAutoLifecycle { get; set; }
+
+    bool AiAssistantAutoComposeTemplate { get; set; }
+
+    bool AiAssistantAutoKubernetes { get; set; }
+
     /// <summary>WSL distro to host the k3s cluster. Null/empty uses the WSL default distro.</summary>
     string? WslDistro { get; set; }
 

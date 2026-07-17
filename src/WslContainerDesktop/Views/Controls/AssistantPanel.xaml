@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="WslContainerDesktop.Views.Controls.AssistantPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:WslContainerDesktop.Models"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <Grid
+        MinWidth="380"
+        Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Padding="16" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="2">
+                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Container AI Assistant" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Scoped to WSL containers, compose, and installed k3s tools."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+            <Button
+                Grid.Column="1"
+                AutomationProperties.Name="Close assistant"
+                Click="Close_Click">
+                <FontIcon Glyph="&#xE711;" />
+            </Button>
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" Padding="16,0,16,12" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="12">
+                <ItemsControl ItemsSource="{x:Bind ViewModel.Messages, Mode=OneWay}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:AssistantChatMessage">
+                            <Border
+                                Margin="0,0,0,8"
+                                Padding="12"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{ThemeResource ControlCornerRadius}">
+                                <StackPanel Spacing="4">
+                                    <TextBlock
+                                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                        Text="{x:Bind RoleLabel}" />
+                                    <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Border
+                    Padding="12"
+                    Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"
+                    BorderBrush="{ThemeResource SystemFillColorCautionBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{ThemeResource ControlCornerRadius}"
+                    Visibility="{x:Bind BoolToVisibility(ViewModel.HasPendingApproval), Mode=OneWay}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.PendingApproval.Summary, Mode=OneWay}" />
+                        <TextBlock Text="{x:Bind ViewModel.PendingApproval.Details, Mode=OneWay}" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Command="{x:Bind ViewModel.ApproveCommand}" Content="Approve" />
+                            <Button Command="{x:Bind ViewModel.RejectCommand}" Content="Reject" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Padding="16" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox
+                AcceptsReturn="True"
+                MaxHeight="96"
+                PlaceholderText="Ask to list containers, deploy WordPress, stop all running containers…"
+                Text="{x:Bind ViewModel.Draft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                TextWrapping="Wrap" />
+            <Button
+                Grid.Column="1"
+                Command="{x:Bind ViewModel.SendCommand}"
+                Content="Send" />
+            <Button
+                Grid.Column="2"
+                Command="{x:Bind ViewModel.CancelCommand}"
+                Content="Stop" />
+        </Grid>
+    </Grid>
+</UserControl>

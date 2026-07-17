@@ -59,6 +59,31 @@ public sealed partial class MainWindow : Window
     {
         // ContentDialogs need a XamlRoot; publish it once the tree is ready.
         _dialogs.XamlRoot = ((FrameworkElement)sender).XamlRoot;
+        RefreshAssistantButtonVisibility();
+    }
+
+    private void RefreshAssistantButtonVisibility()
+    {
+        AssistantButton.Visibility = _settings.AiFeaturesEnabled && _settings.AiProvider != Models.AiProviderKind.None
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void AssistantButton_Click(object sender, RoutedEventArgs e)
+    {
+        AssistantOverlay.Visibility = AssistantOverlay.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void AssistantScrim_Click(object sender, RoutedEventArgs e)
+    {
+        AssistantOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void AssistantPanel_CloseRequested(object? sender, EventArgs e)
+    {
+        AssistantOverlay.Visibility = Visibility.Collapsed;
     }
 
     private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
