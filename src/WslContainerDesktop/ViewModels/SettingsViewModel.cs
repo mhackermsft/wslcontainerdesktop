@@ -36,6 +36,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly FileLoggerProvider _fileLogger;
     private readonly IAiDiagnosticsService _aiDiagnostics;
     private readonly IAiCredentialStore _aiCredentials;
+    private readonly ILocalAiSetupService _localAi;
     private readonly ILogger<SettingsViewModel> _logger;
     private readonly HttpClient _http;
 
@@ -104,6 +105,8 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshOllamaModelsCommand))]
     [NotifyCanExecuteChangedFor(nameof(PullOllamaModelCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SetUpLocalAiCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RemoveLocalAiCommand))]
     private bool _isOllamaBusy;
 
     [ObservableProperty]
@@ -193,7 +196,7 @@ public partial class SettingsViewModel : ObservableObject
         return groups;
     }
 
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, HttpClient http, ILogger<SettingsViewModel> logger)
+    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, HttpClient http, ILogger<SettingsViewModel> logger)
     {
         _settings = settings;
         _wslc = wslc;
@@ -202,6 +205,7 @@ public partial class SettingsViewModel : ObservableObject
         _fileLogger = fileLogger;
         _aiDiagnostics = aiDiagnostics;
         _aiCredentials = aiCredentials;
+        _localAi = localAi;
         _http = http;
         _logger = logger;
 
@@ -759,67 +763,14 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             IsOllamaBusy = true;
-            AiStatus = $"Pulling '{name}'…";
             var endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
-
-            // Pulls can take minutes for multi-GB models, so use a dedicated client with no timeout
-            // and stream the NDJSON progress rather than the shared 20s HttpClient.
-            using var client = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
-            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(endpoint, "api/pull"))
+            if (await StreamPullModelAsync(name, endpoint))
             {
-                Content = JsonContent.Create(new { model = name, stream = true }),
-            };
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
-            if (!response.IsSuccessStatusCode)
-            {
-                var err = await response.Content.ReadAsStringAsync();
-                AiStatus = $"Pull failed ({(int)response.StatusCode}): {Truncate(err)}";
-                return;
+                OllamaPullModel = string.Empty;
+                await LoadOllamaModelsAsync();
+                AiOllamaModel = name;
+                AiStatus = $"Pulled '{name}' and selected it.";
             }
-
-            await using var stream = await response.Content.ReadAsStreamAsync();
-            using var reader = new System.IO.StreamReader(stream);
-            while (await reader.ReadLineAsync() is { } line)
-            {
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    using var doc = JsonDocument.Parse(line);
-                    var root = doc.RootElement;
-                    if (root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
-                    {
-                        AiStatus = $"Pull failed: {error.GetString()}";
-                        return;
-                    }
-
-                    var status = root.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String
-                        ? s.GetString() ?? string.Empty
-                        : string.Empty;
-                    if (root.TryGetProperty("total", out var totalEl) && totalEl.TryGetInt64(out var total) && total > 0
-                        && root.TryGetProperty("completed", out var compEl) && compEl.TryGetInt64(out var completed))
-                    {
-                        var pct = Math.Clamp(completed * 100.0 / total, 0, 100);
-                        AiStatus = $"Pulling {name}: {status} {pct:0}% ({FormatBytes(completed)} / {FormatBytes(total)})";
-                    }
-                    else if (!string.IsNullOrWhiteSpace(status))
-                    {
-                        AiStatus = $"Pulling {name}: {status}";
-                    }
-                }
-                catch (JsonException)
-                {
-                    // Ignore non-JSON progress lines.
-                }
-            }
-
-            OllamaPullModel = string.Empty;
-            await LoadOllamaModelsAsync();
-            AiOllamaModel = name;
-            AiStatus = $"Pulled '{name}' and selected it.";
         }
         catch (Exception ex)
         {
@@ -830,6 +781,234 @@ public partial class SettingsViewModel : ObservableObject
         {
             IsOllamaBusy = false;
         }
+    }
+
+    /// <summary>
+    /// Streams an Ollama <c>/api/pull</c> for <paramref name="name"/>, updating <see cref="AiStatus"/>
+    /// with progress. Returns true when the model finished downloading, false on a reported error.
+    /// Callers own <see cref="IsOllamaBusy"/> and any follow-up (model list refresh, selection).
+    /// </summary>
+    private async Task<bool> StreamPullModelAsync(string name, Uri endpoint, CancellationToken ct = default)
+    {
+        AiStatus = $"Pulling '{name}'…";
+
+        // Pulls can take minutes for multi-GB models, so use a dedicated client with no timeout
+        // and stream the NDJSON progress rather than the shared 20s HttpClient.
+        using var client = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(endpoint, "api/pull"))
+        {
+            Content = JsonContent.Create(new { model = name, stream = true }),
+        };
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync(ct);
+            AiStatus = $"Pull failed ({(int)response.StatusCode}): {Truncate(err)}";
+            return false;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new System.IO.StreamReader(stream);
+        while (await reader.ReadLineAsync(ct) is { } line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
+                {
+                    AiStatus = $"Pull failed: {error.GetString()}";
+                    return false;
+                }
+
+                var status = root.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String
+                    ? s.GetString() ?? string.Empty
+                    : string.Empty;
+                if (root.TryGetProperty("total", out var totalEl) && totalEl.TryGetInt64(out var total) && total > 0
+                    && root.TryGetProperty("completed", out var compEl) && compEl.TryGetInt64(out var completed))
+                {
+                    var pct = Math.Clamp(completed * 100.0 / total, 0, 100);
+                    AiStatus = $"Pulling {name}: {status} {pct:0}% ({FormatBytes(completed)} / {FormatBytes(total)})";
+                }
+                else if (!string.IsNullOrWhiteSpace(status))
+                {
+                    AiStatus = $"Pulling {name}: {status}";
+                }
+            }
+            catch (JsonException)
+            {
+                // Ignore non-JSON progress lines.
+            }
+        }
+
+        return true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
+    private async Task SetUpLocalAiAsync()
+    {
+        try
+        {
+            IsOllamaBusy = true;
+
+            // The one-click default: a local, tool-capable model that fits most dev machines.
+            const string model = "qwen2.5:7b";
+            var endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
+            var progress = new Progress<string>(msg => AiStatus = msg);
+
+            // Skip deployment if an Ollama (container or native) is already answering the endpoint.
+            AiStatus = "Checking for a running Ollama…";
+            if (!await IsOllamaHealthyAsync(endpoint, CancellationToken.None))
+            {
+                var result = await _localAi.EnsureOllamaContainerAsync(progress, CancellationToken.None);
+                if (!result.Success)
+                {
+                    AiStatus = result.Message;
+                    await _dialogs.ShowMessageAsync("Local AI setup failed", result.Message);
+                    return;
+                }
+
+                AiStatus = "Waiting for Ollama to become ready…";
+                if (!await WaitForOllamaReadyAsync(endpoint, TimeSpan.FromSeconds(90), CancellationToken.None))
+                {
+                    AiStatus = "Ollama started but did not become ready in time. Check the container logs and try again.";
+                    return;
+                }
+            }
+
+            // Download the default model (skip if it is already installed).
+            if (!await IsModelInstalledAsync(endpoint, model, CancellationToken.None))
+            {
+                if (!await StreamPullModelAsync(model, endpoint))
+                {
+                    return;
+                }
+            }
+
+            // Point the app at the local engine and turn AI on. Each setter persists and the
+            // Changed event refreshes the assistant button.
+            SelectedAiProviderIndex = (int)AiProviderKind.Ollama;
+            AiOllamaEndpoint = endpoint.ToString().TrimEnd('/');
+            AiOllamaModel = model;
+            AiFeaturesEnabled = true;
+
+            await LoadOllamaModelsAsync();
+            AiStatus = $"Local AI is ready. Using Ollama with '{model}'.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Local AI setup failed.");
+            AiStatus = "Local AI setup failed: " + ex.Message;
+        }
+        finally
+        {
+            IsOllamaBusy = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
+    private async Task RemoveLocalAiAsync()
+    {
+        if (!await _dialogs.ShowConfirmAsync(
+                "Remove local AI",
+                $"This stops and removes the '{_localAi.ContainerName}' container. Continue?",
+                primaryText: "Remove",
+                closeText: "Cancel"))
+        {
+            return;
+        }
+
+        var removeVolume = await _dialogs.ShowConfirmAsync(
+            "Delete downloaded models?",
+            "Also delete the downloaded models? This frees disk space but a future setup will re-download them.",
+            primaryText: "Delete models",
+            closeText: "Keep models");
+
+        try
+        {
+            IsOllamaBusy = true;
+            AiStatus = "Removing the local AI container…";
+            var result = await _localAi.RemoveOllamaContainerAsync(removeVolume, CancellationToken.None);
+            AiStatus = result.Success
+                ? (removeVolume ? "Removed the local AI container and its models." : "Removed the local AI container (models kept).")
+                : "Could not remove the local AI container: " + result.ErrorText;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Local AI removal failed.");
+            AiStatus = "Removal failed: " + ex.Message;
+        }
+        finally
+        {
+            IsOllamaBusy = false;
+        }
+    }
+
+    private async Task<bool> IsOllamaHealthyAsync(Uri endpoint, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await _http.GetAsync(new Uri(endpoint, "api/version"), ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> WaitForOllamaReadyAsync(Uri endpoint, TimeSpan timeout, CancellationToken ct)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (await IsOllamaHealthyAsync(endpoint, ct))
+            {
+                return true;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> IsModelInstalledAsync(Uri endpoint, string model, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await _http.GetAsync(new Uri(endpoint, "api/tags"), ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            if (!doc.RootElement.TryGetProperty("models", out var models) || models.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (var m in models.EnumerateArray())
+            {
+                if (m.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String
+                    && string.Equals(name.GetString(), model, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check installed Ollama models.");
+        }
+
+        return false;
     }
 
     private void ReplaceOllamaModels(IReadOnlyCollection<string> names, string persisted)

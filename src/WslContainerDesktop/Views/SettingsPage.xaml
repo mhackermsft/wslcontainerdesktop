@@ -296,6 +296,44 @@
                         <ComboBoxItem Content="Azure OpenAI" />
                         <ComboBoxItem Content="OpenAI-compatible" />
                     </ComboBox>
+                    <Border
+                        Padding="14"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                        <StackPanel Spacing="10">
+                            <StackPanel Spacing="2">
+                                <TextBlock FontWeight="SemiBold" Text="Quick start: run AI locally" />
+                                <TextBlock
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="One click deploys a local Ollama container (GPU-accelerated when your machine supports it, otherwise CPU), downloads the qwen2.5:7b model, and points the assistant at it. No account or API key needed."
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    Command="{x:Bind ViewModel.SetUpLocalAiCommand}"
+                                    Style="{ThemeResource AccentButtonStyle}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon FontSize="13" Glyph="&#xE945;" />
+                                        <TextBlock Text="Set up local AI" />
+                                    </StackPanel>
+                                </Button>
+                                <Button
+                                    Command="{x:Bind ViewModel.RemoveLocalAiCommand}"
+                                    Content="Remove local AI" />
+                            </StackPanel>
+                            <ProgressBar
+                                IsIndeterminate="True"
+                                Visibility="{x:Bind ViewModel.IsOllamaBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind ViewModel.AiStatus, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
                     <InfoBar
                         IsOpen="True"
                         Severity="Informational"
