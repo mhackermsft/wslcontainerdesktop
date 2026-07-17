@@ -40,6 +40,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private readonly IRunProfileStore _profiles;
     private readonly IComposeProjectStore _composeStore;
     private readonly IAiDiagnosticsService _aiDiagnostics;
+    private readonly IAiAvailabilityService _aiAvailability;
     private readonly ILogger<ContainersViewModel> _logger;
     private readonly DispatcherQueue _dispatcher;
     private readonly LogStreamer _logStreamer;
@@ -138,6 +139,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _aiPanelCollapsed;
 
+    [ObservableProperty]
+    private bool _isAiAvailable;
+
     private AiPromptRequest? _pendingAiRequest;
 
     private bool _hasAttemptedChangesLoad;
@@ -214,7 +218,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// </summary>
     public ObservableCollection<ContainerGroup> Groups { get; } = new();
 
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, IAiDiagnosticsService aiDiagnostics, ILogger<ContainersViewModel> logger)
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, IAiDiagnosticsService aiDiagnostics, IAiAvailabilityService aiAvailability, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -226,6 +230,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         _profiles = profiles;
         _composeStore = composeStore;
         _aiDiagnostics = aiDiagnostics;
+        _aiAvailability = aiAvailability;
         _logger = logger;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _logStreamer = new LogStreamer(settings, _dispatcher);
@@ -233,6 +238,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         _monitor.StatusChanged += OnStatusChanged;
         _watchdog.HealthChanged += OnHealthChanged;
+        _aiAvailability.Changed += OnAiAvailabilityChanged;
+        IsAiAvailable = _aiAvailability.IsAvailable;
 
         if (_monitor.Latest is not null)
         {
@@ -1009,8 +1016,13 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         StopStatsPolling();
         _monitor.StatusChanged -= OnStatusChanged;
         _watchdog.HealthChanged -= OnHealthChanged;
+        _aiAvailability.Changed -= OnAiAvailabilityChanged;
         _logStreamer.Dispose();
     }
+
+    // Availability service raises on the UI thread; still marshal defensively.
+    private void OnAiAvailabilityChanged(object? sender, EventArgs e)
+        => _dispatcher.TryEnqueue(() => IsAiAvailable = _aiAvailability.IsAvailable);
 
     private void OnStatusChanged(object? sender, EngineStatusSnapshot e)
     {

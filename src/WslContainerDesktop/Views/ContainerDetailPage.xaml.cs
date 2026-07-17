@@ -37,6 +37,9 @@ public sealed partial class ContainerDetailPage : Page
     public static Visibility InvertBoolToVisibility(bool value) =>
         value ? Visibility.Collapsed : Visibility.Visible;
 
+    public static Visibility BoolToVisibility(bool value) =>
+        value ? Visibility.Visible : Visibility.Collapsed;
+
     public static string CollapseGlyph(bool collapsed) =>
         collapsed ? "\uE70D" : "\uE70E";
 

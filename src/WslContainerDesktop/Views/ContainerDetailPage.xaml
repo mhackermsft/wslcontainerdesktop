@@ -154,6 +154,7 @@
                 </Button>
                 <Button
                     Command="{x:Bind ViewModel.PrepareAiDiagnosisCommand}"
+                    Visibility="{x:Bind local:ContainerDetailPage.BoolToVisibility(ViewModel.IsAiAvailable), Mode=OneWay}"
                     ToolTipService.ToolTip="Build a redacted AI diagnosis preview">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <FontIcon FontSize="14" Glyph="&#xE945;" />

@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
 {
     private readonly ISettingsService _settings;
     private readonly DialogService _dialogs;
+    private readonly IAiAvailabilityService _aiAvailability;
 
     public MainWindow()
     {
@@ -36,6 +37,7 @@ public sealed partial class MainWindow : Window
         Shell = App.Current.Services.GetRequiredService<ShellViewModel>();
         _settings = App.Current.Services.GetRequiredService<ISettingsService>();
         _dialogs = App.Current.Services.GetRequiredService<DialogService>();
+        _aiAvailability = App.Current.Services.GetRequiredService<IAiAvailabilityService>();
 
         ExtendsContentIntoTitleBar = true;
         AppWindow.SetIcon("Assets/AppIcon.ico");
@@ -50,6 +52,7 @@ public sealed partial class MainWindow : Window
 
         AppWindow.Closing += OnAppWindowClosing;
         _settings.Changed += OnSettingsChanged;
+        _aiAvailability.Changed += OnAiAvailabilityChanged;
 
         NavFrame.Navigate(typeof(DashboardPage));
     }
@@ -65,9 +68,24 @@ public sealed partial class MainWindow : Window
 
     private void RefreshAssistantButtonVisibility()
     {
-        AssistantButton.Visibility = _settings.AiFeaturesEnabled && _settings.AiProvider != Models.AiProviderKind.None
+        AssistantButton.Visibility = _settings.AiFeaturesEnabled
+            && _settings.AiProvider != Models.AiProviderKind.None
+            && _aiAvailability.IsAvailable
             ? Visibility.Visible
             : Visibility.Collapsed;
+    }
+
+    private void OnAiAvailabilityChanged(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            RefreshAssistantButtonVisibility();
+
+            if (AssistantButton.Visibility == Visibility.Collapsed && AssistantOverlay.Visibility == Visibility.Visible)
+            {
+                AssistantOverlay.Visibility = Visibility.Collapsed;
+            }
+        });
     }
 
     private void OnSettingsChanged(object? sender, EventArgs e)
