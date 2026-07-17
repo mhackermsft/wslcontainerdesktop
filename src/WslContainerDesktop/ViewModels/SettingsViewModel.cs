@@ -36,6 +36,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly ILogger<SettingsViewModel> _logger;
 
     private bool _suppressStartupWrite;
+    private bool _suppressAiModelWrite;
 
     [ObservableProperty]
     private string _wslcPath;
@@ -185,6 +186,7 @@ public partial class SettingsViewModel : ObservableObject
         _aiOpenAiEndpoint = settings.AiOpenAiEndpoint;
         _aiOpenAiModel = settings.AiOpenAiModel;
         _aiGitHubCopilotModel = settings.AiGitHubCopilotModel;
+        EnsureGitHubCopilotModelOption(_aiGitHubCopilotModel);
         _selectedThemeIndex = settings.Theme switch
         {
             "Light" => 1,
@@ -298,6 +300,18 @@ public partial class SettingsViewModel : ObservableObject
 
     partial void OnAiGitHubCopilotModelChanged(string value)
     {
+        if (_suppressAiModelWrite)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            ReapplyGitHubCopilotModel(_settings.AiGitHubCopilotModel);
+            return;
+        }
+
+        EnsureGitHubCopilotModelOption(value);
         _settings.AiGitHubCopilotModel = value;
         _settings.Save();
     }
@@ -512,6 +526,11 @@ public partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        var persisted = string.IsNullOrWhiteSpace(_settings.AiGitHubCopilotModel)
+            ? "auto"
+            : _settings.AiGitHubCopilotModel;
+        SeedGitHubCopilotModels(persisted);
+
         try
         {
             IsBusy = true;
@@ -520,19 +539,27 @@ public partial class SettingsViewModel : ObservableObject
             await client.StartAsync();
             var models = await client.ListModelsAsync();
 
-            GitHubCopilotModels.Clear();
-            foreach (var model in models
+            var modelList = models.ToList();
+            var configuredAvailable = modelList.Any(m => string.Equals(m.Id, persisted, StringComparison.OrdinalIgnoreCase));
+            var options = modelList
                 .OrderBy(m => string.Equals(m.Id, "auto", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                var supportsReasoning = model.SupportedReasoningEfforts is { Count: > 0 };
-                var suffix = supportsReasoning ? " · reasoning" : string.Empty;
-                GitHubCopilotModels.Add(new AiModelOption(model.Id, $"{model.Id} — {model.Name}{suffix}"));
-            }
+                .ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(model =>
+                {
+                    var supportsReasoning = model.SupportedReasoningEfforts is { Count: > 0 };
+                    var suffix = supportsReasoning ? " · reasoning" : string.Empty;
+                    return new AiModelOption(model.Id, $"{model.Id} — {model.Name}{suffix}");
+                })
+                .ToList();
 
-            if (!GitHubCopilotModels.Any(m => string.Equals(m.Id, AiGitHubCopilotModel, StringComparison.OrdinalIgnoreCase)))
+            EnsureOption(options, "auto", "auto");
+            EnsureOption(options, persisted, $"{persisted} (configured)");
+            ReplaceGitHubCopilotModels(options);
+            ReapplyGitHubCopilotModel(persisted);
+
+            if (!configuredAvailable)
             {
-                AiStatus = $"Configured model '{AiGitHubCopilotModel}' is not available. Choose a model from the list.";
+                AiStatus = $"Configured model '{persisted}' is not available. Choose a model from the list.";
             }
             else
             {
@@ -542,13 +569,73 @@ public partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to load GitHub Copilot models.");
-            GitHubCopilotModels.Clear();
-            GitHubCopilotModels.Add(new AiModelOption("auto", "auto"));
-            AiStatus = "Could not load GitHub Copilot models. Showing fallback 'auto'. Details: " + ex.Message;
+            SeedGitHubCopilotModels(persisted);
+            ReapplyGitHubCopilotModel(persisted);
+            AiStatus = "Could not load GitHub Copilot models. Showing fallback list with the saved model and 'auto'. Details: " + ex.Message;
         }
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    private void SeedGitHubCopilotModels(string persisted)
+    {
+        ReplaceGitHubCopilotModels([
+            new AiModelOption("auto", "auto"),
+            new AiModelOption(persisted, string.Equals(persisted, "auto", StringComparison.OrdinalIgnoreCase)
+                ? "auto"
+                : $"{persisted} (configured)"),
+        ]);
+        ReapplyGitHubCopilotModel(persisted);
+    }
+
+    private void EnsureGitHubCopilotModelOption(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)
+            || GitHubCopilotModels.Any(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        GitHubCopilotModels.Add(new AiModelOption(id, $"{id} (configured)"));
+    }
+
+    private void ReapplyGitHubCopilotModel(string model)
+    {
+        var value = string.IsNullOrWhiteSpace(model) ? "auto" : model;
+        EnsureGitHubCopilotModelOption(value);
+        _suppressAiModelWrite = true;
+        AiGitHubCopilotModel = string.Empty;
+        _suppressAiModelWrite = false;
+        AiGitHubCopilotModel = value;
+    }
+
+    private void ReplaceGitHubCopilotModels(IEnumerable<AiModelOption> models)
+    {
+        _suppressAiModelWrite = true;
+        try
+        {
+            GitHubCopilotModels.Clear();
+            foreach (var model in models
+                .Where(m => !string.IsNullOrWhiteSpace(m.Id))
+                .GroupBy(m => m.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First()))
+            {
+                GitHubCopilotModels.Add(model);
+            }
+        }
+        finally
+        {
+            _suppressAiModelWrite = false;
+        }
+    }
+
+    private static void EnsureOption(List<AiModelOption> options, string id, string displayName)
+    {
+        if (!options.Any(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase)))
+        {
+            options.Add(new AiModelOption(id, displayName));
         }
     }
 
