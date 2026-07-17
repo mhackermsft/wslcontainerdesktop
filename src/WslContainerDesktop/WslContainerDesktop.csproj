@@ -16,6 +16,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
+    <!-- The SDK's MSBuild downloader currently fails TLS against npm in this environment.
+         Keep normal app builds green; users can set CopilotCliBinaryPath to a predownloaded
+         runtime binary, or unset this when the npm download path works. -->
+    <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
     <!-- We provide our own Main (Program.cs) for single-instance redirection. -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
@@ -54,6 +58,7 @@
     <PropertyGroup> above to opt out.
   -->
   <ItemGroup>
+    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.7" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.4.0" />

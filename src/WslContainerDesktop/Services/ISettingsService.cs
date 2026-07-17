@@ -45,6 +45,43 @@ public interface ISettingsService
     /// <summary>Emit toasts when the container engine becomes unavailable or recovers.</summary>
     bool NotifyEngineEvents { get; set; }
 
+    /// <summary>Master opt-in switch for AI diagnostics. Defaults off.</summary>
+    bool AiFeaturesEnabled { get; set; }
+
+    /// <summary>Selected AI provider.</summary>
+    Models.AiProviderKind AiProvider { get; set; }
+
+    string AiOllamaEndpoint { get; set; }
+
+    string AiOllamaModel { get; set; }
+
+    string AiAzureOpenAiEndpoint { get; set; }
+
+    string AiAzureOpenAiDeployment { get; set; }
+
+    string AiOpenAiEndpoint { get; set; }
+
+    string AiOpenAiModel { get; set; }
+
+    string AiGitHubCopilotModel { get; set; }
+
+    bool AiAssistantAutoCreateRun { get; set; }
+
+    bool AiAssistantAutoLifecycle { get; set; }
+
+    bool AiAssistantAutoComposeTemplate { get; set; }
+
+    bool AiAssistantAutoKubernetes { get; set; }
+
+    /// <summary>Names of assistant tools the user has opted to run automatically (no approval prompt).</summary>
+    System.Collections.Generic.IReadOnlyCollection<string> AiAssistantAutoApprovedTools { get; }
+
+    /// <summary>Whether the given assistant tool runs automatically without an approval prompt.</summary>
+    bool IsAssistantToolAutoApproved(string toolName);
+
+    /// <summary>Sets (and persists) whether the given assistant tool runs automatically.</summary>
+    void SetAssistantToolAutoApproved(string toolName, bool autoApprove);
+
     /// <summary>WSL distro to host the k3s cluster. Null/empty uses the WSL default distro.</summary>
     string? WslDistro { get; set; }
 
@@ -86,4 +123,7 @@ public interface ISettingsService
 
     void Load();
     void Save();
+
+    /// <summary>Raised after settings are persisted, so observers (e.g. the title-bar assistant button) can refresh.</summary>
+    event EventHandler? Changed;
 }

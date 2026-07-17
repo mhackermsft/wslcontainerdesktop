@@ -39,9 +39,46 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public bool NotifyImageEvents { get; set; } = true;
     public bool NotifyContainerEvents { get; set; } = true;
     public bool NotifyEngineEvents { get; set; } = true;
+    public bool AiFeaturesEnabled { get; set; }
+    public AiProviderKind AiProvider { get; set; }
+    public string AiOllamaEndpoint { get; set; } = "http://localhost:11434";
+    public string AiOllamaModel { get; set; } = "llama3.1";
+    public string AiAzureOpenAiEndpoint { get; set; } = string.Empty;
+    public string AiAzureOpenAiDeployment { get; set; } = string.Empty;
+    public string AiOpenAiEndpoint { get; set; } = "https://api.openai.com/v1";
+    public string AiOpenAiModel { get; set; } = "gpt-4o-mini";
+    public string AiGitHubCopilotModel { get; set; } = "auto";
+    public bool AiAssistantAutoCreateRun { get; set; }
+    public bool AiAssistantAutoLifecycle { get; set; }
+    public bool AiAssistantAutoComposeTemplate { get; set; }
+    public bool AiAssistantAutoKubernetes { get; set; }
     public string? WslDistro { get; set; }
     public bool WslUpdatePreRelease { get; set; }
     public string? DevContainerNpmRegistry { get; set; }
+
+    private HashSet<string> _autoApprovedTools = new(StringComparer.Ordinal);
+
+    public IReadOnlyCollection<string> AiAssistantAutoApprovedTools => _autoApprovedTools;
+
+    public bool IsAssistantToolAutoApproved(string toolName) =>
+        !string.IsNullOrWhiteSpace(toolName) && _autoApprovedTools.Contains(toolName);
+
+    public void SetAssistantToolAutoApproved(string toolName, bool autoApprove)
+    {
+        if (string.IsNullOrWhiteSpace(toolName))
+        {
+            return;
+        }
+
+        var changed = autoApprove ? _autoApprovedTools.Add(toolName) : _autoApprovedTools.Remove(toolName);
+        if (changed)
+        {
+            Save();
+        }
+    }
+
+    public event EventHandler? Changed;
+
     public string? K3sInstallerSha256 { get; set; }
     public List<RegistryEntry> Registries { get; set; } = new() { RegistryEntry.DockerHub() };
     public List<HealthCheckConfig> HealthChecks { get; set; } = new();
@@ -76,6 +113,24 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             NotifyImageEvents = dto.NotifyImageEvents;
             NotifyContainerEvents = dto.NotifyContainerEvents;
             NotifyEngineEvents = dto.NotifyEngineEvents;
+            AiFeaturesEnabled = dto.AiFeaturesEnabled;
+            AiProvider = Enum.IsDefined(typeof(AiProviderKind), dto.AiProvider)
+                ? (AiProviderKind)dto.AiProvider
+                : AiProviderKind.None;
+            AiOllamaEndpoint = string.IsNullOrWhiteSpace(dto.AiOllamaEndpoint) ? "http://localhost:11434" : dto.AiOllamaEndpoint;
+            AiOllamaModel = string.IsNullOrWhiteSpace(dto.AiOllamaModel) ? "llama3.1" : dto.AiOllamaModel;
+            AiAzureOpenAiEndpoint = dto.AiAzureOpenAiEndpoint ?? string.Empty;
+            AiAzureOpenAiDeployment = dto.AiAzureOpenAiDeployment ?? string.Empty;
+            AiOpenAiEndpoint = string.IsNullOrWhiteSpace(dto.AiOpenAiEndpoint) ? "https://api.openai.com/v1" : dto.AiOpenAiEndpoint;
+            AiOpenAiModel = string.IsNullOrWhiteSpace(dto.AiOpenAiModel) ? "gpt-4o-mini" : dto.AiOpenAiModel;
+            AiGitHubCopilotModel = string.IsNullOrWhiteSpace(dto.AiGitHubCopilotModel) ? "auto" : dto.AiGitHubCopilotModel;
+            AiAssistantAutoCreateRun = dto.AiAssistantAutoCreateRun;
+            AiAssistantAutoLifecycle = dto.AiAssistantAutoLifecycle;
+            AiAssistantAutoComposeTemplate = dto.AiAssistantAutoComposeTemplate;
+            AiAssistantAutoKubernetes = dto.AiAssistantAutoKubernetes;
+            _autoApprovedTools = dto.AiAssistantAutoApprovedTools is { } approvedTools
+                ? new HashSet<string>(approvedTools.Where(t => !string.IsNullOrWhiteSpace(t)), StringComparer.Ordinal)
+                : MigrateLegacyToolApprovals(dto);
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
             WslUpdatePreRelease = dto.WslUpdatePreRelease;
             DevContainerNpmRegistry = string.IsNullOrWhiteSpace(dto.DevContainerNpmRegistry) ? null : dto.DevContainerNpmRegistry.Trim();
@@ -193,6 +248,20 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 NotifyImageEvents = NotifyImageEvents,
                 NotifyContainerEvents = NotifyContainerEvents,
                 NotifyEngineEvents = NotifyEngineEvents,
+                AiFeaturesEnabled = AiFeaturesEnabled,
+                AiProvider = (int)AiProvider,
+                AiOllamaEndpoint = AiOllamaEndpoint,
+                AiOllamaModel = AiOllamaModel,
+                AiAzureOpenAiEndpoint = AiAzureOpenAiEndpoint,
+                AiAzureOpenAiDeployment = AiAzureOpenAiDeployment,
+                AiOpenAiEndpoint = AiOpenAiEndpoint,
+                AiOpenAiModel = AiOpenAiModel,
+                AiGitHubCopilotModel = AiGitHubCopilotModel,
+                AiAssistantAutoCreateRun = AiAssistantAutoCreateRun,
+                AiAssistantAutoLifecycle = AiAssistantAutoLifecycle,
+                AiAssistantAutoComposeTemplate = AiAssistantAutoComposeTemplate,
+                AiAssistantAutoKubernetes = AiAssistantAutoKubernetes,
+                AiAssistantAutoApprovedTools = _autoApprovedTools.ToList(),
                 WslDistro = WslDistro,
                 WslUpdatePreRelease = WslUpdatePreRelease,
                 DevContainerNpmRegistry = DevContainerNpmRegistry,
@@ -242,6 +311,34 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             // Best effort; ignore persistence failures.
             logger.LogWarning(ex, "Failed to save settings to {Path}.", SettingsFile);
         }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static HashSet<string> MigrateLegacyToolApprovals(SettingsDto dto)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        if (dto.AiAssistantAutoCreateRun)
+        {
+            set.UnionWith(AssistantToolCatalog.CreateRunTools);
+        }
+
+        if (dto.AiAssistantAutoLifecycle)
+        {
+            set.UnionWith(AssistantToolCatalog.LifecycleTools);
+        }
+
+        if (dto.AiAssistantAutoComposeTemplate)
+        {
+            set.UnionWith(AssistantToolCatalog.ComposeTemplateTools);
+        }
+
+        if (dto.AiAssistantAutoKubernetes)
+        {
+            set.UnionWith(AssistantToolCatalog.KubernetesTools);
+        }
+
+        return set;
     }
 
     private static string ResolveDefaultWslcPath()
@@ -266,6 +363,20 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public bool NotifyImageEvents { get; set; } = true;
         public bool NotifyContainerEvents { get; set; } = true;
         public bool NotifyEngineEvents { get; set; } = true;
+        public bool AiFeaturesEnabled { get; set; }
+        public int AiProvider { get; set; }
+        public string? AiOllamaEndpoint { get; set; }
+        public string? AiOllamaModel { get; set; }
+        public string? AiAzureOpenAiEndpoint { get; set; }
+        public string? AiAzureOpenAiDeployment { get; set; }
+        public string? AiOpenAiEndpoint { get; set; }
+        public string? AiOpenAiModel { get; set; }
+        public string? AiGitHubCopilotModel { get; set; }
+        public bool AiAssistantAutoCreateRun { get; set; }
+        public bool AiAssistantAutoLifecycle { get; set; }
+        public bool AiAssistantAutoComposeTemplate { get; set; }
+        public bool AiAssistantAutoKubernetes { get; set; }
+        public List<string>? AiAssistantAutoApprovedTools { get; set; }
         public string? WslDistro { get; set; }
         public bool WslUpdatePreRelease { get; set; }
         public string? DevContainerNpmRegistry { get; set; }
@@ -305,4 +416,3 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public string? AzureAcrName { get; set; }
     }
 }
-

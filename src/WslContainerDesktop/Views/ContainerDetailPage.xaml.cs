@@ -34,6 +34,18 @@ namespace WslContainerDesktop.Views;
 
 public sealed partial class ContainerDetailPage : Page
 {
+    public static Visibility InvertBoolToVisibility(bool value) =>
+        value ? Visibility.Collapsed : Visibility.Visible;
+
+    public static Visibility BoolToVisibility(bool value) =>
+        value ? Visibility.Visible : Visibility.Collapsed;
+
+    public static string CollapseGlyph(bool collapsed) =>
+        collapsed ? "\uE70D" : "\uE70E";
+
+    public static string CollapseTooltip(bool collapsed) =>
+        collapsed ? "Expand" : "Collapse";
+
     private const int MaxLogChars = 400_000;
     private const int MaxLogLines = 6000;
     private readonly StringBuilder _logBuffer = new();
