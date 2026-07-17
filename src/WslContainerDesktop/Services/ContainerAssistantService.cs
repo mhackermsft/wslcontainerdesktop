@@ -210,6 +210,7 @@ public sealed class ContainerAssistantService(
         For WordPress/blog/database requests, prefer the WordPress compose template when available.
         For ANY app that needs more than one container (e.g. app + database, app + cache, front end + API), deploy it with deploy_compose (or deploy_template), never as separate run_container calls: only compose gives the services a shared network so they resolve each other by service name over DNS. When writing compose YAML, reference other services by their service name as the host (e.g. WordPress WORDPRESS_DB_HOST=db).
         Use run_container only for a single standalone container.
+        To answer questions about which image versions/tags exist in a configured remote registry, or what the newest tag is, use list_registry_repositories and list_registry_tags; do not guess tags. These browse configured ACR or private Docker Registry v2 hosts (Docker Hub's global catalog is not browsable).
         For bulk operations, call the bulk tool; the app will resolve the concrete target list and approval.
         When the user targets a subset of containers by name (e.g. "starting with wordpress_", "the nginx ones"), set the bulk tool's namePrefix or nameContains filter accordingly. Only omit both filters when the user clearly means every container.
         Explain results concisely after tool calls complete.

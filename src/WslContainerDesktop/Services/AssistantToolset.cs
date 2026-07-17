@@ -25,7 +25,9 @@ public sealed class AssistantToolset(
     IKubernetesService kubernetes,
     ITemplateCatalog templates,
     IComposeProjectStore composeStore,
-    ComposeProjectSupervisor composeSupervisor)
+    ComposeProjectSupervisor composeSupervisor,
+    ISettingsService settings,
+    IRegistryCatalogService registryCatalog)
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -56,6 +58,20 @@ public sealed class AssistantToolset(
             Tool("create_network", "Create a named network.", ObjectSchema(("name", "string", "Network name"))),
             Tool("remove_network", "Remove a named network.", ObjectSchema(("name", "string", "Network name"))),
         };
+
+        var browsableRegistries = settings.Registries.Where(registryCatalog.CanBrowse).ToList();
+        if (browsableRegistries.Count > 0)
+        {
+            var names = string.Join(", ", browsableRegistries.Select(r => string.IsNullOrWhiteSpace(r.Name) ? r.Host : r.Name));
+            definitions.Add(Tool("list_registry_repositories",
+                "List the repositories (image names) available in a configured remote registry. Browsable registries: " + names + ". Docker Hub's global catalog is not browsable.",
+                ObjectSchema(("registry", "string", "Registry name or host to browse, e.g. one of: " + names))));
+            definitions.Add(Tool("list_registry_tags",
+                "List the available tags (versions) of a repository in a configured remote registry, so you can see what versions exist and which is newest. Browsable registries: " + names + ".",
+                ObjectSchema(
+                    ("registry", "string", "Registry name or host to browse, e.g. one of: " + names),
+                    ("repository", "string", "Repository/image name within the registry, e.g. myapp or team/myapp"))));
+        }
 
         try
         {
@@ -110,6 +126,8 @@ public sealed class AssistantToolset(
             "remove_volume" => Resolved(call, AssistantPermissionCategory.Destructive, $"Remove volume {StringArg(args, "name")}", call.ArgumentsJson, token => RemoveVolumeAsync(StringArg(args, "name"), token)),
             "create_network" => Resolved(call, AssistantPermissionCategory.CreateRun, $"Create network {StringArg(args, "name")}", call.ArgumentsJson, token => CreateNetworkAsync(StringArg(args, "name"), token)),
             "remove_network" => Resolved(call, AssistantPermissionCategory.Destructive, $"Remove network {StringArg(args, "name")}", call.ArgumentsJson, token => RemoveNetworkAsync(StringArg(args, "name"), token)),
+            "list_registry_repositories" => Resolved(call, AssistantPermissionCategory.ReadOnly, $"List repositories in registry {StringArg(args, "registry")}", call.ArgumentsJson, token => ListRegistryRepositoriesAsync(StringArg(args, "registry"), token)),
+            "list_registry_tags" => Resolved(call, AssistantPermissionCategory.ReadOnly, $"List tags of {StringArg(args, "repository")} in registry {StringArg(args, "registry")}", call.ArgumentsJson, token => ListRegistryTagsAsync(StringArg(args, "registry"), StringArg(args, "repository"), token)),
             "k8s_status" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Get k3s status", "", K8sStatusAsync),
             "list_k8s_resources" => Resolved(call, AssistantPermissionCategory.ReadOnly, $"List k3s {StringArg(args, "kind")}", call.ArgumentsJson, token => ListK8sResourcesAsync(StringArg(args, "kind"), OptionalStringArg(args, "namespace"), token)),
             "get_k8s_logs" => Resolved(call, AssistantPermissionCategory.ReadOnly, $"Get k3s pod logs for {StringArg(args, "name")}", call.ArgumentsJson, token => GetK8sLogsAsync(OptionalStringArg(args, "namespace") ?? "default", StringArg(args, "name"), IntArg(args, "tail", 200), token)),
@@ -379,6 +397,84 @@ public sealed class AssistantToolset(
 
     public async Task<string> RemoveNetworkAsync(string name, CancellationToken ct) =>
         Summarize(await wslc.RemoveNetworkAsync(RequireValue(name, "network"), ct).ConfigureAwait(false));
+
+    [Description("Read-only: list repositories available in a configured remote registry.")]
+    public async Task<string> ListRegistryRepositoriesAsync(string registry, CancellationToken ct)
+    {
+        var (entry, error) = ResolveBrowsableRegistry(registry);
+        if (entry is null)
+        {
+            return error!;
+        }
+
+        var result = await registryCatalog.ListRepositoriesAsync(entry, ct).ConfigureAwait(false);
+        return DescribeCatalogResult(result, $"repositories in registry '{DisplayName(entry)}'");
+    }
+
+    [Description("Read-only: list the tags/versions of a repository in a configured remote registry.")]
+    public async Task<string> ListRegistryTagsAsync(string registry, string repository, CancellationToken ct)
+    {
+        var (entry, error) = ResolveBrowsableRegistry(registry);
+        if (entry is null)
+        {
+            return error!;
+        }
+
+        var repo = RequireValue(repository, "repository");
+        var result = await registryCatalog.ListTagsAsync(entry, repo, ct).ConfigureAwait(false);
+        return DescribeCatalogResult(result, $"tags of '{repo}' in registry '{DisplayName(entry)}'");
+    }
+
+    private (RegistryEntry? Entry, string? Error) ResolveBrowsableRegistry(string registry)
+    {
+        var browsable = settings.Registries.Where(registryCatalog.CanBrowse).ToList();
+        if (browsable.Count == 0)
+        {
+            return (null, JsonSerializer.Serialize(new
+            {
+                error = "No browsable registries are configured. Add an Azure Container Registry or a private Docker Registry v2 host on the Registries page (Docker Hub's global catalog cannot be browsed)."
+            }, JsonOptions));
+        }
+
+        var query = registry?.Trim() ?? string.Empty;
+        RegistryEntry? match = null;
+        if (query.Length > 0)
+        {
+            match = browsable.FirstOrDefault(r =>
+                string.Equals(r.Name, query, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(r.Host, query, StringComparison.OrdinalIgnoreCase));
+        }
+        else if (browsable.Count == 1)
+        {
+            match = browsable[0];
+        }
+
+        if (match is null)
+        {
+            return (null, JsonSerializer.Serialize(new
+            {
+                error = query.Length > 0
+                    ? $"No browsable registry matches '{query}'."
+                    : "Multiple registries are configured; specify which one to browse.",
+                available = browsable.Select(DisplayName).ToArray()
+            }, JsonOptions));
+        }
+
+        return (match, null);
+    }
+
+    private string DescribeCatalogResult(CatalogResult result, string what)
+    {
+        if (result.IsOk)
+        {
+            return JsonSerializer.Serialize(new { count = result.Items.Count, items = result.Items }, JsonOptions);
+        }
+
+        return JsonSerializer.Serialize(new { error = result.Message ?? $"Could not list {what}." }, JsonOptions);
+    }
+
+    private static string DisplayName(RegistryEntry entry) =>
+        string.IsNullOrWhiteSpace(entry.Name) ? entry.Host : entry.Name;
 
     public async Task<string> K8sStatusAsync(CancellationToken ct) =>
         JsonSerializer.Serialize(await kubernetes.GetStatusAsync(ct).ConfigureAwait(false), JsonOptions);
