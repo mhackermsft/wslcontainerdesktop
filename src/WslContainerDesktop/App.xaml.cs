@@ -391,7 +391,11 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ITemplateConfigStore, TemplateConfigStore>();
         services.AddSingleton<IUserTemplateStore, UserTemplateStore>();
         services.AddSingleton<ITemplateVisibilityStore, TemplateVisibilityStore>();
-        services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();        services.AddSingleton<ComposeProjectSupervisor>();
+        services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();
+        services.AddSingleton<ComposeProjectSupervisor>();
+        services.AddSingleton<IDevContainerImporter, DevContainerImporter>();
+        services.AddSingleton<IDevContainerStore, DevContainerStore>();
+        services.AddSingleton<IDevContainerSupervisor, DevContainerSupervisor>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();
@@ -440,6 +444,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<KubernetesViewModel>();
         services.AddTransient<K8sDetailViewModel>();
         services.AddSingleton<ComposeViewModel>();
+        services.AddSingleton<DevContainersViewModel>();
         services.AddSingleton<TemplatesViewModel>();
 
         return services.BuildServiceProvider();

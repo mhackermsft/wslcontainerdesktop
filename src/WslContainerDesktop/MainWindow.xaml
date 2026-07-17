@@ -86,6 +86,11 @@
                         <FontIcon Glyph="&#xE7F4;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Dev Containers" Tag="devcontainers">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8B7;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Templates" Tag="templates">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE71D;" />
