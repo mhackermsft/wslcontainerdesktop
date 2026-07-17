@@ -43,7 +43,7 @@
             Grid.Row="2"
             IsClosable="False"
             IsOpen="True"
-            Message="Phase 1 supports image/build devcontainer.json files with workspace mounts, forwardPorts, remoteUser/containerEnv, keep-alive, and postCreate/postStart. Features and Compose dev containers are parsed and warned but deferred."
+            Message="Supports image-, build-, and Compose-based dev containers with workspace mounts, port forwarding, users/environment, Features, and lifecycle commands. Warnings only flag options the WSL container engine cannot reproduce."
             Severity="Informational" />
 
         <Grid Grid.Row="3">

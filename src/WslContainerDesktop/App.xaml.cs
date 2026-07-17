@@ -395,6 +395,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ComposeProjectSupervisor>();
         services.AddSingleton<IDevContainerImporter, DevContainerImporter>();
         services.AddSingleton<IDevContainerStore, DevContainerStore>();
+        services.AddSingleton<IDevContainerFeatureResolver, DevContainerFeatureResolver>();
         services.AddSingleton<IDevContainerSupervisor, DevContainerSupervisor>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();

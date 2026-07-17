@@ -34,9 +34,21 @@ public partial class DevContainerRow : ObservableObject
     public DevContainerConfig Config { get; }
     public string Name => Config.Name;
     public string WorkspacePath => Config.WorkspacePath;
-    public string ImageSummary => Config.Build is not null ? $"Build: {Config.Build.Dockerfile ?? "Dockerfile"}" : Config.Image ?? "(no image)";
+    public string ImageSummary => Config.Compose is not null
+        ? $"Compose: {Config.Compose.Service}"
+        : Config.Build is not null
+            ? $"Build: {Config.Build.Dockerfile ?? "Dockerfile"}"
+            : Config.Image ?? "(no image)";
     public string PortsSummary => Config.ForwardPorts.Count == 0 ? "No forwarded ports" : string.Join(", ", Config.ForwardPorts);
-    public string LifecycleSummary => string.Join(", ", new[] { Config.PostCreateCommand is null ? null : "postCreate", Config.PostStartCommand is null ? null : "postStart" }.Where(s => s is not null));
+    public string LifecycleSummary => string.Join(", ", new[]
+    {
+        Config.Lifecycle.Initialize.Count == 0 ? null : "initialize",
+        Config.Lifecycle.OnCreate.Count == 0 ? null : "onCreate",
+        Config.Lifecycle.UpdateContent.Count == 0 ? null : "updateContent",
+        Config.Lifecycle.PostCreate.Count == 0 ? null : "postCreate",
+        Config.Lifecycle.PostStart.Count == 0 ? null : "postStart",
+        Config.Lifecycle.PostAttach.Count == 0 ? null : "postAttach",
+    }.Where(s => s is not null));
     public string WarningsSummary => Config.Warnings.Count == 0 ? "No warnings" : $"{Config.Warnings.Count} warning(s)";
     public string LifecycleLog => string.IsNullOrWhiteSpace(Config.LifecycleLog) ? "No lifecycle output yet." : Config.LifecycleLog;
 
@@ -47,7 +59,7 @@ public partial class DevContainerRow : ObservableObject
     private string _containerId = string.Empty;
 }
 
-/// <summary>Lists known Dev Containers and drives their MVP lifecycle.</summary>
+/// <summary>Lists known Dev Containers and drives their lifecycle.</summary>
 public partial class DevContainersViewModel(
     IDevContainerImporter importer,
     IDevContainerStore store,
@@ -267,10 +279,23 @@ public partial class DevContainersViewModel(
 
     private static void UpdateStatus(DevContainerRow row, IReadOnlyList<ContainerInfo> containers)
     {
-        var name = row.Config.RunOptions.Name;
-        if (string.IsNullOrWhiteSpace(name))
+        string? name = null;
+        if (row.Config.Compose is { } compose)
         {
-            name = $"devcontainer-{row.Config.Id}";
+            var service = compose.Project.Services.FirstOrDefault(s => string.Equals(s.Name, compose.Service, StringComparison.Ordinal));
+            name = service is null
+                ? null
+                : string.IsNullOrWhiteSpace(service.Options.Name)
+                    ? compose.Project.ContainerNameFor(service.Name)
+                    : service.Options.Name!.Trim();
+        }
+        else
+        {
+            name = row.Config.RunOptions.Name;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = $"devcontainer-{row.Config.Id}";
+            }
         }
 
         var container = containers.FirstOrDefault(c => string.Equals(c.Name.TrimStart('/'), name, StringComparison.Ordinal));
@@ -291,13 +316,13 @@ public partial class DevContainersViewModel(
         sb.AppendLine($"Workspace folder: {config.WorkspaceFolder}");
         sb.AppendLine($"Ports: {(config.ForwardPorts.Count == 0 ? "none" : string.Join(", ", config.ForwardPorts))}");
         sb.AppendLine($"Environment variables: {config.ContainerEnv.Count}");
-        if (!string.IsNullOrWhiteSpace(config.PostCreateCommand))
+        if (config.Features.Count > 0)
         {
-            sb.AppendLine("Lifecycle: postCreateCommand");
+            sb.AppendLine($"Features: {string.Join(", ", config.Features.Select(f => f.Id))}");
         }
-        if (!string.IsNullOrWhiteSpace(config.PostStartCommand))
+        if (!string.IsNullOrWhiteSpace(row(config.Lifecycle)))
         {
-            sb.AppendLine("Lifecycle: postStartCommand");
+            sb.AppendLine("Lifecycle: " + row(config.Lifecycle));
         }
         if (warnings.Count > 0)
         {
@@ -314,5 +339,15 @@ public partial class DevContainersViewModel(
         }
 
         return sb.ToString();
+
+        static string row(DevContainerLifecycle lifecycle) => string.Join(", ", new[]
+        {
+            lifecycle.Initialize.Count == 0 ? null : "initializeCommand",
+            lifecycle.OnCreate.Count == 0 ? null : "onCreateCommand",
+            lifecycle.UpdateContent.Count == 0 ? null : "updateContentCommand",
+            lifecycle.PostCreate.Count == 0 ? null : "postCreateCommand",
+            lifecycle.PostStart.Count == 0 ? null : "postStartCommand",
+            lifecycle.PostAttach.Count == 0 ? null : "postAttachCommand",
+        }.Where(s => s is not null));
     }
 }

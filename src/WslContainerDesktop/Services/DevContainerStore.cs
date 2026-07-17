@@ -112,7 +112,14 @@ public sealed class DevContainerStore : IDevContainerStore
             foreach (var config in loaded.Where(c => c is not null && !string.IsNullOrWhiteSpace(c.Id)))
             {
                 config.ContainerEnv ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                config.RemoteEnv ??= new Dictionary<string, string>(StringComparer.Ordinal);
                 config.ForwardPorts ??= new List<int>();
+                config.PortsAttributes ??= new Dictionary<int, DevContainerPortAttributes>();
+                config.Mounts ??= new List<string>();
+                config.RunArgs ??= new List<string>();
+                config.Features ??= new List<DevContainerFeature>();
+                config.OverrideFeatureInstallOrder ??= new List<string>();
+                config.Lifecycle ??= new DevContainerLifecycle();
                 config.Warnings ??= new List<string>();
                 config.RunOptions ??= new RunContainerOptions();
                 _configs.RemoveAll(c => string.Equals(c.Id, config.Id, StringComparison.OrdinalIgnoreCase));

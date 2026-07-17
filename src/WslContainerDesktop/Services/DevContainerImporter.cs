@@ -23,7 +23,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-/// <summary>Imports the MVP subset of the Dev Container spec into app run options. Never throws.</summary>
+/// <summary>Imports Dev Container JSONC into single-container or Compose-backed app models. Never throws.</summary>
 public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) : IDevContainerImporter
 {
     private static readonly JsonDocumentOptions JsonOptions = new()
@@ -32,18 +32,10 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
         CommentHandling = JsonCommentHandling.Skip,
     };
 
-    private static readonly HashSet<string> SupportedKeys = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> EngineUnsupportedKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "name", "image", "build", "workspaceFolder", "workspaceMount", "forwardPorts",
-        "appPort", "remoteUser", "containerUser", "containerEnv", "features",
-        "postCreateCommand", "postStartCommand",
-    };
-
-    private static readonly HashSet<string> KnownIgnoredKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "customizations", "remoteEnv", "mounts", "runArgs", "initializeCommand",
-        "onCreateCommand", "updateContentCommand", "postAttachCommand", "portsAttributes",
-        "otherPortsAttributes", "dockerComposeFile", "service", "runServices", "overrideCommand",
+        "capAdd", "cap_add", "capDrop", "cap_drop", "devices", "sysctls", "privileged",
+        "readOnly", "read_only", "init", "pid", "ipc", "macAddress", "mac_address",
     };
 
     public async Task<DevContainerImportResult> ImportAsync(string workspacePath, CancellationToken ct = default)
@@ -72,37 +64,46 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
             var workspace = Path.GetFullPath(workspacePath);
             var repoName = new DirectoryInfo(workspace).Name;
             var id = CreateId(workspace);
-            var workspaceFolder = SubstituteRequired(GetString(root, "workspaceFolder") ?? $"/workspaces/{repoName}", workspace, $"/workspaces/{repoName}", id);
+            var rawEnv = ReadRawStringMap(root, "containerEnv");
+            var containerWorkspaceDefault = $"/workspaces/{repoName}";
+            var vars = new DevContainerVariables(workspace, containerWorkspaceDefault, id, rawEnv);
+            var workspaceFolder = vars.Substitute(GetString(root, "workspaceFolder") ?? containerWorkspaceDefault);
+            vars = vars with { ContainerWorkspaceFolder = workspaceFolder };
             var warnings = CollectWarnings(root);
 
             var config = new DevContainerConfig
             {
                 Id = id,
-                Name = SubstituteRequired(GetString(root, "name") ?? repoName, workspace, workspaceFolder, id),
+                Name = vars.Substitute(GetString(root, "name") ?? repoName),
                 WorkspacePath = workspace,
                 DevContainerJsonPath = configPath,
                 WorkspaceFolder = workspaceFolder,
-                WorkspaceMount = SubstituteRequired(GetString(root, "workspaceMount") ?? $"{workspace}:{workspaceFolder}", workspace, workspaceFolder, id),
-                RemoteUser = Substitute(GetString(root, "remoteUser"), workspace, workspaceFolder, id),
-                ContainerUser = Substitute(GetString(root, "containerUser"), workspace, workspaceFolder, id),
-                PostCreateCommand = ReadCommand(root, "postCreateCommand", workspace, workspaceFolder, id),
-                PostStartCommand = ReadCommand(root, "postStartCommand", workspace, workspaceFolder, id),
+                WorkspaceMount = vars.Substitute(GetString(root, "workspaceMount") ?? $"{workspace}:{workspaceFolder}"),
+                Mounts = ReadStringList(root, "mounts", vars),
+                RunArgs = ReadStringList(root, "runArgs", vars),
+                RemoteUser = vars.SubstituteNullable(GetString(root, "remoteUser")),
+                ContainerUser = vars.SubstituteNullable(GetString(root, "containerUser")),
+                UpdateRemoteUserUid = GetBool(root, "updateRemoteUserUID") ?? GetBool(root, "updateRemoteUserUid") ?? false,
+                UserEnvProbe = vars.SubstituteNullable(GetString(root, "userEnvProbe")),
+                ContainerEnv = ReadStringMap(root, "containerEnv", vars),
+                RemoteEnv = ReadStringMap(root, "remoteEnv", vars),
+                ForwardPorts = ReadPorts(root).Distinct().Order().ToList(),
+                PortsAttributes = ReadPortAttributes(root),
+                Features = ReadFeatures(root, vars),
+                OverrideFeatureInstallOrder = ReadStringList(root, "overrideFeatureInstallOrder", vars),
+                Lifecycle = ReadLifecycle(root, vars),
                 Warnings = warnings,
             };
 
-            config.Image = Substitute(GetString(root, "image"), workspace, workspaceFolder, id);
-            config.Build = ReadBuild(root, configPath, workspace, workspaceFolder, id);
-            if (string.IsNullOrWhiteSpace(config.Image) && config.Build is null)
+            config.Image = vars.SubstituteNullable(GetString(root, "image"));
+            config.Build = ReadBuild(root, configPath, vars);
+            config.Compose = ReadCompose(root, configPath, workspace, config, vars, warnings);
+            if (config.Compose is null && string.IsNullOrWhiteSpace(config.Image) && config.Build is null)
             {
-                warnings.Add("No image or build was found; import needs one of them for the MVP.");
-                return Fail("devcontainer.json must define image or build for the MVP.", warnings);
+                return Fail("devcontainer.json must define image, build, or dockerComposeFile.", warnings);
             }
 
-            config.ContainerEnv = ReadStringMap(root, "containerEnv", workspace, workspaceFolder, id);
-            config.ForwardPorts = ReadPorts(root).Distinct().Order().ToList();
-            config.Features = ReadFeatures(root, warnings);
             config.RunOptions = ToRunOptions(config);
-
             return new DevContainerImportResult { Config = config, Options = config.RunOptions, Warnings = warnings };
         }
         catch (Exception ex)
@@ -129,38 +130,28 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
         var warnings = new List<string>();
         foreach (var prop in root.EnumerateObject())
         {
-            if (KnownIgnoredKeys.Contains(prop.Name))
+            if (EngineUnsupportedKeys.Contains(prop.Name))
             {
-                warnings.Add($"{prop.Name} is parsed for preview but ignored by the Phase 1 MVP.");
-            }
-            else if (!SupportedKeys.Contains(prop.Name))
-            {
-                warnings.Add($"{prop.Name} is not supported by the Phase 1 MVP and was ignored.");
+                warnings.Add($"'{prop.Name}' is not supported by the WSL container engine and was ignored.");
             }
         }
-
-        if (root.TryGetProperty("dockerComposeFile", out _))
-        {
-            warnings.Add("dockerComposeFile-based dev containers are deferred to Phase 2; import as Compose for now.");
-        }
-
         return warnings;
     }
 
-    private static DevContainerBuild? ReadBuild(JsonElement root, string configPath, string workspace, string containerWorkspace, string id)
+    private static DevContainerBuild? ReadBuild(JsonElement root, string configPath, DevContainerVariables vars)
     {
         if (!root.TryGetProperty("build", out var build))
         {
             return null;
         }
 
-        var devcontainerDir = Path.GetDirectoryName(configPath) ?? workspace;
+        var devcontainerDir = Path.GetDirectoryName(configPath) ?? vars.LocalWorkspaceFolder;
         if (build.ValueKind == JsonValueKind.String)
         {
             return new DevContainerBuild
             {
-                Dockerfile = ResolvePath(devcontainerDir, SubstituteRequired(build.GetString() ?? "Dockerfile", workspace, containerWorkspace, id)),
-                Context = workspace,
+                Dockerfile = ResolvePath(devcontainerDir, vars.Substitute(build.GetString() ?? "Dockerfile")),
+                Context = vars.LocalWorkspaceFolder,
             };
         }
 
@@ -169,19 +160,132 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
             return null;
         }
 
-        var context = Substitute(GetString(build, "context") ?? "..", workspace, containerWorkspace, id) ?? "..";
-        var dockerfile = Substitute(GetString(build, "dockerfile"), workspace, containerWorkspace, id);
-        var result = new DevContainerBuild
+        var context = vars.Substitute(GetString(build, "context") ?? "..");
+        var dockerfile = vars.SubstituteNullable(GetString(build, "dockerfile"));
+        return new DevContainerBuild
         {
             Context = ResolvePath(devcontainerDir, context),
             Dockerfile = string.IsNullOrWhiteSpace(dockerfile) ? null : ResolvePath(devcontainerDir, dockerfile),
-            Target = Substitute(GetString(build, "target"), workspace, containerWorkspace, id),
-            Args = ReadStringMap(build, "args", workspace, containerWorkspace, id).Select(kv => $"{kv.Key}={kv.Value}").ToList(),
+            Target = vars.SubstituteNullable(GetString(build, "target")),
+            Args = ReadStringMap(build, "args", vars).Select(kv => $"{kv.Key}={kv.Value}").ToList(),
         };
-        return result;
     }
 
-    private static Dictionary<string, string> ReadStringMap(JsonElement root, string property, string workspace, string containerWorkspace, string id)
+    private static DevContainerCompose? ReadCompose(
+        JsonElement root,
+        string configPath,
+        string workspace,
+        DevContainerConfig config,
+        DevContainerVariables vars,
+        List<string> warnings)
+    {
+        if (!root.TryGetProperty("dockerComposeFile", out var composeElement))
+        {
+            return null;
+        }
+
+        var service = vars.SubstituteNullable(GetString(root, "service"));
+        if (string.IsNullOrWhiteSpace(service))
+        {
+            warnings.Add("dockerComposeFile requires a service value; Compose dev container import was skipped.");
+            return null;
+        }
+
+        var configDir = Path.GetDirectoryName(configPath) ?? workspace;
+        var files = ReadStringOrArray(composeElement, vars)
+            .Select(p => ResolvePath(configDir, p))
+            .Where(File.Exists)
+            .ToList();
+        if (files.Count == 0)
+        {
+            warnings.Add("No referenced dockerComposeFile could be found; Compose dev container import was skipped.");
+            return null;
+        }
+
+        var project = new ComposeProject
+        {
+            Name = "devcontainer_" + config.Id,
+        };
+        foreach (var file in files)
+        {
+            var parsed = ComposeImporter.ParseProject(File.ReadAllText(file), baseDirectory: Path.GetDirectoryName(file));
+            project = MergeProjects(project, parsed);
+            warnings.AddRange(parsed.Warnings);
+        }
+
+        project.Name = "devcontainer_" + config.Id;
+        var runServices = ReadStringList(root, "runServices", vars);
+        if (runServices.Count > 0)
+        {
+            project.Services.RemoveAll(s => !runServices.Contains(s.Name, StringComparer.Ordinal) && !string.Equals(s.Name, service, StringComparison.Ordinal));
+        }
+
+        var primary = project.Services.FirstOrDefault(s => string.Equals(s.Name, service, StringComparison.Ordinal));
+        if (primary is null)
+        {
+            warnings.Add($"Compose service '{service}' was not found; Compose dev container import was skipped.");
+            return null;
+        }
+
+        ApplyDevContainerToService(primary, config, vars);
+        project.ApplyProjectNamespacing();
+        return new DevContainerCompose
+        {
+            DockerComposeFiles = files,
+            Service = service,
+            RunServices = runServices,
+            Project = project,
+        };
+    }
+
+    private static ComposeProject MergeProjects(ComposeProject baseProject, ComposeProject next)
+    {
+        baseProject.Services.RemoveAll(s => next.Services.Any(ns => string.Equals(ns.Name, s.Name, StringComparison.Ordinal)));
+        baseProject.Services.AddRange(next.Services);
+        baseProject.Networks.AddRange(next.Networks.Where(n => !baseProject.Networks.Any(e => string.Equals(e.Name, n.Name, StringComparison.Ordinal))));
+        baseProject.Volumes.AddRange(next.Volumes.Where(v => !baseProject.Volumes.Any(e => string.Equals(e.Name, v.Name, StringComparison.Ordinal))));
+        baseProject.Secrets.AddRange(next.Secrets.Where(s => !baseProject.Secrets.Any(e => string.Equals(e.Name, s.Name, StringComparison.Ordinal))));
+        baseProject.Configs.AddRange(next.Configs.Where(c => !baseProject.Configs.Any(e => string.Equals(e.Name, c.Name, StringComparison.Ordinal))));
+        return baseProject;
+    }
+
+    private static void ApplyDevContainerToService(ComposeService service, DevContainerConfig config, DevContainerVariables vars)
+    {
+        service.Options.WorkingDir = config.WorkspaceFolder;
+        service.Options.User = string.IsNullOrWhiteSpace(config.ContainerUser) ? config.RemoteUser : config.ContainerUser;
+        if (!string.IsNullOrWhiteSpace(config.WorkspaceMount))
+        {
+            service.Options.Volumes.Add(config.WorkspaceMount);
+        }
+        service.Options.Volumes.AddRange(config.Mounts.Select(NormalizeMount));
+        foreach (var env in config.ContainerEnv)
+        {
+            service.Options.EnvironmentVariables.RemoveAll(e => e.StartsWith(env.Key + "=", StringComparison.Ordinal));
+            service.Options.EnvironmentVariables.Add($"{env.Key}={env.Value}");
+        }
+        foreach (var port in config.ForwardPorts)
+        {
+            var mapping = $"{port}:{port}";
+            if (!service.Options.PortMappings.Contains(mapping, StringComparer.Ordinal))
+            {
+                service.Options.PortMappings.Add(mapping);
+            }
+        }
+        ApplyRunArgs(service.Options, config.RunArgs, config.Warnings);
+        _ = vars;
+    }
+
+    private static Dictionary<string, string> ReadStringMap(JsonElement root, string property, DevContainerVariables vars)
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var kv in ReadRawStringMap(root, property))
+        {
+            values[kv.Key] = vars.Substitute(kv.Value);
+        }
+        return values;
+    }
+
+    private static Dictionary<string, string> ReadRawStringMap(JsonElement root, string property)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!root.TryGetProperty(property, out var obj) || obj.ValueKind != JsonValueKind.Object)
@@ -191,18 +295,14 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
 
         foreach (var prop in obj.EnumerateObject())
         {
-            var value = prop.Value.ValueKind == JsonValueKind.String
-                ? prop.Value.GetString()
-                : prop.Value.GetRawText();
-            values[prop.Name] = Substitute(value, workspace, containerWorkspace, id) ?? string.Empty;
+            values[prop.Name] = prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() ?? string.Empty : prop.Value.GetRawText();
         }
-
         return values;
     }
 
-    private static Dictionary<string, JsonElement> ReadFeatures(JsonElement root, List<string> warnings)
+    private static List<DevContainerFeature> ReadFeatures(JsonElement root, DevContainerVariables vars)
     {
-        var features = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+        var features = new List<DevContainerFeature>();
         if (!root.TryGetProperty("features", out var obj) || obj.ValueKind != JsonValueKind.Object)
         {
             return features;
@@ -210,16 +310,70 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
 
         foreach (var prop in obj.EnumerateObject())
         {
-            features[prop.Name] = prop.Value.Clone();
+            var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (prop.Value.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var option in prop.Value.EnumerateObject())
+                {
+                    options[option.Name] = vars.Substitute(option.Value.ValueKind == JsonValueKind.String ? option.Value.GetString() ?? string.Empty : option.Value.GetRawText());
+                }
+            }
+            features.Add(new DevContainerFeature { Id = vars.Substitute(prop.Name), Options = options, RawOptions = prop.Value.Clone() });
         }
-
-        if (features.Count > 0)
-        {
-            warnings.Add($"{features.Count} Feature(s) were parsed but not installed; Feature resolution is deferred.");
-        }
-
         return features;
     }
+
+    private static Dictionary<int, DevContainerPortAttributes> ReadPortAttributes(JsonElement root)
+    {
+        var result = new Dictionary<int, DevContainerPortAttributes>();
+        if (!root.TryGetProperty("portsAttributes", out var obj) || obj.ValueKind != JsonValueKind.Object)
+        {
+            return result;
+        }
+
+        foreach (var prop in obj.EnumerateObject())
+        {
+            var key = prop.Name.Split('/')[0];
+            if (!int.TryParse(key, out var port) || prop.Value.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+            result[port] = new DevContainerPortAttributes
+            {
+                Label = GetString(prop.Value, "label"),
+                Protocol = GetString(prop.Value, "protocol"),
+                OnAutoForward = GetString(prop.Value, "onAutoForward"),
+            };
+        }
+        return result;
+    }
+
+    private static DevContainerLifecycle ReadLifecycle(JsonElement root, DevContainerVariables vars) => new()
+    {
+        Initialize = ReadCommands(root, "initializeCommand", vars),
+        OnCreate = ReadCommands(root, "onCreateCommand", vars),
+        UpdateContent = ReadCommands(root, "updateContentCommand", vars),
+        PostCreate = ReadCommands(root, "postCreateCommand", vars),
+        PostStart = ReadCommands(root, "postStartCommand", vars),
+        PostAttach = ReadCommands(root, "postAttachCommand", vars),
+    };
+
+    private static List<string> ReadCommands(JsonElement root, string property, DevContainerVariables vars)
+    {
+        if (!root.TryGetProperty(property, out var value))
+        {
+            return new List<string>();
+        }
+        return ReadCommandValue(value, vars);
+    }
+
+    private static List<string> ReadCommandValue(JsonElement value, DevContainerVariables vars) => value.ValueKind switch
+    {
+        JsonValueKind.String => [vars.Substitute(value.GetString() ?? string.Empty)],
+        JsonValueKind.Array => value.EnumerateArray().Select(v => v.ValueKind == JsonValueKind.String ? vars.Substitute(v.GetString() ?? string.Empty) : null).Where(s => !string.IsNullOrWhiteSpace(s)).ToList()!,
+        JsonValueKind.Object => value.EnumerateObject().Select(p => p.Value.ValueKind == JsonValueKind.String ? vars.Substitute(p.Value.GetString() ?? string.Empty) : null).Where(s => !string.IsNullOrWhiteSpace(s)).ToList()!,
+        _ => new List<string>(),
+    };
 
     private static List<int> ReadPorts(JsonElement root)
     {
@@ -235,7 +389,6 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
         {
             return;
         }
-
         if (value.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in value.EnumerateArray())
@@ -266,21 +419,26 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
         }
     }
 
-    private static string? ReadCommand(JsonElement root, string property, string workspace, string containerWorkspace, string id)
+    private static List<string> ReadStringList(JsonElement root, string property, DevContainerVariables vars)
     {
         if (!root.TryGetProperty(property, out var value))
         {
-            return null;
+            return new List<string>();
         }
+        return ReadStringOrArray(value, vars);
+    }
 
-        var command = value.ValueKind switch
+    private static List<string> ReadStringOrArray(JsonElement value, DevContainerVariables vars)
+    {
+        if (value.ValueKind == JsonValueKind.String)
         {
-            JsonValueKind.String => value.GetString(),
-            JsonValueKind.Array => string.Join(" && ", value.EnumerateArray().Select(v => v.ValueKind == JsonValueKind.String ? v.GetString() : null).Where(s => !string.IsNullOrWhiteSpace(s))),
-            JsonValueKind.Object => string.Join(" && ", value.EnumerateObject().Select(p => p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null).Where(s => !string.IsNullOrWhiteSpace(s))),
-            _ => null,
-        };
-        return Substitute(command, workspace, containerWorkspace, id);
+            return [vars.Substitute(value.GetString() ?? string.Empty)];
+        }
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            return value.EnumerateArray().Select(v => v.ValueKind == JsonValueKind.String ? vars.Substitute(v.GetString() ?? string.Empty) : null).Where(s => !string.IsNullOrWhiteSpace(s)).ToList()!;
+        }
+        return new List<string>();
     }
 
     private static RunContainerOptions ToRunOptions(DevContainerConfig config)
@@ -295,61 +453,78 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
             Command = "sleep infinity",
         };
         options.Volumes.Add(config.WorkspaceMount);
+        options.Volumes.AddRange(config.Mounts.Select(NormalizeMount));
         foreach (var env in config.ContainerEnv)
         {
             options.EnvironmentVariables.Add($"{env.Key}={env.Value}");
         }
-
         foreach (var port in config.ForwardPorts)
         {
             options.PortMappings.Add($"{port}:{port}");
         }
-
+        ApplyRunArgs(options, config.RunArgs, config.Warnings);
         options.Labels["com.wslcontainerdesktop.kind"] = "devcontainer";
         options.Labels["com.wslcontainerdesktop.devcontainer.id"] = config.Id;
         options.Labels["com.wslcontainerdesktop.devcontainer.name"] = config.Name;
         return options;
     }
 
+    private static void ApplyRunArgs(RunContainerOptions options, IReadOnlyList<string> runArgs, List<string> warnings)
+    {
+        for (var i = 0; i < runArgs.Count; i++)
+        {
+            var arg = runArgs[i];
+            var value = i + 1 < runArgs.Count ? runArgs[i + 1] : null;
+            switch (arg)
+            {
+                case "--network" when !string.IsNullOrWhiteSpace(value): options.Network = value; i++; break;
+                case "--hostname" when !string.IsNullOrWhiteSpace(value): options.Hostname = value; i++; break;
+                case "--user" or "-u" when !string.IsNullOrWhiteSpace(value): options.User = value; i++; break;
+                case "--workdir" or "-w" when !string.IsNullOrWhiteSpace(value): options.WorkingDir = value; i++; break;
+                case "--env" or "-e" when !string.IsNullOrWhiteSpace(value): options.EnvironmentVariables.Add(value); i++; break;
+                case "--volume" or "-v" when !string.IsNullOrWhiteSpace(value): options.Volumes.Add(NormalizeMount(value)); i++; break;
+                case "--publish" or "-p" when !string.IsNullOrWhiteSpace(value): options.PortMappings.Add(value); i++; break;
+                case "--dns" when !string.IsNullOrWhiteSpace(value): options.Dns.Add(value); i++; break;
+                case "--dns-search" when !string.IsNullOrWhiteSpace(value): options.DnsSearch.Add(value); i++; break;
+                case "--dns-option" when !string.IsNullOrWhiteSpace(value): options.DnsOptions.Add(value); i++; break;
+                case "--tmpfs" when !string.IsNullOrWhiteSpace(value): options.Tmpfs.Add(value); i++; break;
+                case "--ulimit" when !string.IsNullOrWhiteSpace(value): options.Ulimits.Add(value); i++; break;
+                case "--shm-size" when !string.IsNullOrWhiteSpace(value): options.ShmSize = value; i++; break;
+                case "--cpus" when !string.IsNullOrWhiteSpace(value): options.CpuLimit = value; i++; break;
+                case "--memory" or "-m" when !string.IsNullOrWhiteSpace(value): options.MemoryLimit = value; i++; break;
+                case "--gpus" when string.Equals(value, "all", StringComparison.OrdinalIgnoreCase): options.AllGpus = true; i++; break;
+                case "--privileged" or "--cap-add" or "--cap-drop" or "--device" or "--sysctl" or "--read-only" or "--init" or "--pid" or "--ipc" or "--mac-address":
+                    warnings.Add($"runArgs '{arg}' is not supported by the WSL container engine and was ignored.");
+                    if (value is not null && !value.StartsWith("-", StringComparison.Ordinal)) { i++; }
+                    break;
+            }
+        }
+    }
+
+    private static string NormalizeMount(string mount)
+    {
+        const string sourceMarker = "source=";
+        const string targetMarker = "target=";
+        if (!mount.Contains(sourceMarker, StringComparison.OrdinalIgnoreCase) || !mount.Contains(targetMarker, StringComparison.OrdinalIgnoreCase))
+        {
+            return mount;
+        }
+        var parts = mount.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var source = parts.FirstOrDefault(p => p.StartsWith(sourceMarker, StringComparison.OrdinalIgnoreCase))?[sourceMarker.Length..];
+        var target = parts.FirstOrDefault(p => p.StartsWith(targetMarker, StringComparison.OrdinalIgnoreCase))?[targetMarker.Length..];
+        var readOnly = parts.Any(p => p.Equals("readonly", StringComparison.OrdinalIgnoreCase) || p.Equals("ro", StringComparison.OrdinalIgnoreCase));
+        return string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(target) ? mount : source + ":" + target + (readOnly ? ":ro" : string.Empty);
+    }
+
     private static string? GetString(JsonElement element, string property) =>
-        element.ValueKind == JsonValueKind.Object &&
-        element.TryGetProperty(property, out var value) &&
-        value.ValueKind == JsonValueKind.String
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
 
-    private static string? Substitute(string? value, string workspace, string containerWorkspace, string id)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return value;
-        }
-
-        var result = value.Replace("${localWorkspaceFolder}", workspace, StringComparison.Ordinal)
-            .Replace("${containerWorkspaceFolder}", containerWorkspace, StringComparison.Ordinal)
-            .Replace("${devcontainerId}", id, StringComparison.Ordinal);
-
-        const string marker = "${localEnv:";
-        var start = result.IndexOf(marker, StringComparison.Ordinal);
-        while (start >= 0)
-        {
-            var end = result.IndexOf('}', start + marker.Length);
-            if (end < 0)
-            {
-                break;
-            }
-
-            var variable = result[(start + marker.Length)..end];
-            var env = Environment.GetEnvironmentVariable(variable) ?? string.Empty;
-            result = result[..start] + env + result[(end + 1)..];
-            start = result.IndexOf(marker, start + env.Length, StringComparison.Ordinal);
-        }
-
-        return result;
-    }
-
-    private static string SubstituteRequired(string value, string workspace, string containerWorkspace, string id) =>
-        Substitute(value, workspace, containerWorkspace, id) ?? string.Empty;
+    private static bool? GetBool(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean()
+            : null;
 
     private static string ResolvePath(string baseDirectory, string path) =>
         Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(baseDirectory, path));
@@ -365,4 +540,45 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
         ErrorMessage = message,
         Warnings = warnings ?? Array.Empty<string>(),
     };
+
+    private sealed record DevContainerVariables(
+        string LocalWorkspaceFolder,
+        string ContainerWorkspaceFolder,
+        string DevContainerId,
+        IReadOnlyDictionary<string, string> ContainerEnv)
+    {
+        public string Substitute(string value)
+        {
+            var result = value
+                .Replace("${localWorkspaceFolder}", LocalWorkspaceFolder, StringComparison.Ordinal)
+                .Replace("${containerWorkspaceFolder}", ContainerWorkspaceFolder, StringComparison.Ordinal)
+                .Replace("${localWorkspaceFolderBasename}", Path.GetFileName(LocalWorkspaceFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)), StringComparison.Ordinal)
+                .Replace("${containerWorkspaceFolderBasename}", ContainerWorkspaceFolder.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty, StringComparison.Ordinal)
+                .Replace("${devcontainerId}", DevContainerId, StringComparison.Ordinal);
+            result = SubstituteScoped(result, "${localEnv:", name => Environment.GetEnvironmentVariable(name) ?? string.Empty);
+            result = SubstituteScoped(result, "${containerEnv:", name => ContainerEnv.TryGetValue(name, out var value) ? value : string.Empty);
+            return result;
+        }
+
+        public string? SubstituteNullable(string? value) => string.IsNullOrEmpty(value) ? value : Substitute(value);
+
+        private static string SubstituteScoped(string value, string marker, Func<string, string> resolve)
+        {
+            var result = value;
+            var start = result.IndexOf(marker, StringComparison.Ordinal);
+            while (start >= 0)
+            {
+                var end = result.IndexOf('}', start + marker.Length);
+                if (end < 0)
+                {
+                    break;
+                }
+                var name = result[(start + marker.Length)..end];
+                var replacement = resolve(name);
+                result = result[..start] + replacement + result[(end + 1)..];
+                start = result.IndexOf(marker, start + replacement.Length, StringComparison.Ordinal);
+            }
+            return result;
+        }
+    }
 }
