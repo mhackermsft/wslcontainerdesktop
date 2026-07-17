@@ -281,6 +281,7 @@ public sealed class AssistantToolset(
             project.Name = string.IsNullOrWhiteSpace(template.ComposeProjectName)
                 ? template.Id
                 : template.ComposeProjectName;
+            project.ApplyProjectNamespacing();
             var up = await composeSupervisor.UpAsync(project, ct).ConfigureAwait(false);
             return $"Deployed compose template '{template.Name}'. Started {up.Started}/{up.Services.Count} services.";
         }
@@ -304,6 +305,7 @@ public sealed class AssistantToolset(
         }
 
         project.Name = ResolveComposeProjectName(projectName, project.Name);
+        project.ApplyProjectNamespacing();
         composeStore.Save(project);
         var up = await composeSupervisor.UpAsync(project, ct).ConfigureAwait(false);
         return $"Deployed compose project '{project.Name}'. Started {up.Started}/{up.Services.Count} services: {string.Join(", ", project.Services.Select(s => s.Name))}.";
