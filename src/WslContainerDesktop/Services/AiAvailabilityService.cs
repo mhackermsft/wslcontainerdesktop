@@ -72,13 +72,12 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         try
         {
             await Task.Delay(DebounceDelay, ct).ConfigureAwait(false);
+            await RefreshAsync(ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            return;
+            // A newer schedule superseded this one (debounce delay, gate wait, or in-flight probe). Ignore.
         }
-
-        await RefreshAsync(ct).ConfigureAwait(false);
     }
 
     public async Task RefreshAsync(CancellationToken ct = default)
@@ -122,8 +121,14 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
             await provider.TestAsync(cts.Token).ConfigureAwait(false);
             return true;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // A newer schedule superseded this probe; propagate so we don't record a false negative.
+            throw;
+        }
         catch (Exception ex)
         {
+            // Genuine failure or the TestTimeout elapsed (linked token, not ct) — treat as unavailable.
             _logger.LogDebug(ex, "AI availability probe failed for provider {Provider}.", _settings.AiProvider);
             return false;
         }
