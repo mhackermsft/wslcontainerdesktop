@@ -20,7 +20,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class AzureOpenAiProvider(HttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider
+public sealed class AzureOpenAiProvider(HttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider, IAiChatProvider
 {
     private const string ApiVersion = "2024-10-21";
 
@@ -74,6 +74,42 @@ public sealed class AzureOpenAiProvider(HttpClient http, ISettingsService settin
 
         using var doc = JsonDocument.Parse(body);
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
+    }
+
+    public async Task<AiToolTurn> ChatAsync(
+        IReadOnlyList<AiChatMessage> history,
+        IReadOnlyList<AiToolDefinition> tools,
+        CancellationToken ct)
+    {
+        if (!credentials.TryReadSecret(AiProviderKind.AzureOpenAi, out var key) || string.IsNullOrWhiteSpace(key))
+        {
+            throw new InvalidOperationException("Enter and save an Azure OpenAI key in Settings first.");
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.AiAzureOpenAiEndpoint) || string.IsNullOrWhiteSpace(settings.AiAzureOpenAiDeployment))
+        {
+            throw new InvalidOperationException("Enter an Azure OpenAI endpoint and deployment in Settings first.");
+        }
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, CompletionUri());
+        message.Headers.Add("api-key", key);
+        message.Content = JsonContent.Create(new
+        {
+            temperature = 0.2,
+            messages = history.Select(OpenAiProvider.ToOpenAiMessage).ToList(),
+            tools = tools.Select(OpenAiProvider.ToOpenAiTool).ToList(),
+            tool_choice = "auto",
+        });
+
+        using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Azure OpenAI chat request failed ({(int)response.StatusCode}): {Trim(body)}");
+        }
+
+        using var doc = JsonDocument.Parse(body);
+        return OpenAiProvider.ParseToolTurn(doc.RootElement.GetProperty("choices")[0].GetProperty("message"));
     }
 
     private Uri CompletionUri()

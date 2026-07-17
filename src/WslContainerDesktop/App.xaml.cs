@@ -391,6 +391,10 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IAiProvider, OllamaProvider>();
         services.AddSingleton<IAiProvider, AzureOpenAiProvider>();
         services.AddSingleton<IAiProvider, OpenAiProvider>();
+        services.AddSingleton<IAiChatProvider, GitHubCopilotProvider>();
+        services.AddSingleton<IAiChatProvider, OllamaProvider>();
+        services.AddSingleton<IAiChatProvider, AzureOpenAiProvider>();
+        services.AddSingleton<IAiChatProvider, OpenAiProvider>();
         services.AddSingleton<IAiDiagnosticsService, AiDiagnosticsService>();
         services.AddSingleton<IRegistryCatalogService, RegistryCatalogService>();
         services.AddSingleton<IRunProfileStore, RunProfileStore>();

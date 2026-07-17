@@ -21,7 +21,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class OpenAiProvider(HttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider
+public sealed class OpenAiProvider(HttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider, IAiChatProvider
 {
     public AiProviderKind Kind => AiProviderKind.OpenAi;
 
@@ -76,6 +76,44 @@ public sealed class OpenAiProvider(HttpClient http, ISettingsService settings, I
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
     }
 
+    public async Task<AiToolTurn> ChatAsync(
+        IReadOnlyList<AiChatMessage> history,
+        IReadOnlyList<AiToolDefinition> tools,
+        CancellationToken ct)
+    {
+        if (!credentials.TryReadSecret(AiProviderKind.OpenAi, out var key) || string.IsNullOrWhiteSpace(key))
+        {
+            throw new InvalidOperationException("Enter and save an OpenAI API key in Settings first.");
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.AiOpenAiModel))
+        {
+            throw new InvalidOperationException("Choose an OpenAI model in Settings first.");
+        }
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, ChatCompletionsUri());
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        message.Content = JsonContent.Create(new
+        {
+            model = settings.AiOpenAiModel.Trim(),
+            temperature = 0.2,
+            messages = history.Select(ToOpenAiMessage).ToList(),
+            tools = tools.Select(ToOpenAiTool).ToList(),
+            tool_choice = "auto",
+        });
+
+        using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"OpenAI chat request failed ({(int)response.StatusCode}): {Trim(body)}");
+        }
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
+        return ParseToolTurn(root);
+    }
+
     private Uri ChatCompletionsUri()
     {
         var endpoint = string.IsNullOrWhiteSpace(settings.AiOpenAiEndpoint)
@@ -91,4 +129,83 @@ public sealed class OpenAiProvider(HttpClient http, ISettingsService settings, I
     }
 
     private static string Trim(string text) => text.Length <= 500 ? text : text[..500] + "…";
+
+    internal static object ToOpenAiMessage(AiChatMessage message)
+    {
+        if (message.Role == "tool")
+        {
+            return new
+            {
+                role = "tool",
+                tool_call_id = message.ToolCallId,
+                name = message.ToolName,
+                content = message.Content ?? string.Empty,
+            };
+        }
+
+        if (message.ToolCalls.Count > 0)
+        {
+            return new
+            {
+                role = "assistant",
+                content = message.Content,
+                tool_calls = message.ToolCalls.Select(c => new
+                {
+                    id = c.Id,
+                    type = "function",
+                    function = new { name = c.Name, arguments = c.ArgumentsJson },
+                }).ToList(),
+            };
+        }
+
+        return new { role = message.Role, content = message.Content ?? string.Empty };
+    }
+
+    internal static object ToOpenAiTool(AiToolDefinition tool)
+    {
+        using var schema = JsonDocument.Parse(tool.JsonSchemaParameters);
+        return new
+        {
+            type = "function",
+            function = new
+            {
+                name = tool.Name,
+                description = tool.Description,
+                parameters = schema.RootElement.Clone(),
+            },
+        };
+    }
+
+    internal static AiToolTurn ParseToolTurn(JsonElement message)
+    {
+        var text = message.TryGetProperty("content", out var content) && content.ValueKind != JsonValueKind.Null
+            ? content.GetString()
+            : null;
+        var calls = new List<AiToolCall>();
+        if (message.TryGetProperty("tool_calls", out var toolCalls) && toolCalls.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var call in toolCalls.EnumerateArray())
+            {
+                if (!call.TryGetProperty("function", out var function))
+                {
+                    continue;
+                }
+
+                var name = function.GetProperty("name").GetString();
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                calls.Add(new AiToolCall
+                {
+                    Id = call.TryGetProperty("id", out var id) ? id.GetString() ?? Guid.NewGuid().ToString("N") : Guid.NewGuid().ToString("N"),
+                    Name = name,
+                    ArgumentsJson = function.TryGetProperty("arguments", out var args) ? args.GetString() ?? "{}" : "{}",
+                });
+            }
+        }
+
+        return new AiToolTurn { AssistantText = text, ToolCalls = calls };
+    }
 }

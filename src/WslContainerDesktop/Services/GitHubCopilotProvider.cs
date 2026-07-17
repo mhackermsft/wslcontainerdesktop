@@ -15,7 +15,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text;
+using System.Text.Json;
 using GitHub.Copilot;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Windows.Storage;
 using WslContainerDesktop.Models;
@@ -24,7 +26,7 @@ namespace WslContainerDesktop.Services;
 
 public sealed class GitHubCopilotProvider(
     ISettingsService settings,
-    ILogger<GitHubCopilotProvider> logger) : IAiProvider
+    ILogger<GitHubCopilotProvider> logger) : IAiProvider, IAiChatProvider
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(3);
     private const string DefaultModel = "auto";
@@ -118,6 +120,111 @@ public sealed class GitHubCopilotProvider(
                 "verify Copilot entitlement, and ensure the installed Copilot CLI is available. Details: " + ex.Message,
                 ex);
         }
+    }
+
+    public async Task<AiToolTurn> ChatAsync(
+        IReadOnlyList<AiChatMessage> history,
+        IReadOnlyList<AiToolDefinition> tools,
+        CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(RequestTimeout);
+
+        try
+        {
+            await using var client = CreateClient();
+            await client.StartAsync(timeout.Token).ConfigureAwait(false);
+            var model = await ResolveModelAsync(client, timeout.Token).ConfigureAwait(false);
+
+            await using var session = await client.CreateSessionAsync(new SessionConfig
+            {
+                Model = model,
+                SystemMessage = new SystemMessageConfig
+                {
+                    Mode = SystemMessageMode.Replace,
+                    Content = history.FirstOrDefault(m => m.Role == "system")?.Content ?? string.Empty,
+                },
+                Tools = BuildCopilotToolDeclarations(tools),
+                AvailableTools = tools.Select(t => t.Name).ToList(),
+                InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
+                EnableSkills = false,
+                EnableConfigDiscovery = false,
+                SkipCustomInstructions = true,
+                EnableHostGitOperations = false,
+                EnableSessionStore = false,
+                WorkingDirectory = SafeWorkingDirectory(),
+            }, timeout.Token).ConfigureAwait(false);
+
+            var prompt = BuildCopilotChatPrompt(history.Where(m => m.Role != "system"));
+            var message = await session.SendAndWaitAsync(
+                new MessageOptions { Prompt = prompt },
+                RequestTimeout,
+                timeout.Token).ConfigureAwait(false);
+
+            var data = message?.Data ?? throw new InvalidOperationException("GitHub Copilot returned no assistant message.");
+            var toolCalls = (data.ToolRequests ?? Array.Empty<AssistantMessageToolRequest>())
+                .Where(r => !string.IsNullOrWhiteSpace(r.Name))
+                .Select(r => new AiToolCall
+                {
+                    Id = string.IsNullOrWhiteSpace(r.ToolCallId) ? Guid.NewGuid().ToString("N") : r.ToolCallId,
+                    Name = r.Name!,
+                    ArgumentsJson = r.Arguments?.GetRawText() ?? "{}",
+                })
+                .ToList();
+
+            return new AiToolTurn
+            {
+                AssistantText = data.Content,
+                ToolCalls = toolCalls,
+            };
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("GitHub Copilot did not finish before the assistant timeout.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "GitHub Copilot assistant chat failed.");
+            throw new InvalidOperationException(
+                "GitHub Copilot assistant chat failed. Verify Copilot CLI sign-in, entitlement, and model/tool support. Details: " + ex.Message,
+                ex);
+        }
+    }
+
+    private static ICollection<AIFunctionDeclaration> BuildCopilotToolDeclarations(IReadOnlyList<AiToolDefinition> tools)
+    {
+        var declarations = new List<AIFunctionDeclaration>();
+        foreach (var tool in tools)
+        {
+            using var schema = JsonDocument.Parse(tool.JsonSchemaParameters);
+            declarations.Add(AIFunctionFactory.CreateDeclaration(tool.Name, tool.Description, schema.RootElement.Clone(), returnJsonSchema: null));
+        }
+
+        return declarations;
+    }
+
+    private static string BuildCopilotChatPrompt(IEnumerable<AiChatMessage> history)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("Continue this tool-calling conversation. Use the declared tools when an action or live data is needed.");
+        foreach (var message in history)
+        {
+            if (message.ToolCalls.Count > 0)
+            {
+                builder.AppendLine($"assistant requested tools: {string.Join("; ", message.ToolCalls.Select(c => $"{c.Name}({c.ArgumentsJson}) call_id={c.Id}"))}");
+                continue;
+            }
+
+            if (message.Role == "tool")
+            {
+                builder.AppendLine($"tool result for {message.ToolName} call_id={message.ToolCallId}: {message.Content}");
+                continue;
+            }
+
+            builder.AppendLine($"{message.Role}: {message.Content}");
+        }
+
+        return builder.ToString();
     }
 
     private CopilotClient CreateClient()

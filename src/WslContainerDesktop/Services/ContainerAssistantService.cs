@@ -21,96 +21,73 @@ namespace WslContainerDesktop.Services;
 
 public sealed class ContainerAssistantService(
     ISettingsService settings,
+    IEnumerable<IAiChatProvider> providers,
     AssistantToolset tools,
     IAssistantActionGate gate,
     IActivityLog activity,
     ILogger<ContainerAssistantService> logger) : IContainerAssistant
 {
-    private readonly Dictionary<string, PendingAction> _pending = new(StringComparer.Ordinal);
-    private readonly object _pendingGate = new();
+    private const int MaxToolIterations = 8;
+    private readonly List<AiChatMessage> _history = new() { new AiChatMessage { Role = "system", Content = SystemPrompt } };
+    private readonly Dictionary<string, PendingApproval> _pending = new(StringComparer.Ordinal);
+    private readonly object _stateGate = new();
 
     public async Task<AssistantTurnResult> SendAsync(string userMessage, CancellationToken ct = default)
     {
-        var result = new AssistantTurnResult();
         if (!settings.AiFeaturesEnabled || settings.AiProvider == AiProviderKind.None)
         {
-            result.Messages.Add(AssistantMessage(AssistantMessageRole.Error,
-                "Enable AI features and choose a provider in Settings before using the assistant."));
-            return result;
+            return OneMessage(AssistantMessageRole.Error,
+                "Enable AI features and choose a tool-capable provider in Settings before using the assistant.");
         }
 
         if (string.IsNullOrWhiteSpace(userMessage))
         {
-            result.Messages.Add(AssistantMessage(AssistantMessageRole.Assistant, "What would you like to do with your containers?"));
-            return result;
+            return OneMessage(AssistantMessageRole.Assistant, "What would you like to do with your containers?");
         }
 
         try
         {
-            var action = await ResolveIntentAsync(userMessage, ct).ConfigureAwait(false);
-            if (action is null)
+            lock (_stateGate)
             {
-                result.Messages.Add(AssistantMessage(AssistantMessageRole.Assistant,
-                    "I can help list containers/images/volumes/networks, show logs/inspect details, pull images, deploy templates such as WordPress, run a hello-world/nginx container, or stop/remove containers. I cannot access the host OS or run arbitrary shell commands."));
-                return result;
+                _history.Add(new AiChatMessage { Role = "user", Content = userMessage.Trim() });
             }
 
-            if (gate.RequiresApproval(action.Category))
-            {
-                var approval = new AssistantApprovalRequest
-                {
-                    ToolName = action.ToolName,
-                    Category = action.Category,
-                    Risk = gate.Classify(action.Category),
-                    Summary = action.Summary,
-                    Details = action.Details,
-                };
-                lock (_pendingGate)
-                {
-                    _pending[approval.Id] = action;
-                }
-
-                Audit(ActivityKind.AssistantToolInvoked, $"Approval required: {action.ToolName}", action.Details);
-                result.Approval = approval;
-                result.Messages.Add(AssistantMessage(AssistantMessageRole.Assistant,
-                    "This action needs approval. Review the resolved action below before it runs."));
-                return result;
-            }
-
-            var output = await ExecuteAsync(action, ct).ConfigureAwait(false);
-            result.Messages.Add(AssistantMessage(AssistantMessageRole.Assistant, output));
-            return result;
+            return await ContinueLoopAsync(ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            result.Messages.Add(AssistantMessage(AssistantMessageRole.Error, "Assistant request canceled."));
-            return result;
+            return OneMessage(AssistantMessageRole.Error, "Assistant request canceled.");
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Container assistant failed.");
-            result.Messages.Add(AssistantMessage(AssistantMessageRole.Error, ex.Message));
-            return result;
+            return OneMessage(AssistantMessageRole.Error, ex.Message);
         }
     }
 
     public async Task<AssistantTurnResult> ApproveAsync(AssistantApprovalRequest approval, CancellationToken ct = default)
     {
-        PendingAction? action;
-        lock (_pendingGate)
+        PendingApproval? pending;
+        lock (_stateGate)
         {
-            _pending.Remove(approval.Id, out action);
+            _pending.Remove(approval.Id, out pending);
         }
 
-        if (action is null)
+        if (pending is null)
         {
             return OneMessage(AssistantMessageRole.Error, "That approval request is no longer available.");
         }
 
-        Audit(ActivityKind.AssistantApprovalApproved, $"Approved: {action.ToolName}", action.Details);
+        Audit(ActivityKind.AssistantApprovalApproved, $"Approved: {pending.Tool.Call.Name}", pending.Tool.Details);
         try
         {
-            return OneMessage(AssistantMessageRole.Assistant, await ExecuteAsync(action, ct).ConfigureAwait(false));
+            var output = await ExecuteToolAsync(pending.Tool, ct).ConfigureAwait(false);
+            lock (_stateGate)
+            {
+                _history.Add(ToolResult(pending.Tool.Call, output));
+            }
+
+            return await ContinueLoopAsync(ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -119,128 +96,110 @@ public sealed class ContainerAssistantService(
         }
     }
 
-    public Task<AssistantTurnResult> RejectAsync(AssistantApprovalRequest approval, CancellationToken ct = default)
+    public async Task<AssistantTurnResult> RejectAsync(AssistantApprovalRequest approval, CancellationToken ct = default)
     {
-        PendingAction? action;
-        lock (_pendingGate)
+        PendingApproval? pending;
+        lock (_stateGate)
         {
-            _pending.Remove(approval.Id, out action);
+            _pending.Remove(approval.Id, out pending);
         }
 
         Audit(ActivityKind.AssistantApprovalRejected, $"Rejected: {approval.ToolName}", approval.Details);
-        return Task.FromResult(OneMessage(AssistantMessageRole.Assistant,
-            action is null ? "Rejected. The action was not run." : $"Rejected '{action.ToolName}'. The action was not run."));
+        if (pending is not null)
+        {
+            lock (_stateGate)
+            {
+                _history.Add(ToolResult(pending.Tool.Call, "The user rejected this tool call. Do not perform the action; explain that it was not run."));
+            }
+
+            return await ContinueLoopAsync(ct).ConfigureAwait(false);
+        }
+
+        return OneMessage(AssistantMessageRole.Assistant, "Rejected. The action was not run.");
     }
 
-    private async Task<PendingAction?> ResolveIntentAsync(string message, CancellationToken ct)
+    private async Task<AssistantTurnResult> ContinueLoopAsync(CancellationToken ct)
     {
-        var text = message.Trim();
-        var lower = text.ToLowerInvariant();
-        if (ContainsAny(lower, "what's running", "whats running", "list containers", "show containers", "what is running"))
+        var provider = providers.FirstOrDefault(p => p.Kind == settings.AiProvider)
+            ?? throw new InvalidOperationException($"AI provider '{settings.AiProvider}' is not registered for assistant chat.");
+        var definitions = await tools.GetDefinitionsAsync(ct).ConfigureAwait(false);
+        var result = new AssistantTurnResult();
+
+        for (var i = 0; i < MaxToolIterations; i++)
         {
-            return ReadOnly("list_containers", "List all containers", "", tools.ListContainersAsync);
+            IReadOnlyList<AiChatMessage> snapshot;
+            lock (_stateGate)
+            {
+                snapshot = _history.ToList();
+            }
+
+            var turn = await provider.ChatAsync(snapshot, definitions, ct).ConfigureAwait(false);
+            if (turn.ToolCalls.Count == 0)
+            {
+                var text = string.IsNullOrWhiteSpace(turn.AssistantText)
+                    ? "Done."
+                    : turn.AssistantText.Trim();
+                lock (_stateGate)
+                {
+                    _history.Add(new AiChatMessage { Role = "assistant", Content = text });
+                }
+
+                result.Messages.Add(AssistantMessage(AssistantMessageRole.Assistant, text));
+                return result;
+            }
+
+            lock (_stateGate)
+            {
+                _history.Add(new AiChatMessage
+                {
+                    Role = "assistant",
+                    Content = turn.AssistantText,
+                    ToolCalls = turn.ToolCalls,
+                });
+            }
+
+            foreach (var call in turn.ToolCalls)
+            {
+                var resolved = await tools.ResolveAsync(call, ct).ConfigureAwait(false);
+                if (gate.RequiresApproval(resolved.Category))
+                {
+                    var approval = new AssistantApprovalRequest
+                    {
+                        ToolName = call.Name,
+                        Category = resolved.Category,
+                        Risk = gate.Classify(resolved.Category),
+                        Summary = resolved.Summary,
+                        Details = resolved.Details,
+                    };
+                    lock (_stateGate)
+                    {
+                        _pending[approval.Id] = new PendingApproval(resolved);
+                    }
+
+                    Audit(ActivityKind.AssistantToolInvoked, $"Approval required: {call.Name}", resolved.Details);
+                    result.Approval = approval;
+                    result.Messages.Add(AssistantMessage(AssistantMessageRole.Assistant,
+                        "This tool call needs approval. Review the resolved action below before it runs."));
+                    return result;
+                }
+
+                var output = await ExecuteToolAsync(resolved, ct).ConfigureAwait(false);
+                lock (_stateGate)
+                {
+                    _history.Add(ToolResult(call, output));
+                }
+            }
         }
 
-        if (ContainsAny(lower, "list images", "show images"))
-        {
-            return ReadOnly("list_images", "List images", "", tools.ListImagesAsync);
-        }
-
-        if (ContainsAny(lower, "list volumes", "show volumes"))
-        {
-            return ReadOnly("list_volumes", "List volumes", "", tools.ListVolumesAsync);
-        }
-
-        if (ContainsAny(lower, "list networks", "show networks"))
-        {
-            return ReadOnly("list_networks", "List networks", "", tools.ListNetworksAsync);
-        }
-
-        if (ContainsAny(lower, "engine status", "engine health"))
-        {
-            return ReadOnly("engine_status", "Check engine status", "", tools.EngineStatusAsync);
-        }
-
-        if (ContainsAny(lower, "compose projects", "list compose"))
-        {
-            return new PendingAction("list_compose_projects", AssistantPermissionCategory.ReadOnly, "List compose projects", "",
-                _ => Task.FromResult(tools.ListComposeProjects()));
-        }
-
-        if (lower.StartsWith("logs ", StringComparison.Ordinal) || lower.Contains("show logs for ", StringComparison.Ordinal))
-        {
-            var id = ExtractAfter(text, "show logs for ") ?? ExtractAfter(text, "logs ") ?? string.Empty;
-            return ReadOnly("get_container_logs", $"Show logs for {id}", $"Container: {id}\nTail: 200",
-                token => tools.GetContainerLogsAsync(id, 200, token));
-        }
-
-        if (lower.StartsWith("inspect ", StringComparison.Ordinal) || lower.Contains("inspect container ", StringComparison.Ordinal))
-        {
-            var id = ExtractAfter(text, "inspect container ") ?? ExtractAfter(text, "inspect ") ?? string.Empty;
-            return ReadOnly("inspect_container", $"Inspect {id}", $"Container: {id}", token => tools.InspectContainerAsync(id, token));
-        }
-
-        if (lower.Contains("wordpress", StringComparison.Ordinal))
-        {
-            return StateChanging("deploy_template", AssistantPermissionCategory.ComposeTemplate,
-                "Deploy the WordPress + MySQL template", "Template: wordpress", token => tools.DeployTemplateAsync("wordpress", token));
-        }
-
-        if (ContainsAny(lower, "deploy hello world", "run hello world", "hello-world"))
-        {
-            var options = lower.Contains("nginx", StringComparison.Ordinal)
-                ? AssistantToolset.CreateNginxHelloWorldOptions()
-                : AssistantToolset.CreateHelloWorldOptions();
-            return StateChanging("run_container", AssistantPermissionCategory.CreateRun,
-                $"Run container {options.Name}", DescribeRun(options), token => tools.RunContainerAsync(options, token));
-        }
-
-        if (ContainsAny(lower, "deploy nginx", "run nginx"))
-        {
-            var options = AssistantToolset.CreateNginxHelloWorldOptions();
-            return StateChanging("run_container", AssistantPermissionCategory.CreateRun,
-                "Run nginx on localhost:8080", DescribeRun(options), token => tools.RunContainerAsync(options, token));
-        }
-
-        if (lower.StartsWith("pull ", StringComparison.Ordinal))
-        {
-            var image = ExtractAfter(text, "pull ") ?? string.Empty;
-            return StateChanging("pull_image", AssistantPermissionCategory.CreateRun,
-                $"Pull image {image}", $"Image: {image}", token => tools.PullImageAsync(image, token));
-        }
-
-        if (ContainsAny(lower, "stop all running containers", "stop all containers"))
-        {
-            var preview = await tools.StopAllContainersAsyncPreview(ct).ConfigureAwait(false);
-            return StateChanging("stop_all_containers", AssistantPermissionCategory.Lifecycle,
-                "Stop all running containers", "Targets:\n" + string.Join(Environment.NewLine, preview),
-                async token => (await tools.StopAllContainersAsync(token).ConfigureAwait(false)).Result);
-        }
-
-        if (ContainsAny(lower, "remove all running containers", "delete all running containers"))
-        {
-            var preview = await tools.RemoveAllContainersAsyncPreview(onlyRunning: true, ct).ConfigureAwait(false);
-            return StateChanging("remove_all_containers", AssistantPermissionCategory.Destructive,
-                "Remove all running containers", "Targets:\n" + string.Join(Environment.NewLine, preview),
-                async token => (await tools.RemoveAllContainersAsync(onlyRunning: true, token).ConfigureAwait(false)).Result);
-        }
-
-        if (ContainsAny(lower, "remove all containers", "delete all containers"))
-        {
-            var preview = await tools.RemoveAllContainersAsyncPreview(onlyRunning: false, ct).ConfigureAwait(false);
-            return StateChanging("remove_all_containers", AssistantPermissionCategory.Destructive,
-                "Remove all containers", "Targets:\n" + string.Join(Environment.NewLine, preview),
-                async token => (await tools.RemoveAllContainersAsync(onlyRunning: false, token).ConfigureAwait(false)).Result);
-        }
-
-        return null;
+        result.Messages.Add(AssistantMessage(AssistantMessageRole.Error, "Stopped because the assistant reached the tool-iteration limit."));
+        return result;
     }
 
-    private async Task<string> ExecuteAsync(PendingAction action, CancellationToken ct)
+    private async Task<string> ExecuteToolAsync(AssistantResolvedToolCall tool, CancellationToken ct)
     {
-        Audit(ActivityKind.AssistantToolInvoked, $"Invoked: {action.ToolName}", action.Details);
-        var output = await action.Execute(ct).ConfigureAwait(false);
-        return $"Tool `{action.ToolName}` completed.\n\n{output}";
+        Audit(ActivityKind.AssistantToolInvoked, $"Invoked: {tool.Call.Name}", tool.Details);
+        var output = await tool.ExecuteAsync(ct).ConfigureAwait(false);
+        return string.IsNullOrWhiteSpace(output) ? "Succeeded." : output;
     }
 
     private void Audit(ActivityKind kind, string title, string detail) =>
@@ -252,28 +211,13 @@ public sealed class ContainerAssistantService(
             Detail = detail,
         });
 
-    private static PendingAction ReadOnly(string tool, string summary, string details, Func<CancellationToken, Task<string>> execute) =>
-        new(tool, AssistantPermissionCategory.ReadOnly, summary, details, execute);
-
-    private static PendingAction StateChanging(
-        string tool,
-        AssistantPermissionCategory category,
-        string summary,
-        string details,
-        Func<CancellationToken, Task<string>> execute) =>
-        new(tool, category, summary, details, execute);
-
-    private static bool ContainsAny(string value, params string[] needles) =>
-        needles.Any(value.Contains);
-
-    private static string? ExtractAfter(string text, string marker)
+    private static AiChatMessage ToolResult(AiToolCall call, string output) => new()
     {
-        var index = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        return index < 0 ? null : text[(index + marker.Length)..].Trim().Trim('.', '"', '\'');
-    }
-
-    private static string DescribeRun(RunContainerOptions options) =>
-        $"Image: {options.Image}\nName: {options.Name}\nPorts: {string.Join(", ", options.PortMappings)}\nVolumes: {string.Join(", ", options.Volumes)}";
+        Role = "tool",
+        ToolCallId = call.Id,
+        ToolName = call.Name,
+        Content = output,
+    };
 
     private static AssistantChatMessage AssistantMessage(AssistantMessageRole role, string text) => new()
     {
@@ -286,10 +230,16 @@ public sealed class ContainerAssistantService(
         Messages = { AssistantMessage(role, text) },
     };
 
-    private sealed record PendingAction(
-        string ToolName,
-        AssistantPermissionCategory Category,
-        string Summary,
-        string Details,
-        Func<CancellationToken, Task<string>> Execute);
+    private sealed record PendingApproval(AssistantResolvedToolCall Tool);
+
+    private const string SystemPrompt = """
+        You are the Container AI Assistant for WSL Container Desktop.
+        Scope: manage WSL containers, images, volumes, networks, compose projects/templates, and k3s only when k3s tools are provided.
+        Use only the declared tools for live data or actions. Refuse unrelated requests.
+        Never claim you can access the host OS, host filesystem, credentials, secrets, arbitrary network tools, or arbitrary shell commands.
+        Do not ask the user to run commands when an allowlisted tool can do the work.
+        For WordPress/blog/database requests, prefer the WordPress compose template when available.
+        For bulk operations, call the bulk tool; the app will resolve the concrete target list and approval.
+        Explain results concisely after tool calls complete.
+        """;
 }

@@ -20,7 +20,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class OllamaProvider(HttpClient http, ISettingsService settings) : IAiProvider
+public sealed class OllamaProvider(HttpClient http, ISettingsService settings) : IAiProvider, IAiChatProvider
 {
     public AiProviderKind Kind => AiProviderKind.Ollama;
 
@@ -76,4 +76,10 @@ public sealed class OllamaProvider(HttpClient http, ISettingsService settings) :
     }
 
     private static string Trim(string text) => text.Length <= 500 ? text : text[..500] + "…";
+
+    public Task<AiToolTurn> ChatAsync(
+        IReadOnlyList<AiChatMessage> history,
+        IReadOnlyList<AiToolDefinition> tools,
+        CancellationToken ct) =>
+        throw new NotSupportedException("The Container AI Assistant requires a tool-capable provider. Choose GitHub Copilot, Azure OpenAI, or OpenAI-compatible in Settings.");
 }
