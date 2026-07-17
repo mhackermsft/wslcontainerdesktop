@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Collections.Specialized;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
@@ -31,6 +32,7 @@ public sealed partial class AssistantPanel : UserControl
     {
         ViewModel = App.Current.Services.GetRequiredService<AssistantViewModel>();
         InitializeComponent();
+        ViewModel.Messages.CollectionChanged += Messages_CollectionChanged;
     }
 
     public event EventHandler? CloseRequested;
@@ -40,6 +42,21 @@ public sealed partial class AssistantPanel : UserControl
     public Visibility BoolToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
 
     private void Close_Click(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    private void Messages_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action != NotifyCollectionChangedAction.Add)
+        {
+            return;
+        }
+
+        // Scroll to the bottom only when a new message is appended, after layout settles.
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            TranscriptScroll.UpdateLayout();
+            TranscriptScroll.ChangeView(null, TranscriptScroll.ScrollableHeight, null, true);
+        });
+    }
 
     private void DraftBox_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {

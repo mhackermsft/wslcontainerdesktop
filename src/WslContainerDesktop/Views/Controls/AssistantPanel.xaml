@@ -40,7 +40,11 @@
             </Button>
         </Grid>
 
-        <ScrollViewer Grid.Row="1" Padding="16,0,16,12" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer
+            x:Name="TranscriptScroll"
+            Grid.Row="1"
+            Padding="16,0,16,12"
+            VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="12">
                 <ItemsControl ItemsSource="{x:Bind ViewModel.Messages, Mode=OneWay}">
                     <ItemsControl.ItemTemplate>
