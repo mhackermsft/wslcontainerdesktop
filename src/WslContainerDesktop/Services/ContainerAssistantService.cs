@@ -209,6 +209,7 @@ public sealed class ContainerAssistantService(
         Do not ask the user to run commands when an allowlisted tool can do the work.
         For WordPress/blog/database requests, prefer the WordPress compose template when available.
         For bulk operations, call the bulk tool; the app will resolve the concrete target list and approval.
+        When the user targets a subset of containers by name (e.g. "starting with wordpress_", "the nginx ones"), set the bulk tool's namePrefix or nameContains filter accordingly. Only omit both filters when the user clearly means every container.
         Explain results concisely after tool calls complete.
         """;
 }

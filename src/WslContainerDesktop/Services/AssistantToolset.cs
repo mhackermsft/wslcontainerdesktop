@@ -47,8 +47,8 @@ public sealed class AssistantToolset(
             Tool("stop_container", "Stop a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
             Tool("restart_container", "Restart a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
             Tool("remove_container", "Remove a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
-            Tool("stop_all_containers", "Stop every currently running container. The app resolves the target list.", "{}"),
-            Tool("remove_all_containers", "Remove containers after the app resolves the target list.", ObjectSchema(("onlyRunning", "boolean", "If true, remove only running containers; if false, remove all containers"))),
+            Tool("stop_all_containers", "Stop running containers. Set namePrefix or nameContains to restrict to matching names (e.g. namePrefix \"wordpress_\"); omit BOTH filters to stop every running container.", BulkContainerSchema(includeOnlyRunning: false)),
+            Tool("remove_all_containers", "Remove containers after the app resolves the target list. Set namePrefix or nameContains to restrict to matching names (e.g. namePrefix \"wordpress_\"); omit BOTH filters to remove every container. Prefer this with a filter over multiple remove_container calls when the user names a group.", BulkContainerSchema(includeOnlyRunning: true)),
             Tool("deploy_template", "Deploy an app template by id or name. Available templates include: " + TemplateList(), ObjectSchema(("idOrName", "string", "Template id or name, e.g. wordpress"))),
             Tool("create_volume", "Create a named volume.", ObjectSchema(("name", "string", "Volume name"))),
             Tool("remove_volume", "Remove a named volume.", ObjectSchema(("name", "string", "Volume name"))),
@@ -101,8 +101,8 @@ public sealed class AssistantToolset(
             "stop_container" => Resolved(call, AssistantPermissionCategory.Lifecycle, $"Stop {StringArg(args, "id")}", call.ArgumentsJson, token => StopContainerAsync(StringArg(args, "id"), token)),
             "restart_container" => Resolved(call, AssistantPermissionCategory.Lifecycle, $"Restart {StringArg(args, "id")}", call.ArgumentsJson, token => RestartContainerAsync(StringArg(args, "id"), token)),
             "remove_container" => Resolved(call, AssistantPermissionCategory.Destructive, $"Remove {StringArg(args, "id")}", call.ArgumentsJson, token => RemoveContainerAsync(StringArg(args, "id"), token)),
-            "stop_all_containers" => await ResolveStopAllAsync(call, ct).ConfigureAwait(false),
-            "remove_all_containers" => await ResolveRemoveAllAsync(call, BoolArg(args, "onlyRunning", true), ct).ConfigureAwait(false),
+            "stop_all_containers" => await ResolveStopAllAsync(call, OptionalStringArg(args, "namePrefix"), OptionalStringArg(args, "nameContains"), ct).ConfigureAwait(false),
+            "remove_all_containers" => await ResolveRemoveAllAsync(call, BoolArg(args, "onlyRunning", true), OptionalStringArg(args, "namePrefix"), OptionalStringArg(args, "nameContains"), ct).ConfigureAwait(false),
             "deploy_template" => Resolved(call, AssistantPermissionCategory.ComposeTemplate, $"Deploy template {StringArg(args, "idOrName")}", call.ArgumentsJson, token => DeployTemplateAsync(StringArg(args, "idOrName"), token)),
             "create_volume" => Resolved(call, AssistantPermissionCategory.CreateRun, $"Create volume {StringArg(args, "name")}", call.ArgumentsJson, token => CreateVolumeAsync(StringArg(args, "name"), token)),
             "remove_volume" => Resolved(call, AssistantPermissionCategory.Destructive, $"Remove volume {StringArg(args, "name")}", call.ArgumentsJson, token => RemoveVolumeAsync(StringArg(args, "name"), token)),
@@ -198,22 +198,22 @@ public sealed class AssistantToolset(
         Summarize(await wslc.RemoveContainerAsync(RequireValue(id, "container"), force: true, ct).ConfigureAwait(false));
 
     [Description("High-risk: stop every currently running container.")]
-    public async Task<(string Result, IReadOnlyList<string> Targets)> StopAllContainersAsync(CancellationToken ct)
+    public async Task<(string Result, IReadOnlyList<string> Targets)> StopAllContainersAsync(string? namePrefix, string? nameContains, CancellationToken ct)
     {
-        var targets = await StopAllContainersAsyncPreview(ct).ConfigureAwait(false);
+        var targets = await StopAllContainersAsyncPreview(namePrefix, nameContains, ct).ConfigureAwait(false);
         var results = new List<string>();
         foreach (var target in targets)
         {
             results.Add($"{target}: {Summarize(await wslc.StopContainerAsync(target, ct).ConfigureAwait(false))}");
         }
 
-        return (targets.Count == 0 ? "No running containers." : string.Join(Environment.NewLine, results), targets);
+        return (targets.Count == 0 ? "No matching running containers." : string.Join(Environment.NewLine, results), targets);
     }
 
     [Description("High-risk: remove containers after resolving the concrete target list.")]
-    public async Task<(string Result, IReadOnlyList<string> Targets)> RemoveAllContainersAsync(bool onlyRunning, CancellationToken ct)
+    public async Task<(string Result, IReadOnlyList<string> Targets)> RemoveAllContainersAsync(bool onlyRunning, string? namePrefix, string? nameContains, CancellationToken ct)
     {
-        var targets = await RemoveAllContainersAsyncPreview(onlyRunning, ct).ConfigureAwait(false);
+        var targets = await RemoveAllContainersAsyncPreview(onlyRunning, namePrefix, nameContains, ct).ConfigureAwait(false);
         var results = new List<string>();
         foreach (var target in targets)
         {
@@ -223,17 +223,37 @@ public sealed class AssistantToolset(
         return (targets.Count == 0 ? "No matching containers." : string.Join(Environment.NewLine, results), targets);
     }
 
-    public async Task<IReadOnlyList<string>> StopAllContainersAsyncPreview(CancellationToken ct) =>
+    public async Task<IReadOnlyList<string>> StopAllContainersAsyncPreview(string? namePrefix, string? nameContains, CancellationToken ct) =>
         (await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false))
         .Where(c => c.State.IsRunning())
+        .Where(c => MatchesNameFilter(c.Name, namePrefix, nameContains))
         .Select(c => string.IsNullOrWhiteSpace(c.Name) ? c.Id : c.Name)
         .ToList();
 
-    public async Task<IReadOnlyList<string>> RemoveAllContainersAsyncPreview(bool onlyRunning, CancellationToken ct) =>
+    public async Task<IReadOnlyList<string>> RemoveAllContainersAsyncPreview(bool onlyRunning, string? namePrefix, string? nameContains, CancellationToken ct) =>
         (await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false))
         .Where(c => !onlyRunning || c.State.IsRunning())
+        .Where(c => MatchesNameFilter(c.Name, namePrefix, nameContains))
         .Select(c => string.IsNullOrWhiteSpace(c.Name) ? c.Id : c.Name)
         .ToList();
+
+    private static bool MatchesNameFilter(string? name, string? namePrefix, string? nameContains)
+    {
+        var containerName = name ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(namePrefix) &&
+            !containerName.StartsWith(namePrefix.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(nameContains) &&
+            containerName.IndexOf(nameContains.Trim(), StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            return false;
+        }
+
+        return true;
+    }
 
     [Description("State-changing: deploy a built-in or user template by id/name.")]
     public async Task<string> DeployTemplateAsync(string idOrName, CancellationToken ct)
@@ -363,6 +383,18 @@ public sealed class AssistantToolset(
         return $$"""{"type":"object","properties":{ {{props}} },"required":[{{required}}],"additionalProperties":false}""";
     }
 
+    private static string BulkContainerSchema(bool includeOnlyRunning)
+    {
+        var onlyRunning = includeOnlyRunning
+            ? "\"onlyRunning\":{\"type\":\"boolean\",\"description\":\"If true (default) only running containers are affected; if false, stopped containers too.\"},"
+            : string.Empty;
+        return "{\"type\":\"object\",\"properties\":{" +
+               onlyRunning +
+               "\"namePrefix\":{\"type\":\"string\",\"description\":\"Only affect containers whose name starts with this value, e.g. wordpress_. Omit to match all.\"}," +
+               "\"nameContains\":{\"type\":\"string\",\"description\":\"Only affect containers whose name contains this substring. Omit to match all.\"}" +
+               "},\"required\":[],\"additionalProperties\":false}";
+    }
+
     private static string RunContainerSchema() => """
         {
           "type": "object",
@@ -431,17 +463,40 @@ public sealed class AssistantToolset(
         return Resolved(call, AssistantPermissionCategory.CreateRun, $"Run container {options.Image}", JsonSerializer.Serialize(options, JsonOptions), token => RunContainerAsync(options, token));
     }
 
-    private async Task<AssistantResolvedToolCall> ResolveStopAllAsync(AiToolCall call, CancellationToken ct)
+    private async Task<AssistantResolvedToolCall> ResolveStopAllAsync(AiToolCall call, string? namePrefix, string? nameContains, CancellationToken ct)
     {
-        var targets = await StopAllContainersAsyncPreview(ct).ConfigureAwait(false);
-        return Resolved(call, AssistantPermissionCategory.Lifecycle, "Stop all running containers", "Targets:\n" + string.Join(Environment.NewLine, targets), async token => (await StopAllContainersAsync(token).ConfigureAwait(false)).Result);
+        var targets = await StopAllContainersAsyncPreview(namePrefix, nameContains, ct).ConfigureAwait(false);
+        var summary = DescribeBulkScope("Stop", "running containers", namePrefix, nameContains);
+        return Resolved(call, AssistantPermissionCategory.Lifecycle, summary, BulkTargetDetails(targets), async token => (await StopAllContainersAsync(namePrefix, nameContains, token).ConfigureAwait(false)).Result);
     }
 
-    private async Task<AssistantResolvedToolCall> ResolveRemoveAllAsync(AiToolCall call, bool onlyRunning, CancellationToken ct)
+    private async Task<AssistantResolvedToolCall> ResolveRemoveAllAsync(AiToolCall call, bool onlyRunning, string? namePrefix, string? nameContains, CancellationToken ct)
     {
-        var targets = await RemoveAllContainersAsyncPreview(onlyRunning, ct).ConfigureAwait(false);
-        return Resolved(call, AssistantPermissionCategory.Destructive, onlyRunning ? "Remove all running containers" : "Remove all containers", "Targets:\n" + string.Join(Environment.NewLine, targets), async token => (await RemoveAllContainersAsync(onlyRunning, token).ConfigureAwait(false)).Result);
+        var targets = await RemoveAllContainersAsyncPreview(onlyRunning, namePrefix, nameContains, ct).ConfigureAwait(false);
+        var scope = onlyRunning ? "running containers" : "containers";
+        var summary = DescribeBulkScope("Remove", scope, namePrefix, nameContains);
+        return Resolved(call, AssistantPermissionCategory.Destructive, summary, BulkTargetDetails(targets), async token => (await RemoveAllContainersAsync(onlyRunning, namePrefix, nameContains, token).ConfigureAwait(false)).Result);
     }
+
+    private static string DescribeBulkScope(string verb, string scope, string? namePrefix, string? nameContains)
+    {
+        if (!string.IsNullOrWhiteSpace(namePrefix))
+        {
+            return $"{verb} {scope} named \"{namePrefix.Trim()}*\"";
+        }
+
+        if (!string.IsNullOrWhiteSpace(nameContains))
+        {
+            return $"{verb} {scope} containing \"{nameContains.Trim()}\"";
+        }
+
+        return $"{verb} all {scope}";
+    }
+
+    private static string BulkTargetDetails(IReadOnlyList<string> targets) =>
+        targets.Count == 0
+            ? "No matching containers."
+            : "Targets:\n" + string.Join(Environment.NewLine, targets);
 
     private static AssistantResolvedToolCall Resolved(
         AiToolCall call,

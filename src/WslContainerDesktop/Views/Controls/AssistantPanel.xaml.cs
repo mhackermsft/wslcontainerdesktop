@@ -33,6 +33,7 @@ public sealed partial class AssistantPanel : UserControl
         ViewModel = App.Current.Services.GetRequiredService<AssistantViewModel>();
         InitializeComponent();
         ViewModel.Messages.CollectionChanged += Messages_CollectionChanged;
+        ViewModel.PropertyChanged += ViewModel_PropertyChanged;
     }
 
     public event EventHandler? CloseRequested;
@@ -45,18 +46,28 @@ public sealed partial class AssistantPanel : UserControl
 
     private void Messages_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (e.Action != NotifyCollectionChangedAction.Add)
+        // Scroll to the bottom only when a new message is appended.
+        if (e.Action == NotifyCollectionChangedAction.Add)
         {
-            return;
+            ScrollToBottom();
         }
+    }
 
-        // Scroll to the bottom only when a new message is appended, after layout settles.
+    private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        // Bring the approve/reject prompt into view when it appears (it lives outside the Messages list).
+        if (e.PropertyName == nameof(AssistantViewModel.PendingApproval) && ViewModel.PendingApproval is not null)
+        {
+            ScrollToBottom();
+        }
+    }
+
+    private void ScrollToBottom() =>
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
             TranscriptScroll.UpdateLayout();
             TranscriptScroll.ChangeView(null, TranscriptScroll.ScrollableHeight, null, true);
         });
-    }
 
     private void DraftBox_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
