@@ -26,6 +26,7 @@ namespace WslContainerDesktop.ViewModels;
 public partial class AssistantViewModel : ObservableObject
 {
     private readonly IContainerAssistant _assistant;
+    private readonly ISettingsService _settings;
     private CancellationTokenSource? _sendCts;
     private int _turnSeq;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
@@ -54,6 +55,9 @@ public partial class AssistantViewModel : ObservableObject
     [ObservableProperty]
     private AssistantApprovalRequest? _pendingApproval;
 
+    [ObservableProperty]
+    private string _providerLabel = string.Empty;
+
     public bool HasPendingApproval => PendingApproval is not null;
 
     public bool IsWorking => IsBusy && PendingApproval is null;
@@ -66,9 +70,11 @@ public partial class AssistantViewModel : ObservableObject
         OnPropertyChanged(nameof(IsWorking));
     }
 
-    public AssistantViewModel(IContainerAssistant assistant)
+    public AssistantViewModel(IContainerAssistant assistant, ISettingsService settings)
     {
         _assistant = assistant;
+        _settings = settings;
+        RefreshProviderLabel();
         assistant.ApprovalChanged += (_, approval) =>
         {
             if (_dispatcher is null || _dispatcher.HasThreadAccess)
@@ -80,6 +86,22 @@ public partial class AssistantViewModel : ObservableObject
                 _dispatcher.TryEnqueue(() => PendingApproval = approval);
             }
         };
+    }
+
+    /// <summary>Recomputes the active provider/model badge; call whenever the panel is shown.</summary>
+    public void RefreshProviderLabel()
+    {
+        ProviderLabel = _settings.AiProvider switch
+        {
+            AiProviderKind.Ollama => Format("Ollama", _settings.AiOllamaModel),
+            AiProviderKind.GitHubCopilot => Format("GitHub Copilot", _settings.AiGitHubCopilotModel),
+            AiProviderKind.AzureOpenAi => Format("Azure OpenAI", _settings.AiAzureOpenAiDeployment),
+            AiProviderKind.OpenAi => Format("OpenAI", _settings.AiOpenAiModel),
+            _ => "No AI provider configured",
+        };
+
+        static string Format(string provider, string? model) =>
+            string.IsNullOrWhiteSpace(model) ? provider : $"{provider} · {model.Trim()}";
     }
 
     private bool CanSend() => !IsBusy && !string.IsNullOrWhiteSpace(Draft);

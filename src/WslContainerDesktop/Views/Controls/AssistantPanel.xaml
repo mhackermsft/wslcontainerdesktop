@@ -22,12 +22,32 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel Spacing="2">
+            <StackPanel Spacing="4">
                 <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Container AI Assistant" />
                 <TextBlock
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     Text="Scoped to WSL containers, compose, and installed k3s tools."
                     TextWrapping="Wrap" />
+                <Border
+                    Padding="8,2"
+                    HorizontalAlignment="Left"
+                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                    CornerRadius="{StaticResource ControlCornerRadius}">
+                    <StackPanel
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="6">
+                        <Ellipse
+                            Width="8"
+                            Height="8"
+                            VerticalAlignment="Center"
+                            Fill="{ThemeResource SystemFillColorSuccessBrush}" />
+                        <TextBlock
+                            AutomationProperties.Name="Active AI provider and model"
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Text="{x:Bind ViewModel.ProviderLabel, Mode=OneWay}" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
             <Button
                 Grid.Column="1"

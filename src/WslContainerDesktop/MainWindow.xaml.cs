@@ -71,6 +71,11 @@ public sealed partial class MainWindow : Window
 
     private void AssistantButton_Click(object sender, RoutedEventArgs e)
     {
+        if (AssistantOverlay.Visibility != Visibility.Visible)
+        {
+            AssistantPanel.ViewModel.RefreshProviderLabel();
+        }
+
         AssistantOverlay.Visibility = AssistantOverlay.Visibility == Visibility.Visible
             ? Visibility.Collapsed
             : Visibility.Visible;
