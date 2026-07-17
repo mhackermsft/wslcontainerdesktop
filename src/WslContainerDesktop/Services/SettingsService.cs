@@ -39,6 +39,14 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public bool NotifyImageEvents { get; set; } = true;
     public bool NotifyContainerEvents { get; set; } = true;
     public bool NotifyEngineEvents { get; set; } = true;
+    public bool AiFeaturesEnabled { get; set; }
+    public AiProviderKind AiProvider { get; set; }
+    public string AiOllamaEndpoint { get; set; } = "http://localhost:11434";
+    public string AiOllamaModel { get; set; } = "llama3.1";
+    public string AiAzureOpenAiEndpoint { get; set; } = string.Empty;
+    public string AiAzureOpenAiDeployment { get; set; } = string.Empty;
+    public string AiOpenAiEndpoint { get; set; } = "https://api.openai.com/v1";
+    public string AiOpenAiModel { get; set; } = "gpt-4o-mini";
     public string? WslDistro { get; set; }
     public bool WslUpdatePreRelease { get; set; }
     public string? K3sInstallerSha256 { get; set; }
@@ -75,6 +83,16 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             NotifyImageEvents = dto.NotifyImageEvents;
             NotifyContainerEvents = dto.NotifyContainerEvents;
             NotifyEngineEvents = dto.NotifyEngineEvents;
+            AiFeaturesEnabled = dto.AiFeaturesEnabled;
+            AiProvider = Enum.IsDefined(typeof(AiProviderKind), dto.AiProvider)
+                ? (AiProviderKind)dto.AiProvider
+                : AiProviderKind.None;
+            AiOllamaEndpoint = string.IsNullOrWhiteSpace(dto.AiOllamaEndpoint) ? "http://localhost:11434" : dto.AiOllamaEndpoint;
+            AiOllamaModel = string.IsNullOrWhiteSpace(dto.AiOllamaModel) ? "llama3.1" : dto.AiOllamaModel;
+            AiAzureOpenAiEndpoint = dto.AiAzureOpenAiEndpoint ?? string.Empty;
+            AiAzureOpenAiDeployment = dto.AiAzureOpenAiDeployment ?? string.Empty;
+            AiOpenAiEndpoint = string.IsNullOrWhiteSpace(dto.AiOpenAiEndpoint) ? "https://api.openai.com/v1" : dto.AiOpenAiEndpoint;
+            AiOpenAiModel = string.IsNullOrWhiteSpace(dto.AiOpenAiModel) ? "gpt-4o-mini" : dto.AiOpenAiModel;
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
             WslUpdatePreRelease = dto.WslUpdatePreRelease;
             K3sInstallerSha256 = string.IsNullOrWhiteSpace(dto.K3sInstallerSha256) ? null : dto.K3sInstallerSha256.Trim().ToLowerInvariant();
@@ -191,6 +209,14 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 NotifyImageEvents = NotifyImageEvents,
                 NotifyContainerEvents = NotifyContainerEvents,
                 NotifyEngineEvents = NotifyEngineEvents,
+                AiFeaturesEnabled = AiFeaturesEnabled,
+                AiProvider = (int)AiProvider,
+                AiOllamaEndpoint = AiOllamaEndpoint,
+                AiOllamaModel = AiOllamaModel,
+                AiAzureOpenAiEndpoint = AiAzureOpenAiEndpoint,
+                AiAzureOpenAiDeployment = AiAzureOpenAiDeployment,
+                AiOpenAiEndpoint = AiOpenAiEndpoint,
+                AiOpenAiModel = AiOpenAiModel,
                 WslDistro = WslDistro,
                 WslUpdatePreRelease = WslUpdatePreRelease,
                 K3sInstallerSha256 = K3sInstallerSha256,
@@ -263,6 +289,14 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public bool NotifyImageEvents { get; set; } = true;
         public bool NotifyContainerEvents { get; set; } = true;
         public bool NotifyEngineEvents { get; set; } = true;
+        public bool AiFeaturesEnabled { get; set; }
+        public int AiProvider { get; set; }
+        public string? AiOllamaEndpoint { get; set; }
+        public string? AiOllamaModel { get; set; }
+        public string? AiAzureOpenAiEndpoint { get; set; }
+        public string? AiAzureOpenAiDeployment { get; set; }
+        public string? AiOpenAiEndpoint { get; set; }
+        public string? AiOpenAiModel { get; set; }
         public string? WslDistro { get; set; }
         public bool WslUpdatePreRelease { get; set; }
         public string? K3sInstallerSha256 { get; set; }
@@ -301,4 +335,3 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public string? AzureAcrName { get; set; }
     }
 }
-

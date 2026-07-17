@@ -386,6 +386,12 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
+        services.AddSingleton<IAiCredentialStore, AiCredentialStore>();
+        services.AddSingleton<IAiProvider, GitHubCopilotProvider>();
+        services.AddSingleton<IAiProvider, OllamaProvider>();
+        services.AddSingleton<IAiProvider, AzureOpenAiProvider>();
+        services.AddSingleton<IAiProvider, OpenAiProvider>();
+        services.AddSingleton<IAiDiagnosticsService, AiDiagnosticsService>();
         services.AddSingleton<IRegistryCatalogService, RegistryCatalogService>();
         services.AddSingleton<IRunProfileStore, RunProfileStore>();
         services.AddSingleton<ITemplateConfigStore, TemplateConfigStore>();

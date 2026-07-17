@@ -39,6 +39,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private readonly RegistryAuthRefresher _authRefresher;
     private readonly IRunProfileStore _profiles;
     private readonly IComposeProjectStore _composeStore;
+    private readonly IAiDiagnosticsService _aiDiagnostics;
     private readonly ILogger<ContainersViewModel> _logger;
     private readonly DispatcherQueue _dispatcher;
     private readonly LogStreamer _logStreamer;
@@ -107,6 +108,35 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _changesStatusMessage = "Open the Changes tab to compare the container against its image.";
 
+    [ObservableProperty]
+    private bool _isAiBusy;
+
+    [ObservableProperty]
+    private bool _aiHasPreview;
+
+    [ObservableProperty]
+    private string _aiPreviewPayload = string.Empty;
+
+    [ObservableProperty]
+    private string _aiStatusMessage = "Click Diagnose to build a redacted preview before sending anything.";
+
+    [ObservableProperty]
+    private string _aiSummary = string.Empty;
+
+    [ObservableProperty]
+    private string _aiLikelyCause = string.Empty;
+
+    [ObservableProperty]
+    private string _aiSuggestedFixDescription = string.Empty;
+
+    [ObservableProperty]
+    private string _aiConfidence = string.Empty;
+
+    [ObservableProperty]
+    private bool _aiHasDiagnosis;
+
+    private AiPromptRequest? _pendingAiRequest;
+
     private bool _hasAttemptedChangesLoad;
 
     // ---- Live stats (Stats tab) ----
@@ -148,6 +178,12 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<ContainerFsChange> DetailChanges { get; } = new();
 
+    public ObservableCollection<string> AiEvidenceCitations { get; } = new();
+
+    public ObservableCollection<string> AiSuggestedCommands { get; } = new();
+
+    public ObservableCollection<string> AiSuggestedFileEdits { get; } = new();
+
     public bool HasSelection => Selected is not null;
 
     public bool HasSelectedFile => SelectedFile is not null;
@@ -175,7 +211,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// </summary>
     public ObservableCollection<ContainerGroup> Groups { get; } = new();
 
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, ILogger<ContainersViewModel> logger)
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, IAiDiagnosticsService aiDiagnostics, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -186,6 +222,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         _authRefresher = authRefresher;
         _profiles = profiles;
         _composeStore = composeStore;
+        _aiDiagnostics = aiDiagnostics;
         _logger = logger;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _logStreamer = new LogStreamer(settings, _dispatcher);
@@ -217,6 +254,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         DetailInspectJson = string.Empty;
         ResetFilesState(value);
         ResetChangesState(value);
+        ResetAiState();
 
         if (value is null)
         {
@@ -225,6 +263,23 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         _logStreamer.Start(value.Id);
         _ = LoadDetailsAsync(value.Id);
+    }
+
+    private void ResetAiState()
+    {
+        IsAiBusy = false;
+        AiHasPreview = false;
+        AiPreviewPayload = string.Empty;
+        AiStatusMessage = "Click Diagnose to build a redacted preview before sending anything.";
+        AiSummary = string.Empty;
+        AiLikelyCause = string.Empty;
+        AiSuggestedFixDescription = string.Empty;
+        AiConfidence = string.Empty;
+        AiHasDiagnosis = false;
+        _pendingAiRequest = null;
+        AiEvidenceCitations.Clear();
+        AiSuggestedCommands.Clear();
+        AiSuggestedFileEdits.Clear();
     }
 
     partial void OnSelectedFileChanged(ContainerFileEntry? value)
@@ -1658,6 +1713,114 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         {
             // ignore browser launch failures
         }
+    }
+
+    [RelayCommand]
+    private async Task PrepareAiDiagnosisAsync()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        IsAiBusy = true;
+        AiStatusMessage = "Collecting and redacting evidence…";
+        AiHasDiagnosis = false;
+        try
+        {
+            var preview = await _aiDiagnostics.BuildPreviewAsync(Selected.Model);
+            _pendingAiRequest = preview.Request;
+            AiPreviewPayload = preview.Payload;
+            AiHasPreview = true;
+            AiStatusMessage = "Review the redacted payload, then click Send diagnosis.";
+        }
+        catch (Exception ex)
+        {
+            AiStatusMessage = ex.Message;
+        }
+        finally
+        {
+            IsAiBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task SendAiDiagnosisAsync()
+    {
+        if (_pendingAiRequest is null)
+        {
+            await PrepareAiDiagnosisAsync();
+        }
+
+        if (_pendingAiRequest is null)
+        {
+            return;
+        }
+
+        IsAiBusy = true;
+        AiStatusMessage = "Sending redacted evidence to the selected provider…";
+        try
+        {
+            var diagnosis = await _aiDiagnostics.DiagnoseAsync(_pendingAiRequest);
+            AiSummary = diagnosis.Summary;
+            AiLikelyCause = diagnosis.LikelyCause;
+            AiSuggestedFixDescription = diagnosis.SuggestedFix.Description;
+            AiConfidence = $"Confidence: {diagnosis.Confidence:P0}";
+
+            AiEvidenceCitations.Clear();
+            foreach (var item in diagnosis.EvidenceCited)
+            {
+                AiEvidenceCitations.Add(item);
+            }
+
+            AiSuggestedCommands.Clear();
+            foreach (var item in diagnosis.SuggestedFix.Commands)
+            {
+                AiSuggestedCommands.Add(item);
+            }
+
+            AiSuggestedFileEdits.Clear();
+            foreach (var item in diagnosis.SuggestedFix.FileEdits)
+            {
+                AiSuggestedFileEdits.Add(item);
+            }
+
+            AiHasDiagnosis = true;
+            AiStatusMessage = "Diagnosis complete. Suggested fixes are review-only.";
+        }
+        catch (Exception ex)
+        {
+            AiStatusMessage = ex.Message;
+        }
+        finally
+        {
+            IsAiBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void CopyAiSuggestedFix()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(AiSuggestedFixDescription))
+        {
+            parts.Add(AiSuggestedFixDescription);
+        }
+
+        if (AiSuggestedCommands.Count > 0)
+        {
+            parts.Add("Commands:\n" + string.Join('\n', AiSuggestedCommands));
+        }
+
+        if (AiSuggestedFileEdits.Count > 0)
+        {
+            parts.Add("File edits:\n" + string.Join('\n', AiSuggestedFileEdits));
+        }
+
+        var package = new DataPackage();
+        package.SetText(string.Join("\n\n", parts));
+        Clipboard.SetContent(package);
+        AiStatusMessage = "Copied suggested fix.";
     }
 
     [RelayCommand]

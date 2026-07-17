@@ -22,6 +22,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -150,6 +151,14 @@
                     ToolTipService.ToolTip="Open published port in browser">
                     <FontIcon FontSize="14" Glyph="&#xE774;" />
                 </Button>
+                <Button
+                    Command="{x:Bind ViewModel.PrepareAiDiagnosisCommand}"
+                    ToolTipService.ToolTip="Build a redacted AI diagnosis preview">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon FontSize="14" Glyph="&#xE945;" />
+                        <TextBlock Text="Diagnose" />
+                    </StackPanel>
+                </Button>
                 <Button ToolTipService.ToolTip="Remove" Click="Remove_Click">
                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
                 </Button>
@@ -201,8 +210,123 @@
             </SelectorBarItem>
         </SelectorBar>
 
+        <!--  AI diagnose-and-fix preview/results  -->
+        <Border
+            Grid.Row="3"
+            Padding="14"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="6"
+            Visibility="{x:Bind ViewModel.AiHasPreview, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+            <StackPanel Spacing="10">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock FontWeight="SemiBold" Text="AI diagnosis" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.AiStatusMessage, Mode=OneWay}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button
+                        Grid.Column="1"
+                        Command="{x:Bind ViewModel.SendAiDiagnosisCommand}"
+                        Style="{ThemeResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="13" Glyph="&#xE724;" />
+                            <TextBlock Text="Send diagnosis" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+                <ProgressBar IsIndeterminate="{x:Bind ViewModel.IsAiBusy, Mode=OneWay}" Visibility="{x:Bind ViewModel.IsAiBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                <Expander
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch"
+                    Header="What will be sent (redacted)">
+                    <ScrollViewer MaxHeight="220">
+                        <TextBlock
+                            FontFamily="Cascadia Mono, Consolas"
+                            FontSize="12"
+                            IsTextSelectionEnabled="True"
+                            Text="{x:Bind ViewModel.AiPreviewPayload, Mode=OneWay}"
+                            TextWrapping="Wrap" />
+                    </ScrollViewer>
+                </Expander>
+                <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.AiHasDiagnosis, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="6">
+                            <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Summary" />
+                            <TextBlock Text="{x:Bind ViewModel.AiSummary, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Likely cause" />
+                            <TextBlock Text="{x:Bind ViewModel.AiLikelyCause, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind ViewModel.AiConfidence, Mode=OneWay}" />
+                        </StackPanel>
+                        <Button
+                            Grid.Column="1"
+                            Command="{x:Bind ViewModel.CopyAiSuggestedFixCommand}"
+                            Content="Copy suggested fix" />
+                    </Grid>
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Evidence cited">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.AiEvidenceCitations, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock Margin="0,2" Text="{x:Bind}" TextWrapping="Wrap" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Expander>
+                    <Border
+                        Padding="12"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                        CornerRadius="6">
+                        <StackPanel Spacing="6">
+                            <TextBlock FontWeight="SemiBold" Text="Suggested fix (review-only)" />
+                            <TextBlock Text="{x:Bind ViewModel.AiSuggestedFixDescription, Mode=OneWay}" TextWrapping="Wrap" />
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.AiSuggestedCommands, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <TextBlock
+                                            Margin="0,2"
+                                            FontFamily="Cascadia Mono, Consolas"
+                                            IsTextSelectionEnabled="True"
+                                            Text="{x:Bind}"
+                                            TextWrapping="Wrap" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.AiSuggestedFileEdits, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <TextBlock
+                                            Margin="0,2"
+                                            FontFamily="Cascadia Mono, Consolas"
+                                            IsTextSelectionEnabled="True"
+                                            Text="{x:Bind}"
+                                            TextWrapping="Wrap" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
         <!--  Tab content  -->
-        <Grid Grid.Row="3">
+        <Grid Grid.Row="4">
             <!--  ===== Logs (default, full height) =====  -->
             <Grid x:Name="LogsPanel" RowSpacing="8">
                 <Grid.RowDefinitions>

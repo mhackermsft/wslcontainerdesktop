@@ -45,6 +45,24 @@ public interface ISettingsService
     /// <summary>Emit toasts when the container engine becomes unavailable or recovers.</summary>
     bool NotifyEngineEvents { get; set; }
 
+    /// <summary>Master opt-in switch for AI diagnostics. Defaults off.</summary>
+    bool AiFeaturesEnabled { get; set; }
+
+    /// <summary>Selected AI provider.</summary>
+    Models.AiProviderKind AiProvider { get; set; }
+
+    string AiOllamaEndpoint { get; set; }
+
+    string AiOllamaModel { get; set; }
+
+    string AiAzureOpenAiEndpoint { get; set; }
+
+    string AiAzureOpenAiDeployment { get; set; }
+
+    string AiOpenAiEndpoint { get; set; }
+
+    string AiOpenAiModel { get; set; }
+
     /// <summary>WSL distro to host the k3s cluster. Null/empty uses the WSL default distro.</summary>
     string? WslDistro { get; set; }
 

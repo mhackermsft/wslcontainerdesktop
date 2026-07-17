@@ -16,6 +16,7 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
@@ -27,6 +28,8 @@ public partial class SettingsViewModel : ObservableObject
     private readonly DialogService _dialogs;
     private readonly StartupService _startup;
     private readonly FileLoggerProvider _fileLogger;
+    private readonly IAiDiagnosticsService _aiDiagnostics;
+    private readonly IAiCredentialStore _aiCredentials;
 
     private bool _suppressStartupWrite;
 
@@ -68,6 +71,36 @@ public partial class SettingsViewModel : ObservableObject
     private bool _notifyEngineEvents;
 
     [ObservableProperty]
+    private bool _aiFeaturesEnabled;
+
+    [ObservableProperty]
+    private int _selectedAiProviderIndex;
+
+    [ObservableProperty]
+    private string _aiOllamaEndpoint = string.Empty;
+
+    [ObservableProperty]
+    private string _aiOllamaModel = string.Empty;
+
+    [ObservableProperty]
+    private string _aiAzureOpenAiEndpoint = string.Empty;
+
+    [ObservableProperty]
+    private string _aiAzureOpenAiDeployment = string.Empty;
+
+    [ObservableProperty]
+    private string _aiOpenAiEndpoint = string.Empty;
+
+    [ObservableProperty]
+    private string _aiOpenAiModel = string.Empty;
+
+    [ObservableProperty]
+    private string _aiApiKey = string.Empty;
+
+    [ObservableProperty]
+    private string _aiStatus = "AI features are off by default. Enable them and review the payload preview before sending diagnostics.";
+
+    [ObservableProperty]
     private string _engineVersion = "Unknown";
 
     [ObservableProperty]
@@ -93,13 +126,15 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger)
+    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials)
     {
         _settings = settings;
         _wslc = wslc;
         _dialogs = dialogs;
         _startup = startup;
         _fileLogger = fileLogger;
+        _aiDiagnostics = aiDiagnostics;
+        _aiCredentials = aiCredentials;
 
         _wslcPath = settings.WslcPath;
         _refreshIntervalSeconds = settings.RefreshIntervalSeconds;
@@ -109,6 +144,14 @@ public partial class SettingsViewModel : ObservableObject
         _notifyImageEvents = settings.NotifyImageEvents;
         _notifyContainerEvents = settings.NotifyContainerEvents;
         _notifyEngineEvents = settings.NotifyEngineEvents;
+        _aiFeaturesEnabled = settings.AiFeaturesEnabled;
+        _selectedAiProviderIndex = (int)settings.AiProvider;
+        _aiOllamaEndpoint = settings.AiOllamaEndpoint;
+        _aiOllamaModel = settings.AiOllamaModel;
+        _aiAzureOpenAiEndpoint = settings.AiAzureOpenAiEndpoint;
+        _aiAzureOpenAiDeployment = settings.AiAzureOpenAiDeployment;
+        _aiOpenAiEndpoint = settings.AiOpenAiEndpoint;
+        _aiOpenAiModel = settings.AiOpenAiModel;
         _selectedThemeIndex = settings.Theme switch
         {
             "Light" => 1,
@@ -163,6 +206,77 @@ public partial class SettingsViewModel : ObservableObject
     {
         _settings.NotifyEngineEvents = value;
         _settings.Save();
+    }
+
+    partial void OnAiFeaturesEnabledChanged(bool value)
+    {
+        _settings.AiFeaturesEnabled = value;
+        _settings.Save();
+    }
+
+    partial void OnSelectedAiProviderIndexChanged(int value)
+    {
+        _settings.AiProvider = Enum.IsDefined(typeof(AiProviderKind), value)
+            ? (AiProviderKind)value
+            : AiProviderKind.None;
+        LoadStoredAiSecretIndicator();
+        _settings.Save();
+    }
+
+    partial void OnAiOllamaEndpointChanged(string value)
+    {
+        _settings.AiOllamaEndpoint = value;
+        _settings.Save();
+    }
+
+    partial void OnAiOllamaModelChanged(string value)
+    {
+        _settings.AiOllamaModel = value;
+        _settings.Save();
+    }
+
+    partial void OnAiAzureOpenAiEndpointChanged(string value)
+    {
+        _settings.AiAzureOpenAiEndpoint = value;
+        _settings.Save();
+    }
+
+    partial void OnAiAzureOpenAiDeploymentChanged(string value)
+    {
+        _settings.AiAzureOpenAiDeployment = value;
+        _settings.Save();
+    }
+
+    partial void OnAiOpenAiEndpointChanged(string value)
+    {
+        _settings.AiOpenAiEndpoint = value;
+        _settings.Save();
+    }
+
+    partial void OnAiOpenAiModelChanged(string value)
+    {
+        _settings.AiOpenAiModel = value;
+        _settings.Save();
+    }
+
+    public void SaveAiApiKey(string secret)
+    {
+        if (_settings.AiProvider is not (AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi) || string.IsNullOrWhiteSpace(secret))
+        {
+            return;
+        }
+
+        _aiCredentials.WriteSecret(_settings.AiProvider, secret);
+        AiApiKey = string.Empty;
+        AiStatus = $"Saved {_settings.AiProvider} key in Windows Credential Manager.";
+    }
+
+    private void LoadStoredAiSecretIndicator()
+    {
+        AiApiKey = string.Empty;
+        AiStatus = _aiCredentials.TryReadSecret(_settings.AiProvider, out _)
+            ? $"{_settings.AiProvider} has a saved credential."
+            : "No credential is saved for the selected provider.";
     }
 
     partial void OnRunAtLoginChanged(bool value)
@@ -304,6 +418,33 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    [RelayCommand]
+    private async Task TestAiProviderAsync()
+    {
+        IsBusy = true;
+        try
+        {
+            AiStatus = await _aiDiagnostics.TestProviderAsync();
+            await _dialogs.ShowMessageAsync("AI provider OK", AiStatus);
+        }
+        catch (Exception ex)
+        {
+            AiStatus = ex.Message;
+            await _dialogs.ShowMessageAsync("AI provider failed", ex.Message);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task SignInGitHubCopilotAsync()
+    {
+        AiStatus = "GitHub Copilot sign-in is not wired yet. Use Ollama, Azure OpenAI, or OpenAI.";
+        await _dialogs.ShowMessageAsync("GitHub Copilot", AiStatus);
+    }
+
     public async Task LoadVersionAsync()
     {
         try
@@ -316,4 +457,6 @@ public partial class SettingsViewModel : ObservableObject
             EngineVersion = "Unreachable";
         }
     }
+
+    public void LoadAiSecretState() => LoadStoredAiSecretIndicator();
 }

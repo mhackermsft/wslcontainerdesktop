@@ -260,6 +260,110 @@
                 </StackPanel>
             </Border>
 
+            <!--  AI diagnostics  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="AI diagnostics" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel Spacing="12">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Enable AI features" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Off by default. A redacted preview is shown before anything leaves this machine."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            IsOn="{x:Bind ViewModel.AiFeaturesEnabled, Mode=TwoWay}" />
+                    </Grid>
+                    <ComboBox
+                        Header="Provider"
+                        MinWidth="260"
+                        SelectedIndex="{x:Bind ViewModel.SelectedAiProviderIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="None" />
+                        <ComboBoxItem Content="GitHub Copilot (recommended; integration seam)" />
+                        <ComboBoxItem Content="Ollama (local)" />
+                        <ComboBoxItem Content="Azure OpenAI" />
+                        <ComboBoxItem Content="OpenAI-compatible" />
+                    </ComboBox>
+                    <InfoBar
+                        IsOpen="True"
+                        Severity="Informational"
+                        Title="Data sharing notice"
+                        Message="Container logs, inspect JSON, filesystem diff entries, and recent activity are redacted and truncated before sending to the selected provider. Suggested fixes are copy-only and never run automatically." />
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Provider settings">
+                        <StackPanel Spacing="10">
+                            <Button
+                                Command="{x:Bind ViewModel.SignInGitHubCopilotCommand}"
+                                Content="Sign in with GitHub (not wired yet)" />
+                            <TextBox
+                                Header="Ollama endpoint"
+                                Text="{x:Bind ViewModel.AiOllamaEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox
+                                Header="Ollama model"
+                                Text="{x:Bind ViewModel.AiOllamaModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox
+                                Header="Azure OpenAI endpoint"
+                                PlaceholderText="https://your-resource.openai.azure.com"
+                                Text="{x:Bind ViewModel.AiAzureOpenAiEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox
+                                Header="Azure OpenAI deployment"
+                                Text="{x:Bind ViewModel.AiAzureOpenAiDeployment, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox
+                                Header="OpenAI-compatible endpoint"
+                                Text="{x:Bind ViewModel.AiOpenAiEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox
+                                Header="OpenAI-compatible model"
+                                Text="{x:Bind ViewModel.AiOpenAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <PasswordBox
+                                    x:Name="AiApiKeyBox"
+                                    Grid.Column="0"
+                                    Header="API key (Azure OpenAI / OpenAI)"
+                                    PlaceholderText="Stored in Windows Credential Manager, never settings.json" />
+                                <Button
+                                    Grid.Column="1"
+                                    VerticalAlignment="Bottom"
+                                    Click="SaveAiApiKey_Click"
+                                    Content="Save key" />
+                            </Grid>
+                        </StackPanel>
+                    </Expander>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.AiStatus, Mode=OneWay}"
+                            TextWrapping="Wrap" />
+                        <Button
+                            Grid.Column="1"
+                            Command="{x:Bind ViewModel.TestAiProviderCommand}"
+                            Content="Test" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!--  Diagnostics  -->
             <TextBlock
                 Margin="2,4,0,0"
