@@ -6,6 +6,7 @@
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:WslContainerDesktop.ViewModels"
     x:Name="Root"
     mc:Ignorable="d">
 
@@ -429,28 +430,30 @@
                         <StackPanel Spacing="12">
                             <TextBlock
                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="Read-only tools run automatically. State-changing categories require approval by default; destructive actions and container exec always require approval."
+                                Text="Read-only tools always run automatically. For every other tool, turn its switch on to let the assistant run it without asking. Anything left off will prompt you for approval each time."
                                 TextWrapping="Wrap" />
-                            <ToggleSwitch
-                                Header="Create / run containers and pull images"
-                                IsOn="{x:Bind ViewModel.AiAssistantAutoCreateRun, Mode=TwoWay}"
-                                OffContent="Require approval"
-                                OnContent="Run automatically" />
-                            <ToggleSwitch
-                                Header="Start / stop / restart containers"
-                                IsOn="{x:Bind ViewModel.AiAssistantAutoLifecycle, Mode=TwoWay}"
-                                OffContent="Require approval"
-                                OnContent="Run automatically" />
-                            <ToggleSwitch
-                                Header="Compose and template deploys"
-                                IsOn="{x:Bind ViewModel.AiAssistantAutoComposeTemplate, Mode=TwoWay}"
-                                OffContent="Require approval"
-                                OnContent="Run automatically" />
-                            <ToggleSwitch
-                                Header="k3s changes"
-                                IsOn="{x:Bind ViewModel.AiAssistantAutoKubernetes, Mode=TwoWay}"
-                                OffContent="Require approval"
-                                OnContent="Run automatically" />
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.AssistantToolPermissions, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AssistantToolPermissionGroup">
+                                        <StackPanel Margin="0,4,0,0" Spacing="4">
+                                            <TextBlock
+                                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                                Text="{x:Bind Header}" />
+                                            <ItemsControl ItemsSource="{x:Bind Tools}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:AssistantToolPermission">
+                                                        <ToggleSwitch
+                                                            Header="{x:Bind DisplayName}"
+                                                            IsOn="{x:Bind AutoApprove, Mode=TwoWay}"
+                                                            OffContent="Require approval"
+                                                            OnContent="Run automatically" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </Expander>
                 </StackPanel>

@@ -22,5 +22,5 @@ public interface IAssistantActionGate
 {
     AssistantActionRisk Classify(AssistantPermissionCategory category);
 
-    bool RequiresApproval(AssistantPermissionCategory category);
+    bool RequiresApproval(string toolName, AssistantPermissionCategory category);
 }

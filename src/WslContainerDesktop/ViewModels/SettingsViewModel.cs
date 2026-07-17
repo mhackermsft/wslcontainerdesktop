@@ -125,18 +125,6 @@ public partial class SettingsViewModel : ObservableObject
     private string _aiApiKey = string.Empty;
 
     [ObservableProperty]
-    private bool _aiAssistantAutoCreateRun;
-
-    [ObservableProperty]
-    private bool _aiAssistantAutoLifecycle;
-
-    [ObservableProperty]
-    private bool _aiAssistantAutoComposeTemplate;
-
-    [ObservableProperty]
-    private bool _aiAssistantAutoKubernetes;
-
-    [ObservableProperty]
     private string _aiStatus = "AI features are off by default. Enable them and review the payload preview before sending diagnostics.";
 
     [ObservableProperty]
@@ -185,6 +173,26 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<AiModelOption> OllamaModels { get; } = new();
 
+    public ObservableCollection<AssistantToolPermissionGroup> AssistantToolPermissions { get; }
+
+    private ObservableCollection<AssistantToolPermissionGroup> BuildAssistantToolPermissions()
+    {
+        var groups = new ObservableCollection<AssistantToolPermissionGroup>();
+        foreach (var group in AssistantToolCatalog.Groups)
+        {
+            var tools = group.Tools
+                .Select(tool => new AssistantToolPermission(
+                    tool.Name,
+                    tool.DisplayName,
+                    _settings.IsAssistantToolAutoApproved(tool.Name),
+                    (name, autoApprove) => _settings.SetAssistantToolAutoApproved(name, autoApprove)))
+                .ToList();
+            groups.Add(new AssistantToolPermissionGroup { Header = group.Header, Tools = tools });
+        }
+
+        return groups;
+    }
+
     public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, HttpClient http, ILogger<SettingsViewModel> logger)
     {
         _settings = settings;
@@ -214,10 +222,7 @@ public partial class SettingsViewModel : ObservableObject
         _aiOpenAiEndpoint = settings.AiOpenAiEndpoint;
         _aiOpenAiModel = settings.AiOpenAiModel;
         _aiGitHubCopilotModel = settings.AiGitHubCopilotModel;
-        _aiAssistantAutoCreateRun = settings.AiAssistantAutoCreateRun;
-        _aiAssistantAutoLifecycle = settings.AiAssistantAutoLifecycle;
-        _aiAssistantAutoComposeTemplate = settings.AiAssistantAutoComposeTemplate;
-        _aiAssistantAutoKubernetes = settings.AiAssistantAutoKubernetes;
+        AssistantToolPermissions = BuildAssistantToolPermissions();
         EnsureGitHubCopilotModelOption(_aiGitHubCopilotModel);
         _selectedThemeIndex = settings.Theme switch
         {
@@ -354,30 +359,6 @@ public partial class SettingsViewModel : ObservableObject
 
         EnsureGitHubCopilotModelOption(value);
         _settings.AiGitHubCopilotModel = value;
-        _settings.Save();
-    }
-
-    partial void OnAiAssistantAutoCreateRunChanged(bool value)
-    {
-        _settings.AiAssistantAutoCreateRun = value;
-        _settings.Save();
-    }
-
-    partial void OnAiAssistantAutoLifecycleChanged(bool value)
-    {
-        _settings.AiAssistantAutoLifecycle = value;
-        _settings.Save();
-    }
-
-    partial void OnAiAssistantAutoComposeTemplateChanged(bool value)
-    {
-        _settings.AiAssistantAutoComposeTemplate = value;
-        _settings.Save();
-    }
-
-    partial void OnAiAssistantAutoKubernetesChanged(bool value)
-    {
-        _settings.AiAssistantAutoKubernetes = value;
         _settings.Save();
     }
 

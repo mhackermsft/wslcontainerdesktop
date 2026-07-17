@@ -54,6 +54,30 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public bool AiAssistantAutoKubernetes { get; set; }
     public string? WslDistro { get; set; }
     public bool WslUpdatePreRelease { get; set; }
+
+    private HashSet<string> _autoApprovedTools = new(StringComparer.Ordinal);
+
+    public IReadOnlyCollection<string> AiAssistantAutoApprovedTools => _autoApprovedTools;
+
+    public bool IsAssistantToolAutoApproved(string toolName) =>
+        !string.IsNullOrWhiteSpace(toolName) && _autoApprovedTools.Contains(toolName);
+
+    public void SetAssistantToolAutoApproved(string toolName, bool autoApprove)
+    {
+        if (string.IsNullOrWhiteSpace(toolName))
+        {
+            return;
+        }
+
+        var changed = autoApprove ? _autoApprovedTools.Add(toolName) : _autoApprovedTools.Remove(toolName);
+        if (changed)
+        {
+            Save();
+        }
+    }
+
+    public event EventHandler? Changed;
+
     public string? K3sInstallerSha256 { get; set; }
     public List<RegistryEntry> Registries { get; set; } = new() { RegistryEntry.DockerHub() };
     public List<HealthCheckConfig> HealthChecks { get; set; } = new();
@@ -103,6 +127,9 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             AiAssistantAutoLifecycle = dto.AiAssistantAutoLifecycle;
             AiAssistantAutoComposeTemplate = dto.AiAssistantAutoComposeTemplate;
             AiAssistantAutoKubernetes = dto.AiAssistantAutoKubernetes;
+            _autoApprovedTools = dto.AiAssistantAutoApprovedTools is { } approvedTools
+                ? new HashSet<string>(approvedTools.Where(t => !string.IsNullOrWhiteSpace(t)), StringComparer.Ordinal)
+                : MigrateLegacyToolApprovals(dto);
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
             WslUpdatePreRelease = dto.WslUpdatePreRelease;
             K3sInstallerSha256 = string.IsNullOrWhiteSpace(dto.K3sInstallerSha256) ? null : dto.K3sInstallerSha256.Trim().ToLowerInvariant();
@@ -232,6 +259,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 AiAssistantAutoLifecycle = AiAssistantAutoLifecycle,
                 AiAssistantAutoComposeTemplate = AiAssistantAutoComposeTemplate,
                 AiAssistantAutoKubernetes = AiAssistantAutoKubernetes,
+                AiAssistantAutoApprovedTools = _autoApprovedTools.ToList(),
                 WslDistro = WslDistro,
                 WslUpdatePreRelease = WslUpdatePreRelease,
                 K3sInstallerSha256 = K3sInstallerSha256,
@@ -280,6 +308,34 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             // Best effort; ignore persistence failures.
             logger.LogWarning(ex, "Failed to save settings to {Path}.", SettingsFile);
         }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static HashSet<string> MigrateLegacyToolApprovals(SettingsDto dto)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        if (dto.AiAssistantAutoCreateRun)
+        {
+            set.UnionWith(AssistantToolCatalog.CreateRunTools);
+        }
+
+        if (dto.AiAssistantAutoLifecycle)
+        {
+            set.UnionWith(AssistantToolCatalog.LifecycleTools);
+        }
+
+        if (dto.AiAssistantAutoComposeTemplate)
+        {
+            set.UnionWith(AssistantToolCatalog.ComposeTemplateTools);
+        }
+
+        if (dto.AiAssistantAutoKubernetes)
+        {
+            set.UnionWith(AssistantToolCatalog.KubernetesTools);
+        }
+
+        return set;
     }
 
     private static string ResolveDefaultWslcPath()
@@ -317,6 +373,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public bool AiAssistantAutoLifecycle { get; set; }
         public bool AiAssistantAutoComposeTemplate { get; set; }
         public bool AiAssistantAutoKubernetes { get; set; }
+        public List<string>? AiAssistantAutoApprovedTools { get; set; }
         public string? WslDistro { get; set; }
         public bool WslUpdatePreRelease { get; set; }
         public string? K3sInstallerSha256 { get; set; }

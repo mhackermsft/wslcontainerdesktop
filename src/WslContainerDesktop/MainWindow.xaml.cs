@@ -49,6 +49,7 @@ public sealed partial class MainWindow : Window
         }
 
         AppWindow.Closing += OnAppWindowClosing;
+        _settings.Changed += OnSettingsChanged;
 
         NavFrame.Navigate(typeof(DashboardPage));
     }
@@ -67,6 +68,20 @@ public sealed partial class MainWindow : Window
         AssistantButton.Visibility = _settings.AiFeaturesEnabled && _settings.AiProvider != Models.AiProviderKind.None
             ? Visibility.Visible
             : Visibility.Collapsed;
+    }
+
+    private void OnSettingsChanged(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            RefreshAssistantButtonVisibility();
+
+            // If AI was turned off while the panel was open, close it too.
+            if (AssistantButton.Visibility == Visibility.Collapsed && AssistantOverlay.Visibility == Visibility.Visible)
+            {
+                AssistantOverlay.Visibility = Visibility.Collapsed;
+            }
+        });
     }
 
     private void AssistantButton_Click(object sender, RoutedEventArgs e)

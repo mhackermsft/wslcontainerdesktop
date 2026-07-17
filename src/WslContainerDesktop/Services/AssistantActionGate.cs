@@ -27,15 +27,15 @@ public sealed class AssistantActionGate(ISettingsService settings) : IAssistantA
         _ => AssistantActionRisk.StateChanging,
     };
 
-    public bool RequiresApproval(AssistantPermissionCategory category) => category switch
+    public bool RequiresApproval(string toolName, AssistantPermissionCategory category)
     {
-        AssistantPermissionCategory.ReadOnly => false,
-        AssistantPermissionCategory.CreateRun => !settings.AiAssistantAutoCreateRun,
-        AssistantPermissionCategory.Lifecycle => !settings.AiAssistantAutoLifecycle,
-        AssistantPermissionCategory.Destructive => true,
-        AssistantPermissionCategory.ComposeTemplate => !settings.AiAssistantAutoComposeTemplate,
-        AssistantPermissionCategory.Kubernetes => !settings.AiAssistantAutoKubernetes,
-        AssistantPermissionCategory.ContainerExec => true,
-        _ => true,
-    };
+        // Read-only tools never prompt. Every state-changing tool is gated by its own
+        // per-tool auto-approve setting (default: require approval).
+        if (category == AssistantPermissionCategory.ReadOnly)
+        {
+            return false;
+        }
+
+        return !settings.IsAssistantToolAutoApproved(toolName);
+    }
 }

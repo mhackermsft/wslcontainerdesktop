@@ -126,7 +126,7 @@ public sealed class ContainerAssistantService(
     private async Task<string> InvokeToolAsync(AiToolCall call, CancellationToken ct)
     {
         var resolved = await tools.ResolveAsync(call, ct).ConfigureAwait(false);
-        if (!gate.RequiresApproval(resolved.Category))
+        if (!gate.RequiresApproval(resolved.Call.Name, resolved.Category))
         {
             return await ExecuteToolAsync(resolved, ct).ConfigureAwait(false);
         }
