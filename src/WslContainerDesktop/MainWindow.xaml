@@ -29,20 +29,24 @@
             <TitleBar.IconSource>
                 <ImageIconSource ImageSource="Assets/AppIcon.ico" />
             </TitleBar.IconSource>
+            <TitleBar.RightHeader>
+                <Button
+                    x:Name="AssistantButton"
+                    Width="40"
+                    Height="32"
+                    Padding="0"
+                    AutomationProperties.Name="Open Container AI Assistant"
+                    Click="AssistantButton_Click"
+                    Style="{StaticResource SubtleButtonStyle}"
+                    ToolTipService.ToolTip="Container AI Assistant"
+                    Visibility="Collapsed">
+                    <FontIcon
+                        FontFamily="Segoe Fluent Icons"
+                        FontSize="16"
+                        Glyph="&#xE9BD;" />
+                </Button>
+            </TitleBar.RightHeader>
         </TitleBar>
-
-        <Button
-            x:Name="AssistantButton"
-            Grid.Row="0"
-            Margin="0,8,144,8"
-            Padding="12,0"
-            HorizontalAlignment="Right"
-            AutomationProperties.Name="Open Container AI Assistant"
-            Click="AssistantButton_Click"
-            ToolTipService.ToolTip="Container AI Assistant"
-            Visibility="Collapsed">
-            <FontIcon Glyph="&#xE8D4;" />
-        </Button>
 
         <NavigationView
             x:Name="NavView"
@@ -194,7 +198,8 @@
 
         <Grid
             x:Name="AssistantOverlay"
-            Grid.RowSpan="3"
+            Grid.Row="1"
+            Grid.RowSpan="2"
             Background="#66000000"
             Visibility="Collapsed">
             <Button

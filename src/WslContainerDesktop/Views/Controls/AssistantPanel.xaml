@@ -30,8 +30,12 @@
             </StackPanel>
             <Button
                 Grid.Column="1"
+                Width="40"
+                Height="32"
+                Padding="0"
                 AutomationProperties.Name="Close assistant"
-                Click="Close_Click">
+                Click="Close_Click"
+                Style="{StaticResource SubtleButtonStyle}">
                 <FontIcon Glyph="&#xE711;" />
             </Button>
         </Grid>
@@ -78,23 +82,46 @@
             </StackPanel>
         </ScrollViewer>
 
-        <Grid Grid.Row="2" Padding="16" ColumnSpacing="8">
+        <Grid Grid.Row="2" Padding="16" ColumnSpacing="8" RowSpacing="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+            <StackPanel
+                Grid.ColumnSpan="3"
+                Orientation="Horizontal"
+                Spacing="8"
+                Visibility="{x:Bind BoolToVisibility(ViewModel.IsBusy), Mode=OneWay}">
+                <ProgressRing
+                    Width="20"
+                    Height="20"
+                    IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                <TextBlock
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Assistant is working…" />
+            </StackPanel>
             <TextBox
+                x:Name="DraftBox"
+                Grid.Row="1"
                 AcceptsReturn="True"
+                KeyDown="DraftBox_KeyDown"
                 MaxHeight="96"
                 PlaceholderText="Ask to list containers, deploy WordPress, stop all running containers…"
                 Text="{x:Bind ViewModel.Draft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                 TextWrapping="Wrap" />
             <Button
+                Grid.Row="1"
                 Grid.Column="1"
                 Command="{x:Bind ViewModel.SendCommand}"
                 Content="Send" />
             <Button
+                Grid.Row="1"
                 Grid.Column="2"
                 Command="{x:Bind ViewModel.CancelCommand}"
                 Content="Stop" />

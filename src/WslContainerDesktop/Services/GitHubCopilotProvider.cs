@@ -17,6 +17,7 @@
 using System.Text;
 using System.Text.Json;
 using GitHub.Copilot;
+using GitHub.Copilot.Rpc;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Windows.Storage;
@@ -24,6 +25,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+#pragma warning disable GHCP001 // Required SDK permission hook so Copilot surfaces our declared tool calls to the app gate.
 public sealed class GitHubCopilotProvider(
     ISettingsService settings,
     ILogger<GitHubCopilotProvider> logger) : IAiProvider, IAiChatProvider
@@ -135,6 +137,7 @@ public sealed class GitHubCopilotProvider(
             await using var client = CreateClient();
             await client.StartAsync(timeout.Token).ConfigureAwait(false);
             var model = await ResolveModelAsync(client, timeout.Token).ConfigureAwait(false);
+            var allowlistedToolNames = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
 
             await using var session = await client.CreateSessionAsync(new SessionConfig
             {
@@ -153,6 +156,7 @@ public sealed class GitHubCopilotProvider(
                 EnableHostGitOperations = false,
                 EnableSessionStore = false,
                 WorkingDirectory = SafeWorkingDirectory(),
+                OnPermissionRequest = (request, _) => Task.FromResult(HandleToolPermissionRequest(request, allowlistedToolNames)),
             }, timeout.Token).ConfigureAwait(false);
 
             var prompt = BuildCopilotChatPrompt(history.Where(m => m.Role != "system"));
@@ -201,6 +205,20 @@ public sealed class GitHubCopilotProvider(
         }
 
         return declarations;
+    }
+
+    private static PermissionDecision HandleToolPermissionRequest(
+        PermissionRequest request,
+        IReadOnlySet<string> allowlistedToolNames)
+    {
+        if (request is PermissionRequestCustomTool customTool
+            && !string.IsNullOrWhiteSpace(customTool.ToolName)
+            && allowlistedToolNames.Contains(customTool.ToolName))
+        {
+            return PermissionDecision.ApproveOnce();
+        }
+
+        return PermissionDecision.Reject("Only WSL Container Desktop's declared allowlisted assistant tools may run.");
     }
 
     private static string BuildCopilotChatPrompt(IEnumerable<AiChatMessage> history)
@@ -309,3 +327,4 @@ public sealed class GitHubCopilotProvider(
 
     private sealed record CopilotRunResult(string Content, string RequestedModel, string ActualModel);
 }
+#pragma warning restore GHCP001
