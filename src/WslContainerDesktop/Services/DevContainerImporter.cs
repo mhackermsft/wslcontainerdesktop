@@ -38,6 +38,29 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
         "readOnly", "read_only", "init", "pid", "ipc", "macAddress", "mac_address",
     };
 
+    // Every devcontainer.json property we either translate or intentionally ignore (VS Code-specific
+    // keys, metadata). Any top-level key not listed here (and not in EngineUnsupportedKeys) is treated
+    // as unrecognized and surfaced as a warning, mirroring ComposeImporter's unsupported-key warnings.
+    private static readonly HashSet<string> KnownKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Base / build / compose
+        "name", "image", "build", "dockerFile", "context", "dockerComposeFile", "service", "runServices",
+        // Workspace / runtime
+        "workspaceFolder", "workspaceMount", "mounts", "runArgs", "overrideCommand", "shutdownAction",
+        // User / environment
+        "remoteUser", "containerUser", "updateRemoteUserUID", "updateRemoteUserUid", "userEnvProbe",
+        "containerEnv", "remoteEnv",
+        // Ports
+        "forwardPorts", "appPort", "portsAttributes", "otherPortsAttributes",
+        // Features
+        "features", "overrideFeatureInstallOrder",
+        // Lifecycle
+        "initializeCommand", "onCreateCommand", "updateContentCommand",
+        "postCreateCommand", "postStartCommand", "postAttachCommand", "waitFor",
+        // Editor-specific / metadata (silently ignored, not our concern)
+        "customizations", "settings", "extensions", "hostRequirements", "securityOpt",
+    };
+
     public async Task<DevContainerImportResult> ImportAsync(string workspacePath, CancellationToken ct = default)
     {
         try
@@ -133,6 +156,10 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
             if (EngineUnsupportedKeys.Contains(prop.Name))
             {
                 warnings.Add($"'{prop.Name}' is not supported by the WSL container engine and was ignored.");
+            }
+            else if (!KnownKeys.Contains(prop.Name))
+            {
+                warnings.Add($"'{prop.Name}' is not a recognized devcontainer.json property and was ignored.");
             }
         }
         return warnings;
