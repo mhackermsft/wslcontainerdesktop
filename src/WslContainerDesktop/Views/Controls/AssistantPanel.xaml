@@ -96,11 +96,11 @@
                 Grid.ColumnSpan="3"
                 Orientation="Horizontal"
                 Spacing="8"
-                Visibility="{x:Bind BoolToVisibility(ViewModel.IsBusy), Mode=OneWay}">
+                Visibility="{x:Bind BoolToVisibility(ViewModel.IsWorking), Mode=OneWay}">
                 <ProgressRing
                     Width="20"
                     Height="20"
-                    IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                    IsActive="{x:Bind ViewModel.IsWorking, Mode=OneWay}" />
                 <TextBlock
                     VerticalAlignment="Center"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -110,9 +110,9 @@
                 x:Name="DraftBox"
                 Grid.Row="1"
                 AcceptsReturn="True"
-                KeyDown="DraftBox_KeyDown"
                 MaxHeight="96"
                 PlaceholderText="Ask to list containers, deploy WordPress, stop all running containers…"
+                PreviewKeyDown="DraftBox_PreviewKeyDown"
                 Text="{x:Bind ViewModel.Draft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                 TextWrapping="Wrap" />
             <Button

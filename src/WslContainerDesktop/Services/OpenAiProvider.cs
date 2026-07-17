@@ -76,9 +76,10 @@ public sealed class OpenAiProvider(HttpClient http, ISettingsService settings, I
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
     }
 
-    public async Task<AiToolTurn> ChatAsync(
+    public async Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct)
     {
         if (!credentials.TryReadSecret(AiProviderKind.OpenAi, out var key) || string.IsNullOrWhiteSpace(key))
@@ -91,27 +92,50 @@ public sealed class OpenAiProvider(HttpClient http, ISettingsService settings, I
             throw new InvalidOperationException("Choose an OpenAI model in Settings first.");
         }
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, ChatCompletionsUri());
-        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-        message.Content = JsonContent.Create(new
+        var messages = history.ToList();
+        for (var i = 0; i < 8; i++)
         {
-            model = settings.AiOpenAiModel.Trim(),
-            temperature = 0.2,
-            messages = history.Select(ToOpenAiMessage).ToList(),
-            tools = tools.Select(ToOpenAiTool).ToList(),
-            tool_choice = "auto",
-        });
+            using var message = new HttpRequestMessage(HttpMethod.Post, ChatCompletionsUri());
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            message.Content = JsonContent.Create(new
+            {
+                model = settings.AiOpenAiModel.Trim(),
+                temperature = 0.2,
+                messages = messages.Select(ToOpenAiMessage).ToList(),
+                tools = tools.Select(ToOpenAiTool).ToList(),
+                tool_choice = "auto",
+            });
 
-        using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"OpenAI chat request failed ({(int)response.StatusCode}): {Trim(body)}");
+            using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"OpenAI chat request failed ({(int)response.StatusCode}): {Trim(body)}");
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
+            var turn = ParseToolTurn(root);
+            if (turn.ToolCalls.Count == 0)
+            {
+                return string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : turn.AssistantText!;
+            }
+
+            messages.Add(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls });
+            foreach (var call in turn.ToolCalls)
+            {
+                var toolResult = await invokeToolAsync(call, ct).ConfigureAwait(false);
+                messages.Add(new AiChatMessage
+                {
+                    Role = "tool",
+                    ToolCallId = call.Id,
+                    ToolName = call.Name,
+                    Content = toolResult,
+                });
+            }
         }
 
-        using var doc = JsonDocument.Parse(body);
-        var root = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
-        return ParseToolTurn(root);
+        throw new InvalidOperationException("Stopped because the assistant reached the tool-iteration limit.");
     }
 
     private Uri ChatCompletionsUri()

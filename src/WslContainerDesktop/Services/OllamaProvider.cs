@@ -77,9 +77,10 @@ public sealed class OllamaProvider(HttpClient http, ISettingsService settings) :
 
     private static string Trim(string text) => text.Length <= 500 ? text : text[..500] + "…";
 
-    public Task<AiToolTurn> ChatAsync(
+    public Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct) =>
         throw new NotSupportedException("The Container AI Assistant requires a tool-capable provider. Choose GitHub Copilot, Azure OpenAI, or OpenAI-compatible in Settings.");
 }

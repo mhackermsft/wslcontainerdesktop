@@ -32,15 +32,29 @@
             <TitleBar.RightHeader>
                 <Button
                     x:Name="AssistantButton"
-                    Width="40"
-                    Height="32"
-                    Padding="0"
+                    MinWidth="0"
+                    Height="36"
+                    Margin="0,0,8,0"
+                    Padding="12,6"
+                    VerticalAlignment="Center"
                     AutomationProperties.Name="Open Container AI Assistant"
+                    Background="{ThemeResource AccentFillColorSecondaryBrush}"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                    CornerRadius="{ThemeResource ControlCornerRadius}"
+                    Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
                     Click="AssistantButton_Click"
-                    Style="{StaticResource SubtleButtonStyle}"
                     ToolTipService.ToolTip="Container AI Assistant"
                     Visibility="Collapsed">
-                    <PathIcon Data="M8,0 L9.6,6.4 L16,8 L9.6,9.6 L8,16 L6.4,9.6 L0,8 L6.4,6.4 Z" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon
+                            Width="16"
+                            Height="16"
+                            Data="M8,0 L9.6,6.4 L16,8 L9.6,9.6 L8,16 L6.4,9.6 L0,8 L6.4,6.4 Z" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            Style="{ThemeResource BodyStrongTextBlockStyle}"
+                            Text="Assistant" />
+                    </StackPanel>
                 </Button>
             </TitleBar.RightHeader>
         </TitleBar>

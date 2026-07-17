@@ -20,6 +20,8 @@ namespace WslContainerDesktop.Services;
 
 public interface IContainerAssistant
 {
+    event EventHandler<AssistantApprovalRequest?>? ApprovalChanged;
+
     Task<AssistantTurnResult> SendAsync(string userMessage, CancellationToken ct = default);
 
     Task<AssistantTurnResult> ApproveAsync(AssistantApprovalRequest approval, CancellationToken ct = default);

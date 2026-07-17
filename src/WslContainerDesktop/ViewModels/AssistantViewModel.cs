@@ -17,14 +17,17 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Dispatching;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
-public partial class AssistantViewModel(IContainerAssistant assistant) : ObservableObject
+public partial class AssistantViewModel : ObservableObject
 {
+    private readonly IContainerAssistant _assistant;
     private CancellationTokenSource? _sendCts;
+    private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
     public ObservableCollection<AssistantChatMessage> Messages { get; } = new()
     {
@@ -49,7 +52,31 @@ public partial class AssistantViewModel(IContainerAssistant assistant) : Observa
 
     public bool HasPendingApproval => PendingApproval is not null;
 
-    partial void OnPendingApprovalChanged(AssistantApprovalRequest? value) => OnPropertyChanged(nameof(HasPendingApproval));
+    public bool IsWorking => IsBusy && PendingApproval is null;
+
+    partial void OnIsBusyChanged(bool value) => OnPropertyChanged(nameof(IsWorking));
+
+    partial void OnPendingApprovalChanged(AssistantApprovalRequest? value)
+    {
+        OnPropertyChanged(nameof(HasPendingApproval));
+        OnPropertyChanged(nameof(IsWorking));
+    }
+
+    public AssistantViewModel(IContainerAssistant assistant)
+    {
+        _assistant = assistant;
+        assistant.ApprovalChanged += (_, approval) =>
+        {
+            if (_dispatcher is null || _dispatcher.HasThreadAccess)
+            {
+                PendingApproval = approval;
+            }
+            else
+            {
+                _dispatcher.TryEnqueue(() => PendingApproval = approval);
+            }
+        };
+    }
 
     private bool CanSend() => !IsBusy && !string.IsNullOrWhiteSpace(Draft);
 
@@ -60,7 +87,7 @@ public partial class AssistantViewModel(IContainerAssistant assistant) : Observa
         Draft = string.Empty;
         PendingApproval = null;
         Messages.Add(new AssistantChatMessage { Role = AssistantMessageRole.User, Text = text });
-        await RunAssistantAsync(ct => assistant.SendAsync(text, ct));
+        await RunAssistantAsync(ct => _assistant.SendAsync(text, ct));
     }
 
     [RelayCommand(CanExecute = nameof(IsBusy))]
@@ -78,7 +105,7 @@ public partial class AssistantViewModel(IContainerAssistant assistant) : Observa
         }
 
         PendingApproval = null;
-        await RunAssistantAsync(ct => assistant.ApproveAsync(approval, ct));
+        await _assistant.ApproveAsync(approval);
     }
 
     [RelayCommand]
@@ -90,7 +117,7 @@ public partial class AssistantViewModel(IContainerAssistant assistant) : Observa
         }
 
         PendingApproval = null;
-        await RunAssistantAsync(ct => assistant.RejectAsync(approval, ct));
+        await _assistant.RejectAsync(approval);
     }
 
     private async Task RunAssistantAsync(Func<CancellationToken, Task<AssistantTurnResult>> run)

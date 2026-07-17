@@ -22,8 +22,9 @@ public interface IAiChatProvider
 {
     AiProviderKind Kind { get; }
 
-    Task<AiToolTurn> ChatAsync(
+    Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct);
 }

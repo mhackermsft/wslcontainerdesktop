@@ -41,7 +41,7 @@ public sealed partial class AssistantPanel : UserControl
 
     private void Close_Click(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
 
-    private void DraftBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void DraftBox_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != VirtualKey.Enter || IsShiftDown())
         {

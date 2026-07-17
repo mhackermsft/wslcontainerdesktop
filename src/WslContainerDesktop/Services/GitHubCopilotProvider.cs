@@ -124,9 +124,10 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
-    public async Task<AiToolTurn> ChatAsync(
+    public async Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -147,7 +148,7 @@ public sealed class GitHubCopilotProvider(
                     Mode = SystemMessageMode.Replace,
                     Content = history.FirstOrDefault(m => m.Role == "system")?.Content ?? string.Empty,
                 },
-                Tools = BuildCopilotToolDeclarations(tools),
+                Tools = BuildCopilotTools(tools, invokeToolAsync),
                 AvailableTools = tools.Select(t => t.Name).ToList(),
                 InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
                 EnableSkills = false,
@@ -166,21 +167,7 @@ public sealed class GitHubCopilotProvider(
                 timeout.Token).ConfigureAwait(false);
 
             var data = message?.Data ?? throw new InvalidOperationException("GitHub Copilot returned no assistant message.");
-            var toolCalls = (data.ToolRequests ?? Array.Empty<AssistantMessageToolRequest>())
-                .Where(r => !string.IsNullOrWhiteSpace(r.Name))
-                .Select(r => new AiToolCall
-                {
-                    Id = string.IsNullOrWhiteSpace(r.ToolCallId) ? Guid.NewGuid().ToString("N") : r.ToolCallId,
-                    Name = r.Name!,
-                    ArgumentsJson = r.Arguments?.GetRawText() ?? "{}",
-                })
-                .ToList();
-
-            return new AiToolTurn
-            {
-                AssistantText = data.Content,
-                ToolCalls = toolCalls,
-            };
+            return string.IsNullOrWhiteSpace(data.Content) ? "Done." : data.Content;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -195,13 +182,14 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
-    private static ICollection<AIFunctionDeclaration> BuildCopilotToolDeclarations(IReadOnlyList<AiToolDefinition> tools)
+    private static ICollection<AIFunctionDeclaration> BuildCopilotTools(
+        IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync)
     {
         var declarations = new List<AIFunctionDeclaration>();
         foreach (var tool in tools)
         {
-            using var schema = JsonDocument.Parse(tool.JsonSchemaParameters);
-            declarations.Add(AIFunctionFactory.CreateDeclaration(tool.Name, tool.Description, schema.RootElement.Clone(), returnJsonSchema: null));
+            declarations.Add(new DelegatingAssistantFunction(tool, invokeToolAsync));
         }
 
         return declarations;
@@ -243,6 +231,33 @@ public sealed class GitHubCopilotProvider(
         }
 
         return builder.ToString();
+    }
+
+    private sealed class DelegatingAssistantFunction(
+        AiToolDefinition definition,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync) : AIFunction
+    {
+        private readonly JsonElement _schema = JsonDocument.Parse(definition.JsonSchemaParameters).RootElement.Clone();
+
+        public override string Name => definition.Name;
+
+        public override string Description => definition.Description;
+
+        public override JsonElement JsonSchema => _schema;
+
+        protected override async ValueTask<object?> InvokeCoreAsync(
+            AIFunctionArguments arguments,
+            CancellationToken cancellationToken)
+        {
+            var json = JsonSerializer.Serialize(arguments.ToDictionary(kvp => kvp.Key, kvp => kvp.Value));
+            var call = new AiToolCall
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = definition.Name,
+                ArgumentsJson = json,
+            };
+            return await invokeToolAsync(call, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private CopilotClient CreateClient()

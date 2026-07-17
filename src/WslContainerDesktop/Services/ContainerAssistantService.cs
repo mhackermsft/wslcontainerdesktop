@@ -27,10 +27,11 @@ public sealed class ContainerAssistantService(
     IActivityLog activity,
     ILogger<ContainerAssistantService> logger) : IContainerAssistant
 {
-    private const int MaxToolIterations = 8;
     private readonly List<AiChatMessage> _history = new() { new AiChatMessage { Role = "system", Content = SystemPrompt } };
     private readonly Dictionary<string, PendingApproval> _pending = new(StringComparer.Ordinal);
     private readonly object _stateGate = new();
+
+    public event EventHandler<AssistantApprovalRequest?>? ApprovalChanged;
 
     public async Task<AssistantTurnResult> SendAsync(string userMessage, CancellationToken ct = default)
     {
@@ -47,12 +48,24 @@ public sealed class ContainerAssistantService(
 
         try
         {
+            var provider = providers.FirstOrDefault(p => p.Kind == settings.AiProvider)
+                ?? throw new InvalidOperationException($"AI provider '{settings.AiProvider}' is not registered for assistant chat.");
+            var definitions = await tools.GetDefinitionsAsync(ct).ConfigureAwait(false);
+            IReadOnlyList<AiChatMessage> snapshot;
             lock (_stateGate)
             {
                 _history.Add(new AiChatMessage { Role = "user", Content = userMessage.Trim() });
+                snapshot = _history.ToList();
             }
 
-            return await ContinueLoopAsync(ct).ConfigureAwait(false);
+            var text = await provider.RunTurnAsync(snapshot, definitions, InvokeToolAsync, ct).ConfigureAwait(false);
+            var finalText = string.IsNullOrWhiteSpace(text) ? "Done." : text.Trim();
+            lock (_stateGate)
+            {
+                _history.Add(new AiChatMessage { Role = "assistant", Content = finalText });
+            }
+
+            return OneMessage(AssistantMessageRole.Assistant, finalText);
         }
         catch (OperationCanceledException)
         {
@@ -63,9 +76,13 @@ public sealed class ContainerAssistantService(
             logger.LogWarning(ex, "Container assistant failed.");
             return OneMessage(AssistantMessageRole.Error, ex.Message);
         }
+        finally
+        {
+            ApprovalChanged?.Invoke(this, null);
+        }
     }
 
-    public async Task<AssistantTurnResult> ApproveAsync(AssistantApprovalRequest approval, CancellationToken ct = default)
+    public Task<AssistantTurnResult> ApproveAsync(AssistantApprovalRequest approval, CancellationToken ct = default)
     {
         PendingApproval? pending;
         lock (_stateGate)
@@ -73,126 +90,67 @@ public sealed class ContainerAssistantService(
             _pending.Remove(approval.Id, out pending);
         }
 
-        if (pending is null)
+        pending?.Decision.TrySetResult(true);
+        return Task.FromResult(new AssistantTurnResult());
+    }
+
+    public Task<AssistantTurnResult> RejectAsync(AssistantApprovalRequest approval, CancellationToken ct = default)
+    {
+        PendingApproval? pending;
+        lock (_stateGate)
         {
-            return OneMessage(AssistantMessageRole.Error, "That approval request is no longer available.");
+            _pending.Remove(approval.Id, out pending);
         }
 
-        Audit(ActivityKind.AssistantApprovalApproved, $"Approved: {pending.Tool.Call.Name}", pending.Tool.Details);
+        pending?.Decision.TrySetResult(false);
+        return Task.FromResult(new AssistantTurnResult());
+    }
+
+    private async Task<string> InvokeToolAsync(AiToolCall call, CancellationToken ct)
+    {
+        var resolved = await tools.ResolveAsync(call, ct).ConfigureAwait(false);
+        if (!gate.RequiresApproval(resolved.Category))
+        {
+            return await ExecuteToolAsync(resolved, ct).ConfigureAwait(false);
+        }
+
+        var approval = new AssistantApprovalRequest
+        {
+            ToolName = call.Name,
+            Category = resolved.Category,
+            Risk = gate.Classify(resolved.Category),
+            Summary = resolved.Summary,
+            Details = resolved.Details,
+        };
+        var pending = new PendingApproval(resolved, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
+        lock (_stateGate)
+        {
+            _pending[approval.Id] = pending;
+        }
+
+        Audit(ActivityKind.AssistantToolInvoked, $"Approval required: {call.Name}", resolved.Details);
+        ApprovalChanged?.Invoke(this, approval);
         try
         {
-            var output = await ExecuteToolAsync(pending.Tool, ct).ConfigureAwait(false);
-            lock (_stateGate)
+            await using var registration = ct.Register(() => pending.Decision.TrySetCanceled(ct));
+            var approved = await pending.Decision.Task.ConfigureAwait(false);
+            ApprovalChanged?.Invoke(this, null);
+            if (!approved)
             {
-                _history.Add(ToolResult(pending.Tool.Call, output));
+                Audit(ActivityKind.AssistantApprovalRejected, $"Rejected: {call.Name}", resolved.Details);
+                return "The user rejected this action. Do not perform it; explain that it was not run.";
             }
 
-            return await ContinueLoopAsync(ct).ConfigureAwait(false);
+            Audit(ActivityKind.AssistantApprovalApproved, $"Approved: {call.Name}", resolved.Details);
+            return await ExecuteToolAsync(resolved, ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Approved assistant action failed.");
-            return OneMessage(AssistantMessageRole.Error, ex.Message);
-        }
-    }
-
-    public async Task<AssistantTurnResult> RejectAsync(AssistantApprovalRequest approval, CancellationToken ct = default)
-    {
-        PendingApproval? pending;
-        lock (_stateGate)
-        {
-            _pending.Remove(approval.Id, out pending);
-        }
-
-        Audit(ActivityKind.AssistantApprovalRejected, $"Rejected: {approval.ToolName}", approval.Details);
-        if (pending is not null)
+        finally
         {
             lock (_stateGate)
             {
-                _history.Add(ToolResult(pending.Tool.Call, "The user rejected this tool call. Do not perform the action; explain that it was not run."));
-            }
-
-            return await ContinueLoopAsync(ct).ConfigureAwait(false);
-        }
-
-        return OneMessage(AssistantMessageRole.Assistant, "Rejected. The action was not run.");
-    }
-
-    private async Task<AssistantTurnResult> ContinueLoopAsync(CancellationToken ct)
-    {
-        var provider = providers.FirstOrDefault(p => p.Kind == settings.AiProvider)
-            ?? throw new InvalidOperationException($"AI provider '{settings.AiProvider}' is not registered for assistant chat.");
-        var definitions = await tools.GetDefinitionsAsync(ct).ConfigureAwait(false);
-        var result = new AssistantTurnResult();
-
-        for (var i = 0; i < MaxToolIterations; i++)
-        {
-            IReadOnlyList<AiChatMessage> snapshot;
-            lock (_stateGate)
-            {
-                snapshot = _history.ToList();
-            }
-
-            var turn = await provider.ChatAsync(snapshot, definitions, ct).ConfigureAwait(false);
-            if (turn.ToolCalls.Count == 0)
-            {
-                var text = string.IsNullOrWhiteSpace(turn.AssistantText)
-                    ? "Done."
-                    : turn.AssistantText.Trim();
-                lock (_stateGate)
-                {
-                    _history.Add(new AiChatMessage { Role = "assistant", Content = text });
-                }
-
-                result.Messages.Add(AssistantMessage(AssistantMessageRole.Assistant, text));
-                return result;
-            }
-
-            lock (_stateGate)
-            {
-                _history.Add(new AiChatMessage
-                {
-                    Role = "assistant",
-                    Content = turn.AssistantText,
-                    ToolCalls = turn.ToolCalls,
-                });
-            }
-
-            foreach (var call in turn.ToolCalls)
-            {
-                var resolved = await tools.ResolveAsync(call, ct).ConfigureAwait(false);
-                if (gate.RequiresApproval(resolved.Category))
-                {
-                    var approval = new AssistantApprovalRequest
-                    {
-                        ToolName = call.Name,
-                        Category = resolved.Category,
-                        Risk = gate.Classify(resolved.Category),
-                        Summary = resolved.Summary,
-                        Details = resolved.Details,
-                    };
-                    lock (_stateGate)
-                    {
-                        _pending[approval.Id] = new PendingApproval(resolved);
-                    }
-
-                    Audit(ActivityKind.AssistantToolInvoked, $"Approval required: {call.Name}", resolved.Details);
-                    result.Approval = approval;
-                    result.Messages.Add(AssistantMessage(AssistantMessageRole.Assistant,
-                        "This tool call needs approval. Review the resolved action below before it runs."));
-                    return result;
-                }
-
-                var output = await ExecuteToolAsync(resolved, ct).ConfigureAwait(false);
-                lock (_stateGate)
-                {
-                    _history.Add(ToolResult(call, output));
-                }
+                _pending.Remove(approval.Id);
             }
         }
-
-        result.Messages.Add(AssistantMessage(AssistantMessageRole.Error, "Stopped because the assistant reached the tool-iteration limit."));
-        return result;
     }
 
     private async Task<string> ExecuteToolAsync(AssistantResolvedToolCall tool, CancellationToken ct)
@@ -211,14 +169,6 @@ public sealed class ContainerAssistantService(
             Detail = detail,
         });
 
-    private static AiChatMessage ToolResult(AiToolCall call, string output) => new()
-    {
-        Role = "tool",
-        ToolCallId = call.Id,
-        ToolName = call.Name,
-        Content = output,
-    };
-
     private static AssistantChatMessage AssistantMessage(AssistantMessageRole role, string text) => new()
     {
         Role = role,
@@ -230,7 +180,9 @@ public sealed class ContainerAssistantService(
         Messages = { AssistantMessage(role, text) },
     };
 
-    private sealed record PendingApproval(AssistantResolvedToolCall Tool);
+    private sealed record PendingApproval(
+        AssistantResolvedToolCall Tool,
+        TaskCompletionSource<bool> Decision);
 
     private const string SystemPrompt = """
         You are the Container AI Assistant for WSL Container Desktop.
