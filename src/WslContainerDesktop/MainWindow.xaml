@@ -208,7 +208,7 @@
                 MinWidth="380"
                 MaxWidth="640"
                 HorizontalAlignment="Right"
-                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                 BorderThickness="1,0,0,0">
                 <controls:AssistantPanel x:Name="AssistantPanel" CloseRequested="AssistantPanel_CloseRequested" />
