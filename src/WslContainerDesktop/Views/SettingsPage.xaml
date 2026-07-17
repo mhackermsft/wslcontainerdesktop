@@ -307,7 +307,10 @@
                         <StackPanel Spacing="10">
                             <Button
                                 Command="{x:Bind ViewModel.SignInGitHubCopilotCommand}"
-                                Content="Sign in with GitHub (not wired yet)" />
+                                Content="GitHub Copilot sign-in info" />
+                            <TextBox
+                                Header="GitHub Copilot model"
+                                Text="{x:Bind ViewModel.AiGitHubCopilotModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             <TextBox
                                 Header="Ollama endpoint"
                                 Text="{x:Bind ViewModel.AiOllamaEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
@@ -335,8 +338,8 @@
                                 <PasswordBox
                                     x:Name="AiApiKeyBox"
                                     Grid.Column="0"
-                                    Header="API key (Azure OpenAI / OpenAI)"
-                                    PlaceholderText="Stored in Windows Credential Manager, never settings.json" />
+                                    Header="API key / GitHub token"
+                                    PlaceholderText="Optional GitHub token or provider key; stored in Windows Credential Manager" />
                                 <Button
                                     Grid.Column="1"
                                     VerticalAlignment="Bottom"

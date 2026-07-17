@@ -63,6 +63,8 @@ public interface ISettingsService
 
     string AiOpenAiModel { get; set; }
 
+    string AiGitHubCopilotModel { get; set; }
+
     /// <summary>WSL distro to host the k3s cluster. Null/empty uses the WSL default distro.</summary>
     string? WslDistro { get; set; }
 

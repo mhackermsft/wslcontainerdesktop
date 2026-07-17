@@ -95,6 +95,9 @@ public partial class SettingsViewModel : ObservableObject
     private string _aiOpenAiModel = string.Empty;
 
     [ObservableProperty]
+    private string _aiGitHubCopilotModel = string.Empty;
+
+    [ObservableProperty]
     private string _aiApiKey = string.Empty;
 
     [ObservableProperty]
@@ -152,6 +155,7 @@ public partial class SettingsViewModel : ObservableObject
         _aiAzureOpenAiDeployment = settings.AiAzureOpenAiDeployment;
         _aiOpenAiEndpoint = settings.AiOpenAiEndpoint;
         _aiOpenAiModel = settings.AiOpenAiModel;
+        _aiGitHubCopilotModel = settings.AiGitHubCopilotModel;
         _selectedThemeIndex = settings.Theme switch
         {
             "Light" => 1,
@@ -259,16 +263,22 @@ public partial class SettingsViewModel : ObservableObject
         _settings.Save();
     }
 
+    partial void OnAiGitHubCopilotModelChanged(string value)
+    {
+        _settings.AiGitHubCopilotModel = value;
+        _settings.Save();
+    }
+
     public void SaveAiApiKey(string secret)
     {
-        if (_settings.AiProvider is not (AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi) || string.IsNullOrWhiteSpace(secret))
+        if (_settings.AiProvider is not (AiProviderKind.GitHubCopilot or AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi) || string.IsNullOrWhiteSpace(secret))
         {
             return;
         }
 
         _aiCredentials.WriteSecret(_settings.AiProvider, secret);
         AiApiKey = string.Empty;
-        AiStatus = $"Saved {_settings.AiProvider} key in Windows Credential Manager.";
+        AiStatus = $"Saved {_settings.AiProvider} credential in Windows Credential Manager.";
     }
 
     private void LoadStoredAiSecretIndicator()
@@ -441,7 +451,7 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task SignInGitHubCopilotAsync()
     {
-        AiStatus = "GitHub Copilot sign-in is not wired yet. Use Ollama, Azure OpenAI, or OpenAI.";
+        AiStatus = "GitHub Copilot uses the logged-in Copilot CLI user by default. You can also save a GitHub token for this provider.";
         await _dialogs.ShowMessageAsync("GitHub Copilot", AiStatus);
     }
 
