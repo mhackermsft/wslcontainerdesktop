@@ -50,6 +50,7 @@ public sealed class AssistantToolset(
             Tool("stop_all_containers", "Stop running containers. Set namePrefix or nameContains to restrict to matching names (e.g. namePrefix \"wordpress_\"); omit BOTH filters to stop every running container.", BulkContainerSchema(includeOnlyRunning: false)),
             Tool("remove_all_containers", "Remove containers after the app resolves the target list. Set namePrefix or nameContains to restrict to matching names (e.g. namePrefix \"wordpress_\"); omit BOTH filters to remove every container. Prefer this with a filter over multiple remove_container calls when the user names a group.", BulkContainerSchema(includeOnlyRunning: true)),
             Tool("deploy_template", "Deploy an app template by id or name. Available templates include: " + TemplateList(), ObjectSchema(("idOrName", "string", "Template id or name, e.g. wordpress"))),
+            Tool("deploy_compose", "Deploy a multi-container application from a docker-compose YAML as a single project. ALWAYS use this (or deploy_template) for apps with more than one container (e.g. app + database, app + cache) so services share a network and can resolve each other by service name over DNS. Do NOT wire multiple run_container calls together.", DeployComposeSchema()),
             Tool("create_volume", "Create a named volume.", ObjectSchema(("name", "string", "Volume name"))),
             Tool("remove_volume", "Remove a named volume.", ObjectSchema(("name", "string", "Volume name"))),
             Tool("create_network", "Create a named network.", ObjectSchema(("name", "string", "Network name"))),
@@ -104,6 +105,7 @@ public sealed class AssistantToolset(
             "stop_all_containers" => await ResolveStopAllAsync(call, OptionalStringArg(args, "namePrefix"), OptionalStringArg(args, "nameContains"), ct).ConfigureAwait(false),
             "remove_all_containers" => await ResolveRemoveAllAsync(call, BoolArg(args, "onlyRunning", true), OptionalStringArg(args, "namePrefix"), OptionalStringArg(args, "nameContains"), ct).ConfigureAwait(false),
             "deploy_template" => Resolved(call, AssistantPermissionCategory.ComposeTemplate, $"Deploy template {StringArg(args, "idOrName")}", call.ArgumentsJson, token => DeployTemplateAsync(StringArg(args, "idOrName"), token)),
+            "deploy_compose" => ResolveDeployCompose(call, args),
             "create_volume" => Resolved(call, AssistantPermissionCategory.CreateRun, $"Create volume {StringArg(args, "name")}", call.ArgumentsJson, token => CreateVolumeAsync(StringArg(args, "name"), token)),
             "remove_volume" => Resolved(call, AssistantPermissionCategory.Destructive, $"Remove volume {StringArg(args, "name")}", call.ArgumentsJson, token => RemoveVolumeAsync(StringArg(args, "name"), token)),
             "create_network" => Resolved(call, AssistantPermissionCategory.CreateRun, $"Create network {StringArg(args, "name")}", call.ArgumentsJson, token => CreateNetworkAsync(StringArg(args, "name"), token)),
@@ -291,6 +293,59 @@ public sealed class AssistantToolset(
         return Summarize(await wslc.RunContainerAsync(template.RunOptions.Clone(), ct).ConfigureAwait(false));
     }
 
+    [Description("State-changing: deploy a multi-container app from a docker-compose YAML as a single project (shared network + DNS).")]
+    public async Task<string> DeployComposeAsync(string yaml, string? projectName, CancellationToken ct)
+    {
+        var text = RequireValue(yaml, "compose YAML");
+        var project = ComposeImporter.ParseProject(text);
+        if (project.Services.Count == 0)
+        {
+            return "The compose YAML defines no services.";
+        }
+
+        project.Name = ResolveComposeProjectName(projectName, project.Name);
+        composeStore.Save(project);
+        var up = await composeSupervisor.UpAsync(project, ct).ConfigureAwait(false);
+        return $"Deployed compose project '{project.Name}'. Started {up.Started}/{up.Services.Count} services: {string.Join(", ", project.Services.Select(s => s.Name))}.";
+    }
+
+    private AssistantResolvedToolCall ResolveDeployCompose(AiToolCall call, JsonElement args)
+    {
+        var yaml = StringArg(args, "yaml");
+        var projectName = OptionalStringArg(args, "projectName");
+        string summary;
+        string details;
+        try
+        {
+            var preview = ComposeImporter.ParseProject(yaml);
+            var name = ResolveComposeProjectName(projectName, preview.Name);
+            summary = $"Deploy compose project '{name}'";
+            details = preview.Services.Count == 0
+                ? "Warning: the compose YAML defines no services."
+                : "Services:\n" + string.Join(Environment.NewLine, preview.Services.Select(s => $"- {s.Name} ({s.Options.Image})"));
+        }
+        catch (Exception ex)
+        {
+            summary = "Deploy compose project";
+            details = "Compose YAML could not be parsed: " + ex.Message;
+        }
+
+        return Resolved(call, AssistantPermissionCategory.ComposeTemplate, summary, details, token => DeployComposeAsync(yaml, projectName, token));
+    }
+
+    private static string ResolveComposeProjectName(string? requested, string? parsed)
+    {
+        var candidate = !string.IsNullOrWhiteSpace(requested) ? requested : parsed;
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return "ai-compose";
+        }
+
+        var sanitized = new string(candidate.Trim().ToLowerInvariant()
+            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-').ToArray()).Trim('-');
+        return string.IsNullOrWhiteSpace(sanitized) ? "ai-compose" : sanitized;
+    }
+
     public static RunContainerOptions CreateNginxHelloWorldOptions() => new()
     {
         Image = "nginx:alpine",
@@ -382,6 +437,12 @@ public sealed class AssistantToolset(
         var required = string.Join(",", properties.Where(p => !p.Name.Equals("namespace", StringComparison.OrdinalIgnoreCase) && !p.Name.Equals("tail", StringComparison.OrdinalIgnoreCase)).Select(p => JsonSerializer.Serialize(p.Name)));
         return $$"""{"type":"object","properties":{ {{props}} },"required":[{{required}}],"additionalProperties":false}""";
     }
+
+    private static string DeployComposeSchema() =>
+        "{\"type\":\"object\",\"properties\":{" +
+        "\"yaml\":{\"type\":\"string\",\"description\":\"A complete docker-compose YAML defining all services (e.g. wordpress + db). Services resolve each other by service name over DNS.\"}," +
+        "\"projectName\":{\"type\":\"string\",\"description\":\"Optional project name; defaults to the compose 'name' or 'ai-compose'.\"}" +
+        "},\"required\":[\"yaml\"],\"additionalProperties\":false}";
 
     private static string BulkContainerSchema(bool includeOnlyRunning)
     {

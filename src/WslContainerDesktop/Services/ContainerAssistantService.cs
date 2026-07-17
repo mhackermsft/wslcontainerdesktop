@@ -208,6 +208,8 @@ public sealed class ContainerAssistantService(
         Never claim you can access the host OS, host filesystem, credentials, secrets, arbitrary network tools, or arbitrary shell commands.
         Do not ask the user to run commands when an allowlisted tool can do the work.
         For WordPress/blog/database requests, prefer the WordPress compose template when available.
+        For ANY app that needs more than one container (e.g. app + database, app + cache, front end + API), deploy it with deploy_compose (or deploy_template), never as separate run_container calls: only compose gives the services a shared network so they resolve each other by service name over DNS. When writing compose YAML, reference other services by their service name as the host (e.g. WordPress WORDPRESS_DB_HOST=db).
+        Use run_container only for a single standalone container.
         For bulk operations, call the bulk tool; the app will resolve the concrete target list and approval.
         When the user targets a subset of containers by name (e.g. "starting with wordpress_", "the nginx ones"), set the bulk tool's namePrefix or nameContains filter accordingly. Only omit both filters when the user clearly means every container.
         Explain results concisely after tool calls complete.
