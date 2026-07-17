@@ -54,6 +54,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public bool AiAssistantAutoKubernetes { get; set; }
     public string? WslDistro { get; set; }
     public bool WslUpdatePreRelease { get; set; }
+    public string? DevContainerNpmRegistry { get; set; }
 
     private HashSet<string> _autoApprovedTools = new(StringComparer.Ordinal);
 
@@ -132,6 +133,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 : MigrateLegacyToolApprovals(dto);
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
             WslUpdatePreRelease = dto.WslUpdatePreRelease;
+            DevContainerNpmRegistry = string.IsNullOrWhiteSpace(dto.DevContainerNpmRegistry) ? null : dto.DevContainerNpmRegistry.Trim();
             K3sInstallerSha256 = string.IsNullOrWhiteSpace(dto.K3sInstallerSha256) ? null : dto.K3sInstallerSha256.Trim().ToLowerInvariant();
 
             // Load registries, always keeping a single Docker Hub default at the top.
@@ -262,6 +264,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 AiAssistantAutoApprovedTools = _autoApprovedTools.ToList(),
                 WslDistro = WslDistro,
                 WslUpdatePreRelease = WslUpdatePreRelease,
+                DevContainerNpmRegistry = DevContainerNpmRegistry,
                 K3sInstallerSha256 = K3sInstallerSha256,
                 Registries = Registries
                     .Where(r => !r.IsDefault && !string.IsNullOrWhiteSpace(r.Host))
@@ -376,6 +379,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public List<string>? AiAssistantAutoApprovedTools { get; set; }
         public string? WslDistro { get; set; }
         public bool WslUpdatePreRelease { get; set; }
+        public string? DevContainerNpmRegistry { get; set; }
         public string? K3sInstallerSha256 { get; set; }
         public List<RegistryDto>? Registries { get; set; }
         public List<HealthCheckDto>? HealthChecks { get; set; }

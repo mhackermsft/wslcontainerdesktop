@@ -209,6 +209,9 @@ public sealed partial class MainWindow : Window
                 case "compose":
                     NavFrame.Navigate(typeof(ComposePage));
                     break;
+                case "devcontainers":
+                    NavFrame.Navigate(typeof(DevContainersPage));
+                    break;
                 case "templates":
                     NavFrame.Navigate(typeof(TemplatesPage));
                     break;

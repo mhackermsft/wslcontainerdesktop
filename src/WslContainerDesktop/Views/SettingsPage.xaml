@@ -61,6 +61,26 @@
                 </StackPanel>
             </Border>
 
+            <!--  Dev Containers — hidden alongside the Dev Containers page; re-enable with the nav item  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="Dev Containers"
+                Visibility="Collapsed" />
+            <Border Style="{StaticResource Card}" Visibility="Collapsed">
+                <StackPanel Spacing="6">
+                    <TextBox
+                        Header="npm registry for feature builds"
+                        PlaceholderText="https://packagefeedproxy.microsoft.io/npm/"
+                        Text="{x:Bind ViewModel.DevContainerNpmRegistry, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap"
+                        Text="Node/npm-based Dev Container features fetch packages from the public npm registry, which some corporate networks block. Set a registry or proxy URL here and it will be injected into feature builds as NPM_CONFIG_REGISTRY. Leave blank to use each feature's default." />
+                </StackPanel>
+            </Border>
+
             <!--  Behavior  -->
             <TextBlock
                 Margin="2,4,0,0"
