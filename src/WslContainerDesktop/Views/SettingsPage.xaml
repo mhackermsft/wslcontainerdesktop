@@ -6,6 +6,7 @@
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:WslContainerDesktop.ViewModels"
     x:Name="Root"
     mc:Ignorable="d">
 
@@ -257,6 +258,242 @@
                             IsEnabled="{x:Bind ViewModel.NotificationsEnabled, Mode=OneWay}"
                             IsOn="{x:Bind ViewModel.NotifyEngineEvents, Mode=TwoWay}" />
                     </Grid>
+                </StackPanel>
+            </Border>
+
+            <!--  AI diagnostics  -->
+            <TextBlock
+                Margin="2,4,0,0"
+                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                Text="AI diagnostics" />
+            <Border Style="{StaticResource Card}">
+                <StackPanel Spacing="12">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Enable AI features" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Off by default. A redacted preview is shown before anything leaves this machine."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            IsOn="{x:Bind ViewModel.AiFeaturesEnabled, Mode=TwoWay}" />
+                    </Grid>
+                    <ComboBox
+                        Header="Provider"
+                        MinWidth="260"
+                        SelectedIndex="{x:Bind ViewModel.SelectedAiProviderIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="None" />
+                        <ComboBoxItem Content="GitHub Copilot (recommended)" />
+                        <ComboBoxItem Content="Ollama (local)" />
+                        <ComboBoxItem Content="Azure OpenAI" />
+                        <ComboBoxItem Content="OpenAI-compatible" />
+                    </ComboBox>
+                    <Border
+                        Padding="14"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                        <StackPanel Spacing="10">
+                            <StackPanel Spacing="2">
+                                <TextBlock FontWeight="SemiBold" Text="Quick start: run AI locally" />
+                                <TextBlock
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="One click deploys a local Ollama container (GPU-accelerated when your machine supports it, otherwise CPU), downloads the qwen2.5:7b model, and points the assistant at it. No account or API key needed."
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    Command="{x:Bind ViewModel.SetUpLocalAiCommand}"
+                                    Style="{ThemeResource AccentButtonStyle}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon FontSize="13" Glyph="&#xE945;" />
+                                        <TextBlock Text="Set up local AI" />
+                                    </StackPanel>
+                                </Button>
+                                <Button
+                                    Command="{x:Bind ViewModel.RemoveLocalAiCommand}"
+                                    Content="Remove local AI" />
+                            </StackPanel>
+                            <ProgressBar
+                                IsIndeterminate="True"
+                                Visibility="{x:Bind ViewModel.IsOllamaBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind ViewModel.AiStatus, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <InfoBar
+                        IsOpen="True"
+                        Severity="Informational"
+                        Title="Data sharing notice"
+                        Message="Container logs, inspect JSON, filesystem diff entries, and recent activity are redacted and truncated before sending to the selected provider. Suggested fixes are copy-only and never run automatically."
+                        Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Provider settings"
+                        Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="10">
+                            <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowGitHubCopilotSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <Button
+                                    Command="{x:Bind ViewModel.SignInGitHubCopilotCommand}"
+                                    Content="GitHub Copilot sign-in info" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        Grid.Column="0"
+                                        DisplayMemberPath="DisplayName"
+                                        Header="GitHub Copilot model"
+                                        ItemsSource="{x:Bind ViewModel.GitHubCopilotModels, Mode=OneWay}"
+                                        SelectedValue="{x:Bind ViewModel.AiGitHubCopilotModel, Mode=TwoWay}"
+                                        SelectedValuePath="Id" />
+                                    <Button
+                                        Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Command="{x:Bind ViewModel.RefreshGitHubCopilotModelsCommand}"
+                                        Content="Refresh models" />
+                                </Grid>
+                            </StackPanel>
+                            <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowOllamaSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <TextBox
+                                    Header="Ollama endpoint"
+                                    Text="{x:Bind ViewModel.AiOllamaEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        Grid.Column="0"
+                                        HorizontalAlignment="Stretch"
+                                        DisplayMemberPath="DisplayName"
+                                        Header="Ollama model (installed)"
+                                        ItemsSource="{x:Bind ViewModel.OllamaModels, Mode=OneWay}"
+                                        SelectedValue="{x:Bind ViewModel.AiOllamaModel, Mode=TwoWay}"
+                                        SelectedValuePath="Id" />
+                                    <Button
+                                        Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Command="{x:Bind ViewModel.RefreshOllamaModelsCommand}"
+                                        Content="Refresh" />
+                                </Grid>
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox
+                                        Grid.Column="0"
+                                        Header="Pull a model"
+                                        PlaceholderText="qwen2.5:7b"
+                                        Text="{x:Bind ViewModel.OllamaPullModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Button
+                                        Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Command="{x:Bind ViewModel.PullOllamaModelCommand}"
+                                        Content="Pull" />
+                                </Grid>
+                                <ProgressBar
+                                    IsIndeterminate="True"
+                                    Visibility="{x:Bind ViewModel.IsOllamaBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                            </StackPanel>
+                            <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowAzureOpenAiSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <TextBox
+                                    Header="Azure OpenAI endpoint"
+                                    PlaceholderText="https://your-resource.openai.azure.com"
+                                    Text="{x:Bind ViewModel.AiAzureOpenAiEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox
+                                    Header="Azure OpenAI deployment"
+                                    Text="{x:Bind ViewModel.AiAzureOpenAiDeployment, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowOpenAiSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <TextBox
+                                    Header="OpenAI-compatible model"
+                                    Text="{x:Bind ViewModel.AiOpenAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <Grid ColumnSpacing="8" Visibility="{x:Bind ViewModel.ShowAiSecretSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <PasswordBox
+                                    x:Name="AiApiKeyBox"
+                                    Grid.Column="0"
+                                    Header="API key"
+                                    PlaceholderText="Stored in Windows Credential Manager" />
+                                <Button
+                                    Grid.Column="1"
+                                    VerticalAlignment="Bottom"
+                                    Click="SaveAiApiKey_Click"
+                                    Content="Save key" />
+                            </Grid>
+                        </StackPanel>
+                    </Expander>
+                    <Grid ColumnSpacing="12" Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.AiStatus, Mode=OneWay}"
+                            TextWrapping="Wrap" />
+                        <Button
+                            Grid.Column="1"
+                            Command="{x:Bind ViewModel.TestAiProviderCommand}"
+                            Content="Test" />
+                    </Grid>
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Container AI Assistant permissions"
+                        Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="12">
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Read-only tools always run automatically. For every other tool, turn its switch on to let the assistant run it without asking. Anything left off will prompt you for approval each time."
+                                TextWrapping="Wrap" />
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.AssistantToolPermissions, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AssistantToolPermissionGroup">
+                                        <StackPanel Margin="0,4,0,0" Spacing="4">
+                                            <TextBlock
+                                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                                Text="{x:Bind Header}" />
+                                            <ItemsControl ItemsSource="{x:Bind Tools}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:AssistantToolPermission">
+                                                        <ToggleSwitch
+                                                            Header="{x:Bind DisplayName}"
+                                                            IsOn="{x:Bind AutoApprove, Mode=TwoWay}"
+                                                            OffContent="Require approval"
+                                                            OnContent="Run automatically" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Expander>
                 </StackPanel>
             </Border>
 

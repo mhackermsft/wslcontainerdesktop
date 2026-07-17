@@ -87,6 +87,10 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         // the view models.
         _monitor = Services.GetRequiredService<StatusMonitor>();
 
+        // Same UI-thread-capture requirement: resolve the AI availability service here so its
+        // factory captures the dispatcher before any view model injects the singleton.
+        Services.GetRequiredService<IAiAvailabilityService>();
+
         // Register for toast notifications and route toast clicks back into the app.
         _notifications = Services.GetRequiredService<INotificationService>();
         _notifications.ActivationRequested += OnNotificationActivated;
@@ -386,12 +390,27 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
+        services.AddSingleton<IAiCredentialStore, AiCredentialStore>();
+        services.AddSingleton<IAiProvider, GitHubCopilotProvider>();
+        services.AddSingleton<IAiProvider, OllamaProvider>();
+        services.AddSingleton<IAiProvider, AzureOpenAiProvider>();
+        services.AddSingleton<IAiProvider, OpenAiProvider>();
+        services.AddSingleton<IAiChatProvider, GitHubCopilotProvider>();
+        services.AddSingleton<IAiChatProvider, OllamaProvider>();
+        services.AddSingleton<IAiChatProvider, AzureOpenAiProvider>();
+        services.AddSingleton<IAiChatProvider, OpenAiProvider>();
+        services.AddSingleton<IAiDiagnosticsService, AiDiagnosticsService>();
+        services.AddSingleton<ILocalAiSetupService, LocalAiSetupService>();
         services.AddSingleton<IRegistryCatalogService, RegistryCatalogService>();
         services.AddSingleton<IRunProfileStore, RunProfileStore>();
         services.AddSingleton<ITemplateConfigStore, TemplateConfigStore>();
         services.AddSingleton<IUserTemplateStore, UserTemplateStore>();
         services.AddSingleton<ITemplateVisibilityStore, TemplateVisibilityStore>();
-        services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();        services.AddSingleton<ComposeProjectSupervisor>();
+        services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();
+        services.AddSingleton<ComposeProjectSupervisor>();
+        services.AddSingleton<AssistantToolset>();
+        services.AddSingleton<IAssistantActionGate, AssistantActionGate>();
+        services.AddSingleton<IContainerAssistant, ContainerAssistantService>();
         services.AddSingleton<RegistryAuthRefresher>();
         services.AddSingleton<StartupService>();
         services.AddSingleton<DialogService>();
@@ -419,10 +438,17 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             sp.GetRequiredService<ILogger<StatusMonitor>>()));
 
         services.AddSingleton<HealthWatchdog>();
-        services.AddSingleton<RestartPolicyWatchdog>();
-        services.AddSingleton<IActivityLog, ActivityLog>();
+        services.AddSingleton<RestartPolicyWatchdog>();        services.AddSingleton<IActivityLog, ActivityLog>();
         services.AddSingleton<ITemplateCatalog, TemplateCatalog>();
         services.AddSingleton(new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(20) });
+        services.AddSingleton<AiHttpClient>();
+        // Captures the UI DispatcherQueue like StatusMonitor: first resolved from OnLaunched.
+        services.AddSingleton<IAiAvailabilityService>(sp => new AiAvailabilityService(
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<IEnumerable<IAiProvider>>(),
+            DispatcherQueue.GetForCurrentThread()
+                ?? throw new InvalidOperationException("AiAvailabilityService must first be resolved on the UI thread."),
+            sp.GetRequiredService<ILogger<AiAvailabilityService>>()));
         services.AddSingleton<IImageUpdateService, ImageUpdateService>();
 
         services.AddSingleton<ContainersViewModel>();
@@ -433,6 +459,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<NetworksViewModel>();
         services.AddSingleton<RegistriesViewModel>();
         services.AddSingleton<SettingsViewModel>();
+        services.AddSingleton<AssistantViewModel>();
         services.AddSingleton<ShellViewModel>();
         services.AddSingleton<DashboardViewModel>();
         services.AddSingleton<PortsViewModel>();

@@ -24,6 +24,7 @@ public enum ActivityCategory
     Engine,
     Container,
     Image,
+    Assistant,
 }
 
 /// <summary>The specific thing that happened, used to pick a glyph and phrasing.</summary>
@@ -37,6 +38,9 @@ public enum ActivityKind
     ContainerRemoved,
     ImagePulled,
     ImageBuilt,
+    AssistantToolInvoked,
+    AssistantApprovalApproved,
+    AssistantApprovalRejected,
 }
 
 /// <summary>
@@ -75,6 +79,9 @@ public sealed class ActivityEvent
         ActivityKind.ContainerRemoved => "\uE74D", // delete
         ActivityKind.ImagePulled => "\uE896",      // download
         ActivityKind.ImageBuilt => "\uE9F9",       // build
+        ActivityKind.AssistantToolInvoked => "\uE8D4", // robot
+        ActivityKind.AssistantApprovalApproved => "\uE8FB", // accept
+        ActivityKind.AssistantApprovalRejected => "\uE711", // cancel
         _ => "\uE9D9",
     };
 
@@ -85,6 +92,7 @@ public sealed class ActivityEvent
         ActivityCategory.Engine => "Engine",
         ActivityCategory.Container => "Container",
         ActivityCategory.Image => "Image",
+        ActivityCategory.Assistant => "AI assistant",
         _ => "Event",
     };
 

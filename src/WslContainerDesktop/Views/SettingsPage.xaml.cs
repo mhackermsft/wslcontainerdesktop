@@ -15,8 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
@@ -33,10 +35,22 @@ public sealed partial class SettingsPage : Page
 
     public SettingsViewModel ViewModel { get; }
 
-    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        await ViewModel.LoadVersionAsync();
-        await ViewModel.LoadStartupStateAsync();
+        UiSafe.Run(async () =>
+        {
+            await ViewModel.LoadVersionAsync();
+            await ViewModel.LoadStartupStateAsync();
+            ViewModel.LoadAiSecretState();
+            await ViewModel.LoadGitHubCopilotModelsAsync();
+            await ViewModel.LoadOllamaModelsAsync();
+        });
+    }
+
+    private void SaveAiApiKey_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SaveAiApiKey(AiApiKeyBox.Password);
+        AiApiKeyBox.Password = string.Empty;
     }
 }

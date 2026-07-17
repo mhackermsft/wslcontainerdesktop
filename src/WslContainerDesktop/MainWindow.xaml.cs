@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
 {
     private readonly ISettingsService _settings;
     private readonly DialogService _dialogs;
+    private readonly IAiAvailabilityService _aiAvailability;
 
     public MainWindow()
     {
@@ -36,6 +37,7 @@ public sealed partial class MainWindow : Window
         Shell = App.Current.Services.GetRequiredService<ShellViewModel>();
         _settings = App.Current.Services.GetRequiredService<ISettingsService>();
         _dialogs = App.Current.Services.GetRequiredService<DialogService>();
+        _aiAvailability = App.Current.Services.GetRequiredService<IAiAvailabilityService>();
 
         ExtendsContentIntoTitleBar = true;
         AppWindow.SetIcon("Assets/AppIcon.ico");
@@ -49,6 +51,8 @@ public sealed partial class MainWindow : Window
         }
 
         AppWindow.Closing += OnAppWindowClosing;
+        _settings.Changed += OnSettingsChanged;
+        _aiAvailability.Changed += OnAiAvailabilityChanged;
 
         NavFrame.Navigate(typeof(DashboardPage));
     }
@@ -59,6 +63,65 @@ public sealed partial class MainWindow : Window
     {
         // ContentDialogs need a XamlRoot; publish it once the tree is ready.
         _dialogs.XamlRoot = ((FrameworkElement)sender).XamlRoot;
+        RefreshAssistantButtonVisibility();
+    }
+
+    private void RefreshAssistantButtonVisibility()
+    {
+        AssistantButton.Visibility = _settings.AiFeaturesEnabled
+            && _settings.AiProvider != Models.AiProviderKind.None
+            && _aiAvailability.IsAvailable
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void OnAiAvailabilityChanged(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            RefreshAssistantButtonVisibility();
+
+            if (AssistantButton.Visibility == Visibility.Collapsed && AssistantOverlay.Visibility == Visibility.Visible)
+            {
+                AssistantOverlay.Visibility = Visibility.Collapsed;
+            }
+        });
+    }
+
+    private void OnSettingsChanged(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            RefreshAssistantButtonVisibility();
+
+            // If AI was turned off while the panel was open, close it too.
+            if (AssistantButton.Visibility == Visibility.Collapsed && AssistantOverlay.Visibility == Visibility.Visible)
+            {
+                AssistantOverlay.Visibility = Visibility.Collapsed;
+            }
+        });
+    }
+
+    private void AssistantButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (AssistantOverlay.Visibility != Visibility.Visible)
+        {
+            AssistantPanel.ViewModel.RefreshProviderLabel();
+        }
+
+        AssistantOverlay.Visibility = AssistantOverlay.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void AssistantScrim_Click(object sender, RoutedEventArgs e)
+    {
+        AssistantOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void AssistantPanel_CloseRequested(object? sender, EventArgs e)
+    {
+        AssistantOverlay.Visibility = Visibility.Collapsed;
     }
 
     private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)

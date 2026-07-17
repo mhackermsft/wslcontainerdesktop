@@ -56,6 +56,23 @@ jobs:
         shell: pwsh
         run: ./build/Set-Version.ps1 -Version "${{ steps.ver.outputs.version4 }}"
 
+      - name: Commit version bump back to the repo
+        id: bump
+        shell: pwsh
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/WslContainerDesktop/Package.appxmanifest
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Manifest already at ${{ steps.ver.outputs.version4 }}; nothing to commit."
+          } else {
+            git commit -m "Release ${{ steps.ver.outputs.version }}: stamp manifest version [skip ci]"
+            git push origin "HEAD:${{ github.ref_name }}"
+            Write-Host "Committed manifest bump to ${{ github.ref_name }}."
+          }
+          "sha=$(git rev-parse HEAD)" | Out-File $env:GITHUB_OUTPUT -Append
+
       - name: Decode signing certificate
         id: cert
         shell: pwsh
@@ -163,7 +180,7 @@ jobs:
             'release', 'create', "${{ steps.ver.outputs.tag }}",
             '--title', "WSL Container Desktop ${{ steps.ver.outputs.version }}",
             '--notes-file', $notesPath,
-            '--target', "${{ github.sha }}"
+            '--target', "${{ steps.bump.outputs.sha }}"
           )
           if ('${{ github.event.inputs.prerelease }}' -eq 'true') { $ghArgs += '--prerelease' }
           Get-ChildItem "${{ steps.stage.outputs.dir }}" | ForEach-Object { $ghArgs += $_.FullName }
