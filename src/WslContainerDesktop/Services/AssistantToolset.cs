@@ -41,7 +41,7 @@ public sealed class AssistantToolset(
             Tool("list_networks", "List networks.", "{}"),
             Tool("engine_status", "Check WSL container engine availability and version.", "{}"),
             Tool("list_compose_projects", "List saved compose projects.", "{}"),
-            Tool("run_container", "Run a container from structured options. Use for simple deployments such as nginx.", RunContainerSchema()),
+            Tool("run_container", "Run a container from structured options. Use for simple deployments such as nginx. Set gpus=true for GPU workloads (e.g. Ollama, CUDA).", RunContainerSchema()),
             Tool("pull_image", "Pull a container image reference.", ObjectSchema(("reference", "string", "Image reference, e.g. nginx:alpine"))),
             Tool("start_container", "Start a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
             Tool("stop_container", "Stop a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
@@ -369,10 +369,29 @@ public sealed class AssistantToolset(
           "properties": {
             "image": { "type": "string", "description": "Image reference" },
             "name": { "type": "string", "description": "Optional container name" },
-            "ports": { "type": "array", "items": { "type": "string" }, "description": "host:container port mappings" },
-            "environment": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE environment variables" },
-            "volumes": { "type": "array", "items": { "type": "string" }, "description": "source:destination volume mappings" },
-            "command": { "type": "string", "description": "Optional command" }
+            "command": { "type": "string", "description": "Optional command to run in the container" },
+            "entrypoint": { "type": "string", "description": "Override the image entrypoint executable (--entrypoint)" },
+            "ports": { "type": "array", "items": { "type": "string" }, "description": "host:container[/proto] port mappings (-p)" },
+            "environment": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE environment variables (-e)" },
+            "volumes": { "type": "array", "items": { "type": "string" }, "description": "source:destination volume/bind mounts (-v)" },
+            "labels": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE metadata labels (--label)" },
+            "networks": { "type": "array", "items": { "type": "string" }, "description": "Networks to attach; the first is the primary network (--network)" },
+            "aliases": { "type": "array", "items": { "type": "string" }, "description": "Network-scoped hostname aliases (--network-alias)" },
+            "dns": { "type": "array", "items": { "type": "string" }, "description": "DNS nameserver IPs (--dns)" },
+            "dnsSearch": { "type": "array", "items": { "type": "string" }, "description": "DNS search domains (--dns-search)" },
+            "dnsOptions": { "type": "array", "items": { "type": "string" }, "description": "DNS resolver options (--dns-option)" },
+            "tmpfs": { "type": "array", "items": { "type": "string" }, "description": "tmpfs mount targets (--tmpfs)" },
+            "ulimits": { "type": "array", "items": { "type": "string" }, "description": "ulimit settings as name=soft[:hard] (--ulimit)" },
+            "gpus": { "type": "boolean", "description": "Set true to grant the container access to all host GPUs (maps to --gpus all). Use for GPU workloads such as Ollama or CUDA images." },
+            "removeOnExit": { "type": "boolean", "description": "Remove the container automatically when it exits (--rm)" },
+            "user": { "type": "string", "description": "User to run the process as (--user)" },
+            "workingDir": { "type": "string", "description": "Working directory inside the container (--workdir)" },
+            "hostname": { "type": "string", "description": "Container hostname (--hostname)" },
+            "domainname": { "type": "string", "description": "Container domain name (--domainname)" },
+            "cpuLimit": { "type": "string", "description": "CPU limit, e.g. \"1.5\" (--cpus)" },
+            "memoryLimit": { "type": "string", "description": "Memory limit, e.g. \"512M\" (--memory)" },
+            "shmSize": { "type": "string", "description": "Size of /dev/shm, e.g. \"64M\" (--shm-size)" },
+            "stopSignal": { "type": "string", "description": "Signal used to stop the container (--stop-signal)" }
           },
           "required": ["image"],
           "additionalProperties": false
@@ -386,10 +405,29 @@ public sealed class AssistantToolset(
             Image = StringArg(args, "image"),
             Name = OptionalStringArg(args, "name"),
             Command = OptionalStringArg(args, "command"),
+            Entrypoint = OptionalStringArg(args, "entrypoint"),
+            AllGpus = BoolArg(args, "gpus", false),
+            RemoveOnExit = BoolArg(args, "removeOnExit", false),
+            User = OptionalStringArg(args, "user"),
+            WorkingDir = OptionalStringArg(args, "workingDir"),
+            Hostname = OptionalStringArg(args, "hostname"),
+            Domainname = OptionalStringArg(args, "domainname"),
+            CpuLimit = OptionalStringArg(args, "cpuLimit"),
+            MemoryLimit = OptionalStringArg(args, "memoryLimit"),
+            ShmSize = OptionalStringArg(args, "shmSize"),
+            StopSignal = OptionalStringArg(args, "stopSignal"),
         };
         AddStringArray(args, "ports", options.PortMappings);
         AddStringArray(args, "environment", options.EnvironmentVariables);
         AddStringArray(args, "volumes", options.Volumes);
+        AddStringArray(args, "networks", options.Networks);
+        AddStringArray(args, "aliases", options.Aliases);
+        AddStringArray(args, "dns", options.Dns);
+        AddStringArray(args, "dnsSearch", options.DnsSearch);
+        AddStringArray(args, "dnsOptions", options.DnsOptions);
+        AddStringArray(args, "tmpfs", options.Tmpfs);
+        AddStringArray(args, "ulimits", options.Ulimits);
+        AddKeyValueArray(args, "labels", options.Labels);
         return Resolved(call, AssistantPermissionCategory.CreateRun, $"Run container {options.Image}", JsonSerializer.Serialize(options, JsonOptions), token => RunContainerAsync(options, token));
     }
 
@@ -460,6 +498,36 @@ public sealed class AssistantToolset(
             if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
             {
                 target.Add(item.GetString()!);
+            }
+        }
+    }
+
+    private static void AddKeyValueArray(JsonElement args, string name, Dictionary<string, string> target)
+    {
+        if (!args.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var raw = item.GetString();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            var separator = raw.IndexOf('=');
+            var key = separator >= 0 ? raw[..separator].Trim() : raw.Trim();
+            var val = separator >= 0 ? raw[(separator + 1)..].Trim() : string.Empty;
+            if (!string.IsNullOrEmpty(key))
+            {
+                target[key] = val;
             }
         }
     }
