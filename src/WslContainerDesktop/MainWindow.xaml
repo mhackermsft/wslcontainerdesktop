@@ -86,7 +86,8 @@
                         <FontIcon Glyph="&#xE7F4;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Dev Containers" Tag="devcontainers">
+                <!-- Hidden until we have a better VS Code integration; re-enable by removing Visibility="Collapsed" -->
+                <NavigationViewItem Content="Dev Containers" Tag="devcontainers" Visibility="Collapsed">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8B7;" />
                     </NavigationViewItem.Icon>

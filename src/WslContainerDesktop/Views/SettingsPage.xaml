@@ -60,12 +60,13 @@
                 </StackPanel>
             </Border>
 
-            <!--  Dev Containers  -->
+            <!--  Dev Containers — hidden alongside the Dev Containers page; re-enable with the nav item  -->
             <TextBlock
                 Margin="2,4,0,0"
                 Style="{ThemeResource BodyStrongTextBlockStyle}"
-                Text="Dev Containers" />
-            <Border Style="{StaticResource Card}">
+                Text="Dev Containers"
+                Visibility="Collapsed" />
+            <Border Style="{StaticResource Card}" Visibility="Collapsed">
                 <StackPanel Spacing="6">
                     <TextBox
                         Header="npm registry for feature builds"
