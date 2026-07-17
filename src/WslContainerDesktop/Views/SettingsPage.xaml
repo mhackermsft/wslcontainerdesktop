@@ -311,10 +311,24 @@
                                 <Button
                                     Command="{x:Bind ViewModel.SignInGitHubCopilotCommand}"
                                     Content="GitHub Copilot sign-in info" />
-                                <TextBox
-                                    Header="GitHub Copilot model"
-                                    PlaceholderText="auto"
-                                    Text="{x:Bind ViewModel.AiGitHubCopilotModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        Grid.Column="0"
+                                        DisplayMemberPath="DisplayName"
+                                        Header="GitHub Copilot model"
+                                        ItemsSource="{x:Bind ViewModel.GitHubCopilotModels, Mode=OneWay}"
+                                        SelectedValue="{x:Bind ViewModel.AiGitHubCopilotModel, Mode=TwoWay}"
+                                        SelectedValuePath="Id" />
+                                    <Button
+                                        Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Command="{x:Bind ViewModel.RefreshGitHubCopilotModelsCommand}"
+                                        Content="Refresh models" />
+                                </Grid>
                             </StackPanel>
                             <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowOllamaSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <TextBox
@@ -346,8 +360,8 @@
                                 <PasswordBox
                                     x:Name="AiApiKeyBox"
                                     Grid.Column="0"
-                                    Header="API key / GitHub token"
-                                    PlaceholderText="Optional GitHub token or provider key; stored in Windows Credential Manager" />
+                                    Header="API key"
+                                    PlaceholderText="Stored in Windows Credential Manager" />
                                 <Button
                                     Grid.Column="1"
                                     VerticalAlignment="Bottom"

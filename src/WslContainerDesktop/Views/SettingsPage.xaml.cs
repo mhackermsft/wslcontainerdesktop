@@ -43,6 +43,7 @@ public sealed partial class SettingsPage : Page
             await ViewModel.LoadVersionAsync();
             await ViewModel.LoadStartupStateAsync();
             ViewModel.LoadAiSecretState();
+            await ViewModel.LoadGitHubCopilotModelsAsync();
         });
     }
 

@@ -14,8 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GitHub.Copilot;
+using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 
@@ -30,6 +33,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly FileLoggerProvider _fileLogger;
     private readonly IAiDiagnosticsService _aiDiagnostics;
     private readonly IAiCredentialStore _aiCredentials;
+    private readonly ILogger<SettingsViewModel> _logger;
 
     private bool _suppressStartupWrite;
 
@@ -127,7 +131,7 @@ public partial class SettingsViewModel : ObservableObject
 
     public bool ShowOpenAiSettings => CurrentAiProvider == AiProviderKind.OpenAi;
 
-    public bool ShowAiSecretSettings => CurrentAiProvider is AiProviderKind.GitHubCopilot or AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi;
+    public bool ShowAiSecretSettings => CurrentAiProvider is AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi;
 
     private AiProviderKind CurrentAiProvider => Enum.IsDefined(typeof(AiProviderKind), SelectedAiProviderIndex)
         ? (AiProviderKind)SelectedAiProviderIndex
@@ -151,7 +155,9 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials)
+    public ObservableCollection<AiModelOption> GitHubCopilotModels { get; } = new() { new AiModelOption("auto", "auto") };
+
+    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILogger<SettingsViewModel> logger)
     {
         _settings = settings;
         _wslc = wslc;
@@ -160,6 +166,7 @@ public partial class SettingsViewModel : ObservableObject
         _fileLogger = fileLogger;
         _aiDiagnostics = aiDiagnostics;
         _aiCredentials = aiCredentials;
+        _logger = logger;
 
         _wslcPath = settings.WslcPath;
         _refreshIntervalSeconds = settings.RefreshIntervalSeconds;
@@ -247,6 +254,10 @@ public partial class SettingsViewModel : ObservableObject
             : AiProviderKind.None;
         LoadStoredAiSecretIndicator();
         _settings.Save();
+        if (_settings.AiProvider == AiProviderKind.GitHubCopilot)
+        {
+            _ = LoadGitHubCopilotModelsAsync();
+        }
     }
 
     partial void OnAiOllamaEndpointChanged(string value)
@@ -293,7 +304,7 @@ public partial class SettingsViewModel : ObservableObject
 
     public void SaveAiApiKey(string secret)
     {
-        if (_settings.AiProvider is not (AiProviderKind.GitHubCopilot or AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi) || string.IsNullOrWhiteSpace(secret))
+        if (_settings.AiProvider is not (AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi) || string.IsNullOrWhiteSpace(secret))
         {
             return;
         }
@@ -306,6 +317,20 @@ public partial class SettingsViewModel : ObservableObject
     private void LoadStoredAiSecretIndicator()
     {
         AiApiKey = string.Empty;
+        if (_settings.AiProvider == AiProviderKind.GitHubCopilot)
+        {
+            AiStatus = "GitHub Copilot uses your logged-in Copilot CLI account. No API key is needed.";
+            return;
+        }
+
+        if (_settings.AiProvider is AiProviderKind.None or AiProviderKind.Ollama)
+        {
+            AiStatus = _settings.AiProvider == AiProviderKind.Ollama
+                ? "Ollama uses the configured local endpoint and model."
+                : "Choose an AI provider to configure diagnostics.";
+            return;
+        }
+
         AiStatus = _aiCredentials.TryReadSecret(_settings.AiProvider, out _)
             ? $"{_settings.AiProvider} has a saved credential."
             : "No credential is saved for the selected provider.";
@@ -473,8 +498,58 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task SignInGitHubCopilotAsync()
     {
-        AiStatus = "GitHub Copilot uses the logged-in Copilot CLI user by default. You can also save a GitHub token for this provider.";
+        AiStatus = "GitHub Copilot uses your logged-in Copilot CLI account. Run `copilot login` outside the app if you need to sign in.";
         await _dialogs.ShowMessageAsync("GitHub Copilot", AiStatus);
+    }
+
+    [RelayCommand]
+    private async Task RefreshGitHubCopilotModelsAsync() => await LoadGitHubCopilotModelsAsync();
+
+    public async Task LoadGitHubCopilotModelsAsync()
+    {
+        if (CurrentAiProvider != AiProviderKind.GitHubCopilot)
+        {
+            return;
+        }
+
+        try
+        {
+            IsBusy = true;
+            AiStatus = "Loading GitHub Copilot models…";
+            await using var client = GitHubCopilotProvider.CreateClient(_logger);
+            await client.StartAsync();
+            var models = await client.ListModelsAsync();
+
+            GitHubCopilotModels.Clear();
+            foreach (var model in models
+                .OrderBy(m => string.Equals(m.Id, "auto", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                var supportsReasoning = model.SupportedReasoningEfforts is { Count: > 0 };
+                var suffix = supportsReasoning ? " · reasoning" : string.Empty;
+                GitHubCopilotModels.Add(new AiModelOption(model.Id, $"{model.Id} — {model.Name}{suffix}"));
+            }
+
+            if (!GitHubCopilotModels.Any(m => string.Equals(m.Id, AiGitHubCopilotModel, StringComparison.OrdinalIgnoreCase)))
+            {
+                AiStatus = $"Configured model '{AiGitHubCopilotModel}' is not available. Choose a model from the list.";
+            }
+            else
+            {
+                AiStatus = $"Loaded {GitHubCopilotModels.Count} GitHub Copilot model(s).";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load GitHub Copilot models.");
+            GitHubCopilotModels.Clear();
+            GitHubCopilotModels.Add(new AiModelOption("auto", "auto"));
+            AiStatus = "Could not load GitHub Copilot models. Showing fallback 'auto'. Details: " + ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     public async Task LoadVersionAsync()
@@ -492,3 +567,5 @@ public partial class SettingsViewModel : ObservableObject
 
     public void LoadAiSecretState() => LoadStoredAiSecretIndicator();
 }
+
+public sealed record AiModelOption(string Id, string DisplayName);
