@@ -1,6 +1,6 @@
 # WSL Container Desktop
 
-A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers** — the Linux container engine built into the Windows Subsystem for Linux (`wslc.exe`, public preview). It looks and feels like Docker Desktop or Podman Desktop, with a Fluent design, live performance metrics, a built-in Kubernetes (k3s) manager, container-registry management (including one-click Azure Container Registry sign-in), and a system-tray presence.
+A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers** — the Linux container engine built into the Windows Subsystem for Linux (`wslc.exe`, public preview). It looks and feels like Docker Desktop or Podman Desktop, with a Fluent design, live performance metrics, a built-in Kubernetes (k3s) manager, container-registry management (including one-click Azure Container Registry sign-in), **optional AI diagnostics and an in-app assistant**, and a system-tray presence.
 
 <p>
   <img alt="WinUI 3" src="https://img.shields.io/badge/WinUI-3-0078D6?logo=windows&logoColor=white">
@@ -39,6 +39,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Bulk actions** — a **Select** mode on the Containers, Images, Volumes, and Networks lists lets you multi-select rows and start, stop, or remove many at once.
 - **Activity feed** — a persisted, filterable timeline of engine, container, and image events (start/stop/create/remove, pull/build, engine up/down) so you can see what happened and when.
 - **Built-in Kubernetes** — install a single-node **k3s** cluster into WSL and manage nodes, deployments, pods, services, and more, with port-forwarding and "Apply YAML".
+- **AI assistant & diagnostics** *(optional, off by default)* — an in-app **Container AI Assistant** that manages containers, Compose, and k3s through approved, permissioned tools, plus one-click **Diagnose** on any container to explain failures and suggest fixes. Bring your own provider — **GitHub Copilot, Azure OpenAI, or any OpenAI-compatible endpoint** — or run **fully local with one click via Ollama** (no account, no API key). Container data is redacted and truncated before it leaves your machine, and suggested fixes are copy-only.
 - **Registry management** — add public and private registries, and add an **Azure Container Registry with one click** using your existing Azure sign-in (no admin keys, tokens refreshed automatically).
 - **Live everywhere** — a background monitor drives per-container performance meters, the tray icon, and the status indicators without you lifting a finger.
 - **Lives in the tray** — minimize to a system-tray icon whose color reflects engine health, with a live running-container count and quick start/stop actions.
@@ -83,6 +84,16 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
     <td width="50%" valign="top">
       <img src="docs/screenshots/kubernetes-dashboard.png" alt="Kubernetes"><br>
       <sub><b>Kubernetes</b> — install and manage a single-node <b>k3s</b> cluster right inside the app, with a metrics dashboard and "Apply YAML".</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/assistant.png" alt="Container AI Assistant"><br>
+      <sub><b>Container AI Assistant</b> <i>(optional)</i> — a permissioned, tool-calling chat that manages containers, Compose, and k3s; shown here answering a question via a fully local Ollama model.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/ai-settings.png" alt="AI settings"><br>
+      <sub><b>AI settings</b> <i>(opt-in)</i> — choose GitHub Copilot, Azure OpenAI, an OpenAI-compatible endpoint, or one-click local Ollama; container data is redacted before anything leaves your machine.</sub>
     </td>
   </tr>
 </table>
@@ -178,6 +189,8 @@ To update later, download a newer release and run its `Install.ps1` the same way
 | **.NET 10 SDK** | Needed to build and run from source. |
 | **Windows App SDK** tooling | Installed with recent Visual Studio workloads. |
 | **Azure CLI** *(optional)* | Only for the "Add from Azure" registry feature. |
+| **AI provider** *(optional)* | Only for the AI assistant & diagnostics (off by default). Use **GitHub Copilot CLI** (signed in), an **Azure OpenAI** / **OpenAI-compatible** endpoint + API key, or run locally with **Ollama** (one-click **Set up local AI**). |
+| **GPU** *(optional)* | Accelerates local Ollama inference; the app falls back to CPU automatically. |
 
 Install or update the WSL container preview from an elevated PowerShell prompt:
 
@@ -227,6 +240,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 3. Go to **Containers → Run a container**, pick the image, map a port, and click **Run**.
 4. *(Optional)* Open **Kubernetes** and click **Install** to spin up a local k3s cluster.
 5. *(Optional)* Open **Registries** to add a private registry or an Azure Container Registry.
+6. *(Optional)* Open **Settings → AI diagnostics**, enable AI, and click **Set up local AI** to run a model locally — then use **Diagnose** on any container or the **Assistant** button in the title bar.
 
 ---
 
@@ -317,6 +331,15 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - **Row quick actions** (scale, restart, run-now, delete) and a **full detail view** per object with Summary / **Kube** (editable YAML you can apply back) / Describe / Logs tabs.
 - **Apply YAML** manifests and **port-forward** services or pods to `localhost`.
 
+### AI features *(optional — off by default)*
+AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, until you turn it on in **Settings → AI diagnostics** and pick a provider.
+
+- **Choose your provider** — **GitHub Copilot** (uses your Copilot CLI sign-in), **Azure OpenAI**, any **OpenAI-compatible** endpoint, or **Ollama** for fully local inference. API keys are stored in **Windows Credential Manager**, never in plain text.
+- **One-click local AI** — **Set up local AI** deploys an Ollama container (GPU-accelerated when your hardware supports it, otherwise CPU), pulls a default model (`qwen2.5:7b`), and points the app at it — no account or API key required.
+- **Diagnose-and-fix** — a **Diagnose** button on any container's detail view gathers its logs, inspect JSON, filesystem-diff entries, and recent activity, **redacts and truncates** them into a preview you can review first, then asks the model what went wrong and how to fix it. Suggested fixes are **copy-only and never run automatically**.
+- **Container AI Assistant** — a side-panel chat that can actually *do* things through a scoped, permissioned toolset: list/run/stop containers, deploy Compose templates, and take scoped k3s actions. **Read-only tools run automatically; anything that changes state prompts for approval** (per-tool auto-approve is configurable), so you stay in control.
+- **Privacy by design** — everything sent to a provider is redacted and truncated first, a data-sharing notice spells out exactly what is shared, and local (Ollama) mode keeps all inference on your machine.
+
 ### Notifications
 - **Windows toast notifications** for noteworthy events: image pull/build completed or failed, a container that stopped running, and the engine going down or recovering.
 - **Clicking a toast** activates the app and opens the relevant page.
@@ -333,6 +356,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - Close-to-tray and start-minimized toggles.
 - **Notification toggles** — master switch plus per-category (images, containers, engine).
 - Auto-refresh interval.
+- **AI diagnostics** *(off by default)* — enable AI, choose a provider (GitHub Copilot / Azure OpenAI / OpenAI-compatible / local Ollama), set up local AI in one click, and configure per-tool Assistant permissions.
 - Light / Dark / System theme, applied instantly.
 
 ---
@@ -389,6 +413,7 @@ MVVM (CommunityToolkit.Mvvm) with dependency injection (Microsoft.Extensions.Dep
 | `Services/RegistryAuthRefresher` | Keeps Azure-backed registry logins fresh (background + just-in-time) |
 | `Services/ProcessRunner` | Async process execution + interactive console launches |
 | `Services/StatusMonitor` | Background poller and single source of truth for engine, Kubernetes, and registry health |
+| `Services/ContainerAssistantService` | The AI assistant's tool-calling loop over a pluggable `IAiChatProvider` (Copilot / Azure OpenAI / OpenAI-compatible / Ollama), with per-tool permissions |
 | `Services/SettingsService` | JSON settings persisted under `%LOCALAPPDATA%` |
 | `Tray/TrayIcon` | Win32 `Shell_NotifyIcon` tray with a GDI+ status-dot icon and popup menu |
 | `ViewModels/*` | Observable state and commands |
