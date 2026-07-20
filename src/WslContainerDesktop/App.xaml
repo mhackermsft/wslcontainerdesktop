@@ -10,6 +10,28 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
                 <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
+
+            <!--
+                Dim placeholder/hint text (issue #53). The framework maps placeholder text to
+                TextFillColorSecondaryBrush, which is close to the primary (entered-text) color and
+                reads like real content. Remap it to the dimmer TextFillColorTertiaryBrush so hints
+                are clearly secondary yet still legible. Scoped to Light + Default (dark); the
+                HighContrast theme is left on the system default for accessibility. Uses the same
+                StaticResource-in-ThemeDictionaries pattern the framework itself uses, so the brush
+                stays theme-correct across runtime theme switches.
+            -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <StaticResource x:Key="TextControlPlaceholderForeground" ResourceKey="TextFillColorTertiaryBrush" />
+                    <StaticResource x:Key="TextControlPlaceholderForegroundPointerOver" ResourceKey="TextFillColorTertiaryBrush" />
+                    <StaticResource x:Key="TextControlPlaceholderForegroundFocused" ResourceKey="TextFillColorTertiaryBrush" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <StaticResource x:Key="TextControlPlaceholderForeground" ResourceKey="TextFillColorTertiaryBrush" />
+                    <StaticResource x:Key="TextControlPlaceholderForegroundPointerOver" ResourceKey="TextFillColorTertiaryBrush" />
+                    <StaticResource x:Key="TextControlPlaceholderForegroundFocused" ResourceKey="TextFillColorTertiaryBrush" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
             <!-- Other app resources here -->
         </ResourceDictionary>
     </Application.Resources>
