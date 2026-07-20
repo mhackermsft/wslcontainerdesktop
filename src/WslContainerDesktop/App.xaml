@@ -30,6 +30,14 @@
             <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
             <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
             <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
+
+            <!-- Editable/placeholder ComboBoxes use their own brushes (note the capital "H" in
+                 PlaceHolder); dim them to match. Disabled is left on the framework default. -->
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForeground" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundPointerOver" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundFocused" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundPressed" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
+            <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundFocusedPressed" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
             <!-- Other app resources here -->
         </ResourceDictionary>
     </Application.Resources>

@@ -27,6 +27,35 @@ public sealed class DialogService
 {
     public XamlRoot? XamlRoot { get; set; }
 
+    // ContentDialog content renders in a separate popup scope that does NOT inherit the app-level
+    // TextControlPlaceholderForeground override declared in App.xaml, so hint text in dialog
+    // TextBoxes would otherwise render at the framework's brighter default. Copy those dim
+    // placeholder brushes into each dialog's own resource scope (which its content DOES inherit)
+    // so placeholders match the rest of the app.
+    private static readonly string[] PlaceholderBrushKeys =
+    {
+        "TextControlPlaceholderForeground",
+        "TextControlPlaceholderForegroundPointerOver",
+        "TextControlPlaceholderForegroundFocused",
+        "ComboBoxPlaceHolderForeground",
+        "ComboBoxPlaceHolderForegroundPointerOver",
+        "ComboBoxPlaceHolderForegroundFocused",
+        "ComboBoxPlaceHolderForegroundPressed",
+        "ComboBoxPlaceHolderForegroundFocusedPressed",
+    };
+
+    private static void ApplyDimPlaceholders(ContentDialog dialog)
+    {
+        var appResources = Application.Current.Resources;
+        foreach (var key in PlaceholderBrushKeys)
+        {
+            if (appResources.TryGetValue(key, out var brush))
+            {
+                dialog.Resources[key] = brush;
+            }
+        }
+    }
+
     public async Task ShowMessageAsync(string title, string message)
     {
         if (XamlRoot is null)
@@ -51,6 +80,7 @@ public sealed class DialogService
             XamlRoot = XamlRoot,
         };
 
+        ApplyDimPlaceholders(dialog);
         await dialog.ShowAsync();
     }
 
@@ -71,6 +101,7 @@ public sealed class DialogService
             XamlRoot = XamlRoot,
         };
 
+        ApplyDimPlaceholders(dialog);
         var result = await dialog.ShowAsync();
         return result == ContentDialogResult.Primary;
     }
@@ -84,6 +115,7 @@ public sealed class DialogService
         }
 
         dialog.XamlRoot = XamlRoot;
+        ApplyDimPlaceholders(dialog);
         return await dialog.ShowAsync();
     }
 }
