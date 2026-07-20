@@ -130,6 +130,26 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Restart running containers on launch" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="After a reboot or WSL shutdown, start any containers that were running again. Containers you stopped yourself stay stopped."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            AutomationProperties.Name="Restart running containers on launch"
+                            IsOn="{x:Bind ViewModel.RestartRunningContainersOnLaunch, Mode=TwoWay}" />
+                    </Grid>
+                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                    <Grid Padding="0,8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
                             <TextBlock Text="Start when I sign in" />
                             <TextBlock
                                 FontSize="12"
