@@ -34,9 +34,12 @@ namespace WslContainerDesktop.Services;
 /// stops leaves that set on the very next poll, manually-stopped containers are naturally excluded
 /// from restore — only containers running when the host went down come back.</para>
 ///
-/// <para><b>Ordering.</b> The persisted set is loaded at construction and used by
+/// <para><b>Ordering &amp; retention.</b> The persisted set is loaded at construction and used by
 /// <see cref="RestoreThenAttachAsync"/> <em>before</em> live tracking is attached, so the first
-/// post-reboot snapshot (everything stopped) cannot overwrite the desired set before it is used.</para>
+/// post-reboot snapshot (everything stopped) cannot overwrite the desired set before it is used.
+/// A desired container is retained in the persisted set until it is confirmed running (restore
+/// succeeded) or no longer exists, so a slow engine, a failed restore, or a start error can't
+/// silently forget it before its next chance to restart.</para>
 ///
 /// <para>Load/persist failures never crash the app: a corrupt or missing state file simply yields
 /// an empty desired set.</para>
@@ -65,10 +68,19 @@ public sealed class ContainerAutostartService : IDisposable
     /// <summary>Containers running when the app last observed them, loaded from disk at construction.</summary>
     private readonly IReadOnlyList<AutostartEntry> _desired;
 
+    /// <summary>
+    /// Desired containers that have not yet been confirmed running this session (and still exist).
+    /// They are retained in the persisted set even while stopped so a slow engine, a failed restore,
+    /// or a start error can't drop them — losing them would defeat "restart on next reboot." An entry
+    /// leaves this set once it is seen running (confirmed restored) or no longer exists as a container.
+    /// Only touched from <see cref="OnStatusChanged"/>, which the monitor serializes on the UI thread.
+    /// </summary>
+    private readonly List<AutostartEntry> _pending;
+
     private readonly object _persistGate = new();
     private string _lastPersistedSignature;
-    private bool _tracking;
-    private bool _disposed;
+    private volatile bool _tracking;
+    private volatile bool _disposed;
 
     public ContainerAutostartService(IWslcService wslc, StatusMonitor monitor, ISettingsService settings, ILogger<ContainerAutostartService> logger)
     {
@@ -78,6 +90,7 @@ public sealed class ContainerAutostartService : IDisposable
         _logger = logger;
 
         _desired = Load();
+        _pending = _desired.ToList();
         _lastPersistedSignature = Signature(_desired);
     }
 
@@ -193,13 +206,45 @@ public sealed class ContainerAutostartService : IDisposable
             return;
         }
 
-        var running = snapshot.Containers
+        var containers = snapshot.Containers;
+        var runningEntries = containers
             .Where(c => c.State == ContainerState.Running)
             .Select(c => new AutostartEntry { Id = c.Id, Name = c.Name?.TrimStart('/') ?? string.Empty })
             .ToList();
 
-        Persist(running);
+        // Retire pending desired containers once they are confirmed running (restore succeeded) or
+        // have disappeared entirely (removed / created with --rm); everything else is still owed a
+        // confirmed start and must stay in the persisted set.
+        if (_pending.Count > 0)
+        {
+            _pending.RemoveAll(e => IsRunning(e, runningEntries) || !Exists(e, containers));
+        }
+
+        // Persist the running set plus any still-pending desired containers, so a container that has
+        // not yet come back (slow engine / failed start) is not forgotten before its next restore.
+        var union = new List<AutostartEntry>(runningEntries);
+        foreach (var pending in _pending)
+        {
+            if (!IsRunning(pending, runningEntries))
+            {
+                union.Add(pending);
+            }
+        }
+
+        Persist(union);
     }
+
+    /// <summary>True when a persisted entry matches a currently-running container (by id, then name).</summary>
+    private static bool IsRunning(AutostartEntry entry, IReadOnlyList<AutostartEntry> running) =>
+        running.Any(r =>
+            (!string.IsNullOrWhiteSpace(entry.Id) && string.Equals(r.Id, entry.Id, StringComparison.Ordinal)) ||
+            (!string.IsNullOrWhiteSpace(entry.Name) && string.Equals(r.Name, entry.Name, StringComparison.Ordinal)));
+
+    /// <summary>True when a persisted entry still exists as a container in any state (by id, then name).</summary>
+    private static bool Exists(AutostartEntry entry, IReadOnlyList<ContainerInfo> containers) =>
+        containers.Any(c =>
+            (!string.IsNullOrWhiteSpace(entry.Id) && string.Equals(c.Id, entry.Id, StringComparison.Ordinal)) ||
+            (!string.IsNullOrWhiteSpace(entry.Name) && string.Equals(c.Name?.TrimStart('/'), entry.Name, StringComparison.Ordinal)));
 
     private void Persist(IReadOnlyList<AutostartEntry> entries)
     {
@@ -305,9 +350,9 @@ public sealed class ContainerAutostartService : IDisposable
 
     private static string Signature(IReadOnlyList<AutostartEntry> entries) =>
         string.Join('\n', entries
-            .Select(e => e.Id)
-            .Where(id => !string.IsNullOrEmpty(id))
-            .OrderBy(id => id, StringComparer.Ordinal));
+            .Select(e => string.IsNullOrEmpty(e.Id) ? "name:" + e.Name : "id:" + e.Id)
+            .Where(key => key.Length > 5)
+            .OrderBy(key => key, StringComparer.Ordinal));
 
     public void Dispose()
     {
