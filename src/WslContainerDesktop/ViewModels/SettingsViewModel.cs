@@ -58,6 +58,9 @@ public partial class SettingsViewModel : ObservableObject
     private bool _startMinimized;
 
     [ObservableProperty]
+    private bool _restartRunningContainersOnLaunch;
+
+    [ObservableProperty]
     private bool _runAtLogin;
 
     [ObservableProperty]
@@ -218,6 +221,7 @@ public partial class SettingsViewModel : ObservableObject
         _refreshIntervalSeconds = settings.RefreshIntervalSeconds;
         _closeToTray = settings.CloseToTray;
         _startMinimized = settings.StartMinimized;
+        _restartRunningContainersOnLaunch = settings.RestartRunningContainersOnLaunch;
         _notificationsEnabled = settings.NotificationsEnabled;
         _notifyImageEvents = settings.NotifyImageEvents;
         _notifyContainerEvents = settings.NotifyContainerEvents;
@@ -263,6 +267,12 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnStartMinimizedChanged(bool value)
     {
         _settings.StartMinimized = value;
+        _settings.Save();
+    }
+
+    partial void OnRestartRunningContainersOnLaunchChanged(bool value)
+    {
+        _settings.RestartRunningContainersOnLaunch = value;
         _settings.Save();
     }
 

@@ -30,6 +30,13 @@ public interface ISettingsService
     /// <summary>Start the app minimized to the tray.</summary>
     bool StartMinimized { get; set; }
 
+    /// <summary>
+    /// When true, containers that were running the last time the app observed them are
+    /// automatically started again on launch (e.g. after a host reboot or WSL shutdown, which
+    /// stops all containers). Containers the user explicitly stopped are not restarted.
+    /// </summary>
+    bool RestartRunningContainersOnLaunch { get; set; }
+
     /// <summary>App theme: "Default", "Light", or "Dark".</summary>
     string Theme { get; set; }
 

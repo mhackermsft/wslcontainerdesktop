@@ -34,6 +34,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public int RefreshIntervalSeconds { get; set; } = 5;
     public bool CloseToTray { get; set; } = true;
     public bool StartMinimized { get; set; }
+    public bool RestartRunningContainersOnLaunch { get; set; } = true;
     public string Theme { get; set; } = "Default";
     public bool NotificationsEnabled { get; set; } = true;
     public bool NotifyImageEvents { get; set; } = true;
@@ -108,6 +109,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             RefreshIntervalSeconds = Math.Clamp(dto.RefreshIntervalSeconds, AppConstants.RefreshIntervalMinSeconds, AppConstants.RefreshIntervalMaxSeconds);
             CloseToTray = dto.CloseToTray;
             StartMinimized = dto.StartMinimized;
+            RestartRunningContainersOnLaunch = dto.RestartRunningContainersOnLaunch;
             Theme = string.IsNullOrWhiteSpace(dto.Theme) ? "Default" : dto.Theme;
             NotificationsEnabled = dto.NotificationsEnabled;
             NotifyImageEvents = dto.NotifyImageEvents;
@@ -243,6 +245,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 RefreshIntervalSeconds = RefreshIntervalSeconds,
                 CloseToTray = CloseToTray,
                 StartMinimized = StartMinimized,
+                RestartRunningContainersOnLaunch = RestartRunningContainersOnLaunch,
                 Theme = Theme,
                 NotificationsEnabled = NotificationsEnabled,
                 NotifyImageEvents = NotifyImageEvents,
@@ -358,6 +361,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public int RefreshIntervalSeconds { get; set; } = 5;
         public bool CloseToTray { get; set; } = true;
         public bool StartMinimized { get; set; }
+        public bool RestartRunningContainersOnLaunch { get; set; } = true;
         public string? Theme { get; set; }
         public bool NotificationsEnabled { get; set; } = true;
         public bool NotifyImageEvents { get; set; } = true;

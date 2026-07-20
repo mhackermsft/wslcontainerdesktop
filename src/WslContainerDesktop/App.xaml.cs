@@ -33,6 +33,7 @@ public partial class App : Application
     private INotificationService? _notifications;
     private HealthWatchdog? _watchdog;
     private RestartPolicyWatchdog? _restartWatchdog;
+    private ContainerAutostartService? _autostart;
     private EngineHealth _engineHealth = EngineHealth.Unknown;
     private string _engineSummary = string.Empty;
     private int _runningCount;
@@ -126,6 +127,13 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         // health/restart policies resume being enforced after a restart. Fire-and-forget: failures
         // must never block launch.
         _ = Services.GetRequiredService<ComposeProjectSupervisor>().ReconcileAsync();
+
+        // Restart containers that were running before the last shutdown (a reboot / wsl --shutdown
+        // stops them all) and then keep tracking the running set. Resolved on the UI thread here so
+        // it observes the same StatusMonitor singleton. Fire-and-forget: it waits for the engine and
+        // must never block launch.
+        _autostart = Services.GetRequiredService<ContainerAutostartService>();
+        _ = _autostart.RestoreThenAttachAsync();
 
         _window = new MainWindow();
         _window.ApplyTheme(settings.Theme);
@@ -342,6 +350,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         _watchdog?.Dispose();
         _restartWatchdog?.Dispose();
+        _autostart?.Dispose();
         _monitor?.Dispose();
         _notifications?.Unregister();
         _tray?.Dispose();
@@ -442,7 +451,9 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             sp.GetRequiredService<ILogger<StatusMonitor>>()));
 
         services.AddSingleton<HealthWatchdog>();
-        services.AddSingleton<RestartPolicyWatchdog>();        services.AddSingleton<IActivityLog, ActivityLog>();
+        services.AddSingleton<RestartPolicyWatchdog>();
+        services.AddSingleton<ContainerAutostartService>();
+        services.AddSingleton<IActivityLog, ActivityLog>();
         services.AddSingleton<ITemplateCatalog, TemplateCatalog>();
         services.AddSingleton(new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(20) });
         services.AddSingleton<AiHttpClient>();
