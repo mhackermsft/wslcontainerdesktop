@@ -13,25 +13,23 @@
 
             <!--
                 Dim placeholder/hint text (issue #53). The framework maps placeholder text to
-                TextFillColorSecondaryBrush, which is close to the primary (entered-text) color and
-                reads like real content. Remap it to the dimmer TextFillColorTertiaryBrush so hints
-                are clearly secondary yet still legible. Scoped to Light + Default (dark); the
-                HighContrast theme is left on the system default for accessibility. Uses the same
-                StaticResource-in-ThemeDictionaries pattern the framework itself uses, so the brush
-                stays theme-correct across runtime theme switches.
+                TextFillColorSecondaryBrush (~77% in dark / ~62% in light), which is close to the
+                primary entered-text color and reads like real content. Remap it to a much dimmer
+                brush so hints are clearly secondary and don't look like pre-filled input.
+
+                The brush Color is {ThemeResource TextFillColorPrimary} with an explicit low Opacity,
+                so it is theme-aware (correct in both Light and Dark, and updates on runtime theme
+                switches) while being clearly dim.
+
+                NOTE: these MUST be declared as DIRECT keys, not inside ResourceDictionary.
+                ThemeDictionaries. App-level ThemeDictionaries overrides of framework brushes do NOT
+                reliably take effect (verified: a bright-red diagnostic placed in App-level
+                ThemeDictionaries never rendered), whereas direct keys correctly shadow the brushes
+                merged in via XamlControlsResources.
             -->
-            <ResourceDictionary.ThemeDictionaries>
-                <ResourceDictionary x:Key="Default">
-                    <StaticResource x:Key="TextControlPlaceholderForeground" ResourceKey="TextFillColorTertiaryBrush" />
-                    <StaticResource x:Key="TextControlPlaceholderForegroundPointerOver" ResourceKey="TextFillColorTertiaryBrush" />
-                    <StaticResource x:Key="TextControlPlaceholderForegroundFocused" ResourceKey="TextFillColorTertiaryBrush" />
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="Light">
-                    <StaticResource x:Key="TextControlPlaceholderForeground" ResourceKey="TextFillColorTertiaryBrush" />
-                    <StaticResource x:Key="TextControlPlaceholderForegroundPointerOver" ResourceKey="TextFillColorTertiaryBrush" />
-                    <StaticResource x:Key="TextControlPlaceholderForegroundFocused" ResourceKey="TextFillColorTertiaryBrush" />
-                </ResourceDictionary>
-            </ResourceDictionary.ThemeDictionaries>
+            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
+            <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
+            <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="{ThemeResource TextFillColorPrimary}" Opacity="0.30" />
             <!-- Other app resources here -->
         </ResourceDictionary>
     </Application.Resources>
