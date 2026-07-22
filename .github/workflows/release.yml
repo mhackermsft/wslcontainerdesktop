@@ -166,12 +166,46 @@ jobs:
           @"
           ## WSL Container Desktop ${{ steps.ver.outputs.version }}
 
-          ### Install
-          1. Download **all three** assets below (.msix, .cer, Install.ps1) into the same folder.
-          2. Right-click **Install.ps1** and choose **Run with PowerShell** (it requests admin rights to trust the signing certificate, then installs the app).
-          3. Launch **WSL Container Desktop** from the Start menu.
+          ### Install (recommended: two commands, no script)
 
-          To update later, run a newer release's Install.ps1 the same way.
+          Downloaded files are flagged "from the internet" (Mark of the Web), so Windows' default
+          ``RemoteSigned`` policy blocks the unsigned ``Install.ps1``. The most reliable way to install
+          is to run the two underlying steps yourself — interactive commands are **not** subject to
+          script-signing policy.
+
+          1. Download the **``.msix``** and **``.cer``** assets below into the same folder.
+          2. Open that folder, then open an **elevated** PowerShell (Run as administrator).
+          3. ``cd`` into the download folder and run (adjust the file names to this release):
+
+          ``````powershell
+          Import-Certificate -FilePath .\WSLContainerDesktop-Signing.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+          Add-AppxPackage -Path .\WSLContainerDesktop_${{ steps.ver.outputs.version }}_x64.msix -ForceUpdateFromAnyVersion
+          ``````
+
+          4. Launch **WSL Container Desktop** from the Start menu.
+
+          The first command trusts the app's self-signed publisher certificate (``CN=Michael Hacker``)
+          so Windows accepts the sideloaded package; the second installs (or updates) the app.
+
+          ### Alternative: use the Install.ps1 helper script
+
+          If you'd rather use the bundled script, download **``Install.ps1``** as well, then run it in a
+          way that bypasses the script-signing block (do **one** of these):
+
+          - From an elevated PowerShell in the download folder:
+
+            ``````powershell
+            powershell -ExecutionPolicy Bypass -File .\Install.ps1
+            ``````
+
+          - **Or** strip the Mark of the Web first, then right-click **Install.ps1** > **Run with PowerShell**:
+
+            ``````powershell
+            Unblock-File -Path .\*
+            ``````
+
+          The script self-elevates, trusts the certificate, and installs the package. To update later,
+          repeat the same steps with a newer release.
 
           > Self-signed, self-contained package (bundles the .NET and Windows App SDK runtimes, so nothing else is required). Not a Microsoft product and carries no warranty - see the repository README.
           "@ | Set-Content -LiteralPath $notesPath -Encoding UTF8
