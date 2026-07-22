@@ -3,9 +3,26 @@
     Installs WSL Container Desktop from the release assets.
 
 .DESCRIPTION
-    Download all three release assets (the .msix, the .cer, and this Install.ps1) into the
-    same folder, then right-click this script and "Run with PowerShell" (or run it from a
-    terminal). The script:
+    Download the release assets (the .msix, the .cer, and this Install.ps1) into the same
+    folder, then run this script.
+
+    NOTE: downloaded files are flagged "from the internet" (Mark of the Web). Under Windows'
+    default RemoteSigned execution policy, right-click "Run with PowerShell" will fail with
+    "...is not digitally signed". To avoid that, run this script one of these ways:
+
+      powershell -ExecutionPolicy Bypass -File .\Install.ps1
+
+    or unblock the files first, then right-click "Run with PowerShell":
+
+      Unblock-File -Path .\*
+
+    Alternatively, skip the script entirely and run the two underlying steps yourself from an
+    elevated PowerShell (interactive commands are not subject to script-signing policy):
+
+      Import-Certificate -FilePath .\WSLContainerDesktop-Signing.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+      Add-AppxPackage -Path .\WSLContainerDesktop_<version>_x64.msix -ForceUpdateFromAnyVersion
+
+    This script:
       1. Trusts the app's signing certificate (LocalMachine\TrustedPeople) so Windows will
          accept the sideloaded package. This requires administrator rights, so the script
          self-elevates.
@@ -30,6 +47,11 @@ if (-not $isAdmin) {
 }
 
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Strip the Mark of the Web from the assets in this folder so downstream operations are clean.
+Get-ChildItem -LiteralPath $dir -Include *.cer, *.msix, *.ps1 -Recurse -ErrorAction SilentlyContinue |
+    Unblock-File -ErrorAction SilentlyContinue
+
 $cer = Get-ChildItem -LiteralPath $dir -Filter *.cer | Select-Object -First 1
 $msix = Get-ChildItem -LiteralPath $dir -Filter *.msix | Select-Object -First 1
 
