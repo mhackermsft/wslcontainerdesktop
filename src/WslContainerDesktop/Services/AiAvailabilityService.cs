@@ -24,6 +24,7 @@ namespace WslContainerDesktop.Services;
 public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
 {
     private static readonly TimeSpan DebounceDelay = TimeSpan.FromMilliseconds(750);
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(20);
 
     private readonly ISettingsService _settings;
@@ -48,7 +49,7 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
 
         _settings.Changed += OnSettingsChanged;
 
-        // Verify once at startup so the buttons reflect real connectivity from the first frame.
+        // Verify at startup and retry while a configured provider is temporarily unavailable.
         ScheduleRefresh();
     }
 
@@ -72,13 +73,26 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         try
         {
             await Task.Delay(DebounceDelay, ct).ConfigureAwait(false);
-            await RefreshAsync(ct).ConfigureAwait(false);
+            do
+            {
+                await RefreshAsync(ct).ConfigureAwait(false);
+                if (_isAvailable || !IsConfigured())
+                {
+                    break;
+                }
+
+                await Task.Delay(RetryDelay, ct).ConfigureAwait(false);
+            }
+            while (!ct.IsCancellationRequested);
         }
         catch (OperationCanceledException)
         {
-            // A newer schedule superseded this one (debounce delay, gate wait, or in-flight probe). Ignore.
+            // A newer schedule superseded this one (debounce, retry delay, gate wait, or in-flight probe).
         }
     }
+
+    private bool IsConfigured() =>
+        _settings.AiFeaturesEnabled && _settings.AiProvider != AiProviderKind.None;
 
     public async Task RefreshAsync(CancellationToken ct = default)
     {
