@@ -211,8 +211,20 @@ public partial class DashboardViewModel : ObservableObject
         }, token);
     }
 
-    private void ApplyStats(IReadOnlyList<ContainerStats> stats)
+    private void ApplyStats(IReadOnlyList<ContainerStats> rawStats)
     {
+        // `wslc stats` has been observed to report stale/orphaned entries for containers that no
+        // longer exist per `wslc ps` (the StatusMonitor snapshot, which the Containers page trusts).
+        // Cross-check against that snapshot's running-container IDs so the dashboard can't grow
+        // "live" rows for containers that aren't actually running.
+        var knownRunningIds = _monitor.Latest?.Containers
+            .Where(c => c.State == ContainerState.Running)
+            .Select(c => c.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        var stats = knownRunningIds is null
+            ? rawStats
+            : rawStats.Where(s => knownRunningIds.Contains(s.Id)).ToList();
+
         var byId = stats.ToDictionary(s => s.Id, StringComparer.Ordinal);
 
         for (var i = LiveStats.Count - 1; i >= 0; i--)
