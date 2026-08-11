@@ -35,8 +35,13 @@ public sealed class ContainerInfo
     [JsonPropertyName("CreatedAt")]
     public long CreatedAt { get; set; }
 
+    // wslc emits a bogus sentinel here (observed: 18446744011573954816) for containers that were
+    // created but never started, which overflows Int64 and used to throw a JsonException that
+    // failed the *entire* array's deserialization — silently emptying the containers list even
+    // though other containers in the same batch were valid. ulong safely holds the sentinel; the
+    // out-of-range value is then filtered out in StateChangedUtc below.
     [JsonPropertyName("StateChangedAt")]
-    public long StateChangedAt { get; set; }
+    public ulong StateChangedAt { get; set; }
 
     [JsonPropertyName("State")]
     public int StateValue { get; set; }
@@ -56,6 +61,13 @@ public sealed class ContainerInfo
     [JsonIgnore]
     public DateTimeOffset CreatedUtc => DateTimeOffset.FromUnixTimeSeconds(CreatedAt);
 
+    /// <summary>
+    /// The container's last state-change time, or <see cref="CreatedUtc"/> if wslc reported its
+    /// out-of-range "never changed" sentinel (see <see cref="StateChangedAt"/>).
+    /// </summary>
     [JsonIgnore]
-    public DateTimeOffset StateChangedUtc => DateTimeOffset.FromUnixTimeSeconds(StateChangedAt);
+    public DateTimeOffset StateChangedUtc =>
+        StateChangedAt <= long.MaxValue
+            ? DateTimeOffset.FromUnixTimeSeconds((long)StateChangedAt)
+            : CreatedUtc;
 }

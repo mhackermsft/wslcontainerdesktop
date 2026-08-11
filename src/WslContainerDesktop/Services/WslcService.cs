@@ -341,7 +341,9 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
 
     public async Task<IReadOnlyList<ContainerStats>> GetStatsAsync(CancellationToken ct = default)
     {
-        var result = await runner.RunAsync(["stats", "--all", "--format", "json"], ct).ConfigureAwait(false);
+        // Deliberately omit --all: like `docker stats`, that flag would also report stopped
+        // containers (with zero usage), which is not what the dashboard's "live" list should show.
+        var result = await runner.RunAsync(["stats", "--format", "json"], ct).ConfigureAwait(false);
         return Deserialize<ContainerStats>(result);
     }
 
