@@ -53,4 +53,10 @@ public sealed partial class SettingsPage : Page
         ViewModel.SaveAiApiKey(AiApiKeyBox.Password);
         AiApiKeyBox.Password = string.Empty;
     }
+
+    private void LocalAiFeedbackBar_CloseButtonClick(InfoBar sender, object args) =>
+        ViewModel.DismissLocalAiFeedbackCommand.Execute(null);
+
+    private void ProviderFeedbackBar_CloseButtonClick(InfoBar sender, object args) =>
+        ViewModel.DismissProviderFeedbackCommand.Execute(null);
 }

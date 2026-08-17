@@ -47,6 +47,20 @@ public enum AiProviderKind
     OpenAi,
 }
 
+/// <summary>Friendly display name for an <see cref="AiProviderKind"/>, shared by provider
+/// implementations and AI feedback/error classification so the wording stays consistent.</summary>
+public static class AiProviderKindExtensions
+{
+    public static string DisplayName(this AiProviderKind kind) => kind switch
+    {
+        AiProviderKind.GitHubCopilot => "GitHub Copilot",
+        AiProviderKind.Ollama => "Ollama",
+        AiProviderKind.AzureOpenAi => "Azure OpenAI",
+        AiProviderKind.OpenAi => "OpenAI",
+        _ => "AI",
+    };
+}
+
 public sealed record AiPromptRequest(string SystemPrompt, string UserPrompt);
 
 public sealed record AiDiagnosticPreview(AiPromptRequest Request, string Payload);

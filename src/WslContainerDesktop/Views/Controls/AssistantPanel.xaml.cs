@@ -20,6 +20,7 @@ using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.System;
 using Windows.UI.Core;
 using WslContainerDesktop.ViewModels;
@@ -42,7 +43,15 @@ public sealed partial class AssistantPanel : UserControl
 
     public Visibility BoolToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>Maps actual AI availability to a success/caution brush for the provider dot —
+    /// never an unconditional green regardless of whether the provider is really reachable.</summary>
+    public static Brush ProviderStatusBrush(bool available) => (Brush)Application.Current.Resources[
+        available ? "SystemFillColorSuccessBrush" : "SystemFillColorCautionBrush"];
+
     private void Close_Click(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    private void AssistantFeedbackBar_CloseButtonClick(InfoBar sender, object args) =>
+        ViewModel.DismissFeedbackCommand.Execute(null);
 
     private void Messages_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {

@@ -46,6 +46,9 @@ public sealed partial class ContainerDetailPage : Page
     public static string CollapseTooltip(bool collapsed) =>
         collapsed ? "Expand" : "Collapse";
 
+    private void DiagnosisFeedbackBar_CloseButtonClick(InfoBar sender, object args) =>
+        ViewModel.DismissDiagnosisFeedbackCommand.Execute(null);
+
     private const int MaxLogChars = 400_000;
     private const int MaxLogLines = 6000;
     private readonly StringBuilder _logBuffer = new();

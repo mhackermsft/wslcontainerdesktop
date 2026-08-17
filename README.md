@@ -215,7 +215,7 @@ Unblock-File -Path .\*
 | **.NET 10 SDK** | Needed to build and run from source. |
 | **Windows App SDK** tooling | Installed with recent Visual Studio workloads. |
 | **Azure CLI** *(optional)* | Only for the "Add from Azure" registry feature. |
-| **AI provider** *(optional)* | Only for the AI assistant & diagnostics (off by default). Use **GitHub Copilot CLI** (signed in), an **Azure OpenAI** / **OpenAI-compatible** endpoint + API key, or run locally with **Ollama** (one-click **Set up local AI**). |
+| **AI provider** *(optional)* | Only for the AI assistant & diagnostics (off by default). Use **GitHub Copilot CLI** (signed in), an **Azure OpenAI** endpoint + API key, any **OpenAI-compatible** endpoint (configurable base URL; API key optional for local servers), or run locally with **Ollama** (one-click **Set up local AI**). |
 | **GPU** *(optional)* | Accelerates local Ollama inference; the app falls back to CPU automatically. |
 
 Install or update the WSL container preview from an elevated PowerShell prompt:
@@ -361,10 +361,12 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, until you turn it on in **Settings → AI diagnostics** and pick a provider.
 
 - **Choose your provider** — **GitHub Copilot** (uses your Copilot CLI sign-in), **Azure OpenAI**, any **OpenAI-compatible** endpoint, or **Ollama** for fully local inference. API keys are stored in **Windows Credential Manager**, never in plain text.
+- **Any OpenAI-compatible host, local or remote** — the **OpenAI-compatible** provider lets you set the **base URL** yourself (default `https://api.openai.com/v1`), so you can point the app at a server running on your own PC or anywhere else: Ollama's OpenAI API (`http://localhost:11434/v1`), LM Studio (`http://localhost:1234/v1`), llama.cpp / vLLM (`http://localhost:8000/v1`), or an internal gateway. `/chat/completions` is appended automatically. The **API key is optional** for servers that do not require one, and **Refresh** lists the models the endpoint actually serves (you can still type any model id).
 - **One-click local AI** — **Set up local AI** deploys an Ollama container (GPU-accelerated when your hardware supports it, otherwise CPU), pulls a default model (`qwen2.5:7b`), and points the app at it — no account or API key required.
 - **Diagnose-and-fix** — a **Diagnose** button on any container's detail view gathers its logs, inspect JSON, filesystem-diff entries, and recent activity, **redacts and truncates** them into a preview you can review first, then asks the model what went wrong and how to fix it. Suggested fixes are **copy-only and never run automatically**.
-- **Container AI Assistant** — a side-panel chat that can actually *do* things through a scoped, permissioned toolset: list/run/stop containers, deploy Compose templates, and take scoped k3s actions. **Read-only tools run automatically; anything that changes state prompts for approval** (per-tool auto-approve is configurable), so you stay in control.
+- **Container AI Assistant** — a side-panel chat that can actually *do* things through a scoped, permissioned toolset: list/run/stop containers, deploy Compose templates, and take scoped k3s actions. **Read-only tools run automatically; anything that changes state prompts for approval** (per-tool auto-approve is configurable), so you stay in control. The provider badge only shows healthy (green) once a live connectivity check actually succeeds — not merely because a provider is selected.
 - **Privacy by design** — everything sent to a provider is redacted and truncated first, a data-sharing notice spells out exactly what is shared, and local (Ollama) mode keeps all inference on your machine.
+- **Inline, professional feedback** — every AI operation (provider test, model refresh/pull, local AI setup/removal, diagnosis, and the Assistant) reports progress, success, and failures with an inline banner right next to the control you used, not a generic status line. Failures get a concise, provider-aware explanation (e.g. "Authentication required — save an API key in Settings") plus an optional **Technical details** section with **Copy details**, so you can share diagnostics without exposing API keys, tokens, or Authorization headers — those are always stripped before anything is shown or copied.
 
 ### Notifications
 - **Windows toast notifications** for noteworthy events: image pull/build completed or failed, a container that stopped running, and the engine going down or recovering.
@@ -382,7 +384,7 @@ AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, 
 - Close-to-tray and start-minimized toggles.
 - **Notification toggles** — master switch plus per-category (images, containers, engine).
 - Auto-refresh interval.
-- **AI diagnostics** *(off by default)* — enable AI, choose a provider (GitHub Copilot / Azure OpenAI / OpenAI-compatible / local Ollama), set up local AI in one click, and configure per-tool Assistant permissions.
+- **AI diagnostics** *(off by default)* — enable AI, choose a provider (GitHub Copilot / Azure OpenAI / OpenAI-compatible / local Ollama), set the OpenAI-compatible base URL for a local or self-hosted server, set up local AI in one click, and configure per-tool Assistant permissions.
 - Light / Dark / System theme, applied instantly.
 
 ---

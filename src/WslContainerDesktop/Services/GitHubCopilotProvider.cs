@@ -35,11 +35,11 @@ public sealed class GitHubCopilotProvider(
 
     public AiProviderKind Kind => AiProviderKind.GitHubCopilot;
 
-    public string DisplayName => "GitHub Copilot";
+    public string DisplayName => Kind.DisplayName();
 
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
-        var result = await RunCopilotAsync(request, ct).ConfigureAwait(false);
+        var result = await RunCopilotAsync(request, "Diagnosis", ct).ConfigureAwait(false);
         return AiProviderJson.ParseDiagnosis(result.Content);
     }
 
@@ -47,13 +47,13 @@ public sealed class GitHubCopilotProvider(
     {
         var result = await RunCopilotAsync(new AiPromptRequest(
             "Return JSON only.",
-            "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), ct).ConfigureAwait(false);
+            "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), "Provider test", ct).ConfigureAwait(false);
         return string.Equals(result.RequestedModel, result.ActualModel, StringComparison.OrdinalIgnoreCase)
             ? $"GitHub Copilot responded using model '{result.ActualModel}'."
             : $"GitHub Copilot responded using configured model '{result.RequestedModel}' (runtime reported '{result.ActualModel}').";
     }
 
-    private async Task<CopilotRunResult> RunCopilotAsync(AiPromptRequest request, CancellationToken ct)
+    private async Task<CopilotRunResult> RunCopilotAsync(AiPromptRequest request, string operation, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(RequestTimeout);
@@ -110,17 +110,28 @@ public sealed class GitHubCopilotProvider(
             await done.Task.ConfigureAwait(false);
             return new CopilotRunResult(content.ToString(), model, actualModel);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            throw new InvalidOperationException("GitHub Copilot did not finish before the diagnostics timeout.");
+            // Propagate as-is: AiErrorClassifier compares against the caller's own `ct` to tell a
+            // user cancellation apart from this method's internal RequestTimeout expiring.
+            throw;
+        }
+        catch (AiProviderException)
+        {
+            // Already classified (e.g. ResolveModelAsync's "model not available") — don't flatten
+            // it into the generic "not ready" fallback below.
+            throw;
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "GitHub Copilot diagnostics failed.");
-            throw new InvalidOperationException(
-                "GitHub Copilot is not ready. Sign in to the Copilot CLI, " +
-                "verify Copilot entitlement, and ensure the installed Copilot CLI is available. Details: " + ex.Message,
-                ex);
+            throw new AiProviderException(
+                Kind,
+                operation,
+                "GitHub Copilot is not ready. Sign in to the Copilot CLI, verify Copilot entitlement, and ensure the installed Copilot CLI is available.",
+                AiFailureKind.Unexpected,
+                responseDetail: ex.Message,
+                inner: ex);
         }
     }
 
@@ -169,16 +180,24 @@ public sealed class GitHubCopilotProvider(
             var data = message?.Data ?? throw new InvalidOperationException("GitHub Copilot returned no assistant message.");
             return string.IsNullOrWhiteSpace(data.Content) ? "Done." : data.Content;
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            throw new InvalidOperationException("GitHub Copilot did not finish before the assistant timeout.");
+            throw;
+        }
+        catch (AiProviderException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "GitHub Copilot assistant chat failed.");
-            throw new InvalidOperationException(
-                "GitHub Copilot assistant chat failed. Verify Copilot CLI sign-in, entitlement, and model/tool support. Details: " + ex.Message,
-                ex);
+            throw new AiProviderException(
+                Kind,
+                "Assistant chat",
+                "GitHub Copilot assistant chat failed. Verify Copilot CLI sign-in, entitlement, and model/tool support.",
+                AiFailureKind.Configuration,
+                responseDetail: ex.Message,
+                inner: ex);
         }
     }
 
@@ -292,7 +311,11 @@ public sealed class GitHubCopilotProvider(
             }
 
             var available = string.Join(", ", models.Select(m => m.Id).Take(12));
-            throw new InvalidOperationException($"GitHub Copilot model '{requested}' is not available. Choose one of the listed models in Settings. Available: {available}");
+            throw new AiProviderException(
+                Kind,
+                "Resolve model",
+                $"GitHub Copilot model '{requested}' is not available. Choose one of the listed models in Settings. Available: {available}",
+                AiFailureKind.Configuration);
         }
         catch (Exception ex)
         {

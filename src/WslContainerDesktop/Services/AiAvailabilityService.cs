@@ -26,6 +26,7 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
     private static readonly TimeSpan DebounceDelay = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(20);
+    private const int MaxRetryAttempts = 3;
 
     private readonly ISettingsService _settings;
     private readonly IEnumerable<IAiProvider> _providers;
@@ -35,6 +36,7 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
 
     private CancellationTokenSource? _debounceCts;
     private bool _isAvailable;
+    private bool _shouldRetry;
 
     public AiAvailabilityService(
         ISettingsService settings,
@@ -73,14 +75,16 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         try
         {
             await Task.Delay(DebounceDelay, ct).ConfigureAwait(false);
+            var retryAttempts = 0;
             do
             {
                 await RefreshAsync(ct).ConfigureAwait(false);
-                if (_isAvailable || !IsConfigured())
+                if (_isAvailable || !_shouldRetry || !IsConfigured() || retryAttempts >= MaxRetryAttempts)
                 {
                     break;
                 }
 
+                retryAttempts++;
                 await Task.Delay(RetryDelay, ct).ConfigureAwait(false);
             }
             while (!ct.IsCancellationRequested);
@@ -117,6 +121,7 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
 
     private async Task<bool> ProbeAsync(CancellationToken ct)
     {
+        _shouldRetry = false;
         if (!_settings.AiFeaturesEnabled || _settings.AiProvider == AiProviderKind.None)
         {
             return false;
@@ -140,9 +145,20 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
             // A newer schedule superseded this probe; propagate so we don't record a false negative.
             throw;
         }
+        catch (AiProviderException ex) when (ex.Kind is
+            AiFailureKind.Authentication or
+            AiFailureKind.Configuration or
+            AiFailureKind.NotFound)
+        {
+            // Retrying cannot repair credentials, configuration, or a missing route. A settings
+            // change schedules a fresh probe, so stop the 5s loop until the user fixes the cause.
+            _logger.LogDebug(ex, "AI availability probe requires configuration for provider {Provider}.", _settings.AiProvider);
+            return false;
+        }
         catch (Exception ex)
         {
-            // Genuine failure or the TestTimeout elapsed (linked token, not ct) — treat as unavailable.
+            // Timeouts, connection failures, throttling, and provider-side errors may recover.
+            _shouldRetry = true;
             _logger.LogDebug(ex, "AI availability probe failed for provider {Provider}.", _settings.AiProvider);
             return false;
         }

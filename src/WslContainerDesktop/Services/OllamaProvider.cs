@@ -24,29 +24,30 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
 {
     public AiProviderKind Kind => AiProviderKind.Ollama;
 
-    public string DisplayName => "Ollama";
+    public string DisplayName => Kind.DisplayName();
 
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
-        var content = await SendAsync(request, ct).ConfigureAwait(false);
+        var content = await SendAsync(request, "Diagnosis", ct).ConfigureAwait(false);
         return AiProviderJson.ParseDiagnosis(content);
     }
 
     public async Task<string> TestAsync(CancellationToken ct)
     {
-        _ = await SendAsync(new AiPromptRequest("Return JSON only.", "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), ct).ConfigureAwait(false);
+        _ = await SendAsync(new AiPromptRequest("Return JSON only.", "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), "Provider test", ct).ConfigureAwait(false);
         return $"Ollama responded using model '{settings.AiOllamaModel}'.";
     }
 
-    private async Task<string> SendAsync(AiPromptRequest request, CancellationToken ct)
+    private async Task<string> SendAsync(AiPromptRequest request, string operation, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(settings.AiOllamaModel))
         {
-            throw new InvalidOperationException("Choose an Ollama model in Settings first.");
+            throw MissingModel(operation);
         }
 
         var endpoint = NormalizeBase(settings.AiOllamaEndpoint, "http://localhost:11434");
-        using var response = await http.PostAsJsonAsync(new Uri(endpoint, "/api/chat"), new
+        var uri = new Uri(endpoint, "/api/chat");
+        using var response = await http.PostAsJsonAsync(uri, new
         {
             model = settings.AiOllamaModel.Trim(),
             stream = false,
@@ -62,7 +63,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Ollama request failed ({(int)response.StatusCode}): {Trim(body)}");
+            throw AiProviderException.FromHttpFailure(Kind, operation, response.StatusCode, uri.ToString(), settings.AiOllamaModel, body);
         }
 
         using var doc = JsonDocument.Parse(body);
@@ -75,8 +76,6 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
         return new Uri(text.EndsWith('/') ? text : text + "/", UriKind.Absolute);
     }
 
-    private static string Trim(string text) => text.Length <= 500 ? text : text[..500] + "…";
-
     public async Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
@@ -85,15 +84,16 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
     {
         if (string.IsNullOrWhiteSpace(settings.AiOllamaModel))
         {
-            throw new InvalidOperationException("Choose an Ollama model in Settings first.");
+            throw MissingModel("Assistant chat");
         }
 
         var endpoint = NormalizeBase(settings.AiOllamaEndpoint, "http://localhost:11434");
+        var uri = new Uri(endpoint, "/api/chat");
         var model = settings.AiOllamaModel.Trim();
         var messages = history.ToList();
         for (var i = 0; i < 8; i++)
         {
-            using var response = await http.PostAsJsonAsync(new Uri(endpoint, "/api/chat"), new
+            using var response = await http.PostAsJsonAsync(uri, new
             {
                 model,
                 stream = false,
@@ -105,7 +105,20 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"Ollama chat request failed ({(int)response.StatusCode}): {Trim(body)}. The model '{model}' must support tool calling (e.g. llama3.1, qwen2.5, mistral-nemo).");
+                if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+                {
+                    throw new AiProviderException(
+                        Kind,
+                        "Assistant chat",
+                        $"Ollama rejected the chat request. The model '{model}' may not support tool calling (try llama3.1, qwen2.5, or mistral-nemo).",
+                        AiFailureKind.Configuration,
+                        (int)response.StatusCode,
+                        uri.ToString(),
+                        model,
+                        body);
+                }
+
+                throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), model, body);
             }
 
             using var doc = JsonDocument.Parse(body);
@@ -132,6 +145,12 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
 
         throw new InvalidOperationException("Stopped because the assistant reached the tool-iteration limit.");
     }
+
+    private static AiProviderException MissingModel(string operation) => new(
+        AiProviderKind.Ollama,
+        operation,
+        "Choose an Ollama model in Settings first.",
+        AiFailureKind.Configuration);
 
     private static object ToOllamaMessage(AiChatMessage message)
     {

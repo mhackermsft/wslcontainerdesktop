@@ -25,34 +25,33 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
 {
     public AiProviderKind Kind => AiProviderKind.OpenAi;
 
-    public string DisplayName => "OpenAI";
+    /// <summary>Base URL used when the user has not configured one.</summary>
+    public const string DefaultEndpoint = "https://api.openai.com/v1";
+
+    public string DisplayName => Kind.DisplayName();
 
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
-        var content = await SendAsync(request, ct).ConfigureAwait(false);
+        var content = await SendAsync(request, "Diagnosis", ct).ConfigureAwait(false);
         return AiProviderJson.ParseDiagnosis(content);
     }
 
     public async Task<string> TestAsync(CancellationToken ct)
     {
-        _ = await SendAsync(new AiPromptRequest("Return JSON only.", "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), ct).ConfigureAwait(false);
-        return $"OpenAI-compatible provider responded using model '{settings.AiOpenAiModel}'.";
+        _ = await SendAsync(new AiPromptRequest("Return JSON only.", "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), "Provider test", ct).ConfigureAwait(false);
+        return $"OpenAI-compatible provider responded from {ChatCompletionsUri()} using model '{settings.AiOpenAiModel}'.";
     }
 
-    private async Task<string> SendAsync(AiPromptRequest request, CancellationToken ct)
+    private async Task<string> SendAsync(AiPromptRequest request, string operation, CancellationToken ct)
     {
-        if (!credentials.TryReadSecret(AiProviderKind.OpenAi, out var key) || string.IsNullOrWhiteSpace(key))
-        {
-            throw new InvalidOperationException("Enter and save an OpenAI API key in Settings first.");
-        }
-
         if (string.IsNullOrWhiteSpace(settings.AiOpenAiModel))
         {
-            throw new InvalidOperationException("Choose an OpenAI model in Settings first.");
+            throw MissingModel(operation);
         }
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, ChatCompletionsUri());
-        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        var uri = ChatCompletionsUri();
+        using var message = new HttpRequestMessage(HttpMethod.Post, uri);
+        ApplyAuthorization(message);
         message.Content = JsonContent.Create(new
         {
             model = settings.AiOpenAiModel.Trim(),
@@ -69,7 +68,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"OpenAI request failed ({(int)response.StatusCode}): {Trim(body)}");
+            throw AiProviderException.FromHttpFailure(Kind, operation, response.StatusCode, uri.ToString(), settings.AiOpenAiModel, body);
         }
 
         using var doc = JsonDocument.Parse(body);
@@ -82,21 +81,17 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct)
     {
-        if (!credentials.TryReadSecret(AiProviderKind.OpenAi, out var key) || string.IsNullOrWhiteSpace(key))
-        {
-            throw new InvalidOperationException("Enter and save an OpenAI API key in Settings first.");
-        }
-
         if (string.IsNullOrWhiteSpace(settings.AiOpenAiModel))
         {
-            throw new InvalidOperationException("Choose an OpenAI model in Settings first.");
+            throw MissingModel("Assistant chat");
         }
 
+        var uri = ChatCompletionsUri();
         var messages = history.ToList();
         for (var i = 0; i < 8; i++)
         {
-            using var message = new HttpRequestMessage(HttpMethod.Post, ChatCompletionsUri());
-            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            using var message = new HttpRequestMessage(HttpMethod.Post, uri);
+            ApplyAuthorization(message);
             message.Content = JsonContent.Create(new
             {
                 model = settings.AiOpenAiModel.Trim(),
@@ -110,7 +105,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"OpenAI chat request failed ({(int)response.StatusCode}): {Trim(body)}");
+                throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), settings.AiOpenAiModel, body);
             }
 
             using var doc = JsonDocument.Parse(body);
@@ -138,21 +133,51 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         throw new InvalidOperationException("Stopped because the assistant reached the tool-iteration limit.");
     }
 
-    private Uri ChatCompletionsUri()
+    private void ApplyAuthorization(HttpRequestMessage message)
     {
-        var endpoint = string.IsNullOrWhiteSpace(settings.AiOpenAiEndpoint)
-            ? "https://api.openai.com/v1"
-            : settings.AiOpenAiEndpoint.Trim();
-        if (endpoint.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+        // Local OpenAI-compatible servers (Ollama /v1, LM Studio, llama.cpp, vLLM) usually accept
+        // no auth at all, so the key is optional: only send the header when one is saved.
+        if (credentials.TryReadSecret(AiProviderKind.OpenAi, out var key) && !string.IsNullOrWhiteSpace(key))
         {
-            return new Uri(endpoint, UriKind.Absolute);
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
         }
-
-        endpoint = endpoint.TrimEnd('/');
-        return new Uri(endpoint + "/chat/completions", UriKind.Absolute);
     }
 
-    private static string Trim(string text) => text.Length <= 500 ? text : text[..500] + "…";
+    private static AiProviderException MissingModel(string operation) => new(
+        AiProviderKind.OpenAi,
+        operation,
+        "Choose an OpenAI-compatible model in Settings first.",
+        AiFailureKind.Configuration);
+
+    private Uri ChatCompletionsUri() => BuildUri(settings.AiOpenAiEndpoint, "chat/completions");
+
+    /// <summary>
+    /// Resolves a user-supplied OpenAI-compatible base URL into an absolute endpoint for
+    /// <paramref name="relativePath"/>, defaulting to the public OpenAI endpoint when blank.
+    /// </summary>
+    public static Uri BuildUri(string? endpoint, string relativePath)
+    {
+        var baseUrl = string.IsNullOrWhiteSpace(endpoint) ? DefaultEndpoint : endpoint.Trim();
+        var trimmed = baseUrl.TrimEnd('/');
+
+        // Tolerate a base URL that already points at the chat-completions route.
+        const string ChatSuffix = "/chat/completions";
+        if (trimmed.EndsWith(ChatSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = trimmed[..^ChatSuffix.Length];
+        }
+
+        var candidate = trimmed + "/" + relativePath;
+        if (!Uri.TryCreate(candidate, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new InvalidOperationException(
+                $"The OpenAI-compatible endpoint '{baseUrl}' is not a valid absolute http(s) URL. " +
+                "Example: http://localhost:11434/v1");
+        }
+
+        return uri;
+    }
 
     internal static object ToOpenAiMessage(AiChatMessage message)
     {
