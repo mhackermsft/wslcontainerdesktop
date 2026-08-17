@@ -26,21 +26,21 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
 
     public AiProviderKind Kind => AiProviderKind.AzureOpenAi;
 
-    public string DisplayName => "Azure OpenAI";
+    public string DisplayName => Kind.DisplayName();
 
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
-        var content = await SendAsync(request, ct).ConfigureAwait(false);
+        var content = await SendAsync(request, "Diagnosis", ct).ConfigureAwait(false);
         return AiProviderJson.ParseDiagnosis(content);
     }
 
     public async Task<string> TestAsync(CancellationToken ct)
     {
-        _ = await SendAsync(new AiPromptRequest("Return JSON only.", "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), ct).ConfigureAwait(false);
+        _ = await SendAsync(new AiPromptRequest("Return JSON only.", "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), "Provider test", ct).ConfigureAwait(false);
         return $"Azure OpenAI responded using deployment '{settings.AiAzureOpenAiDeployment}'.";
     }
 
-    private async Task<string> SendAsync(AiPromptRequest request, CancellationToken ct)
+    private async Task<string> SendAsync(AiPromptRequest request, string operation, CancellationToken ct)
     {
         if (!credentials.TryReadSecret(AiProviderKind.AzureOpenAi, out var key) || string.IsNullOrWhiteSpace(key))
         {
@@ -52,7 +52,8 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
             throw new InvalidOperationException("Enter an Azure OpenAI endpoint and deployment in Settings first.");
         }
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, CompletionUri());
+        var uri = CompletionUri();
+        using var message = new HttpRequestMessage(HttpMethod.Post, uri);
         message.Headers.Add("api-key", key);
         message.Content = JsonContent.Create(new
         {
@@ -69,7 +70,7 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Azure OpenAI request failed ({(int)response.StatusCode}): {Trim(body)}");
+            throw AiProviderException.FromHttpFailure(Kind, operation, response.StatusCode, uri.ToString(), settings.AiAzureOpenAiDeployment, body);
         }
 
         using var doc = JsonDocument.Parse(body);
@@ -92,10 +93,11 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
             throw new InvalidOperationException("Enter an Azure OpenAI endpoint and deployment in Settings first.");
         }
 
+        var uri = CompletionUri();
         var messages = history.ToList();
         for (var i = 0; i < 8; i++)
         {
-            using var message = new HttpRequestMessage(HttpMethod.Post, CompletionUri());
+            using var message = new HttpRequestMessage(HttpMethod.Post, uri);
             message.Headers.Add("api-key", key);
             message.Content = JsonContent.Create(new
             {
@@ -109,7 +111,7 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"Azure OpenAI chat request failed ({(int)response.StatusCode}): {Trim(body)}");
+                throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), settings.AiAzureOpenAiDeployment, body);
             }
 
             using var doc = JsonDocument.Parse(body);
@@ -142,6 +144,4 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
         var deployment = Uri.EscapeDataString(settings.AiAzureOpenAiDeployment!.Trim());
         return new Uri($"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={ApiVersion}", UriKind.Absolute);
     }
-
-    private static string Trim(string text) => text.Length <= 500 ? text : text[..500] + "…";
 }

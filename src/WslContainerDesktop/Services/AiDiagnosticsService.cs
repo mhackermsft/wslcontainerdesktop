@@ -15,13 +15,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed partial class AiDiagnosticsService(
+public sealed class AiDiagnosticsService(
     IWslcService wslc,
     IActivityLog activity,
     ISettingsService settings,
@@ -134,24 +133,9 @@ public sealed partial class AiDiagnosticsService(
         builder.AppendLine();
     }
 
-    private static string Truncate(string text, int maxChars)
-    {
-        if (text.Length <= maxChars)
-        {
-            return text;
-        }
+    private static string Truncate(string text, int maxChars) => AiTextSanitizer.TruncateMiddle(text, maxChars);
 
-        var head = maxChars / 2;
-        var tail = maxChars - head;
-        return text[..head] + "\n...[truncated]...\n" + text[^tail..];
-    }
-
-    private static string Redact(string text)
-    {
-        var redacted = SecretAssignmentRegex().Replace(text, "$1=<redacted>");
-        redacted = ConnectionStringRegex().Replace(redacted, "$1=<redacted>");
-        return BearerRegex().Replace(redacted, "$1 <redacted>");
-    }
+    private static string Redact(string text) => AiTextSanitizer.Redact(text);
 
     private const string SystemPrompt = """
         You are a container-debugging assistant inside WSL Container Desktop.
@@ -174,13 +158,4 @@ public sealed partial class AiDiagnosticsService(
           "confidence": 0.0
         }
         """;
-
-    [GeneratedRegex(@"(?im)\b([A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|PWD)[A-Z0-9_]*\s*[:=]\s*)([^\s,;""']+|""[^""]*""|'[^']*')")]
-    private static partial Regex SecretAssignmentRegex();
-
-    [GeneratedRegex(@"(?im)\b((?:DefaultEndpointsProtocol|AccountKey|SharedAccessKey|Password|User ID|Uid|Pwd)\s*=\s*)([^;,\s]+)")]
-    private static partial Regex ConnectionStringRegex();
-
-    [GeneratedRegex(@"(?im)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+")]
-    private static partial Regex BearerRegex();
 }

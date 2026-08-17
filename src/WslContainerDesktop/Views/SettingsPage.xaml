@@ -353,6 +353,7 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button
+                                    AutomationProperties.AutomationId="SetUpLocalAiButton"
                                     Command="{x:Bind ViewModel.SetUpLocalAiCommand}"
                                     Style="{ThemeResource AccentButtonStyle}">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
@@ -361,17 +362,41 @@
                                     </StackPanel>
                                 </Button>
                                 <Button
+                                    AutomationProperties.AutomationId="RemoveLocalAiButton"
                                     Command="{x:Bind ViewModel.RemoveLocalAiCommand}"
                                     Content="Remove local AI" />
                             </StackPanel>
                             <ProgressBar
                                 IsIndeterminate="True"
                                 Visibility="{x:Bind ViewModel.IsOllamaBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
-                            <TextBlock
-                                FontSize="12"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="{x:Bind ViewModel.AiStatus, Mode=OneWay}"
-                                TextWrapping="Wrap" />
+                            <InfoBar
+                                x:Name="LocalAiFeedbackBar"
+                                AutomationProperties.AutomationId="LocalAiFeedbackInfoBar"
+                                CloseButtonClick="LocalAiFeedbackBar_CloseButtonClick"
+                                IsClosable="True"
+                                IsOpen="{x:Bind ViewModel.LocalAiFeedback.IsVisible, Mode=OneWay}"
+                                Message="{x:Bind ViewModel.LocalAiFeedback.Message, Mode=OneWay}"
+                                Severity="{x:Bind converters:AiFeedbackDisplay.ToInfoBarSeverity(ViewModel.LocalAiFeedback.Severity), Mode=OneWay}"
+                                Title="{x:Bind ViewModel.LocalAiFeedback.Title, Mode=OneWay}" />
+                            <Expander
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Header="Technical details"
+                                Visibility="{x:Bind ViewModel.LocalAiFeedback.HasTechnicalDetails, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock
+                                        AutomationProperties.AutomationId="LocalAiFeedbackDetailsText"
+                                        FontFamily="Cascadia Mono, Consolas"
+                                        FontSize="12"
+                                        IsTextSelectionEnabled="True"
+                                        Text="{x:Bind ViewModel.LocalAiFeedback.TechnicalDetails, Mode=OneWay}"
+                                        TextWrapping="Wrap" />
+                                    <Button
+                                        AutomationProperties.AutomationId="CopyLocalAiFeedbackDetailsButton"
+                                        Command="{x:Bind ViewModel.CopyLocalAiFeedbackDetailsCommand}"
+                                        Content="Copy details" />
+                                </StackPanel>
+                            </Expander>
                         </StackPanel>
                     </Border>
                     <InfoBar
@@ -463,8 +488,32 @@
                             </StackPanel>
                             <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowOpenAiSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <TextBox
-                                    Header="OpenAI-compatible model"
-                                    Text="{x:Bind ViewModel.AiOpenAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    Header="OpenAI-compatible endpoint (base URL)"
+                                    PlaceholderText="https://api.openai.com/v1"
+                                    Text="{x:Bind ViewModel.AiOpenAiEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="Point this at any server that speaks the OpenAI chat-completions API. Examples: https://api.openai.com/v1 (OpenAI), http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio), http://localhost:8000/v1 (vLLM / llama.cpp). Include the version segment your server uses; /chat/completions is appended automatically."
+                                    TextWrapping="Wrap" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        Grid.Column="0"
+                                        HorizontalAlignment="Stretch"
+                                        Header="OpenAI-compatible model"
+                                        IsEditable="True"
+                                        ItemsSource="{x:Bind ViewModel.OpenAiModels, Mode=OneWay}"
+                                        Text="{x:Bind ViewModel.AiOpenAiModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Button
+                                        Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Command="{x:Bind ViewModel.RefreshOpenAiModelsCommand}"
+                                        Content="Refresh" />
+                                </Grid>
                             </StackPanel>
                             <Grid ColumnSpacing="8" Visibility="{x:Bind ViewModel.ShowAiSecretSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <Grid.ColumnDefinitions>
@@ -475,7 +524,7 @@
                                     x:Name="AiApiKeyBox"
                                     Grid.Column="0"
                                     Header="API key"
-                                    PlaceholderText="Stored in Windows Credential Manager" />
+                                    PlaceholderText="Stored in Windows Credential Manager (optional for local OpenAI-compatible servers)" />
                                 <Button
                                     Grid.Column="1"
                                     VerticalAlignment="Bottom"
@@ -493,13 +542,43 @@
                             Grid.Column="0"
                             VerticalAlignment="Center"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="{x:Bind ViewModel.AiStatus, Mode=OneWay}"
+                            Text="Verify the selected provider can respond before using it."
                             TextWrapping="Wrap" />
                         <Button
                             Grid.Column="1"
+                            AutomationProperties.AutomationId="TestAiProviderButton"
                             Command="{x:Bind ViewModel.TestAiProviderCommand}"
                             Content="Test" />
                     </Grid>
+                    <InfoBar
+                        x:Name="ProviderFeedbackBar"
+                        AutomationProperties.AutomationId="ProviderFeedbackInfoBar"
+                        CloseButtonClick="ProviderFeedbackBar_CloseButtonClick"
+                        IsClosable="True"
+                        IsOpen="{x:Bind ViewModel.ProviderFeedback.IsVisible, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.ProviderFeedback.Message, Mode=OneWay}"
+                        Severity="{x:Bind converters:AiFeedbackDisplay.ToInfoBarSeverity(ViewModel.ProviderFeedback.Severity), Mode=OneWay}"
+                        Title="{x:Bind ViewModel.ProviderFeedback.Title, Mode=OneWay}"
+                        Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Technical details"
+                        Visibility="{x:Bind ViewModel.ProviderFeedback.HasTechnicalDetails, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="8">
+                            <TextBlock
+                                AutomationProperties.AutomationId="ProviderFeedbackDetailsText"
+                                FontFamily="Cascadia Mono, Consolas"
+                                FontSize="12"
+                                IsTextSelectionEnabled="True"
+                                Text="{x:Bind ViewModel.ProviderFeedback.TechnicalDetails, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                            <Button
+                                AutomationProperties.AutomationId="CopyProviderFeedbackDetailsButton"
+                                Command="{x:Bind ViewModel.CopyProviderFeedbackDetailsCommand}"
+                                Content="Copy details" />
+                        </StackPanel>
+                    </Expander>
                     <Expander
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Stretch"

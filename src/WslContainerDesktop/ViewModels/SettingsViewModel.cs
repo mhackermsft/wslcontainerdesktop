@@ -22,6 +22,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitHub.Copilot;
 using Microsoft.Extensions.Logging;
+using Windows.ApplicationModel.DataTransfer;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 
@@ -111,6 +112,7 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshOllamaModelsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RefreshOpenAiModelsCommand))]
     [NotifyCanExecuteChangedFor(nameof(PullOllamaModelCommand))]
     [NotifyCanExecuteChangedFor(nameof(SetUpLocalAiCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveLocalAiCommand))]
@@ -134,8 +136,17 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _aiApiKey = string.Empty;
 
+    /// <summary>Feedback for the Quick start / one-click local AI setup and removal only — never
+    /// touched by provider selection, credential, or model-list operations.</summary>
     [ObservableProperty]
-    private string _aiStatus = "AI features are off by default. Enable them and review the payload preview before sending diagnostics.";
+    private AiFeedback _localAiFeedback = AiFeedback.None;
+
+    /// <summary>Feedback for provider selection/configuration, credential save, model list/pull,
+    /// and connectivity test — rendered inside Provider settings, never in the local AI card.</summary>
+    [ObservableProperty]
+    private AiFeedback _providerFeedback = AiFeedback.Informational(
+        "AI features are off",
+        "AI features are off by default. Enable them and review the payload preview before sending diagnostics.");
 
     [ObservableProperty]
     private string _engineVersion = "Unknown";
@@ -161,6 +172,39 @@ public partial class SettingsViewModel : ObservableObject
         ? (AiProviderKind)SelectedAiProviderIndex
         : AiProviderKind.None;
 
+    /// <summary>Builds classification context for the currently selected provider.</summary>
+    private AiErrorContext ProviderContext(string operation, string? endpoint = null, string? modelOrDeployment = null) =>
+        AiErrorContext.For(_settings.AiProvider, operation, endpoint, modelOrDeployment);
+
+    /// <summary>Local AI setup/removal always targets the Ollama container, regardless of which
+    /// provider is currently selected in Settings.</summary>
+    private static AiErrorContext LocalAiContext(string operation) =>
+        AiErrorContext.For(AiProviderKind.Ollama, operation);
+
+    [RelayCommand]
+    private void DismissLocalAiFeedback() => LocalAiFeedback = AiFeedback.None;
+
+    [RelayCommand]
+    private void DismissProviderFeedback() => ProviderFeedback = AiFeedback.None;
+
+    [RelayCommand]
+    private void CopyLocalAiFeedbackDetails() => CopyFeedbackDetails(LocalAiFeedback);
+
+    [RelayCommand]
+    private void CopyProviderFeedbackDetails() => CopyFeedbackDetails(ProviderFeedback);
+
+    private static void CopyFeedbackDetails(AiFeedback feedback)
+    {
+        if (!feedback.HasTechnicalDetails)
+        {
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText($"{feedback.Title}\n{feedback.Message}\n\n{feedback.TechnicalDetails}");
+        Clipboard.SetContent(package);
+    }
+
     /// <summary>
     /// The app's version for display. Reads the packaged identity version (which the release
     /// pipeline stamps into the MSIX), falling back to the assembly version when unpackaged.
@@ -182,6 +226,12 @@ public partial class SettingsViewModel : ObservableObject
     public ObservableCollection<AiModelOption> GitHubCopilotModels { get; } = new() { new AiModelOption("auto", "auto") };
 
     public ObservableCollection<AiModelOption> OllamaModels { get; } = new();
+
+    /// <summary>
+    /// Model ids advertised by the configured OpenAI-compatible endpoint (<c>GET /models</c>).
+    /// Bound to an editable ComboBox, so a model that the server does not list can still be typed.
+    /// </summary>
+    public ObservableCollection<string> OpenAiModels { get; } = new();
 
     public ObservableCollection<AssistantToolPermissionGroup> AssistantToolPermissions { get; }
 
@@ -397,7 +447,9 @@ public partial class SettingsViewModel : ObservableObject
 
         _aiCredentials.WriteSecret(_settings.AiProvider, secret);
         AiApiKey = string.Empty;
-        AiStatus = $"Saved {_settings.AiProvider} credential in Windows Credential Manager.";
+        ProviderFeedback = AiFeedback.Success(
+            "Credential saved",
+            $"Saved {_settings.AiProvider.DisplayName()} credential in Windows Credential Manager.");
     }
 
     private void LoadStoredAiSecretIndicator()
@@ -405,21 +457,34 @@ public partial class SettingsViewModel : ObservableObject
         AiApiKey = string.Empty;
         if (_settings.AiProvider == AiProviderKind.GitHubCopilot)
         {
-            AiStatus = "GitHub Copilot uses your logged-in Copilot CLI account. No API key is needed.";
+            ProviderFeedback = AiFeedback.Informational(
+                "GitHub Copilot",
+                "Uses your logged-in Copilot CLI account. No API key is needed.");
             return;
         }
 
         if (_settings.AiProvider is AiProviderKind.None or AiProviderKind.Ollama)
         {
-            AiStatus = _settings.AiProvider == AiProviderKind.Ollama
-                ? "Ollama uses the configured local endpoint and model."
-                : "Choose an AI provider to configure diagnostics.";
+            ProviderFeedback = _settings.AiProvider == AiProviderKind.Ollama
+                ? AiFeedback.Informational("Ollama", "Uses the configured local endpoint and model.")
+                : AiFeedback.Informational("No provider selected", "Choose an AI provider to configure diagnostics.");
             return;
         }
 
-        AiStatus = _aiCredentials.TryReadSecret(_settings.AiProvider, out _)
-            ? $"{_settings.AiProvider} has a saved credential."
-            : "No credential is saved for the selected provider.";
+        if (_settings.AiProvider == AiProviderKind.OpenAi)
+        {
+            var endpoint = string.IsNullOrWhiteSpace(_settings.AiOpenAiEndpoint)
+                ? OpenAiProvider.DefaultEndpoint
+                : _settings.AiOpenAiEndpoint.Trim();
+            ProviderFeedback = _aiCredentials.TryReadSecret(AiProviderKind.OpenAi, out _)
+                ? AiFeedback.Informational("OpenAI-compatible", $"Using {endpoint} with a saved API key.")
+                : AiFeedback.Informational("OpenAI-compatible", $"Using {endpoint} with no API key. That is fine for local servers; hosted services such as OpenAI need one.");
+            return;
+        }
+
+        ProviderFeedback = _aiCredentials.TryReadSecret(_settings.AiProvider, out _)
+            ? AiFeedback.Informational(_settings.AiProvider.DisplayName(), $"{_settings.AiProvider.DisplayName()} has a saved credential.")
+            : AiFeedback.Warning(_settings.AiProvider.DisplayName(), "No credential is saved for the selected provider.");
     }
 
     partial void OnRunAtLoginChanged(bool value)
@@ -565,16 +630,17 @@ public partial class SettingsViewModel : ObservableObject
     private async Task TestAiProviderAsync()
     {
         IsBusy = true;
+        ProviderFeedback = AiFeedback.Informational("Testing provider", "Sending a test request to the selected provider…");
         try
         {
-            AiStatus = await _aiDiagnostics.TestProviderAsync();
+            var result = await _aiDiagnostics.TestProviderAsync();
             await _aiAvailability.RefreshAsync();
-            await _dialogs.ShowMessageAsync("AI provider OK", AiStatus);
+            ProviderFeedback = AiFeedback.Success("Provider test succeeded", result);
         }
         catch (Exception ex)
         {
-            AiStatus = ex.Message;
-            await _dialogs.ShowMessageAsync("AI provider failed", ex.Message);
+            _logger.LogWarning(ex, "AI provider test failed.");
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Provider test"));
         }
         finally
         {
@@ -583,10 +649,11 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task SignInGitHubCopilotAsync()
+    private void SignInGitHubCopilot()
     {
-        AiStatus = "GitHub Copilot uses your logged-in Copilot CLI account. Run `copilot login` outside the app if you need to sign in.";
-        await _dialogs.ShowMessageAsync("GitHub Copilot", AiStatus);
+        ProviderFeedback = AiFeedback.Informational(
+            "GitHub Copilot sign-in",
+            "GitHub Copilot uses your logged-in Copilot CLI account. Run `copilot login` outside the app if you need to sign in.");
     }
 
     [RelayCommand]
@@ -607,7 +674,7 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             IsBusy = true;
-            AiStatus = "Loading GitHub Copilot models…";
+            ProviderFeedback = AiFeedback.Informational("Loading models", "Loading GitHub Copilot models…");
             await using var client = GitHubCopilotProvider.CreateClient(_logger);
             await client.StartAsync();
             var models = await client.ListModelsAsync();
@@ -630,21 +697,16 @@ public partial class SettingsViewModel : ObservableObject
             ReplaceGitHubCopilotModels(options);
             ReapplyGitHubCopilotModel(persisted);
 
-            if (!configuredAvailable)
-            {
-                AiStatus = $"Configured model '{persisted}' is not available. Choose a model from the list.";
-            }
-            else
-            {
-                AiStatus = $"Loaded {GitHubCopilotModels.Count} GitHub Copilot model(s).";
-            }
+            ProviderFeedback = !configuredAvailable
+                ? AiFeedback.Warning("Configured model unavailable", $"Configured model '{persisted}' is not available. Choose a model from the list.")
+                : AiFeedback.Success("Models loaded", $"Loaded {GitHubCopilotModels.Count} GitHub Copilot model(s).");
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to load GitHub Copilot models.");
             SeedGitHubCopilotModels(persisted);
             ReapplyGitHubCopilotModel(persisted);
-            AiStatus = "Could not load GitHub Copilot models. Showing fallback list with the saved model and 'auto'. Details: " + ex.Message;
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Refresh GitHub Copilot models"));
         }
         finally
         {
@@ -725,16 +787,17 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         var persisted = _settings.AiOllamaModel?.Trim() ?? string.Empty;
+        Uri? endpoint = null;
         try
         {
             IsOllamaBusy = true;
-            AiStatus = "Loading installed Ollama models…";
-            var endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
+            ProviderFeedback = AiFeedback.Informational("Loading models", "Loading installed Ollama models…");
+            endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
             using var response = await _http.GetAsync(new Uri(endpoint, "api/tags"));
             var body = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"Ollama returned {(int)response.StatusCode}: {body}");
+                throw AiProviderException.FromHttpFailure(AiProviderKind.Ollama, "Refresh Ollama models", response.StatusCode, endpoint.ToString(), persisted, body);
             }
 
             var names = new List<string>();
@@ -757,19 +820,119 @@ public partial class SettingsViewModel : ObservableObject
             }
 
             ReplaceOllamaModels(names, persisted);
-            AiStatus = names.Count == 0
-                ? "No Ollama models installed. Pull one below (for example qwen2.5:7b)."
-                : $"Loaded {names.Count} installed Ollama model(s).";
+            ProviderFeedback = names.Count == 0
+                ? AiFeedback.Warning("No models installed", "No Ollama models installed. Pull one below (for example qwen2.5:7b).")
+                : AiFeedback.Success("Models loaded", $"Loaded {names.Count} installed Ollama model(s).");
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to load Ollama models.");
             ReplaceOllamaModels([], persisted);
-            AiStatus = "Could not reach Ollama at the configured endpoint. Make sure Ollama is running. Details: " + ex.Message;
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Refresh Ollama models", endpoint?.ToString(), persisted));
         }
         finally
         {
             IsOllamaBusy = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
+    private async Task RefreshOpenAiModelsAsync() => await LoadOpenAiModelsAsync();
+
+    /// <summary>
+    /// Queries <c>GET {endpoint}/models</c> on the configured OpenAI-compatible server so the user
+    /// can pick from what that host actually serves. The saved model id is always kept in the list
+    /// (and selected) so a custom value survives a failed or partial refresh.
+    /// </summary>
+    public async Task LoadOpenAiModelsAsync()
+    {
+        if (CurrentAiProvider != AiProviderKind.OpenAi)
+        {
+            return;
+        }
+
+        var persisted = _settings.AiOpenAiModel?.Trim() ?? string.Empty;
+        string? endpoint = null;
+        try
+        {
+            IsOllamaBusy = true;
+            ProviderFeedback = AiFeedback.Informational("Loading models", "Loading models from the OpenAI-compatible endpoint…");
+
+            var uri = OpenAiProvider.BuildUri(_settings.AiOpenAiEndpoint, "models");
+            endpoint = uri.ToString();
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            if (_aiCredentials.TryReadSecret(AiProviderKind.OpenAi, out var key) && !string.IsNullOrWhiteSpace(key))
+            {
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+            }
+
+            using var response = await _http.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                throw AiProviderException.FromHttpFailure(AiProviderKind.OpenAi, "Refresh OpenAI-compatible models", response.StatusCode, endpoint, persisted, body);
+            }
+
+            var ids = new List<string>();
+            using (var doc = JsonDocument.Parse(body))
+            {
+                if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var model in data.EnumerateArray())
+                    {
+                        if (model.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+                        {
+                            var value = id.GetString();
+                            if (!string.IsNullOrWhiteSpace(value))
+                            {
+                                ids.Add(value!);
+                            }
+                        }
+                    }
+                }
+            }
+
+            ReplaceOpenAiModels(ids, persisted);
+            ProviderFeedback = ids.Count == 0
+                ? AiFeedback.Warning("No models listed", "The endpoint responded but listed no models. Type the model id your server expects.")
+                : AiFeedback.Success("Models loaded", $"Loaded {ids.Count} model(s) from the OpenAI-compatible endpoint.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load OpenAI-compatible models.");
+            ReplaceOpenAiModels([], persisted);
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Refresh OpenAI-compatible models", endpoint, persisted));
+        }
+        finally
+        {
+            IsOllamaBusy = false;
+        }
+    }
+
+    private void ReplaceOpenAiModels(IEnumerable<string> ids, string persisted)
+    {
+        var ordered = ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(persisted)
+            && !ordered.Any(id => string.Equals(id, persisted, StringComparison.OrdinalIgnoreCase)))
+        {
+            ordered.Insert(0, persisted);
+        }
+
+        OpenAiModels.Clear();
+        foreach (var id in ordered)
+        {
+            OpenAiModels.Add(id);
+        }
+
+        // Re-assert the saved id so the editable ComboBox keeps showing it after the list swap.
+        if (!string.IsNullOrWhiteSpace(persisted))
+        {
+            AiOpenAiModel = persisted;
         }
     }
 
@@ -779,26 +942,27 @@ public partial class SettingsViewModel : ObservableObject
         var name = OllamaPullModel?.Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
-            AiStatus = "Enter a model name to pull (for example qwen2.5:7b).";
+            ProviderFeedback = AiFeedback.Warning("Model name required", "Enter a model name to pull (for example qwen2.5:7b).");
             return;
         }
 
+        Uri? endpoint = null;
         try
         {
             IsOllamaBusy = true;
-            var endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
-            if (await StreamPullModelAsync(name, endpoint))
+            endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
+            if (await StreamPullModelAsync(name, endpoint, fb => ProviderFeedback = fb))
             {
                 OllamaPullModel = string.Empty;
                 await LoadOllamaModelsAsync();
                 AiOllamaModel = name;
-                AiStatus = $"Pulled '{name}' and selected it.";
+                ProviderFeedback = AiFeedback.Success("Model pulled", $"Pulled '{name}' and selected it.");
             }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Ollama pull failed.");
-            AiStatus = "Pull failed: " + ex.Message;
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Pull Ollama model", endpoint?.ToString(), name));
         }
         finally
         {
@@ -807,13 +971,16 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Streams an Ollama <c>/api/pull</c> for <paramref name="name"/>, updating <see cref="AiStatus"/>
-    /// with progress. Returns true when the model finished downloading, false on a reported error.
-    /// Callers own <see cref="IsOllamaBusy"/> and any follow-up (model list refresh, selection).
+    /// Streams an Ollama <c>/api/pull</c> for <paramref name="name"/>, reporting progress through
+    /// <paramref name="report"/> so the caller can route it into the right feedback channel — the
+    /// explicit "Pull a model" action reports to <see cref="ProviderFeedback"/>, while the one-click
+    /// local AI setup reports to <see cref="LocalAiFeedback"/>. Returns true when the model
+    /// finished downloading, false on a reported error. Callers own <see cref="IsOllamaBusy"/> and
+    /// any follow-up (model list refresh, selection).
     /// </summary>
-    private async Task<bool> StreamPullModelAsync(string name, Uri endpoint, CancellationToken ct = default)
+    private async Task<bool> StreamPullModelAsync(string name, Uri endpoint, Action<AiFeedback> report, CancellationToken ct = default)
     {
-        AiStatus = $"Pulling '{name}'…";
+        report(AiFeedback.Informational("Pulling model", $"Pulling '{name}'…"));
 
         // Pulls can take minutes for multi-GB models, so use a dedicated client with no timeout
         // and stream the NDJSON progress rather than the shared 20s HttpClient.
@@ -826,7 +993,8 @@ public partial class SettingsViewModel : ObservableObject
         if (!response.IsSuccessStatusCode)
         {
             var err = await response.Content.ReadAsStringAsync(ct);
-            AiStatus = $"Pull failed ({(int)response.StatusCode}): {Truncate(err)}";
+            var ex = AiProviderException.FromHttpFailure(AiProviderKind.Ollama, "Pull model", response.StatusCode, endpoint.ToString(), name, err);
+            report(AiErrorClassifier.Classify(ex, ProviderContext("Pull model", endpoint.ToString(), name)));
             return false;
         }
 
@@ -845,7 +1013,7 @@ public partial class SettingsViewModel : ObservableObject
                 var root = doc.RootElement;
                 if (root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
                 {
-                    AiStatus = $"Pull failed: {error.GetString()}";
+                    report(AiFeedback.Error("Pull failed", error.GetString() ?? "Unknown error."));
                     return false;
                 }
 
@@ -856,11 +1024,11 @@ public partial class SettingsViewModel : ObservableObject
                     && root.TryGetProperty("completed", out var compEl) && compEl.TryGetInt64(out var completed))
                 {
                     var pct = Math.Clamp(completed * 100.0 / total, 0, 100);
-                    AiStatus = $"Pulling {name}: {status} {pct:0}% ({FormatBytes(completed)} / {FormatBytes(total)})";
+                    report(AiFeedback.Informational("Pulling model", $"Pulling {name}: {status} {pct:0}% ({FormatBytes(completed)} / {FormatBytes(total)})"));
                 }
                 else if (!string.IsNullOrWhiteSpace(status))
                 {
-                    AiStatus = $"Pulling {name}: {status}";
+                    report(AiFeedback.Informational("Pulling model", $"Pulling {name}: {status}"));
                 }
             }
             catch (JsonException)
@@ -882,24 +1050,25 @@ public partial class SettingsViewModel : ObservableObject
             // The one-click default: a local, tool-capable model that fits most dev machines.
             const string model = "qwen2.5:7b";
             var endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
-            var progress = new Progress<string>(msg => AiStatus = msg);
+            var progress = new Progress<string>(msg => LocalAiFeedback = AiFeedback.Informational("Setting up local AI", msg));
 
             // Skip deployment if an Ollama (container or native) is already answering the endpoint.
-            AiStatus = "Checking for a running Ollama…";
+            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Checking for a running Ollama…");
             if (!await IsOllamaHealthyAsync(endpoint, CancellationToken.None))
             {
                 var result = await _localAi.EnsureOllamaContainerAsync(progress, CancellationToken.None);
                 if (!result.Success)
                 {
-                    AiStatus = result.Message;
-                    await _dialogs.ShowMessageAsync("Local AI setup failed", result.Message);
+                    LocalAiFeedback = AiFeedback.Error("Local AI setup failed", result.Message);
                     return;
                 }
 
-                AiStatus = "Waiting for Ollama to become ready…";
+                LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Waiting for Ollama to become ready…");
                 if (!await WaitForOllamaReadyAsync(endpoint, TimeSpan.FromSeconds(90), CancellationToken.None))
                 {
-                    AiStatus = "Ollama started but did not become ready in time. Check the container logs and try again.";
+                    LocalAiFeedback = AiFeedback.Error(
+                        "Local AI setup failed",
+                        "Ollama started but did not become ready in time. Check the container logs and try again.");
                     return;
                 }
             }
@@ -907,7 +1076,7 @@ public partial class SettingsViewModel : ObservableObject
             // Download the default model (skip if it is already installed).
             if (!await IsModelInstalledAsync(endpoint, model, CancellationToken.None))
             {
-                if (!await StreamPullModelAsync(model, endpoint))
+                if (!await StreamPullModelAsync(model, endpoint, fb => LocalAiFeedback = fb))
                 {
                     return;
                 }
@@ -923,10 +1092,10 @@ public partial class SettingsViewModel : ObservableObject
             await LoadOllamaModelsAsync();
 
             // Warm up so the model is resident in memory before the user opens the assistant.
-            AiStatus = "Warming up the model…";
+            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Warming up the model…");
             await WarmUpModelAsync(endpoint, model, CancellationToken.None);
 
-            AiStatus = $"Local AI is ready. Using Ollama with '{model}'.";
+            LocalAiFeedback = AiFeedback.Success("Local AI is ready", $"Using Ollama with '{model}'.");
 
             // The warm model is now reachable — re-probe so the AI buttons appear immediately.
             await _aiAvailability.RefreshAsync();
@@ -934,7 +1103,7 @@ public partial class SettingsViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Local AI setup failed.");
-            AiStatus = "Local AI setup failed: " + ex.Message;
+            LocalAiFeedback = AiErrorClassifier.Classify(ex, LocalAiContext("Set up local AI"));
         }
         finally
         {
@@ -963,17 +1132,19 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             IsOllamaBusy = true;
-            AiStatus = "Removing the local AI container…";
+            LocalAiFeedback = AiFeedback.Informational("Removing local AI", "Removing the local AI container…");
             var result = await _localAi.RemoveOllamaContainerAsync(removeVolume, CancellationToken.None);
-            AiStatus = result.Success
-                ? (removeVolume ? "Removed the local AI container and its models." : "Removed the local AI container (models kept).")
-                : "Could not remove the local AI container: " + result.ErrorText;
+            LocalAiFeedback = result.Success
+                ? AiFeedback.Success(
+                    "Local AI removed",
+                    removeVolume ? "Removed the local AI container and its models." : "Removed the local AI container (models kept).")
+                : AiFeedback.Error("Removal failed", $"Could not remove the local AI container: {result.ErrorText}");
             await _aiAvailability.RefreshAsync();
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Local AI removal failed.");
-            AiStatus = "Removal failed: " + ex.Message;
+            LocalAiFeedback = AiErrorClassifier.Classify(ex, LocalAiContext("Remove local AI"));
         }
         finally
         {
@@ -1124,8 +1295,6 @@ public partial class SettingsViewModel : ObservableObject
 
         return $"{size:0.#} {units[unit]}";
     }
-
-    private static string Truncate(string text) => text.Length <= 300 ? text : text[..300] + "…";
 
     public async Task LoadVersionAsync()
     {

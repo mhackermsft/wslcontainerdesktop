@@ -110,16 +110,20 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private string _changesStatusMessage = "Open the Changes tab to compare the container against its image.";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAiPanelVisible))]
     private bool _isAiBusy;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAiPanelVisible))]
     private bool _aiHasPreview;
 
     [ObservableProperty]
     private string _aiPreviewPayload = string.Empty;
 
+    /// <summary>Typed feedback for the AI diagnosis panel — informational while collecting/sending,
+    /// success on preview/diagnosis/copy, error with friendly + technical detail on failure.</summary>
     [ObservableProperty]
-    private string _aiStatusMessage = "Click Diagnose to build a redacted preview before sending anything.";
+    private AiFeedback _diagnosisFeedback = AiFeedback.None;
 
     [ObservableProperty]
     private string _aiSummary = string.Empty;
@@ -141,6 +145,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private bool _isAiAvailable;
+
+    /// <summary>Shows the AI diagnosis panel once evidence collection starts, not only once a
+    /// preview exists, so "Collecting and redacting evidence…" is actually visible.</summary>
+    public bool IsAiPanelVisible => AiHasPreview || IsAiBusy;
 
     private AiPromptRequest? _pendingAiRequest;
 
@@ -281,7 +289,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         AiHasPreview = false;
         AiPreviewPayload = string.Empty;
         AiPanelCollapsed = false;
-        AiStatusMessage = "Click Diagnose to build a redacted preview before sending anything.";
+        DiagnosisFeedback = AiFeedback.None;
         AiSummary = string.Empty;
         AiLikelyCause = string.Empty;
         AiSuggestedFixDescription = string.Empty;
@@ -292,6 +300,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         AiSuggestedCommands.Clear();
         AiSuggestedFileEdits.Clear();
     }
+
+    /// <summary>Builds classification context for the currently selected diagnosis provider.</summary>
+    private AiErrorContext DiagnosisContext(string operation) =>
+        AiErrorContext.For(_settings.AiProvider, operation);
 
     partial void OnSelectedFileChanged(ContainerFileEntry? value)
     {
@@ -1738,6 +1750,22 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private void DismissAiDiagnosis() => ResetAiState();
 
     [RelayCommand]
+    private void DismissDiagnosisFeedback() => DiagnosisFeedback = AiFeedback.None;
+
+    [RelayCommand]
+    private void CopyDiagnosisFeedbackDetails()
+    {
+        if (!DiagnosisFeedback.HasTechnicalDetails)
+        {
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText($"{DiagnosisFeedback.Title}\n{DiagnosisFeedback.Message}\n\n{DiagnosisFeedback.TechnicalDetails}");
+        Clipboard.SetContent(package);
+    }
+
+    [RelayCommand]
     private async Task PrepareAiDiagnosisAsync()
     {
         if (Selected is null)
@@ -1746,7 +1774,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         IsAiBusy = true;
-        AiStatusMessage = "Collecting and redacting evidence…";
+        DiagnosisFeedback = AiFeedback.Informational("Preparing diagnosis", "Collecting and redacting evidence…");
         AiHasDiagnosis = false;
         try
         {
@@ -1754,11 +1782,12 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             _pendingAiRequest = preview.Request;
             AiPreviewPayload = preview.Payload;
             AiHasPreview = true;
-            AiStatusMessage = "Review the redacted payload, then click Send diagnosis.";
+            DiagnosisFeedback = AiFeedback.Informational("Preview ready", "Review the redacted payload, then click Send diagnosis.");
         }
         catch (Exception ex)
         {
-            AiStatusMessage = ex.Message;
+            _logger.LogWarning(ex, "AI diagnosis preview failed.");
+            DiagnosisFeedback = AiErrorClassifier.Classify(ex, DiagnosisContext("Build diagnosis preview"));
         }
         finally
         {
@@ -1780,7 +1809,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         IsAiBusy = true;
-        AiStatusMessage = "Sending redacted evidence to the selected provider…";
+        DiagnosisFeedback = AiFeedback.Informational("Sending diagnosis", "Sending redacted evidence to the selected provider…");
         try
         {
             var diagnosis = await _aiDiagnostics.DiagnoseAsync(_pendingAiRequest);
@@ -1808,11 +1837,12 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             }
 
             AiHasDiagnosis = true;
-            AiStatusMessage = "Diagnosis complete. Suggested fixes are review-only.";
+            DiagnosisFeedback = AiFeedback.Success("Diagnosis complete", "Suggested fixes are review-only.");
         }
         catch (Exception ex)
         {
-            AiStatusMessage = ex.Message;
+            _logger.LogWarning(ex, "AI diagnosis failed.");
+            DiagnosisFeedback = AiErrorClassifier.Classify(ex, DiagnosisContext("Send diagnosis"));
         }
         finally
         {
@@ -1842,7 +1872,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         var package = new DataPackage();
         package.SetText(string.Join("\n\n", parts));
         Clipboard.SetContent(package);
-        AiStatusMessage = "Copied suggested fix.";
+        DiagnosisFeedback = AiFeedback.Success("Copied", "Copied suggested fix to the clipboard.");
     }
 
     [RelayCommand]

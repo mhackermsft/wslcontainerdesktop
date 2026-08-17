@@ -17,7 +17,9 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
+using Windows.ApplicationModel.DataTransfer;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 
@@ -27,6 +29,8 @@ public partial class AssistantViewModel : ObservableObject
 {
     private readonly IContainerAssistant _assistant;
     private readonly ISettingsService _settings;
+    private readonly IAiAvailabilityService _availability;
+    private readonly ILogger<AssistantViewModel> _logger;
     private CancellationTokenSource? _sendCts;
     private int _turnSeq;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
@@ -58,6 +62,19 @@ public partial class AssistantViewModel : ObservableObject
     [ObservableProperty]
     private string _providerLabel = string.Empty;
 
+    /// <summary>True only when AI is enabled, a provider is chosen, and
+    /// <see cref="IAiAvailabilityService.IsAvailable"/> has actually verified connectivity — never
+    /// an unconditional "healthy" dot merely because a provider is selected.</summary>
+    [ObservableProperty]
+    private bool _isProviderAvailable;
+
+    /// <summary>Typed feedback for provider/tool failures during a turn. Cancellation is
+    /// informational; real failures are Error with expandable/copyable technical details. Cleared
+    /// at the start of each new turn and whenever the provider changes; the transcript is left
+    /// intact either way.</summary>
+    [ObservableProperty]
+    private AiFeedback _feedback = AiFeedback.None;
+
     public bool HasPendingApproval => PendingApproval is not null;
 
     public bool IsWorking => IsBusy && PendingApproval is null;
@@ -70,10 +87,16 @@ public partial class AssistantViewModel : ObservableObject
         OnPropertyChanged(nameof(IsWorking));
     }
 
-    public AssistantViewModel(IContainerAssistant assistant, ISettingsService settings)
+    public AssistantViewModel(
+        IContainerAssistant assistant,
+        ISettingsService settings,
+        IAiAvailabilityService availability,
+        ILogger<AssistantViewModel> logger)
     {
         _assistant = assistant;
         _settings = settings;
+        _availability = availability;
+        _logger = logger;
         RefreshProviderLabel();
         assistant.ApprovalChanged += (_, approval) =>
         {
@@ -86,9 +109,19 @@ public partial class AssistantViewModel : ObservableObject
                 _dispatcher.TryEnqueue(() => PendingApproval = approval);
             }
         };
+
+        // Availability is (re)verified with a live round-trip elsewhere (IAiAvailabilityService);
+        // reflect it here instead of always showing a green "healthy" dot.
+        _availability.Changed += (_, _) => _dispatcher.TryEnqueue(RefreshProviderLabel);
+        _settings.Changed += (_, _) => _dispatcher.TryEnqueue(() =>
+        {
+            RefreshProviderLabel();
+            Feedback = AiFeedback.None;
+        });
     }
 
-    /// <summary>Recomputes the active provider/model badge; call whenever the panel is shown.</summary>
+    /// <summary>Recomputes the active provider/model badge and availability dot; call whenever the
+    /// panel is shown.</summary>
     public void RefreshProviderLabel()
     {
         ProviderLabel = _settings.AiProvider switch
@@ -99,6 +132,9 @@ public partial class AssistantViewModel : ObservableObject
             AiProviderKind.OpenAi => Format("OpenAI", _settings.AiOpenAiModel),
             _ => "No AI provider configured",
         };
+        IsProviderAvailable = _settings.AiFeaturesEnabled
+            && _settings.AiProvider != AiProviderKind.None
+            && _availability.IsAvailable;
 
         static string Format(string provider, string? model) =>
             string.IsNullOrWhiteSpace(model) ? provider : $"{provider} · {model.Trim()}";
@@ -159,27 +195,78 @@ public partial class AssistantViewModel : ObservableObject
         PendingApproval = null;
         Draft = string.Empty;
         IsBusy = false;
+        Feedback = AiFeedback.None;
     }
+
+    [RelayCommand]
+    private void DismissFeedback() => Feedback = AiFeedback.None;
+
+    [RelayCommand]
+    private void CopyFeedbackDetails()
+    {
+        if (!Feedback.HasTechnicalDetails)
+        {
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText($"{Feedback.Title}\n{Feedback.Message}\n\n{Feedback.TechnicalDetails}");
+        Clipboard.SetContent(package);
+    }
+
+    private AiErrorContext AssistantContext() => AiErrorContext.For(_settings.AiProvider, "Assistant chat");
 
     private async Task RunAssistantAsync(Func<CancellationToken, Task<AssistantTurnResult>> run)
     {
         var generation = ++_turnSeq;
         IsBusy = true;
+        Feedback = AiFeedback.None;
         _sendCts = new CancellationTokenSource();
+        var ct = _sendCts.Token;
         try
         {
-            var result = await run(_sendCts.Token);
+            var result = await run(ct);
             if (generation != _turnSeq)
             {
                 return;
             }
 
+            // Provider failures the assistant service already caught arrive as Error-role
+            // messages; surface those as feedback instead of a plain chat bubble, and keep the
+            // transcript limited to actual conversation turns.
+            var errors = new List<string>();
             foreach (var message in result.Messages)
             {
+                if (message.Role == AssistantMessageRole.Error)
+                {
+                    errors.Add(message.Text);
+                    continue;
+                }
+
                 Messages.Add(message);
             }
 
+            if (errors.Count > 0)
+            {
+                Feedback = AiFeedback.Error("Assistant error", string.Join("\n", errors));
+            }
+
             PendingApproval = result.Approval;
+        }
+        catch (OperationCanceledException)
+        {
+            if (generation == _turnSeq)
+            {
+                Feedback = AiErrorClassifier.Canceled(AssistantContext());
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Assistant turn failed.");
+            if (generation == _turnSeq)
+            {
+                Feedback = AiErrorClassifier.Classify(ex, AssistantContext(), ct);
+            }
         }
         finally
         {

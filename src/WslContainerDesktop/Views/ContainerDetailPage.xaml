@@ -221,9 +221,10 @@
             BorderThickness="1"
             CornerRadius="6"
             MaxHeight="360"
-            Visibility="{x:Bind ViewModel.AiHasPreview, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+            Visibility="{x:Bind ViewModel.IsAiPanelVisible, Mode=OneWay, Converter={StaticResource BoolToVis}}">
             <Grid RowSpacing="10">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -234,20 +235,20 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Spacing="2">
-                        <TextBlock FontWeight="SemiBold" Text="AI diagnosis" />
-                        <TextBlock
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="{x:Bind ViewModel.AiStatusMessage, Mode=OneWay}"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
+                    <TextBlock
+                        Grid.Column="0"
+                        VerticalAlignment="Center"
+                        FontWeight="SemiBold"
+                        Text="AI diagnosis" />
                     <StackPanel
                         Grid.Column="1"
                         Orientation="Horizontal"
                         Spacing="6"
                         VerticalAlignment="Top">
                         <Button
+                            AutomationProperties.AutomationId="SendAiDiagnosisButton"
                             Command="{x:Bind ViewModel.SendAiDiagnosisCommand}"
+                            IsEnabled="{x:Bind ViewModel.AiHasPreview, Mode=OneWay}"
                             Style="{ThemeResource AccentButtonStyle}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon FontSize="13" Glyph="&#xE724;" />
@@ -269,13 +270,44 @@
                     </StackPanel>
                 </Grid>
 
+                <StackPanel Grid.Row="1" Spacing="8">
+                    <InfoBar
+                        x:Name="DiagnosisFeedbackBar"
+                        AutomationProperties.AutomationId="DiagnosisFeedbackInfoBar"
+                        CloseButtonClick="DiagnosisFeedbackBar_CloseButtonClick"
+                        IsClosable="True"
+                        IsOpen="{x:Bind ViewModel.DiagnosisFeedback.IsVisible, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.DiagnosisFeedback.Message, Mode=OneWay}"
+                        Severity="{x:Bind converters:AiFeedbackDisplay.ToInfoBarSeverity(ViewModel.DiagnosisFeedback.Severity), Mode=OneWay}"
+                        Title="{x:Bind ViewModel.DiagnosisFeedback.Title, Mode=OneWay}" />
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Technical details"
+                        Visibility="{x:Bind ViewModel.DiagnosisFeedback.HasTechnicalDetails, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Spacing="8">
+                            <TextBlock
+                                AutomationProperties.AutomationId="DiagnosisFeedbackDetailsText"
+                                FontFamily="Cascadia Mono, Consolas"
+                                FontSize="12"
+                                IsTextSelectionEnabled="True"
+                                Text="{x:Bind ViewModel.DiagnosisFeedback.TechnicalDetails, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                            <Button
+                                AutomationProperties.AutomationId="CopyDiagnosisFeedbackDetailsButton"
+                                Command="{x:Bind ViewModel.CopyDiagnosisFeedbackDetailsCommand}"
+                                Content="Copy details" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+
                 <ProgressBar
-                    Grid.Row="1"
+                    Grid.Row="2"
                     IsIndeterminate="{x:Bind ViewModel.IsAiBusy, Mode=OneWay}"
                     Visibility="{x:Bind ViewModel.IsAiBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
 
                 <ScrollViewer
-                    Grid.Row="2"
+                    Grid.Row="3"
                     VerticalScrollBarVisibility="Auto"
                     VerticalScrollMode="Auto"
                     Visibility="{x:Bind local:ContainerDetailPage.InvertBoolToVisibility(ViewModel.AiPanelCollapsed), Mode=OneWay}">
