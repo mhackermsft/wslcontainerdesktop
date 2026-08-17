@@ -42,7 +42,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
     {
         if (string.IsNullOrWhiteSpace(settings.AiOllamaModel))
         {
-            throw new InvalidOperationException("Choose an Ollama model in Settings first.");
+            throw MissingModel(operation);
         }
 
         var endpoint = NormalizeBase(settings.AiOllamaEndpoint, "http://localhost:11434");
@@ -84,7 +84,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
     {
         if (string.IsNullOrWhiteSpace(settings.AiOllamaModel))
         {
-            throw new InvalidOperationException("Choose an Ollama model in Settings first.");
+            throw MissingModel("Assistant chat");
         }
 
         var endpoint = NormalizeBase(settings.AiOllamaEndpoint, "http://localhost:11434");
@@ -145,6 +145,12 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
 
         throw new InvalidOperationException("Stopped because the assistant reached the tool-iteration limit.");
     }
+
+    private static AiProviderException MissingModel(string operation) => new(
+        AiProviderKind.Ollama,
+        operation,
+        "Choose an Ollama model in Settings first.",
+        AiFailureKind.Configuration);
 
     private static object ToOllamaMessage(AiChatMessage message)
     {

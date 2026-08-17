@@ -123,6 +123,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Typed feedback for the AI diagnosis panel — informational while collecting/sending,
     /// success on preview/diagnosis/copy, error with friendly + technical detail on failure.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAiPanelVisible))]
     private AiFeedback _diagnosisFeedback = AiFeedback.None;
 
     [ObservableProperty]
@@ -148,7 +149,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>Shows the AI diagnosis panel once evidence collection starts, not only once a
     /// preview exists, so "Collecting and redacting evidence…" is actually visible.</summary>
-    public bool IsAiPanelVisible => AiHasPreview || IsAiBusy;
+    public bool IsAiPanelVisible => AiHasPreview || IsAiBusy || DiagnosisFeedback.IsVisible;
 
     private AiPromptRequest? _pendingAiRequest;
 

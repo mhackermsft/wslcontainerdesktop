@@ -253,11 +253,11 @@ public partial class AssistantViewModel : ObservableObject
 
             PendingApproval = result.Approval;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
             if (generation == _turnSeq)
             {
-                Feedback = AiErrorClassifier.Canceled(AssistantContext());
+                Feedback = AiErrorClassifier.Classify(ex, AssistantContext(), ct);
             }
         }
         catch (Exception ex)

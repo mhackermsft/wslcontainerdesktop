@@ -46,7 +46,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
     {
         if (string.IsNullOrWhiteSpace(settings.AiOpenAiModel))
         {
-            throw new InvalidOperationException("Choose an OpenAI-compatible model in Settings first.");
+            throw MissingModel(operation);
         }
 
         var uri = ChatCompletionsUri();
@@ -83,7 +83,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
     {
         if (string.IsNullOrWhiteSpace(settings.AiOpenAiModel))
         {
-            throw new InvalidOperationException("Choose an OpenAI-compatible model in Settings first.");
+            throw MissingModel("Assistant chat");
         }
 
         var uri = ChatCompletionsUri();
@@ -142,6 +142,12 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
             message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
         }
     }
+
+    private static AiProviderException MissingModel(string operation) => new(
+        AiProviderKind.OpenAi,
+        operation,
+        "Choose an OpenAI-compatible model in Settings first.",
+        AiFailureKind.Configuration);
 
     private Uri ChatCompletionsUri() => BuildUri(settings.AiOpenAiEndpoint, "chat/completions");
 

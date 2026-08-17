@@ -26,6 +26,7 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
     private static readonly TimeSpan DebounceDelay = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(20);
+    private const int MaxRetryAttempts = 3;
 
     private readonly ISettingsService _settings;
     private readonly IEnumerable<IAiProvider> _providers;
@@ -74,14 +75,16 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         try
         {
             await Task.Delay(DebounceDelay, ct).ConfigureAwait(false);
+            var retryAttempts = 0;
             do
             {
                 await RefreshAsync(ct).ConfigureAwait(false);
-                if (_isAvailable || !_shouldRetry || !IsConfigured())
+                if (_isAvailable || !_shouldRetry || !IsConfigured() || retryAttempts >= MaxRetryAttempts)
                 {
                     break;
                 }
 
+                retryAttempts++;
                 await Task.Delay(RetryDelay, ct).ConfigureAwait(false);
             }
             while (!ct.IsCancellationRequested);

@@ -44,12 +44,12 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
     {
         if (!credentials.TryReadSecret(AiProviderKind.AzureOpenAi, out var key) || string.IsNullOrWhiteSpace(key))
         {
-            throw new InvalidOperationException("Enter and save an Azure OpenAI key in Settings first.");
+            throw ConfigurationError(operation, "Enter and save an Azure OpenAI key in Settings first.");
         }
 
         if (string.IsNullOrWhiteSpace(settings.AiAzureOpenAiEndpoint) || string.IsNullOrWhiteSpace(settings.AiAzureOpenAiDeployment))
         {
-            throw new InvalidOperationException("Enter an Azure OpenAI endpoint and deployment in Settings first.");
+            throw ConfigurationError(operation, "Enter an Azure OpenAI endpoint and deployment in Settings first.");
         }
 
         var uri = CompletionUri();
@@ -85,12 +85,12 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
     {
         if (!credentials.TryReadSecret(AiProviderKind.AzureOpenAi, out var key) || string.IsNullOrWhiteSpace(key))
         {
-            throw new InvalidOperationException("Enter and save an Azure OpenAI key in Settings first.");
+            throw ConfigurationError("Assistant chat", "Enter and save an Azure OpenAI key in Settings first.");
         }
 
         if (string.IsNullOrWhiteSpace(settings.AiAzureOpenAiEndpoint) || string.IsNullOrWhiteSpace(settings.AiAzureOpenAiDeployment))
         {
-            throw new InvalidOperationException("Enter an Azure OpenAI endpoint and deployment in Settings first.");
+            throw ConfigurationError("Assistant chat", "Enter an Azure OpenAI endpoint and deployment in Settings first.");
         }
 
         var uri = CompletionUri();
@@ -137,6 +137,12 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
 
         throw new InvalidOperationException("Stopped because the assistant reached the tool-iteration limit.");
     }
+
+    private static AiProviderException ConfigurationError(string operation, string message) => new(
+        AiProviderKind.AzureOpenAi,
+        operation,
+        message,
+        AiFailureKind.Configuration);
 
     private Uri CompletionUri()
     {

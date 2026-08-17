@@ -129,7 +129,7 @@ public sealed class GitHubCopilotProvider(
                 Kind,
                 operation,
                 "GitHub Copilot is not ready. Sign in to the Copilot CLI, verify Copilot entitlement, and ensure the installed Copilot CLI is available.",
-                AiFailureKind.Configuration,
+                AiFailureKind.Unexpected,
                 responseDetail: ex.Message,
                 inner: ex);
         }

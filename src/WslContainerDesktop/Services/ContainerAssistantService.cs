@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
@@ -24,8 +23,7 @@ public sealed class ContainerAssistantService(
     IEnumerable<IAiChatProvider> providers,
     AssistantToolset tools,
     IAssistantActionGate gate,
-    IActivityLog activity,
-    ILogger<ContainerAssistantService> logger) : IContainerAssistant
+    IActivityLog activity) : IContainerAssistant
 {
     private readonly List<AiChatMessage> _history = new() { new AiChatMessage { Role = "system", Content = SystemPrompt } };
     private readonly Dictionary<string, PendingApproval> _pending = new(StringComparer.Ordinal);
@@ -37,7 +35,7 @@ public sealed class ContainerAssistantService(
     {
         if (!settings.AiFeaturesEnabled || settings.AiProvider == AiProviderKind.None)
         {
-            return OneMessage(AssistantMessageRole.Error,
+            throw new InvalidOperationException(
                 "Enable AI features and choose a tool-capable provider in Settings before using the assistant.");
         }
 
@@ -66,15 +64,6 @@ public sealed class ContainerAssistantService(
             }
 
             return OneMessage(AssistantMessageRole.Assistant, finalText);
-        }
-        catch (OperationCanceledException)
-        {
-            return OneMessage(AssistantMessageRole.Error, "Assistant request canceled.");
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Container assistant failed.");
-            return OneMessage(AssistantMessageRole.Error, ex.Message);
         }
         finally
         {
