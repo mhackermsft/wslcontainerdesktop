@@ -25,6 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # A rerun keeps the original workflow event SHA. Resolve the branch tip explicitly so a
+          # prior attempt's version-stamp commit is visible and release targets stay reachable.
+          ref: ${{ github.ref_name }}
           fetch-depth: 0 # need tags to detect version clashes
 
       - name: Setup .NET 10
@@ -69,7 +72,17 @@ jobs:
           } else {
             git commit -m "Release ${{ steps.ver.outputs.version }}: stamp manifest version [skip ci]"
             git push origin "HEAD:${{ github.ref_name }}"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Could not push the manifest version commit to ${{ github.ref_name }}."
+              exit 1
+            }
             Write-Host "Committed manifest bump to ${{ github.ref_name }}."
+          }
+          git fetch origin "${{ github.ref_name }}"
+          git merge-base --is-ancestor HEAD FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "The release commit is not reachable from origin/${{ github.ref_name }}."
+            exit 1
           }
           "sha=$(git rev-parse HEAD)" | Out-File $env:GITHUB_OUTPUT -Append
 
@@ -219,4 +232,22 @@ jobs:
           if ('${{ github.event.inputs.prerelease }}' -eq 'true') { $ghArgs += '--prerelease' }
           Get-ChildItem "${{ steps.stage.outputs.dir }}" | ForEach-Object { $ghArgs += $_.FullName }
 
-          gh @ghArgs
+          $maxAttempts = 5
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            $output = & gh @ghArgs 2>&1
+            $exitCode = $LASTEXITCODE
+            $output | ForEach-Object { Write-Host $_ }
+            if ($exitCode -eq 0) {
+              exit 0
+            }
+
+            $isTransient = ($output -join "`n") -match 'HTTP 5\d\d'
+            if (-not $isTransient -or $attempt -eq $maxAttempts) {
+              Write-Error "GitHub Release creation failed after $attempt attempt(s)."
+              exit $exitCode
+            }
+
+            $delay = 15 * $attempt
+            Write-Warning "GitHub Releases API returned a transient server error. Retrying in $delay seconds (attempt $($attempt + 1)/$maxAttempts)."
+            Start-Sleep -Seconds $delay
+          }
