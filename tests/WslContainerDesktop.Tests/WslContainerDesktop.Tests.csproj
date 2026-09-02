@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Loading the packaged WinUI executable in a test host triggers package activation. -->
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\NetworkDisplayList.cs" Link="Helpers\NetworkDisplayList.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ImageInfo.cs" Link="Models\ImageInfo.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkInfo.cs" Link="Models\NetworkInfo.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcByteSizeJsonConverter.cs" Link="Models\WslcByteSizeJsonConverter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcJsonParser.cs" Link="Services\WslcJsonParser.cs" />
+  </ItemGroup>
+</Project>

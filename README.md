@@ -162,6 +162,18 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 
 ## Getting started
 
+> [!IMPORTANT]
+> **WSL Container Desktop requires WSL 2.9.9.0 or later.** Verify the installed version before
+> installing or building the app:
+>
+> ```powershell
+> wsl --version
+> ```
+>
+> Older stable WSL versions available through `winget` do not include the required `wslc.exe`
+> container functionality. Install or update the WSL container preview with
+> `wsl --update --pre-release` from an elevated PowerShell prompt.
+
 ### Option A: Install a release (recommended for users)
 
 Prebuilt, signed packages are published on the [**Releases**](https://github.com/mhackermsft/wslcontainerdesktop/releases) page.
@@ -211,7 +223,7 @@ Unblock-File -Path .\*
 | Requirement | Notes |
 |-------------|-------|
 | **Windows 11** | Required for WinUI 3 and the WSL container preview. |
-| **WSL container preview** (`2.9.3+`) | Provides `wslc.exe` (default `C:\Program Files\WSL\wslc.exe`). |
+| **WSL container preview** (`2.9.9.0` or later) | Provides the required `wslc.exe` functionality (default path: `C:\Program Files\WSL\wslc.exe`). Older stable versions offered through `winget` do not include it. |
 | **.NET 10 SDK** | Needed to build and run from source. |
 | **Windows App SDK** tooling | Installed with recent Visual Studio workloads. |
 | **Azure CLI** *(optional)* | Only for the "Add from Azure" registry feature. |
@@ -224,9 +236,10 @@ Install or update the WSL container preview from an elevated PowerShell prompt:
 wsl --update --pre-release
 ```
 
-Confirm the engine is present:
+Confirm WSL is version `2.9.9.0` or later and the engine is present:
 
 ```powershell
+wsl --version
 & "C:\Program Files\WSL\wslc.exe" version
 ```
 

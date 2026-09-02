@@ -22,11 +22,6 @@ namespace WslContainerDesktop.Services;
 
 public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logger) : IWslcService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     // ---- Engine ---------------------------------------------------------
 
     public Task<CommandResult> GetVersionAsync(CancellationToken ct = default) =>
@@ -967,25 +962,13 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
             return Array.Empty<T>();
         }
 
-        var json = result.StandardOutput.Trim();
-        if (string.IsNullOrEmpty(json))
-        {
-            return Array.Empty<T>();
-        }
-
-        // Strip a leading UTF-8 BOM if present.
-        if (json[0] == '\uFEFF')
-        {
-            json = json[1..];
-        }
-
         try
         {
-            var items = JsonSerializer.Deserialize<List<T>>(json, JsonOptions);
-            return items ?? new List<T>();
+            return WslcJsonParser.ParseList<T>(result.StandardOutput);
         }
         catch (JsonException ex)
         {
+            var json = result.StandardOutput.Trim().TrimStart('\uFEFF');
             logger.LogWarning(ex, "Failed to parse wslc JSON output as {Type}. Raw output: {Output}", typeof(T).Name, json);
             return Array.Empty<T>();
         }
