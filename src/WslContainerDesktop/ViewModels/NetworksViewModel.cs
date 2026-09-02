@@ -19,6 +19,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Dialogs;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 
@@ -64,21 +65,20 @@ public partial class NetworksViewModel : ObservableObject
         StatusMessage = "Loading networks…";
         try
         {
-            var networks = await _wslc.ListNetworksAsync();
+            var networks = NetworkDisplayList.Create(await _wslc.ListNetworksAsync());
             Networks.Clear();
 
-            // Always show the built-in default bridge network first (read-only).
-            Networks.Add(NetworkInfo.DefaultBridge());
-
-            foreach (var n in networks.OrderBy(n => n.Name))
+            foreach (var n in networks)
             {
                 Networks.Add(n);
             }
 
-            var userCount = Networks.Count - 1;
+            var builtInCount = Networks.Count(n => n.IsBuiltIn);
+            var userCount = Networks.Count - builtInCount;
+            var builtInLabel = $"{builtInCount} built-in network{(builtInCount == 1 ? "" : "s")}";
             StatusMessage = userCount == 0
-                ? "1 default network"
-                : $"{userCount} user network{(userCount == 1 ? "" : "s")} + 1 default";
+                ? builtInLabel
+                : $"{userCount} user network{(userCount == 1 ? "" : "s")} + {builtInLabel}";
         }
         catch (Exception ex)
         {

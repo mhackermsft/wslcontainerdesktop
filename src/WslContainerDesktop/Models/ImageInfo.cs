@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Globalization;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -55,7 +56,11 @@ public sealed partial class ImageInfo : ObservableObject
     [JsonPropertyName("Created")]
     public long Created { get; set; }
 
+    [JsonPropertyName("CreatedAt")]
+    public string? CreatedAt { get; set; }
+
     [JsonPropertyName("Size")]
+    [JsonConverter(typeof(WslcByteSizeJsonConverter))]
     public long Size { get; set; }
 
     /// <summary>Live result of the upstream update check for this image's tag (not persisted).</summary>
@@ -97,5 +102,63 @@ public sealed partial class ImageInfo : ObservableObject
         string.IsNullOrEmpty(Tag) || Tag == "<none>" ? Repository : $"{Repository}:{Tag}";
 
     [JsonIgnore]
-    public DateTimeOffset CreatedUtc => DateTimeOffset.FromUnixTimeSeconds(Created);
+    public DateTimeOffset CreatedUtc
+    {
+        get
+        {
+            if (Created != 0)
+            {
+                return DateTimeOffset.FromUnixTimeSeconds(Created);
+            }
+
+            return TryParseCreatedAt(CreatedAt, out var createdAt)
+                ? createdAt
+                : DateTimeOffset.UnixEpoch;
+        }
+    }
+
+    private static bool TryParseCreatedAt(string? value, out DateTimeOffset createdAt)
+    {
+        createdAt = default;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var timestamp = value.Trim();
+        var zoneSeparator = timestamp.LastIndexOf(' ');
+        var offsetSeparator = zoneSeparator > 0
+            ? timestamp.LastIndexOf(' ', zoneSeparator - 1)
+            : -1;
+        if (offsetSeparator > 0 &&
+            IsCompactOffset(timestamp.AsSpan(offsetSeparator + 1, zoneSeparator - offsetSeparator - 1)))
+        {
+            timestamp = timestamp[..zoneSeparator];
+        }
+
+        if (timestamp.Length >= 5 && IsCompactOffset(timestamp.AsSpan(timestamp.Length - 5)))
+        {
+            timestamp = timestamp.Insert(timestamp.Length - 2, ":");
+        }
+
+        return DateTimeOffset.TryParseExact(
+                   timestamp,
+                   "yyyy-MM-dd HH:mm:ss zzz",
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.None,
+                   out createdAt) ||
+               DateTimeOffset.TryParse(
+                   value,
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.AllowWhiteSpaces,
+                   out createdAt);
+    }
+
+    private static bool IsCompactOffset(ReadOnlySpan<char> value) =>
+        value.Length == 5 &&
+        value[0] is '+' or '-' &&
+        char.IsAsciiDigit(value[1]) &&
+        char.IsAsciiDigit(value[2]) &&
+        char.IsAsciiDigit(value[3]) &&
+        char.IsAsciiDigit(value[4]);
 }

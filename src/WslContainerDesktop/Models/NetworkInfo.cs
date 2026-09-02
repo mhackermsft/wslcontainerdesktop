@@ -34,8 +34,8 @@ public sealed class NetworkInfo
     public string? Scope { get; set; }
 
     /// <summary>
-    /// True for the synthetic default "bridge" network. It is shown for context but
-    /// cannot be inspected, edited, or removed (wslc does not expose it as an object).
+    /// True for the built-in bridge, host, and none networks. They are shown for context
+    /// but cannot be edited or removed.
     /// </summary>
     [JsonIgnore]
     public bool IsBuiltIn { get; set; }
@@ -46,7 +46,7 @@ public sealed class NetworkInfo
     [JsonIgnore]
     public string DriverDisplay => string.IsNullOrEmpty(Driver) ? "bridge" : Driver!;
 
-    /// <summary>Creates the synthetic, read-only default bridge network entry.</summary>
+    /// <summary>Creates a fallback default bridge entry for WSLC versions that omit it.</summary>
     public static NetworkInfo DefaultBridge() => new()
     {
         Name = "bridge",
