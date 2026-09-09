@@ -23,6 +23,7 @@
   <ItemGroup>
     <!-- Loading the packaged WinUI executable in a test host triggers package activation. -->
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\NetworkDisplayList.cs" Link="Helpers\NetworkDisplayList.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\ContainerInventoryOperation.cs" Link="Helpers\ContainerInventoryOperation.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ImageInfo.cs" Link="Models\ImageInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerInfo.cs" Link="Models\ContainerInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerIdentity.cs" Link="Models\ContainerIdentity.cs" />
