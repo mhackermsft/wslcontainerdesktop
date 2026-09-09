@@ -260,7 +260,8 @@ public partial class ComposeViewModel : ObservableObject
     /// name, or confirmation prompts. Re-importing an already-imported project just refreshes it,
     /// so a template's Launch button is idempotent. Errors are surfaced via the dialog service.
     /// </summary>
-    public async Task ImportAndUpAsync(string yaml, string? suggestedName = null, string? baseDirectory = null)
+    /// <returns>False when configuration validation/import failed; not a runtime health guarantee.</returns>
+    public async Task<bool> ImportAndUpAsync(string yaml, string? suggestedName = null, string? baseDirectory = null)
     {
         ComposeProject project;
         try
@@ -270,7 +271,7 @@ public partial class ComposeViewModel : ObservableObject
         catch (Exception ex)
         {
             await _dialogs.ShowMessageAsync("Launch failed", ex.Message);
-            return;
+            return false;
         }
 
         if (!string.IsNullOrWhiteSpace(suggestedName))
@@ -283,13 +284,14 @@ public partial class ComposeViewModel : ObservableObject
             await _dialogs.ShowMessageAsync(
                 "Nothing to launch",
                 "No services with an image were found in the compose file.");
-            return;
+            return false;
         }
 
         project.ApplyProjectNamespacing();
         _store.Save(project);
         await RefreshAsync();
         await BringUpAsync(project);
+        return true;
     }
 
     /// <summary>

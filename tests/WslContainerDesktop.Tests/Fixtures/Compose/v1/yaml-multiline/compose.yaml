@@ -1,0 +1,28 @@
+# Synthetic GPL-3.0-or-later fixture.
+x-first: &first {KEEP: one, WINNER: first}
+x-second: &second {OTHER: two, WINNER: second}
+x-args: &args [
+  echo,
+  "two words"
+]
+services:
+  web:
+    image: example.invalid/conformance:1
+    command: *args
+    environment:
+      <<: [*first, *second]
+      WINNER: explicit
+      SINGLE: 'it''s # literal'
+      DOUBLE: "quote=\" slash=\\ unicode=\u263A"
+      LITERAL: |+
+        first
+
+        second
+
+      FOLDED: >-
+        first
+        continued
+
+        paragraph
+          indented
+        end

@@ -1,0 +1,20 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/command": "echo override",
+    "/services/web/entrypoint": "bash",
+    "/services/web/environment": {"KEEP":"base","WINNER":"override","UNSET":null,"EMPTY":""},
+    "/services/web/labels": {"keep":"base","winner":"override","added":"last"},
+    "/services/web/dns": ["192.0.2.1","192.0.2.2","192.0.2.1"],
+    "/services/web/volumes": ["new:/data","keep:/keep","last:/last"],
+    "/services/web/ports": ["127.0.0.1:8080:80","9090:90","127.0.0.2:8080:80","127.0.0.1:8080:80/udp"],
+    "/services/web/secrets": [{"source":"token","target":"/run/secrets/token"},{"source":"new","target":"/run/secrets/shared"}],
+    "/services/web/configs": [{"source":"settings","target":"/settings"},{"source":"new","target":"/shared"}],
+    "/services/web/healthcheck/test": ["CMD-SHELL","echo ready"],
+    "/services/web/healthcheck/interval": "30s",
+    "/services/web/healthcheck/timeout": "5s"
+  },
+  "divergences": {},
+  "warnings": []
+}

@@ -37,7 +37,7 @@ public sealed class ComposeConformanceTests
     {
         var source = Path.Combine(Corpus, id);
         var expected = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(source, "expectations.json")))!.AsObject();
-        var directory = Path.Combine(Path.GetTempPath(), "wslcd-compose-conformance-" + Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(AppContext.BaseDirectory, "wslcd-compose-conformance-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
@@ -87,6 +87,16 @@ public sealed class ComposeConformanceTests
             }
             Assert.True(process.ExitCode == 0, $"{id}/compose.yaml: worker failed: {await error}");
             var actual = JsonNode.Parse(await output)!;
+            if (expected["appError"] is JsonArray errorParts)
+            {
+                Assert.NotNull(actual["error"]);
+                foreach (var part in errorParts)
+                    Assert.Contains(part!.GetValue<string>(), actual["error"]!.GetValue<string>());
+                foreach (var secret in expected["forbiddenDiagnostics"]?.AsArray() ?? [])
+                    Assert.DoesNotContain(secret!.GetValue<string>(), actual["error"]!.GetValue<string>());
+            }
+            else
+                Assert.Null(actual["error"]);
             var checks = expected["checks"]!.AsObject();
             var divergences = expected["divergences"]!.AsObject();
             Assert.True(checks.ContainsKey("/serviceNames"), $"{id}: service inventory must be asserted.");
@@ -185,7 +195,7 @@ public sealed class ComposeConformanceTests
         foreach (var id in cases)
         {
             var expectations = JsonNode.Parse(File.ReadAllText(Path.Combine(Corpus, id, "expectations.json")))!;
-            if (expectations["referenceError"] is not null)
+            if (expectations["referenceError"] is not null && expectations["appError"] is null)
                 Assert.False(string.IsNullOrWhiteSpace(expectations["diagnosticLimitation"]?.GetValue<string>()),
                     $"{id}: a reference rejection must document the app's diagnostic gap.");
         }

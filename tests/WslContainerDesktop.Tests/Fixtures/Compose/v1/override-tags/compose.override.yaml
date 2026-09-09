@@ -1,0 +1,13 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    command: []
+    entrypoint: null
+    ports: !override ["8443:443"]
+    volumes: !reset []
+    environment:
+      REMOVE: !reset null
+      EMPTY: ""
+    healthcheck:
+      test: !override [CMD, new]
+    labels: !override {new: new}

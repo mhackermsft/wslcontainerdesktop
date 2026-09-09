@@ -3,17 +3,17 @@
 ## Scope and evidence
 
 `tests/WslContainerDesktop.Tests/Fixtures/Compose/v1` is a synthetic, offline configuration corpus
-for issue #86. It uses the existing xUnit runner and links the real `ComposeImporter`; no new
-dependencies, Docker Desktop, daemon, image pulls, WSL installation, or package activation are needed.
-It deliberately changes no production parsing or orchestration behavior.
+for issue #86, extended by issue #82. It uses the existing xUnit runner and links the real
+`ComposeImporter`, including its audited YamlDotNet dependency. No Docker Desktop, daemon, image
+pulls, WSL installation or package activation are needed. #82 changes parsing, not orchestration.
 
-**All 14 original cases now have actual `config --format json` reference captures** from the
+**All 20 cases now have actual `config --format json` reference captures** from the
 official Windows x64 standalone Compose v2.39.4 binary. Initial expectations were hand-authored
 spec projections; those projections are now compared with the captured output. Capture ran on
 2026-09-10 in an isolated synthetic directory/environment, with no engine/workloads. The runtime
-harness remains unexecuted and there is no real-engine runtime certification. Required-variable and
-missing-file cases explicitly characterize unsafe diagnostic gaps instead of asserting successful
-conformance. Later stack layers should fix these and remove the matching divergence entries.
+harness remains unexecuted and there is no real-engine runtime certification. Required-variable
+cases now assert fail-closed, secret-safe errors; the missing-file case still characterizes an
+unsafe diagnostic gap for #83. Resolved #82 differences no longer have divergence exemptions.
 
 The reference is pinned in `reference-provenance.json`:
 
@@ -52,7 +52,7 @@ runs normally through VSTest.
 Each import runs in a fresh child process with an empty inherited environment. Only the Windows
 system directory, disposable temporary/home directories, and declared synthetic `WCD_*` variables
 (plus `COMPOSE_PROFILES`) are supplied. `.env`, includes and `env_file` resolve only in a copied,
-uniquely named temporary case directory. The parent environment and working directory are not
+uniquely named case directory under the test output folder (inside the checkout). The parent environment and working directory are not
 changed. Each process is bounded to 30 seconds and its owned directory is removed in `finally`.
 No fixture uses real credentials; `example.invalid` image names must never be pulled.
 
@@ -70,7 +70,8 @@ Exact warning lists are checked independently of config values.
 | Environment | App `KEY=VALUE` list becomes a map; bare `KEY` remains null, distinct from `KEY=`; config JSON's `$$` serialization escape becomes literal `$`, without resolving `$VAR`; actual ambient values are never resolved by the projection |
 | Ports | Canonical config port objects become app-style `host_ip:published:target/protocol`; default TCP omitted; list order retained |
 | Mounts | Canonical config mount objects become `source:target[:ro]`; tests cover named-volume short/long forms, not every bind/driver option |
-| Commands | Config argv is joined with whitespace-bearing tokens quoted, matching the app representation for the covered simple examples; not an argv-fidelity certification |
+| Commands / entrypoints | Config argv is joined with whitespace-bearing tokens quoted for the selected simple examples. Separate parser tests check empty tokens, mixed quotes, newlines and Windows paths through argument construction; no runtime certification |
+| Secrets / configs | Compare source/target only, expanding relative/default targets under `/run/secrets/` or `/`; ownership/mode are not normalized away and must not be inferred as supported |
 | Dependencies | Compare named edge conditions; default `required` metadata excluded; optional edges/restart propagation require later fixtures |
 | Networks / health | Compare explicit aliases/IPs and desired health argv/timing fields; implicit default networks and supervisor-added service aliases are outside this projection |
 | Profiles | Capture with `--profile '*'` to compare the full imported structure; profile activation/startup is a separate lifecycle concern |
@@ -81,18 +82,19 @@ and stale/resolved divergence records fail instead of allowing any actual value.
 
 For a known config difference, `checks` holds the intended reference projection and `divergences`
 holds the exact current `app` value, rationale, and tracking issue. For a `referenceError` case,
-there is no valid reference config: `checks` instead characterizes current app output and
-`diagnosticLimitation` states the missing rejection. Fixing that rejection requires updating the
-worker/test contract, not replacing the reference error with a successful snapshot.
+there is no valid reference config. Cases with `appError` assert required message fragments and
+`forbiddenDiagnostics`, and the worker returns a failure envelope with empty `serviceNames`, not
+a project. Remaining gaps use `diagnosticLimitation` and characterize current output. Both forms
+retain `referenceError` for future CLI capture; rejecting configuration is not a success snapshot.
 
 ## Coverage and known gaps
 
 | Case | Covered behavior / current evidence |
 |---|---|
-| `interpolation` | Set/unset/default, bare `$VAR`, escaped dollar; empty `${VAR-default}` incorrectly uses fallback (#82) |
+| `interpolation` | Set/unset/default, bare `$VAR`, escaped dollar, exact empty `${VAR-default}` |
 | `yaml-anchors`, `yaml-block` | Anchor merge, quoted string scalars/comments, literal block with strip chomping; these examples agree |
-| `environment` | Shell > `.env`, inline > env files; explicit empty value becomes bare variable and first env file wins (#82) |
-| `override` | Map merge and command replacement agree; ports and DNS incorrectly replace the sequence (#83) |
+| `environment` | Process > `.env`, inline > env files, explicit empty values and later env-file precedence |
+| `override` | Map merge, command replacement, unique ports and appended DNS |
 | `include` | Imported service retained; its env file uses the wrong base directory and is skipped (#83) |
 | `extends` | Cross-file inheritance with child environment override agrees for this example |
 | `profiles` | Profile metadata retained; no claim about activation or explicit-service selection |
@@ -100,11 +102,20 @@ worker/test contract, not replacing the reference error with a successful snapsh
 | `networks` | Per-network aliases/IP retained; exact actionable legacy capability warning |
 | `health-dependencies` | Health test argv/timing/retries and all three dependency conditions retained; not proof of startup behavior |
 | `unsupported` | Exact ignored-privileged/scaling diagnostics; not a safe-to-launch assertion |
-| `required-variable`, `missing-env-file` | Reference should reject; current importer returns a service without a diagnostic (#82) |
+| `required-variable`, `required-override` | Required variables reject without leaking custom error text, even if the override would replace the invalid base value |
+| `missing-env-file` | Reference should reject; current importer still returns a service without a diagnostic (#83) |
+| `interpolation-nested` | Nested/alternative/required operators, empty/process/`.env` precedence, escaped dollars, literal mapping keys and structure-safe substituted values |
+| `unset-warning` | Unset direct substitution warns without exposing values; empty variables/defaults/unused branches do not warn |
+| `override-unique` | Mixed map/list environment/labels; port IP/protocol identity; target-key mounts/secrets/configs; DNS retains duplicates; command/entrypoint/health-test replacement |
+| `override-tags` | Reset removes attributes and individual environment entries; override replaces collections/maps; null versus empty commands |
+| `yaml-multiline` | Flow collections, sequence aliases, merge precedence, quoted escapes and literal/folded blank lines/chomping |
 
-Additional cases needed in later layers include nested/alternative interpolation, duplicate keys,
-invalid YAML, tagged reset/override, unique-key mount merges, recursive include/extends conflicts,
-bind-path normalization, profile dependency validation, optional dependencies, and lifecycle drift.
+`ComposeSemanticsTests` adds focused operator/error matrices, YAML duplicate/invalid/cycle/shape
+rejections, alias/depth/size bounds, all six folding/chomping variants, explicit indentation, bare-CR
+input, canonical ranges/IPv6, mixed build args/resource labels, unsupported-resource warnings,
+bad override rejection, one-pass interpolation and saved-schema/argv round trips.
+Additional cases needed in later layers include recursive include/extends conflicts, full dotenv
+syntax, required-file semantics, profile dependency validation, optional dependencies and lifecycle drift.
 This inventory supports the qualified compatibility matrix in README/architecture, not a blanket
 Compose conformance claim.
 

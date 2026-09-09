@@ -9,13 +9,6 @@
     "/services/web/environment/FROM_FIRST": "synthetic-first",
     "/services/web/environment/FILE_ORDER": "second"
   },
-  "divergences": {
-    "/services/web/environment/EMPTY": {
-      "app": null, "reason": "Explicit empty mapping values become bare inherited-variable entries instead of KEY=.", "issue": 82
-    },
-    "/services/web/environment/FILE_ORDER": {
-      "app": "first", "reason": "The first env_file wins instead of later files overriding earlier ones.", "issue": 82
-    }
-  },
+  "divergences": {},
   "warnings": []
 }

@@ -1,0 +1,16 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:1
+    command: [echo, base]
+    entrypoint: [sh, -c]
+    environment: [KEEP=base, WINNER=base, UNSET=base]
+    labels: {keep: base, winner: base}
+    dns: 192.0.2.1
+    volumes: ["old:/data:ro", "keep:/keep"]
+    ports: ["127.0.0.1:8080:80", "9090:90"]
+    secrets: [token, {source: old, target: shared}]
+    configs: [settings, {source: old, target: /shared}]
+    healthcheck: {test: [CMD, old], interval: 30s}
+secrets: {token: {}, old: {}, new: {}}
+configs: {settings: {}, old: {}, new: {}}

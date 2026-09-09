@@ -33,10 +33,17 @@ internal static class ComposeConformanceWorker
         var directory = Path.GetFullPath(args[1]);
         var environment = Environment.GetEnvironmentVariables().Cast<DictionaryEntry>()
             .ToDictionary(e => (string)e.Key, e => (string)e.Value!, StringComparer.Ordinal);
-        var project = ComposeImporter.ParseProject(
-            File.ReadAllText(Path.Combine(directory, "compose.yaml")), environment, directory);
-        Console.WriteLine(ComposeConformanceProjection.FromApp(project).ToJsonString(
-            new JsonSerializerOptions { WriteIndented = true }));
+        try
+        {
+            var project = ComposeImporter.ParseProject(
+                File.ReadAllText(Path.Combine(directory, "compose.yaml")), environment, directory);
+            Console.WriteLine(ComposeConformanceProjection.FromApp(project).ToJsonString(
+                new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (ComposeConfigurationException ex)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { error = ex.Message, serviceNames = Array.Empty<string>(), warnings = Array.Empty<string>() }));
+        }
         return 0;
     }
 }

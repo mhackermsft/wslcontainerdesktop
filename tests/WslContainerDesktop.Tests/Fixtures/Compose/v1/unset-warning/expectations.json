@@ -1,0 +1,9 @@
+{
+  "environment": {"WCD_EMPTY":"","WCD_SET":"present"},
+  "checks": {
+    "/serviceNames":["web"],
+    "/services/web/environment":{"OPTIONAL":"","EMPTY":"","DEFAULT":"fallback","UNUSED":"present"}
+  },
+  "divergences": {},
+  "warnings": ["Compose YAML line 6, column 17: Variable 'WCD_MISSING' is unset; using an empty string."]
+}

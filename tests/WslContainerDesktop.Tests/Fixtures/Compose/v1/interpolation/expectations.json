@@ -8,12 +8,6 @@
       "EMPTY_COLON": "fallback", "EMPTY_DASH": "", "DOLLAR": "$WCD_SET"
     }
   },
-  "divergences": {
-    "/services/web/environment": {
-      "app": { "DIRECT": "synthetic", "BARE": "synthetic", "DEFAULT": "fallback", "EMPTY_COLON": "fallback", "EMPTY_DASH": "fallback", "DOLLAR": "$WCD_SET" },
-      "reason": "The importer treats an explicitly empty variable as unset for the '-' operator.",
-      "issue": 82
-    }
-  },
+  "divergences": {},
   "warnings": []
 }

@@ -1,0 +1,16 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    command: [echo, override]
+    entrypoint: [bash]
+    environment: {WINNER: override, UNSET: null, EMPTY: ""}
+    labels: [winner=override, added=last]
+    dns: [192.0.2.2, 192.0.2.1]
+    volumes: [{source: new, target: /data, read_only: false}, "last:/last"]
+    ports:
+      - {host_ip: 127.0.0.1, published: 8080, target: 80, protocol: tcp}
+      - "127.0.0.2:8080:80"
+      - "127.0.0.1:8080:80/udp"
+    secrets: [{source: new, target: shared}]
+    configs: [{source: new, target: /shared}]
+    healthcheck: {test: [CMD-SHELL, "echo ready"], timeout: 5s}

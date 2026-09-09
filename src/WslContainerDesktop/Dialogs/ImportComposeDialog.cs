@@ -19,6 +19,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using WslContainerDesktop.Helpers;
 
 namespace WslContainerDesktop.Dialogs;
 
@@ -103,7 +104,7 @@ public sealed class ImportComposeDialog : ContentDialog
         PrimaryButtonClick += OnPrimary;
     }
 
-    private async void OnBrowse(object sender, RoutedEventArgs e)
+    private void OnBrowse(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
     {
         try
         {
@@ -135,8 +136,10 @@ public sealed class ImportComposeDialog : ContentDialog
             FilePath = null;
             _fileLabel.Text = "Could not read the selected file.";
             IsPrimaryButtonEnabled = false;
+            // Keep the user-controlled path out of UiSafe's logged exception.
+            throw new IOException("Could not read the selected Compose file. Check its permissions.");
         }
-    }
+    });
 
     private void OnPrimary(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
