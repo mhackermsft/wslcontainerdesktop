@@ -32,6 +32,31 @@ internal static class WslcJsonParser
         AllowMultipleValues = true,
     };
 
+    internal static IReadOnlyList<VolumeInfo> ParseVolumes(CommandResult result)
+    {
+        CheckInventoryResult(result);
+        var volumes = ParseList<VolumeInfo>(result.StandardOutput);
+        if (volumes.Any(v => v is null || string.IsNullOrWhiteSpace(v.Name)) ||
+            volumes.Select(v => v.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != volumes.Count)
+            throw new JsonException("Volume inventory contains missing or duplicate identities.");
+        return volumes;
+    }
+
+    internal static IReadOnlyList<ImageInfo> ParseImages(CommandResult result)
+    {
+        CheckInventoryResult(result);
+        var images = ParseList<ImageInfo>(result.StandardOutput);
+        if (images.Any(i => i is null || string.IsNullOrWhiteSpace(i.Id)))
+            throw new JsonException("Image inventory contains missing identities.");
+        return images;
+    }
+
+    private static void CheckInventoryResult(CommandResult result)
+    {
+        if (!result.Success)
+            throw new InvalidOperationException($"Resource inventory failed (exit {result.ExitCode}); absence is unknown.");
+    }
+
     /// <summary>Reject incomplete inventories rather than exposing a partial reconciliation input.</summary>
     internal static IReadOnlyList<ContainerInfo> ParseContainers(string output)
     {

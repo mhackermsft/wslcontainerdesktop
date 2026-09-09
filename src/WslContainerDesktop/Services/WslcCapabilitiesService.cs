@@ -172,6 +172,8 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
             (WslcFeature.CreateHealthTimeout, "--health-timeout"),
             (WslcFeature.CreateHealthStartInterval, "--health-start-interval"),
             (WslcFeature.CreateNoHealthcheck, "--no-healthcheck"),
+            (WslcFeature.CreateGpus, "--gpus"),
+            (WslcFeature.CreatePull, "--pull"),
         ]).ConfigureAwait(false);
         return new(identity.ExecutablePath, version, features, versionDiagnostic);
 

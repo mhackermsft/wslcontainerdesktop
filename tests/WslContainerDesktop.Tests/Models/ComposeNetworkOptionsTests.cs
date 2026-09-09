@@ -24,6 +24,16 @@ namespace WslContainerDesktop.Tests.Models;
 public sealed class ComposeNetworkOptionsTests
 {
     [Fact]
+    public void CachedOnlyCreationIsExplicitAndSurvivesClone()
+    {
+        var options = new RunContainerOptions { Image = "sha256:" + new string('a', 64), NeverPull = true };
+        var clone = options.Clone();
+        Assert.True(clone.NeverPull);
+        Assert.Equal(["create", "--pull", "never", options.Image], clone.ToCreateArguments());
+        Assert.DoesNotContain("--pull", new RunContainerOptions { Image = options.Image }.ToCreateArguments());
+    }
+
+    [Fact]
     public void ParsesNamespacingAliasesStaticIpsAndExternalDefault()
     {
         var project = ComposeImporter.ParseProject("""

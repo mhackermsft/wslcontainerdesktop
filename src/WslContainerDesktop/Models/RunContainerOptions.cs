@@ -27,6 +27,8 @@ public sealed class RunContainerOptions
     public bool RemoveOnExit { get; set; }
     public bool Interactive { get; set; }
     public bool AllGpus { get; set; }
+    /// <summary>Caller must verify --pull support before selecting cached-only creation.</summary>
+    public bool NeverPull { get; set; }
     public string? Command { get; set; }
     public NativeHealthOptions? Health { get; set; }
 
@@ -161,6 +163,7 @@ public sealed class RunContainerOptions
         RemoveOnExit = RemoveOnExit,
         Interactive = Interactive,
         AllGpus = AllGpus,
+        NeverPull = NeverPull,
         Command = Command,
         Health = Health?.Clone(),
         Entrypoint = Entrypoint,
@@ -197,6 +200,11 @@ public sealed class RunContainerOptions
     private List<string> BuildArguments(bool create, IReadOnlyList<string>? healthArguments)
     {
         var args = new List<string> { create ? "create" : "run" };
+        if (NeverPull)
+        {
+            args.Add("--pull");
+            args.Add("never");
+        }
 
         if (Detached && !create)
         {

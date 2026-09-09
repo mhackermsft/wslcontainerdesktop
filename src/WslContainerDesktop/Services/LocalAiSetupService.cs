@@ -15,17 +15,24 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using Microsoft.Extensions.Logging;
+using System.ComponentModel;
+using System.Text.Json;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
 /// <inheritdoc cref="ILocalAiSetupService"/>
-public sealed class LocalAiSetupService(IWslcService wslc, ILogger<LocalAiSetupService> logger) : ILocalAiSetupService
+public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesService engineCapabilities,
+    IAiCapabilityService aiCapabilities, ILogger<LocalAiSetupService> logger) : ILocalAiSetupService
 {
     private const string ImageReference = "ollama/ollama";
     private const string ManagedContainerName = "wslcd-ollama";
     private const string ModelVolumeName = "wslcd-ollama";
+    internal const string OwnerLabel = "com.wslcontainerdesktop.managed";
+    internal const string OperationLabel = "com.wslcontainerdesktop.local-ai.operation";
+    internal const string VolumeLabel = "com.wslcontainerdesktop.local-ai.volume";
     private const int Port = 11434;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     public string ContainerName => ManagedContainerName;
 
@@ -33,93 +40,330 @@ public sealed class LocalAiSetupService(IWslcService wslc, ILogger<LocalAiSetupS
 
     public async Task<LocalAiSetupResult> EnsureOllamaContainerAsync(IProgress<string>? progress, CancellationToken ct = default)
     {
-        // Reuse an existing app-managed container if one is already present.
-        var existing = await FindManagedContainerAsync(ct).ConfigureAwait(false);
-        if (existing is not null)
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        var operation = Guid.NewGuid().ToString("N");
+        string? createdId = null;
+        var creationAttempted = false;
+        var runtime = LocalRuntimeResourceState.Unknown;
+        var modelData = LocalRuntimeResourceState.Unknown;
+        try
         {
-            if (existing.State.IsRunning())
+            var existing = await FindContainerAsync(ct).ConfigureAwait(false);
+            runtime = existing is null ? LocalRuntimeResourceState.Absent : LocalRuntimeResourceState.Retained;
+            var volume = await FindVolumeAsync(ct).ConfigureAwait(false);
+            modelData = volume is null ? LocalRuntimeResourceState.Absent : LocalRuntimeResourceState.Retained;
+            if (existing is not null)
             {
-                progress?.Report("Ollama container is already running.");
-                return new LocalAiSetupResult(true, LocalAiContainerState.AlreadyRunning, "Ollama container is already running.");
+                Require(volume is not null, "The runtime's model volume is missing. No existing runtime was started.");
+                await VerifyMountAsync(existing, volume!, ct).ConfigureAwait(false);
+                if (!existing.Running)
+                {
+                    Require(existing.CanStart, "Runtime state is unknown or not startable. Inspect it before retrying.");
+                    aiCapabilities.Invalidate();
+                    progress?.Report("Starting the ownership-verified Ollama container...");
+                    await RecheckAsync(existing, volume!, ct).ConfigureAwait(false);
+                    Check(await wslc.StartContainerAsync(existing.Id, ct).ConfigureAwait(false), "Runtime start");
+                    var started = await ReadContainerAsync(existing.Id, ct).ConfigureAwait(false);
+                    Require(started.Id == existing.Id && started.Operation == existing.Operation && started.Running,
+                        "Start was not confirmed. The existing runtime and models were retained; inspect before retrying.");
+                }
+                return new(true, existing.Running ? LocalAiContainerState.AlreadyRunning : LocalAiContainerState.StartedExisting,
+                    "Owned Ollama container is running. API readiness and model capabilities require separate observation.",
+                    existing.Id, LocalRuntimeResourceState.Retained, modelData);
             }
 
-            progress?.Report("Starting the existing Ollama container…");
-            var start = await wslc.StartContainerAsync(existing.Id, ct).ConfigureAwait(false);
-            return start.Success
-                ? new LocalAiSetupResult(true, LocalAiContainerState.StartedExisting, "Started the existing Ollama container.")
-                : new LocalAiSetupResult(false, LocalAiContainerState.StartedExisting, $"Could not start the Ollama container: {start.ErrorText}");
-        }
-
-        // Pull the image (a no-op if already present).
-        progress?.Report($"Pulling {ImageReference} (first run may take a few minutes)…");
-        var pull = await wslc.PullImageAsync(ImageReference, ct).ConfigureAwait(false);
-        if (!pull.Success)
-        {
-            return new LocalAiSetupResult(false, LocalAiContainerState.CreatedCpuOnly, $"Could not pull {ImageReference}: {pull.ErrorText}");
-        }
-
-        // Prefer GPU acceleration; fall back to CPU when the GPU start fails.
-        progress?.Report("Starting Ollama with GPU acceleration…");
-        var gpu = await wslc.RunContainerAsync(BuildRunOptions(useGpu: true), ct).ConfigureAwait(false);
-        if (gpu.Success)
-        {
-            progress?.Report("Ollama is running with GPU acceleration.");
-            return new LocalAiSetupResult(true, LocalAiContainerState.CreatedWithGpu, "Ollama is running with GPU acceleration.");
-        }
-
-        logger.LogInformation("GPU start of Ollama failed; falling back to CPU. Details: {Error}", gpu.ErrorText);
-        // A failed `run` may still leave a created-but-not-started container behind; clear it first.
-        await RemoveByNameAsync(ct).ConfigureAwait(false);
-
-        progress?.Report("GPU unavailable — starting Ollama on CPU…");
-        var cpu = await wslc.RunContainerAsync(BuildRunOptions(useGpu: false), ct).ConfigureAwait(false);
-        return cpu.Success
-            ? new LocalAiSetupResult(true, LocalAiContainerState.CreatedCpuOnly, "Ollama is running on CPU (no GPU acceleration).")
-            : new LocalAiSetupResult(false, LocalAiContainerState.CreatedCpuOnly, $"Could not start Ollama: {cpu.ErrorText}");
-    }
-
-    public async Task<CommandResult> RemoveOllamaContainerAsync(bool removeModelVolume, CancellationToken ct = default)
-    {
-        var result = await RemoveByNameAsync(ct).ConfigureAwait(false);
-        if (removeModelVolume)
-        {
-            // Best-effort: the volume only frees once the container using it is gone.
-            var volume = await wslc.RemoveVolumeAsync(ModelVolumeName, ct).ConfigureAwait(false);
-            if (!volume.Success)
+            var capabilities = await engineCapabilities.GetAsync(ct).ConfigureAwait(false);
+            var gpu = capabilities[WslcFeature.CreateGpus].Support;
+            Require(gpu != WslcCapabilitySupport.Unknown,
+                "GPU creation support is unknown. Check the configured WSLC executable and its create help; no runtime was created.");
+            Require(capabilities[WslcFeature.CreatePull].Support == WslcCapabilitySupport.Supported,
+                "Cached-only creation cannot be guaranteed: WSLC create --pull support is unavailable or unknown. " +
+                "Existing verified runtimes can still be reused. Prepare the runtime manually with an age-audited image; no automatic download was attempted.");
+            var image = await FindImageAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            aiCapabilities.Invalidate();
+            if (volume is null)
             {
-                logger.LogDebug("Could not remove Ollama model volume '{Volume}': {Error}", ModelVolumeName, volume.ErrorText);
+                modelData = LocalRuntimeResourceState.Unknown;
+                Check(await wslc.CreateVolumeAsync(ModelVolumeName,
+                    labels: new Dictionary<string, string> { [OwnerLabel] = "local-ai", [OperationLabel] = operation },
+                    ct: ct).ConfigureAwait(false), "Model volume creation");
+                volume = await FindVolumeAsync(ct).ConfigureAwait(false);
+                Require(volume?.Operation == operation,
+                    "Model volume creation could not be attributed to this operation. Data was not deleted.");
+                modelData = LocalRuntimeResourceState.Retained;
             }
-        }
 
-        return result;
+            // Create separately so ownership and the actual mounted volume are checked before any workload starts.
+            Require(await FindContainerAsync(ct).ConfigureAwait(false) is null,
+                "A runtime appeared during preparation. It was not adopted or removed; retry after inspection.");
+            Require(await FindVolumeAsync(ct).ConfigureAwait(false) == volume, "Model volume changed during preparation.");
+            progress?.Report(gpu == WslcCapabilitySupport.Supported
+                ? "Creating Ollama with GPU access requested..."
+                : "WSLC create definitively lacks GPU support; creating Ollama for CPU use...");
+            creationAttempted = true;
+            ct.ThrowIfCancellationRequested();
+            aiCapabilities.Invalidate();
+            var creation = await wslc.CreateContainerAsync(BuildOptions(image, gpu == WslcCapabilitySupport.Supported,
+                operation, volume!.Operation), ct).ConfigureAwait(false);
+            var returnedId = creation.StandardOutput.Trim();
+            if (IsContainerId(returnedId))
+                createdId = returnedId;
+            Check(creation, "Runtime creation");
+            var created = createdId is null ? await FindContainerAsync(ct).ConfigureAwait(false)
+                : await ReadContainerAsync(createdId, ct).ConfigureAwait(false);
+            Require(created?.Operation == operation, "Creation identity is uncertain. No replacement will be started or removed.");
+            createdId = created!.Id;
+            await RecheckAsync(created, volume, ct).ConfigureAwait(false);
+            aiCapabilities.Invalidate();
+            Check(await wslc.StartContainerAsync(createdId, ct).ConfigureAwait(false), "Runtime start");
+            var running = await ReadContainerAsync(createdId, ct).ConfigureAwait(false);
+            Require(running.Operation == operation && running.Running, "Runtime start was not confirmed.");
+            await VerifyMountAsync(running, volume, ct).ConfigureAwait(false);
+            return new(true, gpu == WslcCapabilitySupport.Supported
+                ? LocalAiContainerState.CreatedWithGpu : LocalAiContainerState.CreatedCpuOnly,
+                "Owned Ollama container is running. GPU access is not proof of acceleration; API/model readiness is checked separately.",
+                createdId, LocalRuntimeResourceState.Retained, modelData);
+        }
+        catch (Exception ex) when (IsLifecycleFailure(ex))
+        {
+            logger.LogWarning("Local AI setup stopped ({FailureType}); no failed mutation will be retried.", ex.GetType().Name);
+            var cleanup = creationAttempted
+                ? await CleanupAsync(operation, createdId).ConfigureAwait(false)
+                : (runtime, "No automatic runtime cleanup was attempted.");
+            var reason = ex is LifecycleException ? ex.Message
+                : ex is OperationCanceledException ? "Setup cancelled; an interrupted engine operation may have partially completed."
+                : "Runtime setup could not be confirmed. Inspect engine state before retrying.";
+            return new(false, ex is OperationCanceledException ? LocalAiContainerState.Cancelled : LocalAiContainerState.Failed,
+                $"{reason} {cleanup.Item2} Model data was not deleted ({modelData}). " +
+                "Recovery: inspect wslcd-ollama labels and immutable container ID; retry setup only after resolving conflicts." +
+                (creationAttempted ? $" Creation operation: {operation}; observed container ID: {createdId ?? "unknown"}." : ""),
+                createdId, cleanup.Item1, modelData);
+        }
+        finally
+        {
+            aiCapabilities.Invalidate();
+            _gate.Release();
+        }
     }
 
-    private RunContainerOptions BuildRunOptions(bool useGpu) => new()
+    public async Task<LocalAiRemovalResult> RemoveOllamaContainerAsync(bool removeModelVolume, CancellationToken ct = default)
     {
-        Image = ImageReference,
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        var runtime = LocalRuntimeResourceState.Unknown;
+        var data = LocalRuntimeResourceState.Unknown;
+        try
+        {
+            var existing = await FindContainerAsync(ct).ConfigureAwait(false);
+            var volume = await FindVolumeAsync(ct).ConfigureAwait(false);
+            data = volume is null ? LocalRuntimeResourceState.Absent : LocalRuntimeResourceState.Retained;
+            runtime = existing is null ? LocalRuntimeResourceState.Absent : LocalRuntimeResourceState.Retained;
+            if (existing is not null)
+            {
+                Require(volume is not null, "Model volume ownership is unavailable. Runtime removal was not attempted.");
+                await RecheckAsync(existing, volume!, ct).ConfigureAwait(false);
+                aiCapabilities.Invalidate();
+                runtime = LocalRuntimeResourceState.Unknown;
+                Check(await wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false), "Runtime removal");
+                Require(!await ContainsIdAsync(existing.Id, ct).ConfigureAwait(false), "Runtime removal is not confirmed.");
+                runtime = LocalRuntimeResourceState.Removed;
+            }
+            // WSLC exposes only a mutable volume name, not an immutable target or compare-and-delete.
+            // Even a fresh inspect cannot make a subsequent name-based deletion safe against replacement.
+            var retained = removeModelVolume && data != LocalRuntimeResourceState.Absent;
+            return new(!retained, runtime, data, retained
+                ? $"Runtime: {runtime}. Models retained: automatic model deletion is unavailable because WSLC only deletes volumes by mutable name. " +
+                  "Review volume ownership and users in Volumes before separately deleting data."
+                : $"Runtime: {runtime}. Model data: {data}. No model data was deleted.");
+        }
+        catch (Exception ex) when (IsLifecycleFailure(ex))
+        {
+            logger.LogWarning("Local AI removal stopped ({FailureType}); data was not deleted.", ex.GetType().Name);
+            return new(false, runtime, data, $"Runtime: {runtime}; model data: {data}, not deleted. " +
+                (ex is LifecycleException ? ex.Message : "Removal was interrupted or could not be confirmed. Inspect engine state before retrying."));
+        }
+        finally
+        {
+            aiCapabilities.Invalidate();
+            _gate.Release();
+        }
+    }
+
+    private static RunContainerOptions BuildOptions(string image, bool useGpu, string operation, string volume) => new()
+    {
+        Image = image,
         Name = ManagedContainerName,
         Detached = true,
         AllGpus = useGpu,
-        PortMappings = { $"{Port}:{Port}" },
+        NeverPull = true,
+        PortMappings = { $"127.0.0.1:{Port}:{Port}" },
         Volumes = { $"{ModelVolumeName}:/root/.ollama" },
-        Labels = { ["com.wslcontainerdesktop.managed"] = "local-ai" },
+        Labels = { [OwnerLabel] = "local-ai", [OperationLabel] = operation, [VolumeLabel] = volume },
     };
 
-    private async Task<ContainerInfo?> FindManagedContainerAsync(CancellationToken ct)
+    private async Task<string> FindImageAsync(CancellationToken ct)
+    {
+        var images = await wslc.ListImagesAsync(ct).ConfigureAwait(false);
+        var image = images.FirstOrDefault(i => i.Repository is ImageReference or "docker.io/ollama/ollama"
+            && i.Tag == "latest" && IsImageId(i.Id));
+        Require(image is not null,
+            "No cached immutable Ollama image is available. Setup never pulls a mutable tag. " +
+            "Explicitly acquire ollama/ollama by verified digest after checking authoritative publication is at least seven days old, " +
+            "tag that audited local image ollama/ollama:latest, then retry. Image build time is not publication evidence.");
+        return image!.Id;
+    }
+
+    private async Task<OwnedContainer?> FindContainerAsync(CancellationToken ct)
     {
         var containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
-        return containers.FirstOrDefault(c =>
-            string.Equals(c.Name, ManagedContainerName, StringComparison.OrdinalIgnoreCase));
+        var matches = containers.Where(c => string.Equals(c.Name, ManagedContainerName, StringComparison.OrdinalIgnoreCase)).ToArray();
+        Require(matches.Length <= 1, "Multiple same-name runtimes conflict; nothing was adopted.");
+        return matches.Length == 0 ? null : await ReadContainerAsync(matches[0].Id, ct).ConfigureAwait(false);
     }
 
-    private async Task<CommandResult> RemoveByNameAsync(CancellationToken ct)
+    private async Task<OwnedContainer> ReadContainerAsync(string target, CancellationToken ct)
     {
-        var existing = await FindManagedContainerAsync(ct).ConfigureAwait(false);
-        if (existing is null)
-        {
-            return new CommandResult { ExitCode = 0 };
-        }
-
-        return await wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
+        var result = await wslc.InspectContainerAsync(target, ct).ConfigureAwait(false);
+        Check(result, "Runtime ownership inspection");
+        var root = Parse(result.StandardOutput);
+        var id = Text(root, "Id");
+        Require(IsContainerId(id) && ContainerIdentity.ResolveId([id], target) == id,
+            "Runtime immutable identity is missing or changed. No adoption or deletion is permitted.");
+        Require(Text(root, "Name").TrimStart('/') == ManagedContainerName, "Runtime name changed; inspect before retrying.");
+        var labels = Property(Property(root, "Config"), "Labels");
+        if (labels.ValueKind == JsonValueKind.Undefined)
+            labels = Property(root, "Labels");
+        var operation = Text(labels, OperationLabel);
+        Require(Text(labels, OwnerLabel) == "local-ai" && Guid.TryParseExact(operation, "N", out _),
+            "The same-name runtime lacks verified ownership/operation labels. It was not adopted, started, or deleted.");
+        var state = Property(root, "State");
+        var running = Property(state, "Running");
+        var status = state.ValueKind == JsonValueKind.String ? state.GetString() : Text(state, "Status");
+        var numericState = state.ValueKind == JsonValueKind.Number && state.TryGetInt32(out var number) ? number : -1;
+        var isRunning = running.ValueKind == JsonValueKind.True || status == "running" ||
+            numericState == (int)ContainerState.Running;
+        var canStart = status is "created" or "exited" or "stopped" ||
+            numericState is (int)ContainerState.Created or (int)ContainerState.Stopped;
+        Require(!(isRunning && canStart) && !(running.ValueKind == JsonValueKind.False && isRunning),
+            "Runtime state metadata is contradictory; inspect before retrying.");
+        return new(id, operation, Text(labels, VolumeLabel), isRunning, canStart, root);
     }
+
+    private async Task<OwnedVolume?> FindVolumeAsync(CancellationToken ct)
+    {
+        var volumes = await wslc.ListVolumesAsync(ct).ConfigureAwait(false);
+        var matches = volumes.Where(v => v.Name.Equals(ModelVolumeName, StringComparison.OrdinalIgnoreCase)).ToArray();
+        Require(matches.Length <= 1, "Multiple model volumes conflict.");
+        if (matches.Length == 0)
+            return null;
+        var result = await wslc.InspectVolumeAsync(ModelVolumeName, ct).ConfigureAwait(false);
+        Check(result, "Model volume ownership inspection");
+        var root = Parse(result.StandardOutput);
+        var labels = Property(root, "Labels");
+        var operation = Text(labels, OperationLabel);
+        var created = Text(root, "CreatedAt");
+        var mountpoint = Text(root, "Mountpoint");
+        Require(Text(root, "Name") == ModelVolumeName && Text(labels, OwnerLabel) == "local-ai" &&
+            Guid.TryParseExact(operation, "N", out _) && DateTimeOffset.TryParse(created, out _) &&
+            !string.IsNullOrWhiteSpace(mountpoint),
+            "The same-name model volume lacks verified ownership/creation identity. Data was not adopted or deleted.");
+        return new(operation, created, mountpoint);
+    }
+
+    private async Task RecheckAsync(OwnedContainer container, OwnedVolume volume, CancellationToken ct)
+    {
+        var current = await ReadContainerAsync(container.Id, ct).ConfigureAwait(false);
+        Require(current.Id == container.Id && current.Operation == container.Operation, "Runtime identity changed.");
+        await VerifyMountAsync(current, volume, ct).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+    }
+
+    private async Task VerifyMountAsync(OwnedContainer container, OwnedVolume volume, CancellationToken ct)
+    {
+        Require(container.Volume == volume.Operation, "Runtime and model volume ownership identities do not match.");
+        Require(ContainerPortParser.TryInspect(container.Inspect, new JsonSerializerOptions(), out var ports) &&
+            ports.Count == 1 && ports[0].ContainerPort == Port && ports[0].HostPort == Port &&
+            ports[0].Protocol == 6 && ports[0].BindingAddress == "127.0.0.1",
+            "Runtime endpoint is not the verified loopback-only Ollama port. Configure external runtimes separately.");
+        var mounts = ContainerMounts.Parse(container.Inspect);
+        Require(mounts.IsComplete && mounts.Items.Count == 1 && mounts.Items[0].VolumeName == ModelVolumeName &&
+            mounts.Items[0].Destination == "/root/.ollama" && mounts.Items[0].Source == volume.Mountpoint,
+            "Runtime model mount identity is missing or unexpected. It was not started or adopted.");
+        Require(await FindVolumeAsync(ct).ConfigureAwait(false) == volume,
+            "Model volume was replaced during the operation. No workload will be started.");
+    }
+
+    private async Task<(LocalRuntimeResourceState, string)> CleanupAsync(string operation, string? id)
+    {
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            var candidate = id is null
+                ? await FindContainerAsync(cleanup.Token).ConfigureAwait(false)
+                : await ReadContainerAsync(id, cleanup.Token).ConfigureAwait(false);
+            if (candidate is null)
+                return (LocalRuntimeResourceState.Unknown, "No partial runtime was observed; an interrupted creation may still finish. Inspect before retrying.");
+            if (candidate.Operation != operation)
+                return (LocalRuntimeResourceState.Unknown, "A different runtime was retained; this operation does not own it.");
+            Require(id is null || candidate.Id == id, "Cleanup identity changed.");
+            aiCapabilities.Invalidate();
+            Check(await wslc.RemoveContainerAsync(candidate.Id, force: true, cleanup.Token).ConfigureAwait(false), "Partial runtime cleanup");
+            Require(!await ContainsIdAsync(candidate.Id, cleanup.Token).ConfigureAwait(false), "Partial runtime cleanup was not confirmed.");
+            return (LocalRuntimeResourceState.Removed, "Only this operation's verified partial runtime was removed.");
+        }
+        catch (Exception ex) when (IsLifecycleFailure(ex))
+        {
+            logger.LogWarning("Local AI partial cleanup could not be confirmed ({FailureType}).", ex.GetType().Name);
+            return (LocalRuntimeResourceState.Unknown, "Partial runtime cleanup could not be confirmed; inspect before retrying.");
+        }
+    }
+
+    private async Task<bool> ContainsIdAsync(string id, CancellationToken ct) =>
+        (await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false))
+            .Any(c => ContainerIdentity.ResolveId([c.Id], id) is not null);
+
+    private static JsonElement Parse(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() == 1)
+            root = root[0];
+        Require(root.ValueKind == JsonValueKind.Object, "Ownership inspection was not a single resource.");
+        ValidateProperties(root);
+        return root.Clone();
+    }
+
+    private static void ValidateProperties(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var property in value.EnumerateObject())
+            {
+                Require(names.Add(property.Name), "Ownership inspection contains ambiguous duplicate properties.");
+                ValidateProperties(property.Value);
+            }
+        }
+        else if (value.ValueKind == JsonValueKind.Array)
+            foreach (var item in value.EnumerateArray())
+                ValidateProperties(item);
+    }
+
+    private static JsonElement Property(JsonElement root, string name) => ContainerInfoJsonConverter.Property(root, name);
+    private static string Text(JsonElement root, string name) => ContainerInfoJsonConverter.ReadString(root, name);
+    private static bool IsImageId(string id) => id.StartsWith("sha256:", StringComparison.Ordinal) && IsHash(id[7..]) || IsHash(id);
+    private static bool IsContainerId(string id) => IsHash(id) || Guid.TryParse(id, out _);
+    private static bool IsHash(string id) => id.Length == 64 && id.All(char.IsAsciiHexDigit);
+    private static void Check(CommandResult result, string operation) =>
+        Require(result.Success, $"{operation} failed or was interrupted. No automatic CPU retry will be attempted.");
+    private static void Require(bool condition, string message)
+    {
+        if (!condition)
+            throw new LifecycleException(message);
+    }
+    private static bool IsLifecycleFailure(Exception ex) =>
+        ex is InvalidOperationException or IOException or Win32Exception or JsonException or OperationCanceledException or TimeoutException;
+    private sealed class LifecycleException(string message) : InvalidOperationException(message);
+    private sealed record OwnedVolume(string Operation, string CreatedAt, string Mountpoint);
+    private sealed record OwnedContainer(string Id, string Operation, string Volume, bool Running, bool CanStart, JsonElement Inspect);
 }

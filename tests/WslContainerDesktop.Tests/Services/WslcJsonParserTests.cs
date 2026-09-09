@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json;
+using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 using Xunit;
 
@@ -22,6 +23,41 @@ namespace WslContainerDesktop.Tests.Services;
 
 public sealed class WslcJsonParserTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData("[]")]
+    public void RuntimeInventories_DistinguishSuccessfulEmptyFromFailedCommand(string output)
+    {
+        Assert.Empty(WslcJsonParser.ParseVolumes(new() { StandardOutput = output }));
+        Assert.Empty(WslcJsonParser.ParseImages(new() { StandardOutput = output }));
+        var failed = new CommandResult { ExitCode = 1, StandardOutput = output, StandardError = "synthetic secret" };
+        Assert.DoesNotContain("synthetic secret", Assert.Throws<InvalidOperationException>(
+            () => WslcJsonParser.ParseVolumes(failed)).Message);
+        Assert.Throws<InvalidOperationException>(() => WslcJsonParser.ParseImages(failed));
+    }
+
+    [Theory]
+    [InlineData("[null]")]
+    [InlineData("[{}]")]
+    [InlineData("""[{"Name":"same"},{"Name":"SAME"}]""")]
+    [InlineData("""{"Name":"valid"} invalid""")]
+    public void VolumeInventory_RejectsPartialOrMissingIdentity(string output) =>
+        Assert.ThrowsAny<JsonException>(() => WslcJsonParser.ParseVolumes(new() { StandardOutput = output }));
+
+    [Theory]
+    [InlineData("[null]")]
+    [InlineData("[{}]")]
+    [InlineData("""{"Id":"valid"} invalid""")]
+    public void ImageInventory_RejectsPartialOrMissingIdentity(string output) =>
+        Assert.ThrowsAny<JsonException>(() => WslcJsonParser.ParseImages(new() { StandardOutput = output }));
+
+    [Fact]
+    public void RuntimeInventories_PreserveLegacyObjectStreamsAndSharedImageTags()
+    {
+        Assert.Equal(2, WslcJsonParser.ParseVolumes(new() { StandardOutput = """{"Name":"one"} {"Name":"two"}""" }).Count);
+        Assert.Equal(2, WslcJsonParser.ParseImages(new() { StandardOutput = """{"Id":"same","Tag":"one"} {"Id":"same","Tag":"two"}""" }).Count);
+    }
+
     [Fact]
     public void ParseList_LegacyArray_ReturnsAllObjects()
     {
