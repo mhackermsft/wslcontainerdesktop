@@ -1,0 +1,16 @@
+Usage: wslc network [<command>] [<options>]
+
+Commands:
+  create   Create a network.
+  remove   Remove one or more networks.
+  inspect  Display detailed information on one or more networks.
+  list     List networks.
+  prune    Remove all unused networks.
+
+For more details on a specific command, pass it the help option. [-?]
+
+Options:
+  -?  --help     Shows help about the selected command
+
+Global Options:
+      --session  Specify the session to use

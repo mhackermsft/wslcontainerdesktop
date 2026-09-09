@@ -61,7 +61,7 @@
             Grid.Row="2"
             IsClosable="False"
             IsOpen="True"
-            Message="Restart and health-check policies for a project are enforced by this app, so they only apply while it is running. When the app relaunches, supervision resumes for projects whose containers still exist."
+            Message="App-owned health probes, restart policies, and auto-heal require this app to be running. Supported native health checks are managed by WSLC. When the app relaunches, app-owned supervision resumes for projects whose containers still exist."
             Severity="Informational" />
 
         <!--  Table: column header (wide only) + list  -->
@@ -311,4 +311,3 @@
         </Grid>
     </Grid>
 </Page>
-

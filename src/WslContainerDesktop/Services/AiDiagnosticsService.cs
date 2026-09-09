@@ -24,6 +24,7 @@ public sealed class AiDiagnosticsService(
     IWslcService wslc,
     IActivityLog activity,
     ISettingsService settings,
+    IWslcCapabilitiesService capabilities,
     IEnumerable<IAiProvider> providers,
     ILogger<AiDiagnosticsService> logger) : IAiDiagnosticsService
 {
@@ -46,6 +47,9 @@ public sealed class AiDiagnosticsService(
             CreatedUtc: {container.CreatedUtc:u}
             StateChangedUtc: {container.StateChangedUtc:u}
             Ports: {string.Join(", ", container.Ports.Select(p => p.Display))}
+            PortsKnown: {container.PortsKnown}
+            CreatedAtKnown: {container.CreatedAtKnown}
+            StateChangedAtKnown: {container.StateChangedAtKnown}
             """);
 
         await AddCommandSectionAsync(evidence, "Recent logs", () => wslc.GetLogsAsync(container.Id, LogTail, ct)).ConfigureAwait(false);
@@ -74,7 +78,9 @@ public sealed class AiDiagnosticsService(
         Append(evidence, "Recent activity", string.Join('\n', recent));
 
         var payload = Redact(Truncate(evidence.ToString(), 48_000));
-        return new AiDiagnosticPreview(new AiPromptRequest(SystemPrompt, payload), payload);
+        var snapshot = await capabilities.GetAsync(ct).ConfigureAwait(false);
+        var systemPrompt = SystemPrompt + "\n\n" + AiCapabilityGuidance.Build(snapshot);
+        return new AiDiagnosticPreview(new AiPromptRequest(systemPrompt, payload), payload);
     }
 
     public async Task<AiDiagnosis> DiagnoseAsync(AiPromptRequest request, CancellationToken ct = default)
@@ -141,7 +147,7 @@ public sealed class AiDiagnosticsService(
         You are a container-debugging assistant inside WSL Container Desktop.
         This app manages WSL containers via the `wslc` CLI, NOT Docker. Docker is not installed and Docker commands will fail.
         Any commands you suggest MUST use `wslc` (e.g. `wslc logs <name>`, `wslc inspect <name>`, `wslc exec <name> -- <cmd>`, `wslc restart <name>`), never `docker`.
-        Note capability gaps to work around, not assume: there is no `wslc cp`, no `wslc network connect`, and no `--add-host`.
+        Follow the detected optional CLI availability below; do not assume all Docker-compatible commands or flags exist.
         Use only the provided evidence. Cite concrete log lines, inspect fields, state, events, or diff entries.
         If evidence is insufficient, say exactly what is missing.
         Suggested commands and file edits are review-only; never imply they were executed.

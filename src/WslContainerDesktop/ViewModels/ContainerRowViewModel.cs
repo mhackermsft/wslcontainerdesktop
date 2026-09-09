@@ -68,6 +68,10 @@ public partial class ContainerRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HealthTooltip))]
     private int _healthMaxRestarts;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HealthTooltip))]
+    private string _healthDetail = string.Empty;
+
     /// <summary>True once the network has been resolved (via inspect), so we don't refetch every poll.</summary>
     public bool NetworkResolved { get; set; }
 
@@ -87,7 +91,7 @@ public partial class ContainerRowViewModel : ObservableObject
         : $"GPU: {GpuName}";
 
     /// <summary>Tooltip text for the health badge.</summary>
-    public string HealthTooltip => Health switch
+    public string HealthTooltip => !string.IsNullOrWhiteSpace(HealthDetail) ? HealthDetail : Health switch
     {
         ContainerHealthState.Healthy => "Health check: healthy",
         ContainerHealthState.Degraded => HealthMaxRestarts > 0
@@ -124,7 +128,7 @@ public partial class ContainerRowViewModel : ObservableObject
         Name = model.Name;
         Image = model.Image;
         State = model.State;
-        PortsDisplay = model.Ports.Count == 0
+        PortsDisplay = !model.PortsKnown ? "Unknown" : model.Ports.Count == 0
             ? "-"
             : string.Join(", ", model.Ports.Select(p => p.Display));
         Created = model.CreatedUtc;

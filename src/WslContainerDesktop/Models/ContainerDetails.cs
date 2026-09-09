@@ -93,18 +93,21 @@ public sealed class ContainerDetails
                 ns.TryGetProperty("Networks", out var nets) &&
                 nets.ValueKind == JsonValueKind.Object)
             {
+                var networkNames = new List<string>();
+                var addresses = new List<string>();
                 foreach (var net in nets.EnumerateObject())
                 {
-                    networkMode = net.Name;
+                    networkNames.Add(net.Name);
                     if (net.Value.TryGetProperty("IPAddress", out var ipEl) &&
                         ipEl.ValueKind == JsonValueKind.String &&
                         !string.IsNullOrEmpty(ipEl.GetString()))
                     {
-                        ip = ipEl.GetString()!;
+                        addresses.Add($"{net.Name}: {ipEl.GetString()}");
                     }
-
-                    break;
                 }
+
+                networkMode = networkNames.Count == 0 ? "-" : string.Join(", ", networkNames);
+                ip = addresses.Count == 0 ? "-" : string.Join(", ", addresses);
             }
 
             if (networkMode == "-" &&
@@ -115,19 +118,11 @@ public sealed class ContainerDetails
                 networkMode = nm.GetString() ?? "-";
             }
 
-            var mounts = new List<string>();
-            if (el.TryGetProperty("Mounts", out var mountsEl) && mountsEl.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var m in mountsEl.EnumerateArray())
-                {
-                    var src = m.TryGetProperty("Source", out var s) ? s.GetString() : null;
-                    var dst = m.TryGetProperty("Destination", out var d) ? d.GetString() : null;
-                    if (!string.IsNullOrEmpty(dst))
-                    {
-                        mounts.Add(string.IsNullOrEmpty(src) ? dst! : $"{src} -> {dst}");
-                    }
-                }
-            }
+            var mounts = ContainerMounts.Parse(el).Items
+                .Where(m => !string.IsNullOrEmpty(m.Destination))
+                .Select(m => string.IsNullOrEmpty(m.Source ?? m.Name)
+                    ? m.Destination! : $"{m.Source ?? m.Name} -> {m.Destination}")
+                .ToList();
 
             return new ContainerDetails
             {

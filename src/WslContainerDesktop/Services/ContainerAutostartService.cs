@@ -157,12 +157,12 @@ public sealed class ContainerAutostartService : IDisposable
                 continue;
             }
 
-            if (container.State == ContainerState.Running || container.State == ContainerState.Paused)
+            if (container.State is not (ContainerState.Created or ContainerState.Stopped))
             {
                 continue;
             }
 
-            var result = await _wslc.StartContainerAsync(container.Id, ct).ConfigureAwait(false);
+            var result = await _wslc.StartContainerAsync(container.Id, ct, explicitStart: false).ConfigureAwait(false);
             if (result.Success)
             {
                 restored++;
@@ -236,14 +236,14 @@ public sealed class ContainerAutostartService : IDisposable
 
     /// <summary>True when a persisted entry matches a currently-running container (by id, then name).</summary>
     private static bool IsRunning(AutostartEntry entry, IReadOnlyList<AutostartEntry> running) =>
+        ContainerIdentity.ResolveId(running.Select(r => r.Id), entry.Id) is not null ||
         running.Any(r =>
-            (!string.IsNullOrWhiteSpace(entry.Id) && string.Equals(r.Id, entry.Id, StringComparison.Ordinal)) ||
             (!string.IsNullOrWhiteSpace(entry.Name) && string.Equals(r.Name, entry.Name, StringComparison.Ordinal)));
 
     /// <summary>True when a persisted entry still exists as a container in any state (by id, then name).</summary>
     private static bool Exists(AutostartEntry entry, IReadOnlyList<ContainerInfo> containers) =>
+        ContainerIdentity.ResolveId(containers.Select(c => c.Id), entry.Id) is not null ||
         containers.Any(c =>
-            (!string.IsNullOrWhiteSpace(entry.Id) && string.Equals(c.Id, entry.Id, StringComparison.Ordinal)) ||
             (!string.IsNullOrWhiteSpace(entry.Name) && string.Equals(c.Name?.TrimStart('/'), entry.Name, StringComparison.Ordinal)));
 
     private void Persist(IReadOnlyList<AutostartEntry> entries)
@@ -309,7 +309,8 @@ public sealed class ContainerAutostartService : IDisposable
         IReadOnlyDictionary<string, ContainerInfo> byId,
         AutostartEntry entry)
     {
-        if (!string.IsNullOrWhiteSpace(entry.Id) && byId.TryGetValue(entry.Id, out var byIdMatch))
+        var resolvedId = ContainerIdentity.ResolveId(byId.Keys, entry.Id);
+        if (resolvedId is not null && byId.TryGetValue(resolvedId, out var byIdMatch))
         {
             return byIdMatch;
         }

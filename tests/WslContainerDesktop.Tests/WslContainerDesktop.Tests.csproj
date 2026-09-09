@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <!-- Real supervisor coverage needs Windows.Storage; pure model/parser tests remain portable. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">net10.0;net10.0-windows10.0.26100.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -13,6 +15,7 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
       <PrivateAssets>all</PrivateAssets>
@@ -24,8 +27,67 @@
     <!-- Loading the packaged WinUI executable in a test host triggers package activation. -->
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\NetworkDisplayList.cs" Link="Helpers\NetworkDisplayList.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ImageInfo.cs" Link="Models\ImageInfo.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerInfo.cs" Link="Models\ContainerInfo.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerIdentity.cs" Link="Models\ContainerIdentity.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerInfoJsonConverter.cs" Link="Models\ContainerInfoJsonConverter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerPortParser.cs" Link="Models\ContainerPortParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerState.cs" Link="Models\ContainerState.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\PortMapping.cs" Link="Models\PortMapping.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\CommandResult.cs" Link="Models\CommandResult.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerPortResolver.cs" Link="Services\ContainerPortResolver.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkInfo.cs" Link="Models\NetworkInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\WslcByteSizeJsonConverter.cs" Link="Models\WslcByteSizeJsonConverter.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcJsonParser.cs" Link="Services\WslcJsonParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcCapabilities.cs" Link="Models\WslcCapabilities.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcCapability.cs" Link="Models\WslcCapability.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcCapabilitySupport.cs" Link="Models\WslcCapabilitySupport.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcFeature.cs" Link="Models\WslcFeature.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\AiDiagnosis.cs" Link="Models\AiDiagnosis.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\RegistryEntry.cs" Link="Models\RegistryEntry.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\HealthCheck.cs" Link="Models\HealthCheck.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\RestartPolicyConfig.cs" Link="Models\RestartPolicyConfig.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeProject.cs" Link="Models\ComposeProject.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerOptions.cs" Link="Models\RunContainerOptions.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ISettingsService.cs" Link="Services\ISettingsService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcCapabilitiesService.cs" Link="Services\IWslcCapabilitiesService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCapabilitiesService.cs" Link="Services\WslcCapabilitiesService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCapabilityHelpParser.cs" Link="Services\WslcCapabilityHelpParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcExecutableIdentity.cs" Link="Services\WslcExecutableIdentity.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessRunner.cs" Link="Services\ProcessRunner.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessExecutor.cs" Link="Services\ProcessExecutor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AiCapabilityGuidance.cs" Link="Services\AiCapabilityGuidance.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\NativeHealthOptions.cs" Link="Models\NativeHealthOptions.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\NativeHealthObservation.cs" Link="Models\NativeHealthObservation.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\NativeHealthPolicy.cs" Link="Services\NativeHealthPolicy.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\NativeHealthParser.cs" Link="Services\NativeHealthParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\NativeHealthMonitor.cs" Link="Services\NativeHealthMonitor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\HealthProbeProgress.cs" Link="Services\HealthProbeProgress.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\RestartSuppressionState.cs" Link="Services\RestartSuppressionState.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcFileTransfer.cs" Link="Services\WslcFileTransfer.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCopyInput.cs" Link="Services\WslcCopyInput.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerMount.cs" Link="Models\ContainerMount.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerMounts.cs" Link="Models\ContainerMounts.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerDetails.cs" Link="Models\ContainerDetails.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\VolumeInfo.cs" Link="Models\VolumeInfo.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\VolumeUsageState.cs" Link="Models\VolumeUsageState.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\VolumeUsageResolver.cs" Link="Services\VolumeUsageResolver.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerConfigImporter.cs" Link="Services\ContainerConfigImporter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\RunProfile.cs" Link="Models\RunProfile.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkAttachment.cs" Link="Models\NetworkAttachment.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerNetworkState.cs" Link="Models\ContainerNetworkState.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerStats.cs" Link="Models\ContainerStats.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerFsChange.cs" Link="Models\ContainerFsChange.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeImporter.cs" Link="Services\ComposeImporter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeNetworkOrchestrator.cs" Link="Services\ComposeNetworkOrchestrator.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.cs" Link="Services\ComposeProjectSupervisor.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcService.cs" Link="Services\IWslcService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeProjectStore.cs" Link="Services\IComposeProjectStore.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
+    <Compile Remove="Services\SupervisorMonitorDoubles.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Fixtures\Capabilities\*.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

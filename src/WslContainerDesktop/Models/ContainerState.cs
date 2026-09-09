@@ -17,7 +17,7 @@
 namespace WslContainerDesktop.Models;
 
 /// <summary>
-/// Lifecycle state reported by wslc in the "State" integer of `list --format json`.
+/// Normalized lifecycle state from numeric or textual `list --format json` responses.
 /// Verified against wslc 2.9.3: 1 = created, 2 = running, 3 = stopped/exited.
 /// </summary>
 public enum ContainerState

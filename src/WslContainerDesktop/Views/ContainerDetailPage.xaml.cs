@@ -554,6 +554,19 @@ public sealed partial class ContainerDetailPage : Page
 
     // ---- Files tab — toolbar buttons ------------------------------------
 
+    private void DownloadPath_Click(object sender, RoutedEventArgs e) =>
+        Helpers.UiSafe.Run(async () =>
+        {
+            var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.Downloads };
+            picker.FileTypeFilter.Add("*");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder is not null)
+            {
+                await ViewModel.CopyPathOutAsync(folder.Path);
+            }
+        });
+
     private async void FilesRefresh_Click(object sender, RoutedEventArgs e) =>
         await ViewModel.RefreshFilesAsync();
 

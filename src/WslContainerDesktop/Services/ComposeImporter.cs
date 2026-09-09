@@ -144,6 +144,17 @@ public static class ComposeImporter
         }
 
         project.Networks = ParseTopLevelNetworks(root.Child("networks"));
+        if (root.Child("networks") is MappingNode declaredNetworks)
+        {
+            foreach (var (name, node) in declaredNetworks.Map)
+            {
+                if (node is MappingNode network && network.Child("ipam") is MappingNode ipam &&
+                    ipam.Child("config") is SequenceNode configurations && configurations.Items.Count > 1)
+                {
+                    project.Warnings.Add($"Network '{name}': only the first IPAM subnet is supported by WSLC.");
+                }
+            }
+        }
         project.Volumes = ParseTopLevelVolumes(root.Child("volumes"));
         project.Secrets = ParseTopLevelSecrets(root.Child("secrets"), baseDirectory);
         project.Configs = ParseTopLevelSecrets(root.Child("configs"), baseDirectory);
@@ -187,8 +198,27 @@ public static class ComposeImporter
         if (service.Options.Networks.Count > 1)
         {
             warnings.Add(
-                $"Service '{name}': attached to only the first of {service.Options.Networks.Count} " +
-                "networks (single-network limitation of wslc).");
+                $"Service '{name}': multiple networks require WSLC network connect support. " +
+                "Older engines attach only the first network; all desired endpoint settings are retained.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(svc.Scalar("network_mode")) && svc.Child("networks") is not null)
+        {
+            warnings.Add($"Service '{name}': 'networks' is ignored when 'network_mode' is set.");
+        }
+
+        if (svc.Child("networks") is MappingNode networks)
+        {
+            foreach (var (network, node) in networks.Map)
+            {
+                if (node is MappingNode endpoint)
+                {
+                    foreach (var key in endpoint.Map.Keys.Where(k => k is not "aliases" and not "ipv4_address"))
+                    {
+                        warnings.Add($"Service '{name}', network '{network}': endpoint setting '{key}' is not supported and was ignored.");
+                    }
+                }
+            }
         }
 
         if (svc.Child("deploy") is MappingNode deploy)
@@ -537,8 +567,18 @@ public static class ComposeImporter
             Configs = ParseFileMounts(svc.Child("configs"), "/"),
         };
 
-        service.Health = ParseHealthCheck(svc.Child("healthcheck"), service.Restart);
+        service.Health = ParseHealthCheck(svc.Child("healthcheck"), service.Restart, svc.Scalar("restart"));
+        options.Health = service.Health?.DesiredHealth?.Clone();
         service.ExtraHosts = ParseExtraHosts(svc.Child("extra_hosts"));
+        if (options.NetworkMode?.StartsWith("service:", StringComparison.Ordinal) == true)
+        {
+            var dependency = options.NetworkMode["service:".Length..];
+            if (!service.DependsOn.Any(d => d.ServiceName == dependency))
+            {
+                service.DependsOn.Add(new ComposeDependency { ServiceName = dependency });
+            }
+        }
+
         return service;
     }
 
@@ -792,16 +832,21 @@ public static class ComposeImporter
 
         foreach (var (name, value) in map.Map)
         {
-            if (string.IsNullOrWhiteSpace(name) ||
-                string.Equals(name, "default", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(name))
             {
                 continue;
             }
 
             var cfg = value as MappingNode;
+            var ipam = (cfg?.Child("ipam") as MappingNode)?.Child("config") as SequenceNode;
+            var subnet = ipam?.Items.OfType<MappingNode>().FirstOrDefault();
             result.Add(new ComposeNetwork
             {
                 Name = name.Trim(),
+                ExplicitName = cfg?.Scalar("name")?.Trim(),
+                Subnet = subnet?.Scalar("subnet")?.Trim(),
+                Gateway = subnet?.Scalar("gateway")?.Trim(),
+                IpRange = subnet?.Scalar("ip_range")?.Trim(),
                 Driver = cfg?.Scalar("driver")?.Trim(),
                 DriverOpts = CollectKeyValues(cfg?.Child("driver_opts")),
                 Labels = CollectLabels(cfg?.Child("labels")),
@@ -887,7 +932,8 @@ public static class ComposeImporter
         var mode = svc.Scalar("network_mode");
         if (!string.IsNullOrWhiteSpace(mode))
         {
-            options.Network = NormalizeNetwork(mode);
+            options.NetworkMode = mode.Trim();
+            options.Network = mode.Trim();
             if (options.Network is not null)
             {
                 options.Networks.Add(options.Network);
@@ -897,35 +943,43 @@ public static class ComposeImporter
         }
 
         // networks: may be a sequence (["frontend", "backend"]) or a mapping (frontend: {...}).
-        // Collect them all in declared order; wslc attaches to the first at run time.
-        var names = new List<string>();
+        // Endpoint aliases and addresses must not leak to a sibling network.
+        var endpoints = new List<NetworkAttachment>();
         switch (svc.Child("networks"))
         {
             case SequenceNode seq:
                 foreach (var item in seq.Items.OfType<ScalarNode>())
                 {
-                    var n = NormalizeNetwork(item.Value);
-                    if (n is not null)
+                    var n = Unquote(item.Value).Trim();
+                    if (!string.IsNullOrWhiteSpace(n))
                     {
-                        names.Add(n);
+                        endpoints.Add(new NetworkAttachment { Network = n });
                     }
                 }
 
                 break;
             case MappingNode map:
-                foreach (var key in map.Map.Keys)
+                foreach (var (key, value) in map.Map)
                 {
-                    var n = NormalizeNetwork(key);
-                    if (n is not null)
+                    var n = Unquote(key).Trim();
+                    if (!string.IsNullOrWhiteSpace(n))
                     {
-                        names.Add(n);
+                        var config = value as MappingNode;
+                        endpoints.Add(new NetworkAttachment
+                        {
+                            Network = n,
+                            Aliases = CollectStrings(config?.Child("aliases")).Distinct(StringComparer.Ordinal).ToList(),
+                            Ipv4Address = config?.Scalar("ipv4_address")?.Trim(),
+                        });
                     }
                 }
 
                 break;
         }
 
-        options.Networks = names.Distinct(StringComparer.Ordinal).ToList();
+        options.NetworkAttachments = endpoints.GroupBy(n => n.Network, StringComparer.Ordinal)
+            .Select(g => g.First()).ToList();
+        options.Networks = options.NetworkAttachments.Select(n => n.Network).ToList();
         options.Network = options.Networks.FirstOrDefault();
     }
 
@@ -1338,76 +1392,46 @@ public static class ComposeImporter
     /// restart budget is derived from the service's <c>restart</c> policy, since the desktop
     /// watchdog restarts unhealthy containers within a budget.
     /// </summary>
-    private static HealthCheckConfig? ParseHealthCheck(Node? node, RestartPolicyKind restart)
+    private static HealthCheckConfig? ParseHealthCheck(Node? node, RestartPolicyKind restart, string? restartText)
     {
         if (node is not MappingNode map)
         {
             return null;
         }
 
-        if (string.Equals(map.Scalar("disable"), "true", StringComparison.OrdinalIgnoreCase))
+        var test = map.Child("test") switch
         {
-            return null;
-        }
-
-        var command = ExtractHealthTest(map.Child("test"));
-        if (string.IsNullOrWhiteSpace(command))
+            ScalarNode s => new List<string> { "CMD-SHELL", s.Value },
+            SequenceNode seq => seq.Items.OfType<ScalarNode>().Select(s => s.Value).ToList(),
+            _ => new List<string>(),
+        };
+        var desired = new NativeHealthOptions
         {
-            return null;
-        }
-
-        var interval = ParseDurationSeconds(map.Scalar("interval")) ?? 30;
+            Test = test,
+            Disabled = string.Equals(map.Scalar("disable"), "true", StringComparison.OrdinalIgnoreCase),
+            Interval = map.Scalar("interval"),
+            Timeout = map.Scalar("timeout"),
+            StartPeriod = map.Scalar("start_period"),
+            StartInterval = map.Scalar("start_interval"),
+            Retries = map.Scalar("retries") is { } retries
+                ? int.TryParse(retries, out var n) ? n : 0 : null,
+        };
 
         return new HealthCheckConfig
         {
             Kind = HealthProbeKind.Command,
-            Command = command,
-            IntervalSeconds = interval,
-            MaxRestarts = RestartBudget(restart, map.Scalar("retries")),
+            Command = test.Count == 2 && test[0] == "CMD-SHELL" ? test[1] : string.Empty,
+            DesiredHealth = desired,
+            IntervalSeconds = ParseDurationSeconds(desired.Interval) ?? 30,
+            MaxRestarts = RestartBudget(restart, restartText),
             Enabled = true,
         };
     }
 
-    /// <summary>
-    /// Reads a compose healthcheck <c>test</c>, which is either a shell string or a list whose first
-    /// element is <c>CMD</c> (exec form) or <c>CMD-SHELL</c> (shell string). Returns a single shell
-    /// command suitable for <c>wslc exec &lt;id&gt; sh -c</c>.
-    /// </summary>
-    private static string ExtractHealthTest(Node? node)
-    {
-        switch (node)
-        {
-            case ScalarNode s:
-                return s.Value.Trim();
-
-            case SequenceNode seq when seq.Items.Count > 0:
-                var parts = seq.Items.OfType<ScalarNode>().Select(x => x.Value).ToList();
-                if (parts.Count == 0)
-                {
-                    return string.Empty;
-                }
-
-                if (string.Equals(parts[0], "NONE", StringComparison.OrdinalIgnoreCase))
-                {
-                    return string.Empty;
-                }
-
-                if (string.Equals(parts[0], "CMD-SHELL", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(parts[0], "CMD", StringComparison.OrdinalIgnoreCase))
-                {
-                    return string.Join(' ', parts.Skip(1)).Trim();
-                }
-
-                return string.Join(' ', parts).Trim();
-
-            default:
-                return string.Empty;
-        }
-    }
-
     /// <summary>Translates a restart policy (and optional on-failure count) into a watchdog restart budget.</summary>
-    private static int RestartBudget(RestartPolicyKind restart, string? retries)
+    private static int RestartBudget(RestartPolicyKind restart, string? restartText)
     {
+        var retries = restartText?.Split(':', 2).ElementAtOrDefault(1);
         return restart switch
         {
             RestartPolicyKind.Always or RestartPolicyKind.UnlessStopped => HealthCheckConfig.MaxRestartLimit,
@@ -1543,20 +1567,6 @@ public static class ComposeImporter
         }
 
         return labels;
-    }
-
-    /// <summary>Maps compose network conventions to a `wslc run --network` value (null = default bridge).</summary>
-    private static string? NormalizeNetwork(string network)
-    {
-        var v = Unquote(network).Trim();
-        if (string.IsNullOrWhiteSpace(v) ||
-            string.Equals(v, "default", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(v, "bridge", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        return v;
     }
 
     /// <summary>Parses a compose duration (e.g. <c>30s</c>, <c>1m30s</c>, <c>90</c>) into whole seconds.</summary>

@@ -655,7 +655,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 var result = await _wslc.CopyToContainerAsync(Selected.Id, path, FilesCurrentPath);
                 if (!result.Success)
                 {
-                    failed.Add(Path.GetFileName(path));
+                    failed.Add($"{Path.GetFileName(path)}: {result.ErrorText}");
                 }
             }
 
@@ -685,6 +685,28 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         await ExecuteAsync($"Copying {SelectedFile.Name} to the host…",
             () => _wslc.CopyFromContainerAsync(Selected.Id, SelectedFile.Path, hostDirectory));
+    }
+
+    /// <summary>Downloads a known path without requiring a shell-backed directory listing.</summary>
+    public async Task CopyPathOutAsync(string hostDirectory)
+    {
+        var selected = Selected;
+        if (selected is null)
+        {
+            return;
+        }
+
+        var dialog = new Dialogs.SimpleInputDialog("Download from container", "Absolute file or directory path", "/path/to/file")
+        {
+            Value = SelectedFile?.Path ?? FilesCurrentPath,
+        };
+        if (await _dialogs.ShowDialogAsync(dialog) != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+        {
+            return;
+        }
+        var path = dialog.Value;
+        await ExecuteAsync($"Copying from {selected.Name}...",
+            () => _wslc.CopyFromContainerAsync(selected.Id, path, hostDirectory));
     }
 
     public async Task DeleteSelectedFileAsync()
@@ -804,14 +826,16 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 .ConfigureAwait(false);
             if (!result.Success)
             {
+                _logger.LogWarning("Could not stage container file for dragging: {Error}", result.ErrorText);
                 return null;
             }
 
             var localPath = Path.Combine(tempDir, entry.Name);
             return File.Exists(localPath) ? localPath : null;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Could not stage container file for dragging.");
             return null;
         }
     }
@@ -820,10 +844,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     // sufficient uniqueness for temp-directory names across containers on the same host.
     private const int ShortIdLength = 12;
 
-    private const string TempRootFolderName = "WslContainerDesktop";
+    private const string TempRootFolderName = "container-file-previews";
 
     /// <summary>Root of the temp tree used to stage files opened/downloaded from containers.</summary>
-    private static string TempRoot => Path.Combine(Path.GetTempPath(), TempRootFolderName);
+    private static string TempRoot => Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, TempRootFolderName);
 
     private static string GetTempDir(string containerId)
     {
@@ -1239,7 +1263,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private void RefreshHealth()
     {
         var configured = _settings.HealthChecks
-            .Where(h => h.Enabled && h.IsValid)
+            .Where(h => h.Enabled && h.IsValid && h.DesiredHealth?.IsDisabled != true)
             .Select(h => h.ContainerName)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -1248,18 +1272,20 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         foreach (var row in Containers)
         {
-            row.HasHealthCheck = configured.Contains(row.Name);
+            row.HasHealthCheck = configured.Contains(row.Name) || states.ContainsKey(row.Name);
             if (states.TryGetValue(row.Name, out var snapshot))
             {
                 row.Health = snapshot.State;
                 row.HealthRestartCount = snapshot.RestartCount;
                 row.HealthMaxRestarts = snapshot.MaxRestarts;
+                row.HealthDetail = snapshot.Detail;
             }
             else if (!row.HasHealthCheck)
             {
                 row.Health = ContainerHealthState.Unknown;
                 row.HealthRestartCount = 0;
                 row.HealthMaxRestarts = 0;
+                row.HealthDetail = string.Empty;
             }
         }
     }
@@ -1615,6 +1641,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         _settings.HealthChecks = updated;
         _settings.Save();
+        if (row.Model.NativeHealth.OwnsCommandProbe)
+            StatusMessage += ". Existing engine health is unchanged; native health changes require explicit container recreation.";
         RefreshHealth();
     }
 
@@ -1693,7 +1721,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 // Non-fatal: without the image diff we keep image-baked env/cmd too.
             }
 
-            var options = ContainerConfigImporter.FromInspect(containerResult.StandardOutput, imageJson);
+            var options = ContainerConfigImporter.FromInspect(containerResult.StandardOutput, out var warnings, imageJson);
             if (options is null)
             {
                 await _dialogs.ShowMessageAsync("Save as run profile",
@@ -1701,10 +1729,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            var notCaptured = new[] { "volume/bind mounts", "hostname" };
+            var notCaptured = new[] { "hostname" };
             var suggested = string.IsNullOrWhiteSpace(options.Name) ? row.Name : options.Name!;
 
-            var dialog = new SaveRunProfileDialog(suggested, options, notCaptured);
+            var dialog = new SaveRunProfileDialog(suggested, options, notCaptured, warnings);
             var result = await _dialogs.ShowDialogAsync(dialog);
             if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary ||
                 string.IsNullOrWhiteSpace(dialog.ProfileName))

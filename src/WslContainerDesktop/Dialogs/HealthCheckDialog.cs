@@ -26,6 +26,7 @@ namespace WslContainerDesktop.Dialogs;
 public sealed class HealthCheckDialog : ContentDialog
 {
     private readonly string _containerName;
+    private readonly HealthCheckConfig? _existing;
 
     private readonly ToggleSwitch _enabled;
     private readonly ComboBox _kindBox;
@@ -41,6 +42,7 @@ public sealed class HealthCheckDialog : ContentDialog
     public HealthCheckDialog(string containerName, IReadOnlyList<int> hostPorts, HealthCheckConfig? existing)
     {
         _containerName = containerName;
+        _existing = existing;
 
         Title = $"Health check · {containerName}";
         PrimaryButtonText = "Save";
@@ -162,11 +164,22 @@ public sealed class HealthCheckDialog : ContentDialog
             IntervalSeconds = (int)Math.Round(double.IsNaN(_intervalBox.Value) ? 30 : _intervalBox.Value),
             MaxRestarts = (int)Math.Round(double.IsNaN(_restartsBox.Value) ? 0 : _restartsBox.Value),
             Enabled = _enabled.IsOn,
+            DesiredHealth = kind == HealthProbeKind.Command ? _existing?.DesiredHealth?.Clone() : null,
         };
 
         if (kind == HealthProbeKind.Command)
         {
             config.Command = (_commandBox.Text ?? string.Empty).Trim();
+            if (config.DesiredHealth is { } desired)
+            {
+                if (!string.Equals(config.Command, _existing?.Command, StringComparison.Ordinal))
+                {
+                    desired.Test = ["CMD-SHELL", config.Command];
+                    desired.Disabled = false;
+                }
+                if (config.IntervalSeconds != _existing?.IntervalSeconds)
+                    desired.Interval = config.IntervalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + "s";
+            }
         }
         else
         {

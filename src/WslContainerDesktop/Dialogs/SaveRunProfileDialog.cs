@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Models;
 
@@ -22,8 +23,7 @@ namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
 /// Confirms saving a running container's captured settings as a reusable run profile: prompts for a
-/// profile name and shows a read-only summary of what was captured, including a note that binds and
-/// hostname can't be read back from a running container.
+/// profile name and shows captured settings and storage limitations before any profile is saved.
 /// </summary>
 public sealed class SaveRunProfileDialog : ContentDialog
 {
@@ -32,12 +32,14 @@ public sealed class SaveRunProfileDialog : ContentDialog
     /// <summary>The profile name the user confirmed, trimmed.</summary>
     public string ProfileName { get; private set; } = string.Empty;
 
-    public SaveRunProfileDialog(string suggestedName, RunContainerOptions options, IReadOnlyList<string> notCaptured)
+    public SaveRunProfileDialog(string suggestedName, RunContainerOptions options, IReadOnlyList<string> notCaptured,
+        IReadOnlyList<string>? warnings = null)
     {
         Title = "Save as run profile";
         PrimaryButtonText = "Save";
         CloseButtonText = "Cancel";
-        DefaultButton = ContentDialogButton.Primary;
+        DefaultButton = warnings is { Count: > 0 } ? ContentDialogButton.Close : ContentDialogButton.Primary;
+        AutomationProperties.SetAutomationId(this, "SaveRunProfileDialog");
 
         Resources["ContentDialogMaxWidth"] = 640.0;
         Resources["ContentDialogMinWidth"] = 480.0;
@@ -49,6 +51,7 @@ public sealed class SaveRunProfileDialog : ContentDialog
             PlaceholderText = "my-profile",
             MinWidth = 440,
         };
+        AutomationProperties.SetAutomationId(_nameBox, "SaveRunProfileName");
 
         var summary = new TextBlock
         {
@@ -68,7 +71,7 @@ public sealed class SaveRunProfileDialog : ContentDialog
 
         var children = new StackPanel
         {
-            Spacing = 10,
+            Spacing = 12,
             Children =
             {
                 _nameBox,
@@ -81,6 +84,24 @@ public sealed class SaveRunProfileDialog : ContentDialog
                 summaryScroll,
             },
         };
+
+        if (warnings is { Count: > 0 })
+        {
+            var warningText = new TextBlock
+            {
+                Text = "Review storage before saving:\n\n" + string.Join("\n\n", warnings.Distinct(StringComparer.Ordinal))
+                     + "\n\nCancel to keep profiles unchanged, or save and review storage after loading the profile.",
+                TextWrapping = TextWrapping.Wrap,
+                Width = 440,
+            };
+            AutomationProperties.SetAutomationId(warningText, "SaveRunProfileStorageWarnings");
+            children.Children.Insert(1, new ScrollViewer
+            {
+                Content = warningText,
+                MaxHeight = 180,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            });
+        }
 
         if (notCaptured.Count > 0)
         {
@@ -135,6 +156,11 @@ public sealed class SaveRunProfileDialog : ContentDialog
         foreach (var e in o.EnvironmentVariables)
         {
             lines.Add($"env: {e}");
+        }
+
+        foreach (var volume in o.Volumes)
+        {
+            lines.Add($"mount: {volume}");
         }
 
         if (!string.IsNullOrWhiteSpace(o.WorkingDir))

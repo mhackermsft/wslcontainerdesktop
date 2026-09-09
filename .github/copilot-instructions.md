@@ -8,6 +8,10 @@ For deep design detail read `docs/ARCHITECTURE.md`; user-facing features live in
 
 ## Environment & build
 
+- **MSIT dependency-age policy:** Do not install or upgrade to a NuGet package or other dependency
+  version published less than **7 days** ago. Check authoritative publication dates before
+  restoring new versions, including transitive and build/test dependencies. If a date cannot be
+  verified, stop rather than assuming compliance.
 - **Requires Windows 11** with the WSL container preview (`wslc.exe`, default
   `C:\Program Files\WSL\wslc.exe`) and the **.NET 10 SDK**. The app cannot fully build on Linux —
   the WindowsAppSDK XAML compiler step requires Windows.
@@ -21,8 +25,9 @@ For deep design detail read `docs/ARCHITECTURE.md`; user-facing features live in
 - **Fast dev loop:** `tools\launcher\Build-And-Run.ps1` rebuilds, redeploys, and launches in one step.
 - **Release:** `.github/workflows/release.yml` (manual `workflow_dispatch`) builds a signed MSIX;
   publish profiles live in `Properties/PublishProfiles/`.
-- **No test project exists.** Do not invent a test command; validate by building to **0 warnings**
-  and running the app.
+- **Tests:** `dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64`
+  from the repository root; use focused filters for changed behavior. Build to **0 warnings**.
+  Coordinate packaged smoke runs: deployment affects the registered app, even from another worktree.
 
 ## Architecture (the big picture)
 
@@ -48,8 +53,10 @@ Key cross-cutting services to understand before changing behavior:
   (`@@STATE=`, `@@NODES`, …) — never hand-write them; use the constants in `K8sStatusProtocol`.
 - **Compose** is "desktop-as-daemon": `ComposeImporter` parses `docker-compose.yml`;
   `ComposeProjectSupervisor` brings a project up/down/restart as a unit, and `HealthWatchdog` /
-  `RestartPolicyWatchdog` enforce health & `restart:` policies. There is **no background daemon** —
-  these only run while the app is open. See the compose feature matrix in `docs/ARCHITECTURE.md`.
+  `RestartPolicyWatchdog` enforce app probes, auto-heal & `restart:` policies while the app is open.
+  Native checks are engine-owned; `StatusMonitor` owns their bounded inspect observations. Never use
+  the port metadata cache for live health or duplicate engine command probes.
+  See the compose feature matrix in `docs/ARCHITECTURE.md`.
 - **`Program.cs`** is a custom entry point (`DISABLE_XAML_GENERATED_MAIN`) enforcing a single
   running instance via `AppInstance` before starting WinUI.
 
@@ -62,9 +69,17 @@ Key cross-cutting services to understand before changing behavior:
   `ProcessExecutor` (or `WslRootShell` for k3s), and escape *every* interpolated value; prefer
   `ArgumentList` where a shell isn't required. **Secrets never touch a command line** — use
   `--password-stdin` and keep tokens in memory only; never log them.
-- **`wslc` capability gaps to emulate, not assume:** there is no `wslc cp` (copy via `exec` +
-  base64 / tar), no `network connect` (a container attaches to only its first network at run time),
-  and no `--add-host` (`extra_hosts` appended to `/etc/hosts` via `exec` after start).
+- Native copy's `WslcCopyInput` is the sole narrow fixed-template exception: seekable archive stdin
+  via `cmd /d /v:off`, with validated quoted environment data. Never generalize it into a shell
+  command builder. Native copy is not tar-free; browsing/diff remain separate shell-based features.
+- **Keep WSLC 2.9.9.0 supported.** Use `IWslcCapabilitiesService.GetAsync` for optional commands
+  and run/create health flags; `Supported` permits native selection, `Unsupported` permits a
+  documented legacy fallback, and `Unknown` must surface a diagnostic. Never infer availability
+  from version alone or retry a failed native mutation via a legacy backend.
+- **Inspect schemas vary:** use `ContainerMounts` and normalized `ContainerInfo`; missing metadata
+  is unknown, not empty. List failures throw; successful empty inventory is valid.
+- **Remaining advertised gaps:** no `--add-host` (`extra_hosts` uses `exec` after start), native
+  restart policy or Compose command. Do not conflate native health checks with app-owned auto-heal.
 - Framework `async void` handlers must route work through **`Helpers/UiSafe.Run`** (awaits inside
   try/catch and logs) so a failing handler can't crash the app. Log swallowed exceptions (≥ Debug)
   or leave a one-line comment justifying a silent catch.
