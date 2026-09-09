@@ -465,6 +465,10 @@ The tray is implemented directly against Win32 (`Shell_NotifyIcon`, a hidden mes
 
 For a deeper contributor-oriented walkthrough — the process-execution strategy, the `StatusMonitor` model, the k3s status marker protocol, the installer trust model, and coding conventions — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+For deterministic assistant/provider regression coverage, reusable test fixtures,
+remaining contract gaps, and opt-in runtime smoke prerequisites, see
+[`docs/AI-CONTRACT-TESTS.md`](docs/AI-CONTRACT-TESTS.md).
+
 ---
 
 ## Releasing (maintainers)

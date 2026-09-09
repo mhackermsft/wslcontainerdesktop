@@ -14,24 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using WslContainerDesktop.Models;
+
 namespace WslContainerDesktop.Services;
 
-/// <summary>
-/// A dedicated <see cref="HttpClient"/> for AI provider calls. Chat and diagnosis requests can
-/// take far longer than the app's general-purpose 20s client — a local Ollama model may need to
-/// cold-load and then generate — so this uses a generous timeout. It is a distinct type purely so
-/// DI can hand the AI providers this long-timeout client without changing the shared client used
-/// by registry/image-update/WSL calls (which should fail fast).
-/// </summary>
-public sealed class AiHttpClient : HttpClient
+public interface IAssistantToolset
 {
-    public AiHttpClient()
-    {
-        Timeout = TimeSpan.FromMinutes(5);
-    }
+    Task<IReadOnlyList<AiToolDefinition>> GetDefinitionsAsync(CancellationToken ct);
 
-    public AiHttpClient(HttpMessageHandler handler) : base(handler)
-    {
-        Timeout = TimeSpan.FromMinutes(5);
-    }
+    Task<AssistantResolvedToolCall> ResolveAsync(AiToolCall call, CancellationToken ct);
 }

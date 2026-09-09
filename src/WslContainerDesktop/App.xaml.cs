@@ -424,6 +424,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IDevContainerFeatureResolver, DevContainerFeatureResolver>();
         services.AddSingleton<IDevContainerSupervisor, DevContainerSupervisor>();
         services.AddSingleton<AssistantToolset>();
+        services.AddSingleton<IAssistantToolset>(sp => sp.GetRequiredService<AssistantToolset>());
         services.AddSingleton<IAssistantActionGate, AssistantActionGate>();
         services.AddSingleton<IContainerAssistant, ContainerAssistantService>();
         services.AddSingleton<RegistryAuthRefresher>();
