@@ -16,6 +16,7 @@
 
 using System.Text;
 using System.Text.Json;
+using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
@@ -30,6 +31,16 @@ internal static class WslcJsonParser
     {
         AllowMultipleValues = true,
     };
+
+    /// <summary>Reject incomplete inventories rather than exposing a partial reconciliation input.</summary>
+    internal static IReadOnlyList<ContainerInfo> ParseContainers(string output)
+    {
+        var containers = ParseList<ContainerInfo>(output);
+        if (containers.Any(c => c is null) ||
+            containers.Select(c => c.Id).Distinct(StringComparer.Ordinal).Count() != containers.Count)
+            throw new JsonException("Container list contains null or duplicate records.");
+        return containers;
+    }
 
     /// <summary>Parses either the legacy JSON array or the object stream emitted by WSL 2.9.9.</summary>
     internal static IReadOnlyList<T> ParseList<T>(string output)

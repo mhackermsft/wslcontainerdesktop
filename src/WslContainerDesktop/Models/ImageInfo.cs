@@ -117,7 +117,7 @@ public sealed partial class ImageInfo : ObservableObject
         }
     }
 
-    private static bool TryParseCreatedAt(string? value, out DateTimeOffset createdAt)
+    internal static bool TryParseCreatedAt(string? value, out DateTimeOffset createdAt)
     {
         createdAt = default;
         if (string.IsNullOrWhiteSpace(value))
@@ -150,7 +150,7 @@ public sealed partial class ImageInfo : ObservableObject
                DateTimeOffset.TryParse(
                    value,
                    CultureInfo.InvariantCulture,
-                   DateTimeStyles.AllowWhiteSpaces,
+                   DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal,
                    out createdAt);
     }
 

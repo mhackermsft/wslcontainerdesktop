@@ -54,9 +54,11 @@ public sealed class PortMapping
     {
         get
         {
-            var host = string.IsNullOrEmpty(BindingAddress) || BindingAddress == "0.0.0.0"
+            var host = string.IsNullOrEmpty(BindingAddress) || BindingAddress is "0.0.0.0" or "::" or "[::]"
                 ? "localhost"
                 : BindingAddress;
+            if (host.Contains(':') && !host.StartsWith('['))
+                host = $"[{host}]";
             return $"http://{host}:{HostPort}";
         }
     }

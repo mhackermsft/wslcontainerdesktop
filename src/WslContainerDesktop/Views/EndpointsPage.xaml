@@ -26,7 +26,8 @@
             <TextBlock
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
-                Text="Every published port across your running containers, in one place." />
+                Text="{x:Bind ViewModel.InventorySummary, Mode=OneWay}"
+                TextWrapping="Wrap" />
         </StackPanel>
 
         <StackPanel
@@ -260,7 +261,8 @@
                         <TextBlock
                             HorizontalAlignment="Center"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="No published ports. Start a container that publishes a port to see it here." />
+                            Text="{x:Bind ViewModel.EmptyMessage, Mode=OneWay}"
+                            TextWrapping="Wrap" />
                     </StackPanel>
                 </Grid>
             </Border>
