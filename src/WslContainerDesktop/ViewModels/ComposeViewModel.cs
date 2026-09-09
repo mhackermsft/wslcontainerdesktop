@@ -117,6 +117,10 @@ public partial class ComposeViewModel : ObservableObject
             StatusMessage = Projects.Count == 0
                 ? "No compose projects. Import one to get started."
                 : $"{Projects.Count} project{(Projects.Count == 1 ? "" : "s")}";
+            if (_supervisor.ReconciliationWarnings.Count > 0)
+            {
+                StatusMessage += " - Network attention: " + string.Join("; ", _supervisor.ReconciliationWarnings);
+            }
         }
         finally
         {
@@ -210,8 +214,8 @@ public partial class ComposeViewModel : ObservableObject
             }
 
             var proceed = await _dialogs.ShowConfirmAsync(
-                "Some features aren't supported",
-                "This compose file uses features this app can't reproduce. They were ignored:\n\n" +
+                "Compose compatibility notes",
+                "Review these unsupported or engine-dependent settings before importing:\n\n" +
                 body + "\n\nImport the project anyway?",
                 "Import anyway");
             if (!proceed)
@@ -321,6 +325,10 @@ public partial class ComposeViewModel : ObservableObject
         {
             var result = await _supervisor.UpAsync(project);
             await RefreshAsync();
+            if (result.Warnings.Count > 0)
+            {
+                await _dialogs.ShowMessageAsync("Compose network limitations", string.Join("\n", result.Warnings));
+            }
 
             if (result.AllSucceeded)
             {
@@ -424,6 +432,10 @@ public partial class ComposeViewModel : ObservableObject
         {
             var result = await _supervisor.RestartAsync(row.Name);
             await RefreshAsync();
+            if (result.Warnings.Count > 0)
+            {
+                await _dialogs.ShowMessageAsync("Compose network limitations", string.Join("\n", result.Warnings));
+            }
 
             if (result.AllSucceeded)
             {

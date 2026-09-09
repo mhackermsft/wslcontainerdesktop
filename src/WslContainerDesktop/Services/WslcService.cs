@@ -191,6 +191,9 @@ public sealed class WslcService(
     public Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default) =>
         runner.RunAsync(options.ToArguments(), ct);
 
+    public Task<CommandResult> CreateContainerAsync(RunContainerOptions options, CancellationToken ct = default) =>
+        runner.RunAsync(options.ToCreateArguments(), ct);
+
     public Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default) =>
         runner.RunAsync(["logs", "--tail", tail.ToString(), id], ct);
 
@@ -805,6 +808,33 @@ public sealed class WslcService(
 
     // ---- Networks -------------------------------------------------------
 
+    public async Task<CommandResult> ConnectNetworkAsync(NetworkAttachment endpoint, string containerId, CancellationToken ct = default)
+    {
+        var snapshot = await RequireNetworkCapabilityAsync(WslcFeature.NetworkConnect, ct).ConfigureAwait(false);
+        return await ProcessRunner.RunAtPathAsync(snapshot.ExecutablePath, endpoint.ToConnectArguments(containerId), ct)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<CommandResult> DisconnectNetworkAsync(string network, string containerId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(network);
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
+        var snapshot = await RequireNetworkCapabilityAsync(WslcFeature.NetworkDisconnect, ct).ConfigureAwait(false);
+        return await ProcessRunner.RunAtPathAsync(snapshot.ExecutablePath, ["network", "disconnect", network, containerId], ct)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<WslcCapabilities> RequireNetworkCapabilityAsync(WslcFeature feature, CancellationToken ct)
+    {
+        var snapshot = await _capabilities.GetAsync(ct).ConfigureAwait(false);
+        if (!snapshot.IsSupported(feature))
+        {
+            throw new InvalidOperationException($"WSLC {feature} is unavailable: {snapshot[feature].Diagnostic}");
+        }
+
+        return snapshot;
+    }
+
     public async Task<IReadOnlyList<NetworkInfo>> ListNetworksAsync(CancellationToken ct = default)
     {
         var result = await runner.RunAsync(["network", "list", "--format", "json"], ct).ConfigureAwait(false);
@@ -816,10 +846,36 @@ public sealed class WslcService(
         string? driver = null,
         IReadOnlyList<string>? driverOpts = null,
         IReadOnlyDictionary<string, string>? labels = null,
+        CancellationToken ct = default) =>
+        CreateNetworkAsync(name, driver, driverOpts, labels, null, null, null, ct);
+
+    public Task<CommandResult> CreateNetworkAsync(
+        string name,
+        string? driver,
+        IReadOnlyList<string>? driverOpts,
+        IReadOnlyDictionary<string, string>? labels,
+        string? subnet,
+        string? gateway,
+        string? ipRange,
         CancellationToken ct = default)
     {
         var args = new List<string> { "network", "create" };
         AppendResourceOptions(args, driver, driverOpts, labels);
+        if (!string.IsNullOrWhiteSpace(subnet))
+        {
+            args.AddRange(["--subnet", subnet]);
+        }
+
+        if (!string.IsNullOrWhiteSpace(gateway))
+        {
+            args.AddRange(["--gateway", gateway]);
+        }
+
+        if (!string.IsNullOrWhiteSpace(ipRange))
+        {
+            args.AddRange(["--ip-range", ipRange]);
+        }
+
         args.Add(name);
         return runner.RunAsync(args, ct);
     }

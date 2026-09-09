@@ -106,6 +106,12 @@ public sealed class ComposeNetwork
 {
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>Compose name override; unlike the declaration key it is never project-prefixed.</summary>
+    public string? ExplicitName { get; set; }
+    public string? Subnet { get; set; }
+    public string? Gateway { get; set; }
+    public string? IpRange { get; set; }
+
     /// <summary>Network driver (compose <c>driver:</c>, maps to <c>network create --driver</c>).</summary>
     public string? Driver { get; set; }
 
@@ -275,10 +281,11 @@ public sealed class ComposeProject
         }
 
         var networkRenames = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var network in Networks.Where(n => !n.External && !string.IsNullOrWhiteSpace(n.Name)))
+        foreach (var network in Networks.Where(n => !string.IsNullOrWhiteSpace(n.Name)))
         {
             var original = network.Name;
-            var prefixed = $"{Name}_{original}";
+            var prefixed = !string.IsNullOrWhiteSpace(network.ExplicitName) ? network.ExplicitName :
+                network.External ? original : $"{Name}_{original}";
             network.Name = prefixed;
             networkRenames[original] = prefixed;
         }
@@ -300,6 +307,19 @@ public sealed class ComposeProject
 
             if (networkRenames.Count > 0)
             {
+                if (service.Options.HasSpecialNetworkMode)
+                {
+                    continue;
+                }
+
+                foreach (var endpoint in service.Options.NetworkAttachments)
+                {
+                    if (networkRenames.TryGetValue(endpoint.Network, out var renamed))
+                    {
+                        endpoint.Network = renamed;
+                    }
+                }
+
                 for (var i = 0; i < service.Options.Networks.Count; i++)
                 {
                     if (networkRenames.TryGetValue(service.Options.Networks[i], out var renamed))
@@ -330,14 +350,19 @@ public sealed class ComposeProject
     private void EnsureDefaultNetwork()
     {
         var attach = Services
-            .Where(s => s.Options.Network is null && s.Options.Networks.Count == 0)
+            .Where(s => !s.Options.HasSpecialNetworkMode && s.Options.Network is null &&
+                s.Options.Networks.Count == 0 && s.Options.NetworkAttachments.Count == 0)
             .ToList();
-        if (attach.Count == 0)
+        const string defaultName = "default";
+        var referencesDefault = Services.Any(s => !s.Options.HasSpecialNetworkMode &&
+            (s.Options.Network == defaultName ||
+             s.Options.Networks.Contains(defaultName, StringComparer.Ordinal) ||
+             s.Options.NetworkAttachments.Any(n => n.Network == defaultName)));
+        if (attach.Count == 0 && !referencesDefault)
         {
             return;
         }
 
-        const string defaultName = "default";
         if (!Networks.Any(n => string.Equals(n.Name, defaultName, StringComparison.Ordinal)))
         {
             Networks.Add(new ComposeNetwork { Name = defaultName });
@@ -347,6 +372,7 @@ public sealed class ComposeProject
         {
             service.Options.Network = defaultName;
             service.Options.Networks.Add(defaultName);
+            service.Options.NetworkAttachments.Add(new NetworkAttachment { Network = defaultName });
         }
     }
 
