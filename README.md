@@ -295,20 +295,20 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - Live list with color-coded state (green = running) and inline row actions.
 - **Run a container** from a rich dialog: image, name, ports, environment variables, volumes, network, `--rm`, `-d`, `-i`, `--gpus all`, and a custom command. A **registry selector** qualifies bare image names.
 - Start, Stop, Restart, Kill, Remove, and Prune stopped.
-- **Health &amp; auto-heal** — configure a per-container health probe (an in-container **command** via `wslc exec`, or a host-side **TCP** connect to a published port) with a check interval and a restart policy. The watchdog enforces the policy, auto-restarts up to *N* times when a workload goes unhealthy, then stops and alerts. Health shows as a **badge** (healthy / degraded / down) on the list and rolls into the tray glyph, with a tray toast on unhealthy transitions. Config persists across restarts.
+- **Health &amp; auto-heal** — observe native engine health, configure an app-owned command or host-side **TCP** probe, and choose an independent restart budget. Compose shell checks use native run/create flags when all required capabilities are detected; legacy engines and exec-form `CMD` checks use app probes. Native health does not imply auto-restart: watchdog restart decisions remain app-owned. Health appears in badges and the tray; desired settings persist, and editing an existing container never silently recreates it.
 - Click a container for a **full-page detail view** with tabs:
   - **Logs** — live streaming output with auto-scroll and wrap toggle, plus **search** (with match count and next/previous navigation), **filter to matching lines only**, **error/warning highlighting**, **export to a text file**, and clear.
   - **Summary** — id, state, image, ports, IP, network, start time, command, env vars, and mounts.
   - **Stats** — live CPU and memory meters plus network I/O, block I/O, and process (PID) count.
   - **Inspect** — full raw JSON.
-  - **Files** — browse the container filesystem, preview text files, upload/download via drag-and-drop, and create/rename/delete paths.
+  - **Files** — browse the container filesystem, preview text files, upload/download via drag-and-drop, and create/rename/delete paths. Native `container cp`, when detected, supports transfers without an in-container shell, including stopped containers; **Download path** accepts a known absolute path without browsing. Browsing, text preview, path editing and filesystem diff still need a running container with suitable tools. Legacy engines retain exec/base64/tar transfer.
   - **Changes** — a `docker diff` equivalent listing every file **added (A)**, **changed (C)**, or **deleted (D)** relative to the container's image, so you can see exactly what a running container has written. (Emulated by comparing the container's rootfs against a fresh walk of its image; needs a running container with a shell.)
 - Open an interactive terminal (`exec -it`) or open a published port in the browser.
 
 ### Docker Compose
 - **Import a `docker-compose.yml`** (file picker) to create a **Compose project** — the app parses a large subset of the Compose spec into a service dependency graph.
 - **Up / Down / Restart the whole stack as a unit** from the Compose page. On **up**, services start in dependency order with `depends_on` health/exit gating; project-scoped networks and named volumes are created (prefixed with the project name, like `docker compose`), and each service gets deterministic naming and Compose-style DNS aliases.
-- **Auto-heal while the app runs** — `healthcheck` and `restart:` policies are enforced by the built-in watchdog. Because the desktop app *is* the orchestrator, **these features only work while WSL Container Desktop is running** (there is no background daemon).
+- **Auto-heal while the app runs** — restart policies, app-owned probes and auto-heal need the built-in watchdog. Native health checks are engine-owned and separately observed; health failure thresholds are not restart budgets.
 - **Down** stops and removes the project's containers and networks but preserves volumes; **Remove** additionally deletes the volumes the project created (like `docker compose down --volumes`).
 - Projects are **re-adopted on relaunch**, and the importer **warns about any unsupported keys** before you commit, so you always know what will and won't be honored.
 - See [Docker Compose compatibility](#docker-compose-compatibility) for the full feature matrix.
@@ -324,7 +324,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 ### Volumes
 - Create, Inspect, Remove, and Prune.
 - Enriched columns: **Name** (shortened for anonymous volumes), **Type** (Named vs Anonymous), **Used by**, and **Created**.
-- Anonymous volumes are correlated back to the container that created them.
+- **Used by** includes named and anonymous volumes, stopped containers and shared users when inspect metadata permits. Exact, partial, unknown and legacy estimated usage are distinguished; unknown does not mean unused.
 
 ### Networks
 - List, Create, Inspect, Remove, and Prune, including the default `bridge` network.
@@ -346,7 +346,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 
 ### Disk usage
 - A holistic **disk-usage & cleanup center**, reachable from the **Disk usage** entry at the bottom of the navigation pane (next to Settings), that summarizes how much space **images**, **containers**, and **volumes** consume and how much is reclaimable.
-- Lists the **largest images**, **dangling images**, and **unused (orphaned anonymous) volumes**.
+- Lists the **largest images**, **dangling images**, and **confirmed-unused volumes** from the current inventory/inspect snapshot. Missing metadata and estimates are not counted as unused.
 - **One-click prune** for dangling images, stopped containers, and unused volumes — or **Reclaim all** at once — each with an explicit confirmation and before/after freed-space feedback. Reuses the existing per-resource prune commands.
 
 ### Registries
@@ -408,12 +408,12 @@ WSL Container Desktop can import a `docker-compose.yml` and run the whole stack,
 
 ### Purpose & model — "desktop-as-daemon"
 
-The WSL container engine (`wslc`) has no built-in Compose command and no long-running orchestration daemon. To offer fuller Compose support, **WSL Container Desktop itself acts as the orchestration layer above `wslc`**: it parses the Compose file, resolves the dependency graph, and translates each service into `wslc run` (and `network`/`volume`) commands, then supervises the result.
+The WSL container engine (`wslc`) has no advertised built-in Compose command or native restart-policy flag. **WSL Container Desktop acts as the orchestration layer above `wslc`**: it parses the Compose file, resolves dependencies, runs services (or creates/connects/starts multi-network services), then supervises the result.
 
 The single most important consequence:
 
 > [!IMPORTANT]
-> **Anything that requires ongoing supervision only works while WSL Container Desktop is running.** Health checks, restart policies, and auto-heal are enforced by the app's in-process watchdog — there is no background service. If you close the app, your containers keep running, but they will **not** be health-checked or auto-restarted until you reopen it. This is by design: it is a desktop tool, not a server-grade orchestrator.
+> **App-owned probes, restart policies and auto-heal work only while WSL Container Desktop is running.** Native health monitoring is a separate engine feature, not a restart policy. Controlled WSLC 2.9.11 fixtures showed native health progressing without app ownership; an actual desktop close/reopen persistence trial has not been performed. Do not rely on this desktop tool for unattended recovery.
 
 This makes it ideal for **local development and testing** of multi-container apps — spin a stack up, iterate, tear it down — rather than for unattended production hosting.
 
@@ -422,7 +422,7 @@ This makes it ideal for **local development and testing** of multi-container app
 A large subset of the Compose spec is honored on **up**:
 
 - **Services** — `image`, `build` (context/dockerfile/args/target/labels/pull), `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `labels`.
-- **Networking & storage** — `ports` (short and long form), `volumes` (short and long form), top-level `networks:` / `volumes:` creation, service DNS aliases, `secrets:` / `configs:` (file-backed, best-effort), `extra_hosts` (best-effort), `tmpfs`, `dns*`.
+- **Networking & storage** — `ports` (short and long form), `volumes` (short and long form), top-level `networks:` / `volumes:` creation, service DNS aliases, `secrets:` / `configs:` (file-backed, best-effort), `extra_hosts` (best-effort), `tmpfs`, `dns*`. With detected native network support, multi-network services are created, connected to every required network, then started; per-network aliases and static IPv4 settings are retained (one IPAM subnet configuration).
 - **Config** — `environment`, `env_file`, `${VAR}` / `${VAR:-default}` interpolation, YAML anchors/aliases, `<<` merge keys, block scalars, `extends:`, `include:`, and a sibling `docker-compose.override.yml` (deep-merged).
 - **Resources** — `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`.
 - **Lifecycle** — `depends_on` (including `condition: service_healthy` / `service_completed_successfully`), `healthcheck`, `restart:` (`no`/`always`/`on-failure`/`unless-stopped`), `profiles:`, and project `up` / `down` / `restart` with re-adoption on relaunch.
@@ -431,11 +431,12 @@ Some of these are **best-effort** — e.g. `secrets`/`configs` are bind-mounted 
 
 ### What is *not* supported
 
-Features with no matching `wslc` capability or that require a persistent daemon are **skipped** (the importer warns you about them before the project is saved):
+Unimplemented Compose options are **skipped** with import warnings. CLI limitations below describe
+advertised help, not proof that hidden functionality is impossible:
 
-- **Multi-network attach per container** — `wslc run` attaches only the *first* network; there is no `network connect`.
-- **Low-level container options** — `cap_add` / `cap_drop`, `devices`, `sysctls`, `privileged`, `read_only`, `init`, `pid` / `ipc`, `mac_address`, and `logging` drivers.
-- **Scaling & Swarm** — `deploy.replicas` / scaling and the rest of Swarm-mode `deploy`.
+- **Legacy multi-network limitation** — engines without native connect retain the first-network behavior and warn without discarding desired settings. Unknown capability evidence fails the affected service rather than guessing. Failed native attachment is not retried as a partial legacy deployment.
+- **Low-level container options** — `cap_add` / `cap_drop`, arbitrary `devices`, `sysctls`, `privileged`, root-filesystem `read_only`, `init`, `pid` / `ipc`, `mac_address`, and `logging` drivers are not advertised by current help. GPU support and read-only volume mounts are separate supported options.
+- **Scaling & Swarm** — `deploy.replicas` / scaling and the rest of Swarm-mode `deploy` are not implemented; local scaling is not inherently dependent on a persistent daemon.
 - **Always-on restart after the app closes** — see the model note above.
 
 For the authoritative, line-by-line feature matrix (including exactly how each key is mapped), see the **Compose feature support** table in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#compose-feature-support).
@@ -487,10 +488,26 @@ Signing details and how to rotate the certificate are documented in [`build/READ
 - Container inventory supports legacy arrays and object streams (including the WSLC 2.9.9 baseline), numeric states (`1 = Created`, `2 = Running`, `3 = Stopped`), and WSLC 2.9.11 text states (`exited` = Stopped). Unrecognized states remain Unknown. `Name`/`Names` and numeric/formatted dates are normalized; unavailable dates fall back safely to the Unix epoch (state-change dates fall back to creation).
 - Empty or ambiguous display-string ports mean **unknown**, not no published ports. Read-only inspect enrichment resolves configured ports, including stopped containers, with at most four sequential lookups per inventory request. Results expire after five minutes (failures retry after 30 seconds), invalidate on observed state/name/creation changes, and are pruned when containers disappear. Until resolved, container rows show Unknown. Malformed inventory fails as a whole and surfaces an engine error rather than a successful empty/partial list.
 - `prune` subcommands do **not** accept `--force`; `volume prune` needs `--all` to include named volumes.
-- `wslc inspect` does not currently report named-volume mounts, so a volume-to-container mapping is only possible for anonymous (image-declared) volumes.
+- Current inspect schemas can report named-volume and bind mounts. The app uses typed mount metadata for volume usage and saved profiles; older/missing metadata remains unknown or explicitly estimated. Saved profiles preserve recoverable named volumes and Windows/UNC binds, including read-only mounts, with pre-save warnings for omitted anonymous, internal or ambiguous mounts.
 - There is no `pause` command; **Kill** serves as a force-stop.
 
-These are limitations of the current public preview and will light up automatically as `wslc` fills the gaps.
+New engine capabilities do not automatically become app features: each requires explicit integration,
+capability detection and compatibility handling. The **2.9.9.0 minimum is unchanged**; optional
+features are detected independently rather than inferred from the version. Probe failures remain
+unknown, and a failed native operation is never retried through a legacy backend.
+
+| Feature | Detected current capability and app behavior | Legacy / missing capability |
+|---|---|---|
+| Container inventory | Numeric and textual schemas normalized; inspect resolves unknown published ports | Legacy arrays/object streams retained; failed inventory is not an empty success |
+| Compose multi-network | Native create/connect/start with per-network aliases and IPv4 | First network with warning; desired endpoints remain saved |
+| File transfer | Native `container cp`, including known paths in stopped/shellless containers; host tar/staging still required | Existing running-container exec/base64/tar path |
+| Command health | Supported shell checks and timing flags use native run/create; inspect feeds badges and dependencies | App probes; `CMD` argv and unsupported `start_interval` use the entire app backend, with timing limitations surfaced |
+| TCP, restart, auto-heal | App-owned, regardless of native health availability | Same app-owned behavior; requires the app to run |
+| Mount usage / saved profiles | Schema-adaptive named/shared/stopped usage; recoverable Windows/UNC/readonly mounts | Unknown/partial/estimated usage and explicit pre-save omission warnings |
+
+Unknown probe results are not permission to emit optional flags. New settings are additive and retained
+when switching engines. Capability tests include **synthetic** legacy help fixtures; they are not
+recordings or runtime certification of a separate installed 2.9.9 binary.
 
 ---
 

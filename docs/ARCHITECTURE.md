@@ -163,11 +163,37 @@ pre-filled; unrepresentable flags are reported as warnings rather than failing. 
 shown sequentially so no nested `ContentDialog` is ever open.) Conversely, a **running container can
 be saved as a profile** (`ContainerConfigImporter` → `SaveRunProfileDialog`): the container's
 `wslc inspect` JSON is diffed against the image's `inspect` so only user-specified
-env/cmd/entrypoint/workdir/user are kept. `wslc inspect` doesn't expose volume/bind mounts or
-hostname for a running container, so those can't be captured and the save dialog says so.
+env/cmd/entrypoint/workdir/user are kept. `ContainerMounts` normalizes available inspect metadata;
+recoverable named volumes and absolute Windows/UNC binds (including read-only mode) are captured.
+Anonymous, internal/Linux, ambiguous or conflicting mounts are omitted with warnings shown before
+saving; absent legacy mount metadata remains unknown, not an empty mount configuration.
+Existing profiles keep their original schema. Hostname recovery remains unavailable.
 `ComposeImporter` seeds profiles from a *basic* `docker-compose.yml` (one profile per service,
 common single-container fields only) using a small indentation-aware reader. Load/parse failures
 never crash the app.
+
+### Container inventory, capabilities and volume usage
+
+`WslcJsonParser.ParseContainers` accepts legacy numeric states/structured ports and current textual
+states/display ports in arrays or object streams. Unknown state/date/port information remains
+explicitly unknown. `ContainerPortResolver` bounds and caches inspect work for authoritative
+published ports; it is not a live health cache. Malformed inventory or failed list commands throw:
+only successful empty responses count as a complete zero-container inventory.
+
+`IWslcCapabilitiesService` probes the configured executable using bounded, non-mutating help/version
+commands. Snapshots report `Supported`, `Unsupported` or `Unknown` independently per feature,
+including separate run/create health flags. Executable identity changes invalidate cached results,
+and concurrent callers share probes. The minimum stays **WSLC 2.9.9.0**: optional integration uses
+native operations only with positive evidence, definite absence selects a documented legacy path,
+and unknown evidence surfaces a diagnostic. Never retry a failed native mutation through a fallback.
+`AiCapabilityGuidance` sends only feature names and detected states to diagnostics, not executable
+paths, raw help, errors or inspect data. Availability is not Docker parity or proof of app integration.
+
+`VolumeUsageResolver` builds one bounded inspect snapshot across all containers, including stopped
+containers and volumes shared by several containers. `Exact`, `Partial`, `Unknown`, `Estimated` and
+`Unused` distinguish positive mount evidence, incomplete metadata and legacy timestamp estimates.
+Only confirmed `Unused` volumes enter the reclaimable display; unknown/estimated absence is never
+proof of eligibility. Prune behavior is unchanged and the engine remains the deletion authority.
 
 ### Templates gallery (`TemplateCatalog`, `TemplateConfigStore`, `ImageUpdateService`)
 
@@ -186,6 +212,38 @@ Load/persist failures never crash the app.
 `ImageUpdateService` powers the Images page's **Check for updates**: it reads each local image's
 repo-digests and compares them against the registry's current manifest digest, flagging images that
 are behind so the UI can show an **↓ Update** badge and offer a one-click pull.
+
+### Container file transfers (`WslcFileTransfer`)
+
+Transfers select native `wslc container cp` only when detected; definite absence selects the existing
+exec/base64/tar backend (running container with the required tools), and unknown availability produces
+a diagnostic. Native failures are not retried through legacy code. Transfer destinations are directories:
+basenames are preserved, host destinations are created, and upload archives include the requested
+destination hierarchy to retain mkdir-p behavior. Native container paths must be absolute and
+traversal-free; downloaded basenames must be representable on Windows.
+
+Native transfer does not require an in-container shell, but still uses host `tar.exe` and staging.
+Uploads use streamed, disk-backed PAX archives under the concrete MSIX `LocalCacheFolder` path.
+`WslcCopyInput` is a narrow exception to ordinary `ArgumentList` execution: a fixed
+`cmd /d /v:off /s /c` template redirects an archive file to seekable stdin, needed by WSLC's
+archive Content-Length handling. Executable/target/archive values use quoted, single-expansion,
+child-only environment entries; quote/newline/NUL delimiters and oversized strings are rejected.
+No dynamic command fragments, `CALL`, AutoRun or delayed expansion are allowed.
+
+Source links are archived without enumerating directory-link targets; native extraction may follow
+existing container destination-directory links. Overwriting a host symbolic link is rejected.
+No ownership/metadata preservation guarantee is made (`--archive` is not emitted; upstream treats
+it as a compatibility no-op). Cancellation can leave partial destination contents. Only the
+operation-owned staging archive is cleaned; sharing-violation cleanup retries are bounded, and a
+retained archive path is surfaced rather than silently abandoned.
+
+**Evidence boundary:** native archive behavior comes from
+[WSL 2.9.11 ContainerTasks.cpp](https://github.com/microsoft/WSL/blob/2.9.11/src/windows/wslc/tasks/ContainerTasks.cpp),
+[WSLCContainer.cpp](https://github.com/microsoft/WSL/blob/2.9.11/src/windows/wslcsession/WSLCContainer.cpp)
+and [upstream copy tests](https://github.com/microsoft/WSL/blob/2.9.11/test/windows/wslc/e2e/WSLCE2EContainerCpTests.cpp),
+plus controlled local stopped/shell-removed transfer fixtures. This is not a promise of Docker parity.
+The Files page's **Download path** supports known-path transfers without browsing; browsing,
+text preview, path editing and diff remain shell-dependent.
 
 ### Container filesystem diff (`WslcService.DiffContainerAsync`)
 
@@ -231,7 +289,7 @@ read-only (there is no `wslc` secret store), gates `service_healthy` edges on a 
 `service_completed_successfully` edges on the dependency exiting 0, appends `extra_hosts:` entries to
 each container's `/etc/hosts` via `exec` after start (there is no `--add-host` flag), enrolls
 services that declare a `healthcheck` into `HealthWatchdog`, and seeds `restart:` policies for
-services *without* a healthcheck into `RestartPolicyWatchdog` (which restarts an exited container
+services without positive health auto-heal into `RestartPolicyWatchdog` (which restarts an exited container
 within a budget; `on-failure` inspects the exit code, and a user's manual stop suppresses
 `unless-stopped`/`on-failure` restarts). Stops honor each service's `stop_grace_period` and
 `stop_signal` (`wslc stop -t/-s`). Project-created volumes and networks are **namespaced with the
@@ -241,7 +299,8 @@ external volumes/networks keep their exact declared name. `down` also removes pr
 networks (volumes are preserved, like `docker compose down`); **removing** a project (deleting its
 definition) additionally deletes the volumes it created (like `docker compose down --volumes`), while
 external volumes are always preserved. Because enforcement is in-process there is **no background
-daemon** — restart/health policies apply only while the app runs, and `ReconcileAsync` re-adopts
+daemon** — restart, auto-heal and app-owned probes apply only while the app runs; native checks
+are engine-owned. `ReconcileAsync` re-adopts
 still-present projects on the next launch. The Compose page lists projects with up/restart/down/
 remove; import is from that page.
 
@@ -270,9 +329,19 @@ so the importer knows the file's folder: it seeds `${VAR}` interpolation default
 `.env` file and resolves relative `env_file`, `build.context`, and `secrets`/`configs` `file:` paths
 against that folder. During import the parser also **collects warnings** for any compose keys it does
 not honor (e.g. `privileged`, `cap_add`, `logging`, unknown top-level keys) plus partially-supported
-features (multi-network attach, `deploy.replicas` scaling); these are shown in a confirmation dialog
+features (`deploy.replicas` scaling); these are shown in a confirmation dialog
 so the user can cancel or import anyway before the project is saved. `x-` extension keys and
 recognized-but-cosmetic keys (`version`) are never flagged.
+
+**Multi-network lifecycle.** `ComposeNetworkOrchestrator` chooses a backend from detected support.
+Native multi-network services use create -> connect -> start, so required attachments precede workload
+startup. Network-scoped aliases and static IPv4 options survive parsing, persistence and cloning;
+one IPv4 IPAM configuration is supported. Definite absence retains the first network with a warning;
+unknown support fails the affected service before replacing its container. Native attachment failure
+cleans only the operation's new container/endpoints, not external or unverified-owner networks.
+Re-adoption validates endpoint state: missing attachments can be repaired with disconnect rollback
+support; mismatched aliases/IPs request recreation rather than silently disrupting a live endpoint.
+Dependency readiness and watchdog enrollment include only successfully ready services.
 
 #### Compose feature support
 
@@ -284,7 +353,7 @@ recognized-but-cosmetic keys (`version`) are never flagged.
 | `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported** |
 | `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Supported** — relative `env_file` paths resolve against the compose file's folder; a sibling `.env` seeds interpolation |
 | Top-level `networks:` / `volumes:` **creation** (driver, `driver_opts`, labels; `external` skipped) | **Supported** — created on up via `wslc network/volume create`; networks removed on down |
-| `networks` / `network_mode` per service, service-name DNS aliases | **Supported** — service name added as `--network-alias`; `wslc run` still attaches only the **first** network per container (no `network connect`) |
+| `networks` / `network_mode` per service, service-name DNS aliases | **Capability-gated** — create/connect/start for multiple native endpoints; legacy first-network fallback with warning. Special host/none/container/service modes remain distinct. |
 | `secrets:` / `configs:` (file-backed) | **Supported (best-effort)** — source file bind-mounted read-only (`/run/secrets/<name>` or the config target); no in-engine secret store |
 | `tmpfs`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`, `dns`/`dns_search`/`dns_opt` | **Supported** — mapped to the matching `wslc run`/`wslc stop` flags |
 | `profiles:` | **Supported** — services with a profile start only when one of their profiles is in the project's active set (from `COMPOSE_PROFILES` in the environment / `.env`); unprofiled services always start |
@@ -294,12 +363,42 @@ recognized-but-cosmetic keys (`version`) are never flagged.
 | `docker-compose.override.yml` | **Supported** — a sibling override file is deep-merged over the base compose file |
 | `${VAR}` / `${VAR:-default}` interpolation, anchors/aliases, `<<` merge, `\|`/`>` block scalars | **Supported** (block scalars are best-effort: blank lines not preserved) |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
-| `healthcheck` | **Supported** — seeded into `HealthWatchdog` |
+| `healthcheck` | **Capability-gated** — native shell checks when required run/create flags are supported; complete app backend for `CMD` argv or unsupported flags; unknown support is surfaced |
 | `depends_on` incl. `condition: service_healthy` / `service_completed_successfully` | **Supported** — start ordering + health/exit gating |
 | `restart:` (`no`/`always`/`on-failure`/`unless-stopped`) | **Supported (best-effort)** while the app runs; restart backoff timing is not byte-for-byte identical to Docker |
 | Project lifecycle (`up`/`down`/`restart`), re-adoption on relaunch | **Supported** |
-| Multi-network attach per container, `cap_add`/`cap_drop`, `devices`, `sysctls`, `privileged`, `read_only`, `init`, `pid`/`ipc`, `mac_address`, `logging` drivers | **Not supported** — no `wslc run`/`network connect` flag and no safe in-container emulation |
-| `deploy.replicas` / scaling, Swarm `deploy`, always-on restart after the app closes | **Not supported** — requires a persistent daemon (out of scope for the desktop-as-daemon model) |
+| `cap_add`/`cap_drop`, arbitrary `devices`, `sysctls`, `privileged`, rootfs `read_only`, `init`, `pid`/`ipc`, `mac_address`, `logging` drivers | **Not supported** — not advertised in current CLI help; GPU and read-only mount support are separate |
+| `deploy.replicas` / scaling, Swarm `deploy` | **Not implemented** — no native Compose/scaling command; local scaling does not inherently require a daemon |
+| Always-on restart after the app closes | **Not supported** — restart/auto-heal remain app-owned; no advertised native `--restart` |
+
+#### Native and app-owned health
+
+`NativeHealthOptions` preserves Compose test argv, interval, timeout, start period, start interval,
+retries and disable/NONE independently from restart budgets. WSLC 2.9.11's `--health-cmd` is a
+shell check, so `CMD` argv uses `ExecHealthAsync` without joining argv into shell source. Native
+selection requires every requested flag for the actual run/create path; unsupported `start_interval`
+selects the whole app backend rather than dropping timing flags. Desired settings remain saved.
+Fallback scheduling has 1-second resolution; sub-second interval limitations are diagnosed.
+
+`StatusMonitor` owns `NativeHealthMonitor`: bounded fresh inspect (at most four concurrent,
+3 seconds each / 8 seconds total), rotating work, explicit unknown failures and an absent/disabled
+configuration cache keyed by container ID/generation. Port metadata caching is separate and never
+supplies live health. Native starting/healthy/unhealthy/absent states do not change process state.
+`HealthWatchdog` observes native results instead of issuing duplicate command probes; TCP checks,
+auto-heal and restart remain app-owned. Probe retries and restart budgets are independent.
+`service_healthy` waits on the shared snapshots with verified startup ID, generation and freshness,
+and blocks dependents on failure rather than optimistically starting them.
+
+Native settings apply at creation, not live update. Existing incompatible/inherited checks remain
+visible, while conflicting app command probes/auto-heal are suspended rather than duplicated.
+The app never recreates an existing container solely to apply a health edit. Deferred create
+enrollment is bounded and process-local, occurs only after successful start, and is cleared after
+successful removal; Compose re-adoption restores saved desired configuration on a later app launch.
+
+Controlled 2.9.11 fixtures demonstrated starting -> healthy, unhealthy while running, explicit
+disable and progressing native timestamps without app ownership. This was **not** an actual
+desktop close/reopen trial or a packaged watchdog-lifecycle certification. Legacy help fixtures are
+synthetic and do not substitute for runtime validation on an installed 2.9.9 binary.
 
 ### Diagnostics (`FileLoggerProvider`)
 
