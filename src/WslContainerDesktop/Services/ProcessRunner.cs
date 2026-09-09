@@ -97,6 +97,19 @@ public sealed class ProcessRunner(ISettingsService settings)
             ct: cancellationToken);
     }
 
+    /// <summary>Supplies a seekable archive handle, as required by native WSLC copy.</summary>
+    internal static Task<CommandResult> RunCopyWithInputFileAtPathAsync(
+        string executablePath,
+        IEnumerable<string> arguments,
+        string inputPath,
+        CancellationToken cancellationToken = default)
+    {
+        var psi = WslcCopyInput.CreateStartInfo(executablePath, arguments, inputPath);
+        return ProcessExecutor.RunAsync(psi,
+            launchErrorContext: $"Could not launch '{executablePath}'.",
+            ct: cancellationToken);
+    }
+
     /// <summary>
     /// Starts wslc detached in its own console window (used for interactive
     /// sessions such as `exec -it ... bash` or streaming `logs -f`). Launched with

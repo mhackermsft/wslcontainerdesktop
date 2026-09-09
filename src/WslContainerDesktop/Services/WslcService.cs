@@ -28,6 +28,10 @@ public sealed class WslcService(
     private readonly IWslcCapabilitiesService _capabilities = capabilities;
     private readonly ContainerPortResolver _containerPorts = new();
 
+    private WslcFileTransfer FileTransfer => new(
+        _capabilities, ProcessRunner.RunAtPathAsync, ProcessRunner.RunCopyWithInputFileAtPathAsync,
+        () => Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "file-transfer"));
+
     // ---- Engine ---------------------------------------------------------
 
     public Task<CommandResult> GetVersionAsync(CancellationToken ct = default) =>
@@ -206,9 +210,17 @@ public sealed class WslcService(
     public Task<CommandResult> ReadTextFileAsync(string id, string path, int maxBytes = 65_536, CancellationToken ct = default) =>
         ExecShellAsync(id, BuildReadTextFileScript(path, maxBytes), ct);
 
-    public async Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default)
+    public Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default) =>
+        FileTransfer.CopyFromAsync(id, containerPath, hostPath,
+            token => CopyFromContainerLegacyAsync(id, containerPath, hostPath, token), ct);
+
+    public Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default) =>
+        FileTransfer.CopyToAsync(id, hostPath, containerPath,
+            token => CopyToContainerLegacyAsync(id, hostPath, containerPath, token), ct);
+
+    private async Task<CommandResult> CopyFromContainerLegacyAsync(string id, string containerPath, string hostPath, CancellationToken ct)
     {
-        // wslc has no `cp` command, so files are streamed out over `exec` using a base64 channel
+        // Older engines stream files out over `exec` using a base64 channel
         // (binary-safe) for single files and tar+base64 for directories. hostPath is the destination
         // DIRECTORY; the source's basename is preserved (docker cp-style semantics).
         var typeProbe = await ExecShellAsync(id,
@@ -239,8 +251,8 @@ public sealed class WslcService(
                 // which would hide a partial/failed tar and let us extract a truncated tree.
                 var script =
                     $"cd {WslRootShell.ShellEscape(PosixParent(containerPath))} || exit 1; " +
-                    "tmp=$(mktemp) || exit 1; " +
-                    $"if tar -cf \"$tmp\" -- {WslRootShell.ShellEscape(name)}; then base64 \"$tmp\"; s=0; else s=$?; fi; " +
+                    "tmp=$(mktemp) || exit 1; trap 'rm -f \"$tmp\"' EXIT HUP INT TERM; " +
+                    $"if tar -cf \"$tmp\" -- {WslRootShell.ShellEscape(name)}; then base64 \"$tmp\"; s=$?; else s=$?; fi; " +
                     "rm -f \"$tmp\"; exit $s";
                 var res = await ExecShellAsync(id, script, ct).ConfigureAwait(false);
                 if (!res.Success)
@@ -271,15 +283,15 @@ public sealed class WslcService(
                 return res;
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or NotSupportedException)
         {
             return new CommandResult { ExitCode = -1, StandardError = $"Could not copy from container: {ex.Message}" };
         }
     }
 
-    public async Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default)
+    private async Task<CommandResult> CopyToContainerLegacyAsync(string id, string hostPath, string containerPath, CancellationToken ct)
     {
-        // wslc has no `cp`; upload over `exec -i` by piping a base64 payload to `base64 -d` (files) or
+        // Older engines upload over `exec -i` by piping a base64 payload to `base64 -d` (files) or
         // `base64 -d | tar -xf -` (directories). containerPath is the destination DIRECTORY inside the
         // container; the host source's basename is preserved.
         try
@@ -309,7 +321,7 @@ public sealed class WslcService(
 
             return new CommandResult { ExitCode = -1, StandardError = $"Host path not found: {hostPath}" };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or NotSupportedException)
         {
             return new CommandResult { ExitCode = -1, StandardError = $"Could not copy to container: {ex.Message}" };
         }

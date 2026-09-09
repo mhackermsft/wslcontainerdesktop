@@ -816,6 +816,7 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <Button
@@ -887,6 +888,13 @@
                         ToolTipService.ToolTip="Upload folder from host to current directory">
                         <FontIcon FontSize="13" Glyph="&#xE8DA;" />
                     </Button>
+                    <Button
+                        Grid.Column="6"
+                        AutomationProperties.AutomationId="DownloadContainerPath"
+                        MinHeight="32"
+                        Content="Download path"
+                        Click="DownloadPath_Click"
+                        ToolTipService.ToolTip="Download a known path without browsing; stopped containers require native copy support" />
                 </Grid>
 
                 <!--  File list area with drag-drop  -->
