@@ -183,6 +183,8 @@ public sealed class AssistantHistoryContractTests
         var h = new AiContractHarness(providerFactory: _ => [new CopilotBridgeProvider(runner)]);
         h.SettingsValues[nameof(ISettingsService.AiProvider)] = AiProviderKind.GitHubCopilot;
         h.Tools.Category = AssistantPermissionCategory.ReadOnly;
+        h.Tools.Definitions = _ => Task.FromResult<IReadOnlyList<AiToolDefinition>>(
+            [new() { Name = "inspect_container", Description = "Inspect a synthetic container", JsonSchemaParameters = """{"type":"object"}""" }]);
         h.Tools.Execute = (_, _) => Task.FromResult("""{"id":"approved-id","state":"stopped"}""");
         await h.Assistant.SendAsync("inspect");
         await h.Assistant.SendAsync("what was its state?");

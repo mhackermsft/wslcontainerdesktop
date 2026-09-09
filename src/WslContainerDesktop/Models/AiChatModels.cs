@@ -58,6 +58,30 @@ public sealed record AiChatConfiguration(AiProviderKind Kind, string Endpoint, s
 
 public sealed record AiChatRequest(
     AiChatConfiguration Configuration,
-    IReadOnlyList<AiChatMessage> History);
+    IReadOnlyList<AiChatMessage> History)
+{
+    // Synchronous delivery preserves ordering. TextDelta contains sanitized safe segments,
+    // not raw transport fragments. Tool arguments remain inside the provider adapter.
+    public Action<AiChatProgress>? Progress { get; init; }
+}
+
+public enum AiChatProgressKind
+{
+    Loading,
+    Generating,
+    TextDelta,
+    ToolRequested,
+    AwaitingApproval,
+    ExecutingTool,
+    ToolResult,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+// TextDelta appends model narration; ToolResult replaces evidence for the same call ID.
+// Only the assistant service publishes approval, execution and terminal events.
+// ToolCallId is a turn-local display correlation ID, not the provider's raw protocol ID.
+public sealed record AiChatProgress(AiChatProgressKind Kind, string Text, string? ToolCallId = null);
 
 public sealed record AiChatTurnResult(string FinalText, IReadOnlyList<AiChatMessage> Messages);

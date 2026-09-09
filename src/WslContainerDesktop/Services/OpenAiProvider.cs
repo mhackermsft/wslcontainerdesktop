@@ -93,6 +93,9 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         CancellationToken ct)
     {
         var configuration = request.Configuration;
+        // Select once from this configuration's observed capabilities, never retry a failed stream.
+        var useStreaming = request.Progress != null &&
+            capabilities?.GetCached(configuration).Streaming.Support != AiSupport.Unsupported;
         if (string.IsNullOrWhiteSpace(configuration.Model))
         {
             throw MissingModel("Assistant chat");
@@ -102,6 +105,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         credentials.TryReadSecret(Kind, out var key);
         var messages = request.History.Select(AiTextSanitizer.SanitizeMessage).ToList();
         var transcript = new List<AiChatMessage>();
+        var seenIds = request.History.SelectMany(m => m.ToolCalls).Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         for (var i = 0; i < 8; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -120,19 +124,25 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
                 payload["tools"] = tools.Select(ToOpenAiTool).ToList();
                 payload["tool_choice"] = "auto";
             }
+            if (request.Progress != null) payload["stream"] = useStreaming;
             message.Content = JsonContent.Create(payload);
 
-            using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
-            if (!response.IsSuccessStatusCode)
+            AiToolTurn turn;
+            if (request.Progress != null)
             {
-                throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), configuration.Model, body);
+                turn = await AiHttpStreaming.SendAsync(http, message, request, tools, seenIds, ct, useStreaming).ConfigureAwait(false);
             }
+            else
+            {
+                using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                if (!response.IsSuccessStatusCode)
+                    throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), configuration.Model, body);
 
-            using var doc = JsonDocument.Parse(body);
-            var root = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
-            var turn = ParseToolTurn(root);
+                using var doc = JsonDocument.Parse(body);
+                turn = ParseToolTurn(doc.RootElement.GetProperty("choices")[0].GetProperty("message"));
+            }
             if (turn.ToolCalls.Count == 0)
             {
                 var finalText = string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);

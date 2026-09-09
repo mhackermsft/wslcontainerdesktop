@@ -199,10 +199,26 @@ public sealed class GitHubCopilotProvider(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        Action<AiChatProgress> progress,
+        Action<string> recordMessage,
         CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(RequestTimeout);
+        var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? bridgeFailure = null;
+
+        void FailBridge(Exception error)
+        {
+            Interlocked.CompareExchange(ref bridgeFailure, error, null);
+            if (done.TrySetException(error))
+            {
+                try { timeout.Cancel(); }
+                catch (ObjectDisposedException)
+                {
+                    // A late SDK callback can race session disposal; the failed completion is already latched.
+                }
+            }
+        }
 
         try
         {
@@ -219,7 +235,15 @@ public sealed class GitHubCopilotProvider(
                     Mode = SystemMessageMode.Replace,
                     Content = string.Join("\n\n", history.Where(m => m.Role == "system").Select(m => m.Content)),
                 },
-                Tools = BuildCopilotTools(tools, invokeToolAsync),
+                Streaming = true,
+                Tools = BuildCopilotTools(tools, async (call, callbackToken) =>
+                {
+                    timeout.Token.ThrowIfCancellationRequested();
+                    if (Volatile.Read(ref bridgeFailure) is not null)
+                        throw new InvalidOperationException("The Copilot tool bridge has already failed.");
+                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, callbackToken);
+                    return await invokeToolAsync(call, linked.Token).ConfigureAwait(false);
+                }, FailBridge),
                 AvailableTools = tools.Select(t => t.Name).ToList(),
                 InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
                 EnableSkills = false,
@@ -232,14 +256,59 @@ public sealed class GitHubCopilotProvider(
             }, timeout.Token).ConfigureAwait(false);
 
             var prompt = BuildCopilotChatPrompt(history.Where(m => m.Role != "system"));
-            var message = await session.SendAndWaitAsync(
-                new MessageOptions { Prompt = prompt },
-                RequestTimeout,
-                timeout.Token).ConfigureAwait(false);
-
+            string? finalText = null;
+            var messages = new CopilotChatTurnRunner.MessageStream(progress, recordMessage);
+            var eventGate = new object();
+            using var registration = timeout.Token.Register(() => done.TrySetCanceled(timeout.Token));
+            using var subscription = session.On<SessionEvent>(evt =>
+            {
+                lock (eventGate)
+                {
+                    if (done.Task.IsCompleted || timeout.IsCancellationRequested)
+                        return;
+                    try
+                    {
+                        switch (evt)
+                        {
+                            case AssistantMessageDeltaEvent delta:
+                                progress(new(AiChatProgressKind.Generating, "Generating response…"));
+                                messages.Append(delta.Data.MessageId ?? "", delta.Data.DeltaContent ?? "");
+                                break;
+                            case AssistantMessageEvent message:
+                                messages.Complete(message.Data.MessageId ?? "", message.Data.Content ?? "");
+                                finalText = AiTextSanitizer.Sanitize(message.Data.Content ?? "");
+                                break;
+                            case SessionErrorEvent:
+                                FailBridge(new InvalidOperationException("GitHub Copilot reported a session error."));
+                                break;
+                            case SessionIdleEvent:
+                                if (finalText is null || messages.HasPendingMessage)
+                                    FailBridge(new InvalidOperationException("GitHub Copilot returned no assistant message."));
+                                else
+                                    done.TrySetResult(finalText);
+                                break;
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        FailBridge(error);
+                    }
+                }
+            });
+            await session.SendAsync(new MessageOptions { Prompt = prompt }, timeout.Token).ConfigureAwait(false);
+            var result = await done.Task.ConfigureAwait(false);
             timeout.Token.ThrowIfCancellationRequested();
-            var data = message?.Data ?? throw new InvalidOperationException("GitHub Copilot returned no assistant message.");
-            return string.IsNullOrWhiteSpace(data.Content) ? "Done." : AiTextSanitizer.Sanitize(data.Content);
+            return string.IsNullOrWhiteSpace(result) ? "Done." : result;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested
+            && Volatile.Read(ref bridgeFailure) is { } failure && failure is not OperationCanceledException)
+        {
+            throw new AiProviderException(
+                Kind, "Assistant chat",
+                "GitHub Copilot assistant chat failed before it could safely complete.",
+                AiFailureKind.Configuration,
+                responseDetail: failure.Message,
+                inner: failure);
         }
         catch (OperationCanceledException)
         {
@@ -264,12 +333,13 @@ public sealed class GitHubCopilotProvider(
 
     private static ICollection<AIFunctionDeclaration> BuildCopilotTools(
         IReadOnlyList<AiToolDefinition> tools,
-        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync)
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        Action<Exception> failBridge)
     {
         var declarations = new List<AIFunctionDeclaration>();
         foreach (var tool in tools)
         {
-            declarations.Add(new DelegatingAssistantFunction(AiTextSanitizer.SanitizeDefinition(tool), invokeToolAsync));
+            declarations.Add(new DelegatingAssistantFunction(AiTextSanitizer.SanitizeDefinition(tool), invokeToolAsync, failBridge));
         }
 
         return declarations;
@@ -317,9 +387,24 @@ public sealed class GitHubCopilotProvider(
 
     private sealed class DelegatingAssistantFunction(
         AiToolDefinition definition,
-        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync) : AIFunction
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        Action<Exception> failBridge) : AIFunction
     {
         private readonly JsonElement _schema = JsonDocument.Parse(definition.JsonSchemaParameters).RootElement.Clone();
+        // Let the SDK bind its opaque context key. Missing SDK context must fail closed;
+        // fabricated IDs or reconstructing JSON from model-facing arguments loses identity.
+        private readonly AIFunction _binding = CopilotTool.DefineTool(
+            async (ToolInvocation invocation, CancellationToken ct) =>
+            {
+                if (invocation.ToolName != definition.Name || invocation.Arguments is not { } arguments)
+                    throw new InvalidOperationException("Copilot tool invocation context is missing or mismatched.");
+                return await invokeToolAsync(new AiToolCall
+                {
+                    Id = invocation.ToolCallId,
+                    Name = invocation.ToolName,
+                    ArgumentsJson = arguments.GetRawText(),
+                }, ct).ConfigureAwait(false);
+            }, factoryOptions: new AIFunctionFactoryOptions { Name = definition.Name });
 
         public override string Name => definition.Name;
 
@@ -331,16 +416,16 @@ public sealed class GitHubCopilotProvider(
             AIFunctionArguments arguments,
             CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var json = JsonSerializer.Serialize(arguments.ToDictionary(kvp => kvp.Key, kvp => kvp.Value));
-            var call = new AiToolCall
+            try
             {
-                Id = Guid.NewGuid().ToString("N"),
-                Name = definition.Name,
-                ArgumentsJson = json,
-            };
-            var result = await invokeToolAsync(call, cancellationToken).ConfigureAwait(false);
-            return AiTextSanitizer.Sanitize(result);
+                cancellationToken.ThrowIfCancellationRequested();
+                return await _binding.InvokeAsync(arguments, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception error)
+            {
+                failBridge(error);
+                throw;
+            }
         }
     }
 

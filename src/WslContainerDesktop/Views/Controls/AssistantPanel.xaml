@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:local="using:WslContainerDesktop.Views.Controls"
-    xmlns:models="using:WslContainerDesktop.Models"
+    xmlns:viewmodels="using:WslContainerDesktop.ViewModels"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
@@ -26,33 +26,40 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Spacing="4">
-                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Container AI Assistant" />
+                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Container AI Assistant" />
                 <TextBlock
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     Text="Scoped to WSL containers, compose, and installed k3s tools."
                     TextWrapping="Wrap" />
                 <Border
-                    Padding="8,2"
+                    Padding="8,4"
                     HorizontalAlignment="Left"
                     Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                     CornerRadius="{StaticResource ControlCornerRadius}">
                     <StackPanel
                         VerticalAlignment="Center"
                         Orientation="Horizontal"
-                        Spacing="6">
-                        <Ellipse
+                        Spacing="8">
+                        <Grid
                             Width="8"
                             Height="8"
-                            VerticalAlignment="Center"
-                            Fill="{x:Bind local:AssistantPanel.ProviderStatusBrush(ViewModel.IsProviderAvailable), Mode=OneWay}" />
+                            VerticalAlignment="Center">
+                            <Ellipse
+                                Fill="{ThemeResource SystemFillColorSuccessBrush}"
+                                Visibility="{x:Bind BoolToVisibility(ViewModel.IsProviderAvailable), Mode=OneWay}" />
+                            <Ellipse
+                                Fill="{ThemeResource SystemFillColorCautionBrush}"
+                                Visibility="{x:Bind local:AssistantPanel.InvertBoolToVisibility(ViewModel.IsProviderAvailable), Mode=OneWay}" />
+                        </Grid>
                         <TextBlock
                             AutomationProperties.Name="Active AI provider and model"
-                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
                             Text="{x:Bind ViewModel.ProviderLabel, Mode=OneWay}" />
                     </StackPanel>
                 </Border>
             </StackPanel>
             <Button
+                AutomationProperties.AutomationId="AssistantNewChatButton"
                 Grid.Column="1"
                 VerticalAlignment="Top"
                 AutomationProperties.Name="Start a new chat"
@@ -65,6 +72,7 @@
                 </StackPanel>
             </Button>
             <Button
+                AutomationProperties.AutomationId="AssistantCloseButton"
                 Grid.Column="2"
                 Width="40"
                 Height="32"
@@ -88,6 +96,7 @@
                 Severity="{x:Bind converters:AiFeedbackDisplay.ToInfoBarSeverity(ViewModel.Feedback.Severity), Mode=OneWay}"
                 Title="{x:Bind ViewModel.Feedback.Title, Mode=OneWay}" />
             <Expander
+                AutomationProperties.AutomationId="AssistantFeedbackDetailsExpander"
                 HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Stretch"
                 Header="Technical details"
@@ -96,7 +105,7 @@
                     <TextBlock
                         AutomationProperties.AutomationId="AssistantFeedbackDetailsText"
                         FontFamily="Cascadia Mono, Consolas"
-                        FontSize="12"
+                        Style="{StaticResource CaptionTextBlockStyle}"
                         IsTextSelectionEnabled="True"
                         Text="{x:Bind ViewModel.Feedback.TechnicalDetails, Mode=OneWay}"
                         TextWrapping="Wrap" />
@@ -106,56 +115,51 @@
                         Content="Copy details" />
                 </StackPanel>
             </Expander>
+            <TextBlock
+                AutomationProperties.AutomationId="AssistantTimelineLimitNotice"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                Text="Older activity was omitted. Showing the latest 100 entries; individual entries may be truncated."
+                TextWrapping="Wrap"
+                Visibility="{x:Bind BoolToVisibility(ViewModel.HasOmittedActivity), Mode=OneWay}" />
         </StackPanel>
 
-        <ScrollViewer
-            x:Name="TranscriptScroll"
+        <ListView
+            x:Name="TranscriptList"
+            AutomationProperties.AutomationId="AssistantTranscriptList"
+            AutomationProperties.Name="Conversation and tool activity"
             Grid.Row="2"
             Padding="16,0,16,12"
-            VerticalScrollBarVisibility="Auto">
-            <StackPanel Spacing="12">
-                <ItemsControl ItemsSource="{x:Bind ViewModel.Messages, Mode=OneWay}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="models:AssistantChatMessage">
-                            <Border
-                                Margin="0,0,0,8"
-                                Padding="12"
-                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1"
-                                CornerRadius="{ThemeResource ControlCornerRadius}">
-                                <StackPanel Spacing="4">
-                                    <TextBlock
-                                        Style="{ThemeResource BodyStrongTextBlockStyle}"
-                                        Text="{x:Bind RoleLabel}" />
-                                    <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" />
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <Border
-                    Padding="12"
-                    Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"
-                    BorderBrush="{ThemeResource SystemFillColorCautionBrush}"
-                    BorderThickness="1"
-                    CornerRadius="{ThemeResource ControlCornerRadius}"
-                    Visibility="{x:Bind BoolToVisibility(ViewModel.HasPendingApproval), Mode=OneWay}">
-                    <StackPanel Spacing="8">
-                        <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.PendingApproval.Summary, Mode=OneWay}" />
-                        <TextBlock Text="{x:Bind ViewModel.PendingApproval.Details, Mode=OneWay}" TextWrapping="Wrap" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Command="{x:Bind ViewModel.ApproveCommand}" Content="Approve" />
-                            <Button Command="{x:Bind ViewModel.RejectCommand}" Content="Reject" />
+            ItemsSource="{x:Bind ViewModel.Messages, Mode=OneWay}"
+            SelectionMode="None">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+            </ListView.ItemContainerStyle>
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="viewmodels:AssistantTimelineEntry">
+                    <Border
+                        Margin="0,0,0,8"
+                        Padding="12"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource ControlCornerRadius}">
+                        <StackPanel Spacing="4">
+                            <TextBlock
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="{x:Bind Label}"
+                                TextWrapping="Wrap" />
+                            <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind Text}" TextWrapping="Wrap" />
                         </StackPanel>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </ScrollViewer>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
 
         <Grid Grid.Row="3" Padding="16" ColumnSpacing="8" RowSpacing="12">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
@@ -164,23 +168,57 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel
+            <Border
                 Grid.ColumnSpan="3"
-                Orientation="Horizontal"
-                Spacing="8"
-                Visibility="{x:Bind BoolToVisibility(ViewModel.IsWorking), Mode=OneWay}">
+                Padding="12"
+                Background="{ThemeResource SystemFillColorCautionBackgroundBrush}"
+                BorderBrush="{ThemeResource SystemFillColorCautionBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource ControlCornerRadius}"
+                Visibility="{x:Bind BoolToVisibility(ViewModel.HasPendingApproval), Mode=OneWay}">
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="This tool is awaiting your approval" TextWrapping="Wrap" />
+                    <ScrollViewer MaxHeight="180" AutomationProperties.AutomationId="AssistantApprovalDetailsScroll">
+                        <StackPanel Spacing="8">
+                            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.PendingApproval.Summary, Mode=OneWay, FallbackValue=''}" TextWrapping="Wrap" />
+                            <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind ViewModel.PendingApproval.Details, Mode=OneWay, FallbackValue=''}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </ScrollViewer>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button AutomationProperties.AutomationId="AssistantApproveButton" Command="{x:Bind ViewModel.ApproveCommand}" Content="Approve" />
+                        <Button AutomationProperties.AutomationId="AssistantRejectButton" Command="{x:Bind ViewModel.RejectCommand}" Content="Reject" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Grid
+                Grid.Row="1"
+                Grid.ColumnSpan="3"
+                ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
                 <ProgressRing
+                    AutomationProperties.AutomationId="AssistantProgressRing"
+                    AutomationProperties.Name="Assistant request in progress"
                     Width="20"
                     Height="20"
-                    IsActive="{x:Bind ViewModel.IsWorking, Mode=OneWay}" />
+                    IsActive="{x:Bind ViewModel.IsWorking, Mode=OneWay}"
+                    Visibility="{x:Bind BoolToVisibility(ViewModel.IsWorking), Mode=OneWay}" />
                 <TextBlock
+                    AutomationProperties.AutomationId="AssistantStatusText"
+                    AutomationProperties.LiveSetting="Polite"
+                    Grid.Column="1"
                     VerticalAlignment="Center"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="Assistant is working…" />
-            </StackPanel>
+                    Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                    TextWrapping="Wrap" />
+            </Grid>
             <TextBox
                 x:Name="DraftBox"
-                Grid.Row="1"
+                AutomationProperties.AutomationId="AssistantDraftBox"
+                AutomationProperties.Name="Message to container assistant"
+                Grid.Row="2"
                 AcceptsReturn="True"
                 MaxHeight="96"
                 PlaceholderText="Ask to list containers, deploy WordPress, stop all running containers…"
@@ -188,15 +226,18 @@
                 Text="{x:Bind ViewModel.Draft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                 TextWrapping="Wrap" />
             <Button
-                Grid.Row="1"
+                AutomationProperties.AutomationId="AssistantSendButton"
+                Grid.Row="2"
                 Grid.Column="1"
                 Command="{x:Bind ViewModel.SendCommand}"
                 Content="Send" />
             <Button
-                Grid.Row="1"
+                AutomationProperties.AutomationId="AssistantCancelButton"
+                Grid.Row="2"
                 Grid.Column="2"
                 Command="{x:Bind ViewModel.CancelCommand}"
-                Content="Stop" />
+                Content="Cancel"
+                ToolTipService.ToolTip="Request cancellation. Completed actions are not rolled back." />
         </Grid>
     </Grid>
 </UserControl>

@@ -237,7 +237,7 @@ public sealed class AssistantOrchestrationContractTests
 
     [Theory]
     [InlineData("unknown_tool", "{}")]
-    [InlineData("stop_container", "{malformed")]
+    [InlineData("stop_container", """{"id":null}""")]
     public async Task ResolverFailurePropagatesWithoutApprovalExecutionOrRetry(string name, string arguments)
     {
         // This checks orchestration's failure boundary, not production argument validation (#97).

@@ -47,7 +47,8 @@ internal sealed class AiContractHarness
     public ObservedCapabilities Capabilities { get; } = new();
 
     public AiContractHarness(Func<ISettingsService, IAssistantToolset>? toolsetFactory = null,
-        Func<ISettingsService, IEnumerable<IAiChatProvider>>? providerFactory = null)
+        Func<ISettingsService, IEnumerable<IAiChatProvider>>? providerFactory = null,
+        TimeProvider? timeProvider = null)
     {
         Settings = NetworkTestProxy.Create<ISettingsService>((method, args) =>
         {
@@ -77,7 +78,7 @@ internal sealed class AiContractHarness
             return null;
         });
         Assistant = new(Settings, providerFactory?.Invoke(Settings) ?? [Provider], toolsetFactory?.Invoke(Settings) ?? Tools,
-            new AssistantActionGate(Settings), activity, Capabilities);
+            new AssistantActionGate(Settings), activity, Capabilities, timeProvider);
     }
 
     public static AiToolCall Call(string name = "stop_container", string arguments = """{"id":"approved-id"}""") =>
@@ -91,6 +92,7 @@ internal sealed class AiContractHarness
         public AiProviderKind Kind => AiProviderKind.OpenAi;
         public string DisplayName => "Scripted provider";
         public List<IReadOnlyList<AiChatMessage>> Requests { get; } = [];
+        public List<AiChatRequest> CapturedRequests { get; } = [];
         public Queue<Func<Func<AiToolCall, CancellationToken, Task<string>>, CancellationToken, Task<string>>> Turns { get; } = new();
 
         public async Task<AiChatTurnResult> RunTurnAsync(
@@ -100,6 +102,7 @@ internal sealed class AiContractHarness
             CancellationToken ct)
         {
             Requests.Add(request.History.ToArray());
+            CapturedRequests.Add(request);
             Configurations.Add(request.Configuration);
             var text = await Turns.Dequeue()(invokeToolAsync, ct);
             return new(text, [new() { Role = "assistant", Content = text }]);

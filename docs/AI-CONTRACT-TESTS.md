@@ -357,6 +357,120 @@ exact expiry boundary), invalid endpoints without transport, and a malformed
 Copilot acknowledgement followed by an SDK-swallowed error and another callback.
 That failed check cannot subsequently grant tool support.
 
+## Streaming and execution progress (#89)
+
+`AiChatRequest.Progress` is an optional synchronous `Action<AiChatProgress>`;
+`IContainerAssistant.SendAsync(string, Action<AiChatProgress>, CancellationToken)`
+scopes it to one turn. Existing configuration, history, structured final result,
+and the authoritative service journal remain unchanged. A future Foundry Local
+adapter can use the same request callback and `AiStreamingText` without adding a
+provider-specific UI contract.
+
+Providers publish only Loading, Generating, and TextDelta. The service alone
+publishes ToolRequested, AwaitingApproval, ExecutingTool, ToolResult, Completed,
+Failed, and Cancelled. Provider narration cannot attest to execution. TextDelta
+appends narration; ToolResult replaces evidence for its call ID, including an
+updated partial/unknown result when a turn fails. Progress callbacks are ordered
+by delivery. Display call IDs are turn-local opaque correlations, not raw
+provider identifiers; redaction cannot collapse two distinct tools into one row.
+Callbacks are synchronous; the UI dispatches updates with a captured turn generation and
+rechecks that generation inside the queued action. Reset/new-chat discards late
+progress and results. Progress is a bounded UI preview, not additional provider
+history or an audit transcript.
+
+### Incremental text and privacy
+
+HTTP transport uses SSE for OpenAI/Azure and NDJSON for Ollama. Incoming model
+fragments stay inside a bounded per-message accumulator. Complete plain ASCII
+prose sentences/lines can be displayed **before the response finishes**. This is
+not unrestricted token streaming: on encountering structured, quoted, markdown
+code, URL, or other non-prose syntax, incremental release stops for the rest of
+that message. Complete-input sanitization releases the remainder only after a
+validated completion. If sanitization rewrites the already published prefix,
+the remainder is withheld and the final answer replaces the preview rather than
+appending inconsistent text. Cumulative state spans fragment boundaries; raw
+fragments are never individually redacted and then displayed.
+
+`AiStreamingText` bounds input at 128 Ki characters and displayed narration at
+12,000 characters. The conservative early-release vocabulary is ASCII letters,
+digits, whitespace, comma, period, exclamation mark, and question mark. This
+intentionally defers non-ASCII and richly formatted responses until completion.
+It inherits #91's explicit detection limits: arbitrary unlabelled or obfuscated
+secrets are not recognizable. It is not a new perfect-secret-detection claim.
+
+The HTTP parser separately caps each response at 2 MiB, each line at 128 KiB,
+text/argument accumulation at 64 Ki characters, and each batch at 32 calls.
+Identifiers accept ASCII letters/digits, underscore and hyphen. OpenAI/Azure
+require a consistent stop/tool-calls finish reason and an SSE `[DONE]` marker;
+Ollama requires `done:true` and complete JSON-object tool arguments. Standard
+nullable unused delta fields are treated as absent, never as new IDs/arguments.
+Unsupported or malformed wire shapes fail closed rather than guessing.
+An explicitly cached `Streaming.Unsupported` selects bounded nonstream JSON
+before the first request, retaining that choice across tool continuations.
+Unknown/Supported attempts streaming without creating a new capability claim.
+There is no retry/fallback after a failed request. Legacy callers that omit
+Progress retain their existing nonstream transport behavior.
+
+### Failure, approval and execution ownership
+
+Tool arguments are accumulated completely and validated as JSON objects before
+resolution, approval or execution; partial JSON cannot trigger a tool. The
+service independently rejects blank/oversized identifiers, oversized arguments,
+duplicate JSON properties and duplicate call IDs. Callbacks serialize and latch
+failure, cancel the provider turn, and reject subsequent callbacks even when a
+provider swallows the first exception. A completed stream is not replayed after
+an error, and a disconnected stream never triggers reconnect/retry of mutations.
+
+Inference deadlines apply to generation, not the time a person spends deciding
+an approval. HTTP generation has a five-minute deadline; Copilot generation has
+a three-minute deadline paused while an app callback awaits approval or executes.
+Approval waits have no automatic inference deadline and remain cancellable.
+Actual tool execution has a separate cooperative ten-minute deadline, linked to
+caller/provider cancellation. A non-cooperative tool may outlive cancellation;
+the app does not pretend it forcibly stopped or rolled back effects. Completed,
+partial, not-run, and unknown outcomes remain service evidence on interrupted
+turns. Reset intentionally discards the old conversation; it does not undo its
+workloads. No cancellation automatically authorizes a fresh attempt.
+
+Capability checks remain independent. Successful transport is not manufactured
+streaming metadata, and no model-name inference can enable tools. The positive
+chat/tool gate and proof expiry still apply before resolution and after approval.
+
+`AssistantProgressContractTests` covers ordered approval/execution/results,
+cancelled approval, failed turns retaining sanitized partial outcomes, malformed
+and duplicate argument JSON before resolution, reset/late progress, provider
+attempts to forge tool-result progress, and swallowed callback failures.
+It also covers reentrant reset/cancel from progress callbacks, late partial
+outcomes after cancellation, distinct safe display IDs, and a manually advanced
+tool deadline that does not start while approval is pending.
+`AiStreamingTextTests` checks early sentence delivery and every split point
+through synthetic JSON name/value credentials, YAML blocks/late Secret type,
+private keys, headers, quoted assignments and multiline bearer/basic tokens,
+plus size limits and terminal-state rejection.
+
+Copilot consumes SDK `AssistantMessageDeltaEvent` text through per-message
+accumulators. Completed message IDs/content must correlate with all received
+deltas; duplicate/interleaved/incomplete message completion fails closed. Only
+complete sanitized messages enter the tracked SDK history budget. The SDK's
+`ToolInvocation` binding supplies actual opaque call IDs and original JSON;
+missing binding context cannot fabricate a fresh executable call. Event delivery
+is serialized, bridge failures latch, and the source-linked runner tests cover
+incremental prose, held structured secrets, cancellation/reset, duplicate IDs,
+malformed arguments, swallowed failures and inference-clock pause/resumption.
+`AiHttpStreamingTests` drives one-byte fragmented UTF-8/SSE/NDJSON transports,
+pauses before terminal to prove early prose delivery, and covers complete-batch
+validation, index ordering, nullable metadata, malformed/truncated/oversized
+payloads, duplicate/replayed calls, disconnects, cancellation, disposal, error
+body privacy, explicit nonstream selection and no fallback/retry.
+
+```powershell
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~Assistant|FullyQualifiedName~AiTextSanitizer|FullyQualifiedName~AiStreamingText|FullyQualifiedName~AiHttpStreaming|FullyQualifiedName~AiCapability|FullyQualifiedName~AiProvider|FullyQualifiedName~GitHubCopilot"
+```
+
+All coverage uses in-memory fixtures and the existing xUnit runner. No live
+inference, model download, real workload, SDK sign-in, app deployment, or
+packaged UI smoke run is part of this deterministic validation.
+
 Run all related contracts (both configured frameworks, no deployment):
 
 ```powershell
