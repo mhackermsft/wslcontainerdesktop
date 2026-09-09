@@ -21,6 +21,7 @@ namespace WslContainerDesktop.Models;
 /// <summary>
 /// A container row as returned by `wslc list --all --format json`.
 /// </summary>
+[JsonConverter(typeof(ContainerInfoJsonConverter))]
 public sealed class ContainerInfo
 {
     [JsonPropertyName("Id")]
@@ -35,11 +36,8 @@ public sealed class ContainerInfo
     [JsonPropertyName("CreatedAt")]
     public long CreatedAt { get; set; }
 
-    // wslc emits a bogus sentinel here (observed: 18446744011573954816) for containers that were
-    // created but never started, which overflows Int64 and used to throw a JsonException that
-    // failed the *entire* array's deserialization — silently emptying the containers list even
-    // though other containers in the same batch were valid. ulong safely holds the sentinel; the
-    // out-of-range value is then filtered out in StateChangedUtc below.
+    // Legacy never-started sentinel 18446744011573954816 is normalized to unavailable by the adapter.
+    // Keep ulong for existing consumers; the display accessor also guards manually populated values.
     [JsonPropertyName("StateChangedAt")]
     public ulong StateChangedAt { get; set; }
 
@@ -48,6 +46,16 @@ public sealed class ContainerInfo
 
     [JsonPropertyName("Ports")]
     public List<PortMapping> Ports { get; set; } = new();
+
+    /// <summary>False when list/inspect did not establish the complete published-port configuration.</summary>
+    [JsonIgnore]
+    public bool PortsKnown { get; set; }
+
+    [JsonIgnore]
+    public bool CreatedAtKnown { get; set; }
+
+    [JsonIgnore]
+    public bool StateChangedAtKnown { get; set; }
 
     [JsonIgnore]
     public ContainerState State =>
@@ -59,7 +67,9 @@ public sealed class ContainerInfo
     public string ShortId => Id.Length > 12 ? Id[..12] : Id;
 
     [JsonIgnore]
-    public DateTimeOffset CreatedUtc => DateTimeOffset.FromUnixTimeSeconds(CreatedAt);
+    public DateTimeOffset CreatedUtc => CreatedAt is >= -62135596800 and <= 253402300799
+        ? DateTimeOffset.FromUnixTimeSeconds(CreatedAt)
+        : DateTimeOffset.UnixEpoch;
 
     /// <summary>
     /// The container's last state-change time, or <see cref="CreatedUtc"/> if wslc reported its
@@ -67,7 +77,7 @@ public sealed class ContainerInfo
     /// </summary>
     [JsonIgnore]
     public DateTimeOffset StateChangedUtc =>
-        StateChangedAt <= long.MaxValue
+        StateChangedAt is > 0 and <= 253402300799
             ? DateTimeOffset.FromUnixTimeSeconds((long)StateChangedAt)
             : CreatedUtc;
 }

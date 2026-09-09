@@ -484,7 +484,8 @@ Signing details and how to rotate the certificate are documented in [`build/READ
 
 `wslc` mirrors the Docker CLI, so commands map cleanly (`list`, `images`, `run`, `pull`, `push`, `logs`, `exec`, `stats`, `volume`, `network`, `build`, `login`, …). A few preview-specific details this app accounts for:
 
-- Container state integers from `wslc list --format json` map as `1 = Created`, `2 = Running`, `3 = Stopped`.
+- Container inventory supports legacy arrays and object streams (including the WSLC 2.9.9 baseline), numeric states (`1 = Created`, `2 = Running`, `3 = Stopped`), and WSLC 2.9.11 text states (`exited` = Stopped). Unrecognized states remain Unknown. `Name`/`Names` and numeric/formatted dates are normalized; unavailable dates fall back safely to the Unix epoch (state-change dates fall back to creation).
+- Empty or ambiguous display-string ports mean **unknown**, not no published ports. Read-only inspect enrichment resolves configured ports, including stopped containers, with at most four sequential lookups per inventory request. Results expire after five minutes (failures retry after 30 seconds), invalidate on observed state/name/creation changes, and are pruned when containers disappear. Until resolved, container rows show Unknown. Malformed inventory fails as a whole and surfaces an engine error rather than a successful empty/partial list.
 - `prune` subcommands do **not** accept `--force`; `volume prune` needs `--all` to include named volumes.
 - `wslc inspect` does not currently report named-volume mounts, so a volume-to-container mapping is only possible for anonymous (image-declared) volumes.
 - There is no `pause` command; **Kill** serves as a force-stop.

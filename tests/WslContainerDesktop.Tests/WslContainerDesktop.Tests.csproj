@@ -23,7 +23,16 @@
   <ItemGroup>
     <!-- Loading the packaged WinUI executable in a test host triggers package activation. -->
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\NetworkDisplayList.cs" Link="Helpers\NetworkDisplayList.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\ContainerInventoryOperation.cs" Link="Helpers\ContainerInventoryOperation.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ImageInfo.cs" Link="Models\ImageInfo.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerInfo.cs" Link="Models\ContainerInfo.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerIdentity.cs" Link="Models\ContainerIdentity.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerInfoJsonConverter.cs" Link="Models\ContainerInfoJsonConverter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerPortParser.cs" Link="Models\ContainerPortParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerState.cs" Link="Models\ContainerState.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\PortMapping.cs" Link="Models\PortMapping.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\CommandResult.cs" Link="Models\CommandResult.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerPortResolver.cs" Link="Services\ContainerPortResolver.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkInfo.cs" Link="Models\NetworkInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\WslcByteSizeJsonConverter.cs" Link="Models\WslcByteSizeJsonConverter.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcJsonParser.cs" Link="Services\WslcJsonParser.cs" />

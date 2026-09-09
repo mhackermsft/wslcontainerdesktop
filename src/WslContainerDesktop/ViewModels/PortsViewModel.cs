@@ -21,6 +21,7 @@ using Microsoft.UI.Dispatching;
 using Windows.ApplicationModel.DataTransfer;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
+using WslContainerDesktop.Tray;
 
 namespace WslContainerDesktop.ViewModels;
 
@@ -37,7 +38,7 @@ public sealed class PortEndpointRow
     public required string HostUrl { get; init; }
 
     /// <summary>The clickable/copyable host authority, e.g. <c>localhost:8080</c>.</summary>
-    public string HostAddress => $"localhost:{HostPort}";
+    public string HostAddress => new Uri(HostUrl).Authority;
 
     /// <summary>TCP endpoints are assumed to be openable in a browser.</summary>
     public bool IsHttp => Protocol.Equals("tcp", StringComparison.OrdinalIgnoreCase);
@@ -59,6 +60,12 @@ public partial class PortsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _hasEndpoints;
+
+    [ObservableProperty]
+    private string _inventorySummary = "Every published port across your running containers, in one place.";
+
+    [ObservableProperty]
+    private string _emptyMessage = "No published ports. Start a container that publishes a port to see it here.";
 
     public ObservableCollection<PortEndpointRow> Endpoints { get; } = new();
 
@@ -88,6 +95,14 @@ public partial class PortsViewModel : ObservableObject
 
     private void Apply(EngineStatusSnapshot snapshot)
     {
+        var unavailable = snapshot.Health is not (EngineHealth.Healthy or EngineHealth.Degraded);
+        var unknown = snapshot.Containers.Count(c => c.State == ContainerState.Running && !c.PortsKnown);
+        InventorySummary = unavailable ? "Endpoint inventory is unavailable because the engine inventory could not be read."
+            : unknown > 0 ? $"Published ports are still unknown for {unknown} running container(s); the list may be incomplete."
+            : "Every published port across your running containers, in one place.";
+        EmptyMessage = unavailable || unknown > 0 ? InventorySummary
+            : "No published ports. Start a container that publishes a port to see it here.";
+
         var rows = snapshot.Containers
             .Where(c => c.State == ContainerState.Running)
             .SelectMany(c => c.Ports
@@ -109,7 +124,7 @@ public partial class PortsViewModel : ObservableObject
         // visibly flicker. Skip the update entirely when the endpoint set is unchanged.
         var signature = string.Join(
             "|",
-            rows.Select(r => $"{r.ContainerId}:{r.ContainerName}:{r.HostPort}:{r.ContainerPort}:{r.Protocol}"));
+            rows.Select(r => $"{r.ContainerId}:{r.ContainerName}:{r.HostPort}:{r.ContainerPort}:{r.Protocol}:{r.HostUrl}"));
         if (signature == _signature && Endpoints.Count == rows.Count)
         {
             return;

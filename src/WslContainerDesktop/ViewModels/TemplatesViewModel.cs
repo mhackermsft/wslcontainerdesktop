@@ -21,6 +21,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Dialogs;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 
@@ -212,14 +213,17 @@ public partial class TemplatesViewModel : ObservableObject
         template.IsLaunching = true;
         try
         {
-            if (template.Kind == StackTemplateKind.Compose)
+            await ContainerInventoryOperation.RunAsync(async () =>
             {
-                await LaunchComposeAsync(template);
-            }
-            else
-            {
-                await LaunchContainerAsync(template);
-            }
+                if (template.Kind == StackTemplateKind.Compose)
+                {
+                    await LaunchComposeAsync(template);
+                }
+                else
+                {
+                    await LaunchContainerAsync(template);
+                }
+            }, ReportLaunchFailureAsync);
         }
         finally
         {
@@ -239,14 +243,24 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        if (template.Kind == StackTemplateKind.Compose)
+        await ContainerInventoryOperation.RunAsync(async () =>
         {
-            await ConfigureComposeAsync(template);
-        }
-        else
-        {
-            await ConfigureContainerAsync(template);
-        }
+            if (template.Kind == StackTemplateKind.Compose)
+            {
+                await ConfigureComposeAsync(template);
+            }
+            else
+            {
+                await ConfigureContainerAsync(template);
+            }
+        }, ReportLaunchFailureAsync);
+    }
+
+    private async Task ReportLaunchFailureAsync(Exception error)
+    {
+        StatusMessage = "Launch failed";
+        await _dialogs.ShowMessageAsync("Launch failed",
+            $"The launch could not complete. Check the container engine and retry.\n\n{error.Message}");
     }
 
     /// <summary>

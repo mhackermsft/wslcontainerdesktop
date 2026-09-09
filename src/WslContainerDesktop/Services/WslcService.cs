@@ -22,6 +22,8 @@ namespace WslContainerDesktop.Services;
 
 public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logger) : IWslcService
 {
+    private readonly ContainerPortResolver _containerPorts = new();
+
     // ---- Engine ---------------------------------------------------------
 
     public Task<CommandResult> GetVersionAsync(CancellationToken ct = default) =>
@@ -103,7 +105,27 @@ public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logge
         }
 
         var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
-        return Deserialize<ContainerInfo>(result);
+        if (!result.Success)
+        {
+            logger.LogWarning("Container list failed with exit code {ExitCode}.", result.ExitCode);
+            throw new InvalidOperationException($"Container list failed (exit {result.ExitCode}).");
+        }
+
+        IReadOnlyList<ContainerInfo> containers;
+        try
+        {
+            // All-or-nothing: a partial inventory could trigger destructive re-adoption/reconciliation.
+            containers = WslcJsonParser.ParseContainers(result.StandardOutput);
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex, "Failed to parse container inventory; no partial list will be returned.");
+            throw;
+        }
+        await _containerPorts.ResolveAsync(containers, all, InspectContainerAsync,
+            (id, message) => logger.LogWarning("Container {Id} ports remain unknown: {Detail}", id, message), ct)
+            .ConfigureAwait(false);
+        return containers;
     }
 
     public Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default) =>

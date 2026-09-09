@@ -353,7 +353,16 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            await action();
+            var completed = await ContainerInventoryOperation.RunAsync(action, async error =>
+            {
+                StatusMessage = "Prune failed";
+                await _dialogs.ShowMessageAsync("Prune failed",
+                    $"Reclaim could not complete. Refresh the inventory before retrying; some cleanup may already have completed.\n\n{error.Message}");
+            });
+            if (!completed)
+            {
+                return;
+            }
         }
         finally
         {

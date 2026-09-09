@@ -124,7 +124,7 @@ public partial class ContainerRowViewModel : ObservableObject
         Name = model.Name;
         Image = model.Image;
         State = model.State;
-        PortsDisplay = model.Ports.Count == 0
+        PortsDisplay = !model.PortsKnown ? "Unknown" : model.Ports.Count == 0
             ? "-"
             : string.Join(", ", model.Ports.Select(p => p.Display));
         Created = model.CreatedUtc;

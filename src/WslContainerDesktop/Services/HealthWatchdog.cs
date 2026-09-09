@@ -160,7 +160,7 @@ public sealed class HealthWatchdog : IDisposable
             }
 
             var container = containers.FirstOrDefault(c =>
-                string.Equals(c.Name, cfg.ContainerName, StringComparison.Ordinal));
+                string.Equals(c.Name.TrimStart('/'), cfg.ContainerName, StringComparison.Ordinal));
 
             // Not present or not running: the workload probe is meaningless. If we've spent the
             // restart budget, settle on Down (badge/tray stay red and we notify once); otherwise
@@ -218,6 +218,15 @@ public sealed class HealthWatchdog : IDisposable
                 : await ProbeTcpAsync(cfg.TcpPort, ct).ConfigureAwait(false);
 
             rt.LastCheck = DateTimeOffset.UtcNow;
+            var current = _containers.FirstOrDefault(c => c.Id == container.Id);
+            if (current is null || current.State != ContainerState.Running ||
+                current.StateChangedAt != container.StateChangedAt)
+            {
+                rt.State = ContainerHealthState.Unknown;
+                rt.Detail = "Container changed while its health check was running; awaiting fresh health.";
+                Publish();
+                return;
+            }
 
             if (healthy)
             {

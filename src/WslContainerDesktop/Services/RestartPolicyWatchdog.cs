@@ -167,13 +167,18 @@ public sealed class RestartPolicyWatchdog : IDisposable
             // Not created (or removed): nothing to supervise yet.
             if (container is null)
             {
+                rt.RunningSince = null;
                 continue;
             }
 
             if (container.State == ContainerState.Running)
             {
                 // Sustained running resets the budget and clears any manual-stop suppression.
-                if (now - container.StateChangedUtc >= StableResetWindow)
+                rt.RunningSince ??= now;
+                var runningSince = container.StateChangedAtKnown
+                    ? container.StateChangedUtc
+                    : rt.RunningSince.Value;
+                if (now - runningSince >= StableResetWindow)
                 {
                     rt.RestartCount = 0;
                     rt.Exhausted = false;
@@ -183,7 +188,14 @@ public sealed class RestartPolicyWatchdog : IDisposable
                 continue;
             }
 
-            // Container is not running. Decide whether the policy calls for a restart.
+            rt.RunningSince = null;
+            // Unknown (including new engine states) and paused are not evidence of an exit.
+            if (container.State is not (ContainerState.Created or ContainerState.Stopped))
+            {
+                continue;
+            }
+
+            // Container is stopped. Decide whether the policy calls for a restart.
             if (rt.Exhausted)
             {
                 continue;
@@ -315,6 +327,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
 
     private sealed class Runtime
     {
+        public DateTimeOffset? RunningSince;
         public int RestartCount;
         public bool Exhausted;
         public DateTimeOffset LastAttempt = DateTimeOffset.MinValue;
