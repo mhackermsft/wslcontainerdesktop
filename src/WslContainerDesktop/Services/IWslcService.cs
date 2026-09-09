@@ -59,7 +59,8 @@ public interface IWslcService
     Task<CommandResult> KillContainerAsync(string id, CancellationToken ct = default);
     Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default);
     Task<CommandResult> PruneContainersAsync(CancellationToken ct = default);
-    Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default);
+    Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default,
+        long maximumStopVersion = long.MaxValue);
     Task<CommandResult> CreateContainerAsync(RunContainerOptions options, CancellationToken ct = default);
     Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default);
     Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default);

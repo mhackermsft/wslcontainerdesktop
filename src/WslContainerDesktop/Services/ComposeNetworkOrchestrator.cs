@@ -52,10 +52,11 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
         }
     }
 
-    public async Task<string> CreateAndStartAsync(RunContainerOptions options, CancellationToken ct)
+    public async Task<string> CreateAndStartAsync(RunContainerOptions options, CancellationToken ct,
+        long maximumStopVersion = long.MaxValue)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Name);
-        var resume = suppression?.CaptureExplicitStart(options.Name);
+        var resume = suppression?.CaptureExplicitStart(options.Name, maximumStopVersion);
         var request = options.Clone();
         var operation = Guid.NewGuid().ToString("N");
         request.Labels[OperationLabel] = operation;

@@ -106,6 +106,7 @@ public sealed class ContainerHealthSnapshot
     public string ContainerId { get; init; } = string.Empty;
     public ulong ContainerGeneration { get; init; }
     public DateTimeOffset ObservedAt { get; init; }
+    public TimeSpan ObservationMaxAge { get; init; } = TimeSpan.FromSeconds(15);
     public ContainerHealthState State { get; init; }
     public int RestartCount { get; init; }
     public int MaxRestarts { get; init; }

@@ -248,10 +248,11 @@ public sealed class WslcService(
     public Task<CommandResult> PruneContainersAsync(CancellationToken ct = default) =>
         runner.RunAsync(["container", "prune"], ct);
 
-    public async Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default)
+    public async Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default,
+        long maximumStopVersion = long.MaxValue)
     {
         var resume = string.IsNullOrWhiteSpace(options.Name)
-            ? (RestartSuppressionState.ResumeToken?)null : suppression.CaptureExplicitStart(options.Name);
+            ? (RestartSuppressionState.ResumeToken?)null : suppression.CaptureExplicitStart(options.Name, maximumStopVersion);
         var selection = options.Health is null ? new NativeHealthSelection(true, [])
             : NativeHealthPolicy.Select(options.Health, await _capabilities.GetAsync(ct).ConfigureAwait(false));
         var effective = options.Clone();

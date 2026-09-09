@@ -56,6 +56,7 @@ public sealed class ComposeProjectSupervisor
     private readonly ILogger<ComposeProjectSupervisor> _logger;
     private readonly HealthWatchdog _health;
     private readonly StatusMonitor _monitor;
+    private readonly RestartSuppressionState? _suppression;
     private readonly IWslcCapabilitiesService _capabilities;
     private readonly ComposeNetworkOrchestrator _networks;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
@@ -81,6 +82,7 @@ public sealed class ComposeProjectSupervisor
         _capabilities = capabilities;
         _health = health;
         _monitor = monitor;
+        _suppression = suppression;
         _networks = new ComposeNetworkOrchestrator(wslc, logger, suppression);
     }
 
@@ -91,10 +93,11 @@ public sealed class ComposeProjectSupervisor
     /// </summary>
     public async Task<ComposeUpResult> UpAsync(ComposeProject project, CancellationToken ct = default)
     {
+        var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return await UpCoreAsync(project, ct).ConfigureAwait(false);
+            return await UpCoreAsync(project, maximumStopVersion, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -127,7 +130,7 @@ public sealed class ComposeProjectSupervisor
         return new(native, warning);
     }
 
-    private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, CancellationToken ct,
+    private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, long maximumStopVersion, CancellationToken ct,
         IReadOnlyDictionary<string, NetworkStartupPlan>? networkPlans = null)
     {
         _store.Save(project);
@@ -205,7 +208,7 @@ public sealed class ComposeProjectSupervisor
                 }
             }
 
-            var result = await StartServiceAsync(project, service, ct,
+            var result = await StartServiceAsync(project, service, maximumStopVersion, ct,
                 networkPlans is null ? null : networkPlans[service.Name]).ConfigureAwait(false);
             results.Add(result);
             if (result.Success)
@@ -423,6 +426,7 @@ public sealed class ComposeProjectSupervisor
     /// </summary>
     public async Task<ComposeUpResult> RestartAsync(string projectName, CancellationToken ct = default)
     {
+        var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
         var project = _store.Get(projectName);
         if (project is null)
         {
@@ -450,7 +454,7 @@ public sealed class ComposeProjectSupervisor
             }
 
             await DownCoreAsync(projectName, removeVolumes: false, ct).ConfigureAwait(false);
-            return await UpCoreAsync(project, ct, networkPlans).ConfigureAwait(false);
+            return await UpCoreAsync(project, maximumStopVersion, ct, networkPlans).ConfigureAwait(false);
         }
         finally
         {
@@ -616,7 +620,7 @@ public sealed class ComposeProjectSupervisor
     private const int MaxStagedMountAttempts = 2;
 
     private async Task<ComposeServiceResult> StartServiceAsync(ComposeProject project, ComposeService service,
-        CancellationToken ct, NetworkStartupPlan? networkPlan = null)
+        long maximumStopVersion, CancellationToken ct, NetworkStartupPlan? networkPlan = null)
     {
         var name = ResolveContainerName(project, service);
         bool nativeNetworks;
@@ -705,11 +709,11 @@ public sealed class ComposeProjectSupervisor
                 string containerId;
                 if (nativeNetworks)
                 {
-                    containerId = await _networks.CreateAndStartAsync(options, ct).ConfigureAwait(false);
+                    containerId = await _networks.CreateAndStartAsync(options, ct, maximumStopVersion).ConfigureAwait(false);
                 }
                 else
                 {
-                    var run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
+                    var run = await _wslc.RunContainerAsync(options, ct, maximumStopVersion).ConfigureAwait(false);
                     if (!run.Success)
                     {
                         return new ComposeServiceResult(service.Name, false, Summarize(run), networkWarning);

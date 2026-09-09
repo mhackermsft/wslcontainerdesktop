@@ -219,6 +219,22 @@ public sealed class NativeHealthTests
     }
 
     [Fact]
+    public void AppDependencyEvidenceRemainsFreshUntilItsNextScheduledProbe()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var row = new ContainerInfo { Id = "container", StateValue = (int)ContainerState.Running, StateChangedAt = 10 };
+        ContainerHealthSnapshot Snapshot(int ageSeconds, ulong generation = 10) => new()
+        {
+            ContainerId = row.Id, ContainerGeneration = generation, ObservedAt = now.AddSeconds(-ageSeconds),
+            ObservationMaxAge = TimeSpan.FromMinutes(5), State = ContainerHealthState.Healthy,
+        };
+        Assert.True(NativeHealthPolicy.IsDependencyReady(row, Snapshot(20), row.Id, now.AddMinutes(-1)));
+        Assert.False(NativeHealthPolicy.IsDependencyReady(row, Snapshot(301), row.Id, now.AddMinutes(-6)));
+        Assert.False(NativeHealthPolicy.IsDependencyReady(row, Snapshot(20, 9), row.Id, now.AddMinutes(-1)));
+        Assert.False(NativeHealthPolicy.IsDependencyReady(row, Snapshot(20), row.Id, now.AddSeconds(-10)));
+    }
+
+    [Fact]
     public void UnsupportedStartIntervalSelectsWholeAppBackendNotPartialNativeFlags()
     {
         var options = new NativeHealthOptions { Test = ["CMD-SHELL", "true"], StartInterval = "100ms", StartPeriod = "10s" };

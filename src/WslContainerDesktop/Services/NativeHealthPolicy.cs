@@ -116,7 +116,7 @@ public static class NativeHealthPolicy
         !string.IsNullOrWhiteSpace(container.Id) &&
         (container.Id == expectedId || container.Id.Length >= 12 && expectedId.StartsWith(container.Id, StringComparison.Ordinal)) &&
         health.ContainerId == container.Id && health.ContainerGeneration == container.StateChangedAt &&
-        health.ObservedAt >= notBefore && DateTimeOffset.UtcNow - health.ObservedAt <= TimeSpan.FromSeconds(15) &&
+        health.ObservedAt >= notBefore && DateTimeOffset.UtcNow - health.ObservedAt <= health.ObservationMaxAge &&
         IsDependencyReady(container.State, health.State);
 
     public static IReadOnlyList<string> ExecArguments(string id, NativeHealthOptions health)

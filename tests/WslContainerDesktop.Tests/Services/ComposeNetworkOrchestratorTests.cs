@@ -233,6 +233,7 @@ public sealed class ComposeNetworkOrchestratorTests
         public Action<string>? AfterStart { get; set; }
         public Action? BeforeStart { get; init; }
         public bool LastStartWasExplicit { get; private set; }
+        public long? LastRunMaximumStopVersion { get; private set; }
         public IWslcService Service { get; }
         public ComposeNetworkOrchestrator Orchestrator => new(Service, NullLogger.Instance);
 
@@ -251,6 +252,8 @@ public sealed class ComposeNetworkOrchestratorTests
                     {
                         var options = (RunContainerOptions)args[0]!;
                         var create = method.Name == nameof(IWslcService.CreateContainerAsync);
+                        if (!create)
+                            LastRunMaximumStopVersion = (long)args[2]!;
                         Mutations.Add($"{(create ? "create" : "run")}:{options.Name}");
                         if (Containers.ContainsKey(options.Name!) || options.Name == FailRun)
                         {

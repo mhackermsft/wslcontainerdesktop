@@ -272,6 +272,7 @@ public sealed class HealthWatchdog : IDisposable
             rt.MaxRestarts = cfg.MaxRestarts;
             bool healthy;
             var native = cfg.Kind == HealthProbeKind.Command && container.NativeHealth.OwnsCommandProbe;
+            rt.ObservationMaxAge = TimeSpan.FromSeconds(15);
             if (native)
             {
                 var observation = container.NativeHealth;
@@ -337,18 +338,21 @@ public sealed class HealthWatchdog : IDisposable
 
             if (healthy)
             {
-                var recovered = rt.State != ContainerHealthState.Healthy;
                 rt.State = ContainerHealthState.Healthy;
                 rt.RestartCount = 0;
+                if (!native)
+                {
+                    var interval = ProbeInterval(cfg, rt, rt.LastCheck);
+                    if (interval > rt.ObservationMaxAge)
+                        rt.ObservationMaxAge = interval;
+                }
                 rt.Detail = native ? "Engine health: healthy" : "App health: healthy (app must remain open)";
                 if (!native && cfg.DesiredHealth is { } desired &&
                     new[] { desired.Interval, desired.StartInterval }.Any(value =>
                         value is not null && NativeHealthPolicy.Duration(value) < TimeSpan.FromSeconds(1)))
                     rt.Detail += "; sub-second intervals cannot be honored (1s scheduler resolution)";
-                if (recovered)
-                {
-                    Publish();
-                }
+                // A repeated success refreshes dependency evidence even without a badge transition.
+                Publish();
 
                 return;
             }
@@ -576,6 +580,7 @@ public sealed class HealthWatchdog : IDisposable
         {
             ContainerName = name, ContainerId = rt.ContainerId, ContainerGeneration = rt.StartedAt,
             ObservedAt = rt.LastCheck, State = state, RestartCount = rt.RestartCount,
+            ObservationMaxAge = rt.ObservationMaxAge,
             MaxRestarts = rt.MaxRestarts, Detail = detail,
         };
     }
@@ -612,6 +617,7 @@ public sealed class HealthWatchdog : IDisposable
         public string Detail = string.Empty;
         public DateTimeOffset LastCheck = DateTimeOffset.MinValue;
         public DateTimeOffset LastNativeObservation = DateTimeOffset.MinValue;
+        public TimeSpan ObservationMaxAge = TimeSpan.FromSeconds(15);
         public string ContainerId = string.Empty;
         public string Configuration = string.Empty;
         public HealthProbeKind Kind;
