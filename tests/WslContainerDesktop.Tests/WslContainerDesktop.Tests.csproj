@@ -29,6 +29,8 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\VolumeInfo.cs" Link="Models\VolumeInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\VolumeUsageState.cs" Link="Models\VolumeUsageState.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\VolumeUsageResolver.cs" Link="Services\VolumeUsageResolver.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerConfigImporter.cs" Link="Services\ContainerConfigImporter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\RunProfile.cs" Link="Models\RunProfile.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\NetworkDisplayList.cs" Link="Helpers\NetworkDisplayList.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\ContainerInventoryOperation.cs" Link="Helpers\ContainerInventoryOperation.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ImageInfo.cs" Link="Models\ImageInfo.cs" />

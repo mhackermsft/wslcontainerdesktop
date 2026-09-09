@@ -34,15 +34,32 @@ public static class ContainerConfigImporter
     /// strip image defaults. Returns null when no image reference can be determined.
     /// </summary>
     public static RunContainerOptions? FromInspect(string containerJson, string? imageJson = null)
+        => FromInspect(containerJson, out _, imageJson);
+
+    /// <summary>
+    /// Imports recoverable settings and reports omitted or uncertain storage settings for review
+    /// before saving. The existing profile schema and already-saved profiles are not changed.
+    /// </summary>
+    public static RunContainerOptions? FromInspect(
+        string containerJson, out IReadOnlyList<string> warnings, string? imageJson = null)
     {
+        var limitations = new List<string>();
+        warnings = limitations;
         JsonElement container;
         try
         {
             using var doc = JsonDocument.Parse(containerJson);
             container = Unwrap(doc.RootElement).Clone();
         }
-        catch
+        catch (Exception ex) when (ex is JsonException or ArgumentException)
         {
+            limitations.Add("Container inspect data could not be read.");
+            return null;
+        }
+
+        if (container.ValueKind != JsonValueKind.Object)
+        {
+            limitations.Add("Container inspect data is not an object.");
             return null;
         }
 
@@ -164,13 +181,159 @@ public static class ContainerConfigImporter
         // Network: the first attached network, unless it's the engine default bridge.
         options.Network = ResolveNetwork(container);
 
+        ImportMounts(container, options, limitations);
         return options;
+    }
+
+    private static void ImportMounts(JsonElement container, RunContainerOptions options, List<string> warnings)
+    {
+        var mounts = ContainerMounts.Parse(container);
+        warnings.AddRange(mounts.Warnings);
+        if (!mounts.IsComplete)
+        {
+            warnings.Add("Storage metadata is incomplete; not all mounts could be recovered. Review storage before running this profile.");
+        }
+
+        var targets = new Dictionary<string, List<ContainerMount>>(StringComparer.Ordinal);
+        foreach (var mount in mounts.Items)
+        {
+            var target = NormalizeTarget(mount.Destination);
+            if (target is null)
+            {
+                warnings.Add("A mount was omitted because its container destination is missing or cannot be represented safely.");
+                continue;
+            }
+
+            if (!targets.TryGetValue(target, out var entries))
+            {
+                entries = new List<ContainerMount>();
+                targets.Add(target, entries);
+            }
+
+            entries.Add(mount);
+        }
+
+        foreach (var (target, entries) in targets)
+        {
+            var specs = entries.Select(mount => BuildMountSpec(mount, target, warnings)).ToList();
+            if (specs.Any(spec => spec is null) || specs.Distinct(StringComparer.Ordinal).Count() != 1)
+            {
+                if (entries.Count > 1)
+                {
+                    warnings.Add($"Mounts at '{target}' were omitted because duplicate destinations have conflicting or uncertain settings.");
+                }
+
+                continue;
+            }
+
+            options.Volumes.Add(specs[0]!);
+            if (entries.Count > 1)
+            {
+                warnings.Add($"Repeated identical mounts at '{target}' were captured only once.");
+            }
+        }
+    }
+
+    private static string? BuildMountSpec(ContainerMount mount, string target, List<string> warnings)
+    {
+        string? source;
+        if (mount.Type.Equals("volume", StringComparison.OrdinalIgnoreCase))
+        {
+            source = mount.VolumeName;
+            if (source is null ||
+                (!string.IsNullOrEmpty(mount.Name) && !ContainerMount.IsVolumeIdentifier(mount.Name)) ||
+                (ContainerMount.IsVolumeIdentifier(mount.Name) && ContainerMount.IsVolumeIdentifier(mount.Source) &&
+                 !string.Equals(mount.Name, mount.Source, StringComparison.Ordinal)))
+            {
+                warnings.Add($"Volume at '{target}' was omitted because its reusable name is missing or ambiguous.");
+                return null;
+            }
+
+            if (mount.IsAnonymous == true || (source.Length == 64 && source.All(Uri.IsHexDigit)))
+            {
+                warnings.Add($"Volume at '{target}' was omitted because it is anonymous or has a likely anonymous generated name. Select storage explicitly if needed.");
+                return null;
+            }
+        }
+        else if (mount.Type.Equals("bind", StringComparison.OrdinalIgnoreCase))
+        {
+            source = mount.Source;
+            if (!IsReusableHostPath(source))
+            {
+                warnings.Add($"Bind at '{target}' was omitted because its source is not a reusable absolute Windows or UNC host path (it may be an engine-internal Linux path). No path conversion was attempted.");
+                return null;
+            }
+        }
+        else
+        {
+            warnings.Add($"Mount at '{target}' was omitted because mount type '{mount.Type}' is unsupported in saved profiles.");
+            return null;
+        }
+
+        if (mount.ReadOnly is null)
+        {
+            warnings.Add($"Mount at '{target}' was omitted because read-only/read-write metadata is missing or conflicting; it was not assumed writable.");
+            return null;
+        }
+
+        if (mount.ReadOnly == true)
+        {
+            warnings.Add($"Mount at '{target}' is captured read-only (:ro). Review this access mode before running the profile.");
+        }
+
+        return $"{source}:{target}{(mount.ReadOnly == true ? ":ro" : string.Empty)}";
+    }
+
+    private static string? NormalizeTarget(string? destination)
+    {
+        if (string.IsNullOrWhiteSpace(destination) || destination != destination.Trim() || !destination.StartsWith('/') ||
+            destination.Any(c => char.IsControl(c) || c is ':' or '\\'))
+        {
+            return null;
+        }
+
+        var parts = destination.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Any(part => part is "." or ".."))
+        {
+            return null;
+        }
+
+        return "/" + string.Join('/', parts);
+    }
+
+    private static bool IsReusableHostPath(string? source)
+    {
+        if (string.IsNullOrWhiteSpace(source) || source != source.Trim() ||
+            source.Any(c => char.IsControl(c) || c is '"' or '<' or '>' or '|' or '*' or '?'))
+        {
+            return false;
+        }
+
+        var path = source.Replace('/', '\\');
+        var drivePath = path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] == '\\';
+        var uncPath = path.StartsWith(@"\\", StringComparison.Ordinal);
+        if (!drivePath && !uncPath)
+        {
+            return false;
+        }
+
+        var remainder = drivePath ? path[3..] : path[2..];
+        var parts = remainder.Split('\\', StringSplitOptions.RemoveEmptyEntries);
+        if (remainder.Contains(':') || parts.Any(part => part is "." or ".." || part.EndsWith('.') || part.EndsWith(' ')))
+        {
+            return false;
+        }
+
+        return drivePath || (parts.Length >= 2 &&
+            !parts[0].Equals("wsl$", StringComparison.OrdinalIgnoreCase) &&
+            !parts[0].Equals("wsl.localhost", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string? ResolveNetwork(JsonElement container)
     {
         string? network = null;
         if (container.TryGetProperty("NetworkSettings", out var ns) &&
+            ns.ValueKind == JsonValueKind.Object &&
             ns.TryGetProperty("Networks", out var nets) &&
             nets.ValueKind == JsonValueKind.Object)
         {
