@@ -313,6 +313,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - Projects are **re-adopted on relaunch**, and the importer **warns about any unsupported keys** before you commit, so you always know what will and won't be honored.
 - See [Docker Compose compatibility](#docker-compose-compatibility) for the full feature matrix.
 - See [reconciliation semantics](docs/COMPOSE-RECONCILIATION.md) for plans, profiles, dependency restart conditions, image policies, preserved storage, and partial-failure behavior.
+- **Local scaling** — set `scale` / `deploy.replicas` or a saved per-service UI count. Reconciliation preserves unchanged instances and applies ownership-safe scale changes. See the [supported scaling subset](docs/COMPOSE-SCALING.md), including port/name conflicts and replicated dependency behavior.
 
 ### Images
 - List with repository, tag, ID, size, and age.
@@ -491,7 +492,7 @@ advertised help, not proof that hidden functionality is impossible:
 
 - **Legacy multi-network limitation** — engines without native connect retain the first-network behavior and warn without discarding desired settings. Unknown capability evidence fails the affected service rather than guessing. Failed native attachment is not retried as a partial legacy deployment.
 - **Low-level container options** — `cap_add` / `cap_drop`, arbitrary `devices`, `sysctls`, `privileged`, root-filesystem `read_only`, `init`, `pid` / `ipc`, `mac_address`, and `logging` drivers are not advertised by current help. GPU support and read-only volume mounts are separate supported options.
-- **Scaling & Swarm** — `deploy.replicas` / scaling and the rest of Swarm-mode `deploy` are not implemented; local scaling is not inherently dependent on a persistent daemon.
+- **Swarm** — local `scale` / `deploy.replicas` is supported, not Swarm scheduling, placement, replicated jobs, rolling updates or ingress/VIP routing. Only `deploy.mode: replicated` is accepted. Fixed host ports, explicit container names and unsafe network configurations cannot be multiplied; see [scaling limits](docs/COMPOSE-SCALING.md).
 - **Always-on restart after the app closes** — see the model note above.
 
 For the authoritative, line-by-line feature matrix (including exactly how each key is mapped), see the **Compose feature support** table in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#compose-feature-support).

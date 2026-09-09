@@ -25,6 +25,30 @@ public sealed class ComposeFileGraphTests
 {
     private const string PrivateInput = "synthetic-private-input";
 
+    [Fact]
+    public void ReplicaDefaultsResolveThroughExtendsAndOverridesBeforeValidation()
+    {
+        using var files = new Fixture();
+        files.Write("base.yaml", "services: {base: {image: fixture, scale: 2, deploy: {replicas: 2}}}");
+        var project = files.Parse("""
+            services:
+              web:
+                extends: {file: base.yaml, service: base}
+                scale: 3
+                deploy: {replicas: 3}
+            """);
+        Assert.Equal(3, Assert.Single(project.Services).Replicas);
+    }
+
+    [Fact]
+    public void ReplicaMismatchInIncludedGraphRejectsEntireImport()
+    {
+        using var files = new Fixture();
+        files.Write("child.yaml", "services: {worker: {image: fixture, scale: 2, deploy: {replicas: 3}}}");
+        Assert.Throws<ComposeConfigurationException>(() =>
+            files.Parse("include: [child.yaml]\nservices: {main: {image: fixture}}"));
+    }
+
     [Theory]
     [InlineData("services")]
     [InlineData("networks")]

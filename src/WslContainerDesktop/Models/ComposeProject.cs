@@ -174,6 +174,12 @@ public sealed class ComposeService
     /// <summary>The container run options derived from the service definition.</summary>
     public RunContainerOptions Options { get; set; } = new();
 
+    /// <summary>Local desired count from scale or deploy.replicas; zero disables instances.</summary>
+    public int Replicas { get; set; } = 1;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal int RuntimeInstanceIndex { get; set; } = 1;
+
     /// <summary>Services this one depends on, with their gating conditions.</summary>
     public List<ComposeDependency> DependsOn { get; set; } = new();
 
@@ -233,6 +239,8 @@ public sealed class ComposeProject
     /// <summary>Label key identifying which service within the project a container belongs to.</summary>
     public const string ServiceLabel = "com.wsldesktop.service";
 
+    public const string InstanceLabel = "com.wsldesktop.instance";
+
     public const string ConfigHashLabel = "com.wsldesktop.config-hash";
 
     public const string ImageIdLabel = "com.wsldesktop.image-id";
@@ -244,6 +252,9 @@ public sealed class ComposeProject
     public List<ComposeService> Services { get; set; } = new();
 
     public Dictionary<string, ComposeAppliedService> AppliedServices { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>Saved operator scale choices, taking precedence over imported replica counts.</summary>
+    public Dictionary<string, int> ReplicaOverrides { get; set; } = new(StringComparer.Ordinal);
 
     /// <summary>True when the applied snapshot is authoritative, including an explicitly empty snapshot.</summary>
     public bool AppliedStateKnown { get; set; }

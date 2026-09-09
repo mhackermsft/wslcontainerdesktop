@@ -103,7 +103,7 @@ retain `referenceError` for future CLI capture; rejecting configuration is not a
 | `mounts-ports` | Short/long named read-only mounts and TCP/UDP ports agree for these examples |
 | `networks` | Per-network aliases/IP retained; exact actionable legacy capability warning |
 | `health-dependencies` | Health test argv/timing/retries and all three dependency conditions retained; not proof of startup behavior |
-| `unsupported` | Exact ignored-privileged/scaling diagnostics; not a safe-to-launch assertion |
+| `unsupported` | Exact ignored-privileged diagnostic and local replica count; not a safe-to-launch assertion |
 | `required-variable`, `required-override` | Required variables reject without leaking custom error text, even if the override would replace the invalid base value |
 | `missing-env-file` | Required missing env file rejects with source/key context and no user-controlled path; failure envelope has no services |
 | `interpolation-nested` | Nested/alternative/required operators, empty/process/`.env` precedence, escaped dollars, literal mapping keys and structure-safe substituted values |
@@ -116,7 +116,10 @@ retain `referenceError` for future CLI capture; rejecting configuration is not a
 `ComposeSemanticsTests` adds focused operator/error matrices, YAML duplicate/invalid/cycle/shape
 rejections, alias/depth/size bounds, all six folding/chomping variants, explicit indentation, bare-CR
 input, canonical ranges/IPv6, mixed build args/resource labels, unsupported-resource warnings,
-bad override rejection, one-pass interpolation and saved-schema/argv round trips.
+bad override rejection, one-pass interpolation and saved-schema/argv round trips. Local replica
+syntax checks cover `scale`, `deploy.replicas`, their required agreement, interpolation, zero,
+invalid count shapes, unsupported Swarm modes and legacy saved defaults. Replica counts are
+projected from reference `scale` or `deploy.replicas`; lifecycle outcomes are not config captures.
 `ComposeFileGraphTests` exercises independent resource conflicts, identical duplicates and
 diamond-include idempotency, nested includes, explicit
 include override layers (including repeated files), source-prefixed included-option warnings,

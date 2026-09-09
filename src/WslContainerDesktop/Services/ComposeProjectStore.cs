@@ -28,11 +28,8 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class ComposeProjectStore : IComposeProjectStore
 {
-    private static readonly string SettingsDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "WslContainerDesktop");
-
-    private static readonly string ProjectsFile = Path.Combine(SettingsDirectory, "compose-projects.json");
+    private readonly string _settingsDirectory;
+    private readonly string _projectsFile;
 
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
 
@@ -41,8 +38,16 @@ public sealed class ComposeProjectStore : IComposeProjectStore
     private readonly object _gate = new();
 
     public ComposeProjectStore(ILogger<ComposeProjectStore> logger)
+        : this(logger, Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WslContainerDesktop"))
+    {
+    }
+
+    internal ComposeProjectStore(ILogger<ComposeProjectStore> logger, string settingsDirectory)
     {
         _logger = logger;
+        _settingsDirectory = settingsDirectory;
+        _projectsFile = Path.Combine(settingsDirectory, "compose-projects.json");
         Load();
     }
 
@@ -82,6 +87,9 @@ public sealed class ComposeProjectStore : IComposeProjectStore
             {
                 foreach (var applied in previous.AppliedServices)
                     project.AppliedServices.TryAdd(applied.Key, applied.Value);
+                foreach (var replicaOverride in previous.ReplicaOverrides.Where(entry =>
+                    project.Services.Any(service => service.Name == entry.Key)))
+                    project.ReplicaOverrides.TryAdd(replicaOverride.Key, replicaOverride.Value);
             }
             project.AppliedStateKnown = true;
             _projects.RemoveAll(p => string.Equals(p.Name, project.Name, StringComparison.OrdinalIgnoreCase));
@@ -111,12 +119,12 @@ public sealed class ComposeProjectStore : IComposeProjectStore
     {
         try
         {
-            if (!File.Exists(ProjectsFile))
+            if (!File.Exists(_projectsFile))
             {
                 return;
             }
 
-            var json = File.ReadAllText(ProjectsFile);
+            var json = File.ReadAllText(_projectsFile);
             var loaded = JsonSerializer.Deserialize<List<ComposeProject>>(json);
             if (loaded is null)
             {
@@ -134,6 +142,7 @@ public sealed class ComposeProjectStore : IComposeProjectStore
                 project.Name = project.Name.Trim();
                 project.Services ??= new List<ComposeService>();
                 project.AppliedServices ??= new();
+                project.ReplicaOverrides ??= new(StringComparer.Ordinal);
                 _projects.RemoveAll(p => string.Equals(p.Name, project.Name, StringComparison.OrdinalIgnoreCase));
                 _projects.Add(project);
             }
@@ -141,25 +150,25 @@ public sealed class ComposeProjectStore : IComposeProjectStore
         catch (Exception ex)
         {
             // A corrupt projects file should never crash the app; start with none.
-            _logger.LogWarning(ex, "Failed to load compose projects from {Path}; starting empty.", ProjectsFile);
+            _logger.LogWarning(ex, "Failed to load compose projects from {Path}; starting empty.", _projectsFile);
         }
     }
 
     private void Persist()
     {
-        var temporary = ProjectsFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        var temporary = _projectsFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            Directory.CreateDirectory(SettingsDirectory);
+            Directory.CreateDirectory(_settingsDirectory);
             var json = JsonSerializer.Serialize(
                 _projects.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList(),
                 SerializerOptions);
             File.WriteAllText(temporary, json);
-            File.Move(temporary, ProjectsFile, overwrite: true);
+            File.Move(temporary, _projectsFile, overwrite: true);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to save compose projects to {Path}.", ProjectsFile);
+            _logger.LogWarning(ex, "Failed to save compose projects to {Path}.", _projectsFile);
             throw new InvalidOperationException("Compose project state could not be saved.", ex);
         }
         finally

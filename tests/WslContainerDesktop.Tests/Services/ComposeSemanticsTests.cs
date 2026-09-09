@@ -23,6 +23,64 @@ namespace WslContainerDesktop.Tests.Services;
 
 public sealed class ComposeSemanticsTests
 {
+    [Theory]
+    [InlineData("", 1)]
+    [InlineData("scale: 0", 0)]
+    [InlineData("scale: 3", 3)]
+    [InlineData("deploy: {replicas: 2}", 2)]
+    [InlineData("deploy: {mode: replicated, replicas: 4}", 4)]
+    [InlineData("scale: 2, deploy: {replicas: 2}", 2)]
+    [InlineData("scale: '${COUNT}'", 3)]
+    public void LocalReplicaCountSupportsComposeSyntax(string fields, int expected)
+    {
+        var project = ComposeImporter.ParseProject(
+            $"services: {{web: {{image: fixture{(fields.Length == 0 ? "" : ", " + fields)}}}}}",
+            new Dictionary<string, string> { ["COUNT"] = "3" });
+        Assert.Equal(expected, Assert.Single(project.Services).Replicas);
+        Assert.Empty(project.Warnings);
+        var saved = JsonSerializer.Deserialize<ComposeProject>(JsonSerializer.Serialize(project))!;
+        Assert.Equal(expected, Assert.Single(saved.Services).Replicas);
+    }
+
+    [Theory]
+    [InlineData("scale: -1")]
+    [InlineData("scale: 1.5")]
+    [InlineData("scale: true")]
+    [InlineData("scale: []")]
+    [InlineData("scale: 2147483648")]
+    [InlineData("deploy: {replicas: -1}")]
+    [InlineData("deploy: {replicas: {secret: synthetic-secret}}")]
+    [InlineData("scale: 2, deploy: {replicas: 3}")]
+    [InlineData("deploy: {mode: global}")]
+    [InlineData("deploy: {mode: replicated-job}")]
+    public void InvalidReplicaConfigurationFailsBeforeImport(string fields)
+    {
+        var error = Assert.Throws<ComposeConfigurationException>(() =>
+            ComposeImporter.ParseProject($"services: {{web: {{image: fixture, {fields}}}}}"));
+        Assert.DoesNotContain("synthetic-secret", error.ToString());
+    }
+
+    [Fact]
+    public void LegacyProjectsDefaultToOneReplicaAndOverridesRoundTrip()
+    {
+        var legacy = JsonSerializer.Deserialize<ComposeProject>(
+            """{"Name":"project","Services":[{"Name":"web"}]}""")!;
+        Assert.Equal(1, Assert.Single(legacy.Services).Replicas);
+        Assert.Empty(legacy.ReplicaOverrides);
+        legacy.ReplicaOverrides["web"] = 0;
+        var restored = JsonSerializer.Deserialize<ComposeProject>(JsonSerializer.Serialize(legacy))!;
+        Assert.Equal(0, restored.ReplicaOverrides["web"]);
+    }
+
+    [Fact]
+    public void SwarmSettingsWarnRatherThanClaimingLocalSupport()
+    {
+        var project = ComposeImporter.ParseProject(
+            "services: {web: {image: fixture, deploy: {replicas: 3, placement: {constraints: [node.role==manager]}}}}");
+        Assert.Equal(3, Assert.Single(project.Services).Replicas);
+        Assert.Contains("Swarm", Assert.Single(project.Warnings));
+    }
+
     private static readonly Dictionary<string, string> Variables = new(StringComparer.Ordinal)
     {
         ["WCD_SET"] = "value",

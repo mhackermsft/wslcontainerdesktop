@@ -31,6 +31,7 @@ internal static class ComposeConformanceProjection
             services.Add(service.Name, new JsonObject
             {
                 ["image"] = options.Image,
+                ["replicas"] = service.Replicas,
                 ["command"] = options.Command,
                 ["entrypoint"] = options.Entrypoint,
                 ["secrets"] = JsonSerializer.SerializeToNode(service.Secrets.Select(s => new { source = s.Source, target = s.Target })),
@@ -92,6 +93,8 @@ internal static class ComposeConformanceProjection
                         : e.Value?.DeepClone())));
             // Config omits empty mounts after !reset; the app persists an empty mount list.
             if (!service.ContainsKey("volumes")) service["volumes"] = new JsonArray();
+            service["replicas"] = service["scale"]?.DeepClone() ??
+                service["deploy"]?["replicas"]?.DeepClone() ?? JsonValue.Create(1);
             if (service["ports"] is JsonArray ports)
                 service["ports"] = JsonSerializer.SerializeToNode(ports.Select(p =>
                     (p!["host_ip"] is { } ip ? ip.GetValue<string>() + ":" : "") +

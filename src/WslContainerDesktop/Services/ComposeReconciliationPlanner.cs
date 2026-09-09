@@ -23,10 +23,58 @@ namespace WslContainerDesktop.Services;
 /// <summary>Pure lifecycle decisions over desired configuration and a single observed inventory.</summary>
 public static class ComposeReconciliationPlanner
 {
+    /// <summary>Local safety budget across all selected services, including retained and surplus instances.</summary>
+    public const int MaximumPlanInstances = 1024;
+
+    public static int InstanceIndex(ComposeService service) =>
+        service.RuntimeInstanceIndex > 0 ? service.RuntimeInstanceIndex :
+        throw new InvalidOperationException("The trusted runtime instance index must be positive.");
+
+    public static string InstanceKey(ComposeService service) =>
+        InstanceIndex(service) == 1 ? service.Name : $"{service.Name}#{InstanceIndex(service)}";
+
+    public static ComposeService ForInstance(ComposeService service, int index)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(index);
+        var instance = CloneService(service);
+        instance.RuntimeInstanceIndex = index;
+        return instance;
+    }
+
+    public static bool IsOwnedInstance(ContainerNetworkState state, ComposeProject project, ComposeService service) =>
+        state.IsOwnedBy(project, service) &&
+        (state.HasLabel(ComposeProject.InstanceLabel, InstanceIndex(service).ToString(System.Globalization.CultureInfo.InvariantCulture)) ||
+         InstanceIndex(service) == 1 && !state.Labels.ContainsKey(ComposeProject.InstanceLabel));
+
     public static string ContainerName(ComposeProject project, ComposeService service) =>
+        ContainerName(project, service, InstanceIndex(service));
+
+    public static string ContainerName(ComposeProject project, ComposeService service, int index) =>
+        index > 1 ? $"{project.ContainerNameFor(service.Name)}_{index}" :
         string.IsNullOrWhiteSpace(service.Options.Name)
             ? project.ContainerNameFor(service.Name)
             : service.Options.Name.Trim();
+
+    public static int DesiredReplicas(ComposeProject project, ComposeService service, ComposeOperationRequest request) =>
+        request.Replicas.TryGetValue(service.Name, out var runtime) ? runtime :
+        project.ReplicaOverrides.TryGetValue(service.Name, out var saved) ? saved : service.Replicas;
+
+    public static int? ObservedInstanceIndex(ComposeProject project, ComposeService service, string containerName)
+    {
+        var name = containerName.TrimStart('/');
+        if (name == ContainerName(project, service, 1)) return 1;
+        var prefix = project.ContainerNameFor(service.Name) + "_";
+        return name.StartsWith(prefix, StringComparison.Ordinal) &&
+            int.TryParse(name[prefix.Length..], System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var index) && index > 1 &&
+            name == ContainerName(project, service, index) ? index : null;
+    }
+
+    /// <summary>Display-only inventory count; does not expand desired replicas or authorize mutations.</summary>
+    public static int ObservedRunningCount(ComposeProject project, IReadOnlyList<ContainerInfo> inventory) =>
+        inventory.Where(c => c.State == ContainerState.Running && project.Services.Any(service =>
+            ObservedInstanceIndex(project, service, c.Name) is not null))
+            .Select(c => c.Id).Distinct(StringComparer.Ordinal).Count();
 
     public static ComposeService DeepCloneService(ComposeService service) => CloneService(service);
 
@@ -35,7 +83,9 @@ public static class ComposeReconciliationPlanner
     public static ComposeService CloneService(ComposeService service) => new()
     {
         Name = service.Name,
-        Options = service.Options.Clone(),
+        Replicas = service.Replicas,
+        RuntimeInstanceIndex = InstanceIndex(service),
+        Options = CloneDesiredOptions(service.Options),
         DependsOn = service.DependsOn.Select(d => new ComposeDependency
         {
             ServiceName = d.ServiceName, Condition = d.Condition, Required = d.Required, Restart = d.Restart,
@@ -55,6 +105,14 @@ public static class ComposeReconciliationPlanner
         Health = service.Health?.Clone(),
         ExtraHosts = new(service.ExtraHosts),
     };
+
+    private static RunContainerOptions CloneDesiredOptions(RunContainerOptions options)
+    {
+        var clone = options.Clone();
+        // Imported/persisted labels are configuration data, never an identity transport.
+        clone.Labels.Remove(ComposeProject.InstanceLabel);
+        return clone;
+    }
 
     /// <summary>Includes namespace-sharing dependencies even for older persisted configurations.</summary>
     public static IReadOnlyList<ComposeDependency> Dependencies(ComposeService service)
@@ -89,6 +147,14 @@ public static class ComposeReconciliationPlanner
         }
 
         var targets = request.Services.Distinct(StringComparer.Ordinal).ToList();
+        if (request.Replicas.Any(p => !byName.ContainsKey(p.Key) || p.Value < 0) ||
+            request.Operation == ComposeLifecycleOperation.Up &&
+            (project.ReplicaOverrides.Any(p => p.Value < 0) || project.Services.Any(s => s.Replicas < 0)))
+            throw new InvalidOperationException("Replica counts must be nonnegative integers for defined services.");
+        if (request.Replicas.Count > 0 && request.Operation != ComposeLifecycleOperation.Up)
+            throw new InvalidOperationException("Replica overrides are only supported by Up.");
+        if (targets.Count > 0 && request.Replicas.Keys.Any(name => !targets.Contains(name, StringComparer.Ordinal)))
+            throw new InvalidOperationException("Replica overrides must target explicitly selected services.");
         if (targets.Any(name => !byName.ContainsKey(name)))
             throw new InvalidOperationException("A selected Compose service is not defined.");
         var profiles = project.ActiveProfiles.ToHashSet(StringComparer.Ordinal);
@@ -167,12 +233,25 @@ public static class ComposeReconciliationPlanner
         IReadOnlyDictionary<string, ContainerNetworkState> inspections)
     {
         var result = new List<ComposeServicePlan>();
-        foreach (var service in SelectServices(project, request))
+        var selected = SelectServices(project, request);
+        foreach (var service in ExpandInstances(project, request, selected, inventory))
         {
             var name = ContainerName(project, service);
+            var index = InstanceIndex(service);
+            var desiredService = selected.Single(s => s.Name == service.Name);
+            var excess = request.Operation == ComposeLifecycleOperation.Up &&
+                index > DesiredReplicas(project, desiredService, request);
+            var conflict = request.Operation == ComposeLifecycleOperation.Up
+                ? ScalingConflict(project, desiredService, request) : null;
+            if (conflict is not null)
+            {
+                result.Add(new(service, name, string.Empty, ComposeServiceChange.Incompatible,
+                    ComposeServiceAction.Blocked, conflict, null));
+                continue;
+            }
             if (request.Operation == ComposeLifecycleOperation.Up &&
-                project.AppliedServices.TryGetValue(service.Name, out var applied) &&
-                ContainerName(project, applied.Service) != name)
+                !excess && project.AppliedServices.TryGetValue(InstanceKey(service), out var applied) &&
+                ContainerName(project, applied.Service, applied.InstanceIndex) != name)
             {
                 result.Add(new(service, name, string.Empty, ComposeServiceChange.Incompatible,
                     ComposeServiceAction.Blocked,
@@ -183,7 +262,7 @@ public static class ComposeReconciliationPlanner
             var matches = inventory.Where(c => c.Name.TrimStart('/') == name).ToList();
             var container = matches.FirstOrDefault();
             var fingerprint = string.Empty;
-            if (request.Operation == ComposeLifecycleOperation.Up)
+            if (request.Operation == ComposeLifecycleOperation.Up && !excess)
             {
                 try { fingerprint = Fingerprint(project, service); }
                 catch (InvalidOperationException)
@@ -202,7 +281,7 @@ public static class ComposeReconciliationPlanner
             if (container is null)
             {
                 result.Add(new(service, name, fingerprint, ComposeServiceChange.Missing,
-                    request.Operation == ComposeLifecycleOperation.Up ? ComposeServiceAction.Create : ComposeServiceAction.Keep,
+                    request.Operation == ComposeLifecycleOperation.Up && !excess ? ComposeServiceAction.Create : ComposeServiceAction.Keep,
                     "No container exists for this service.", null));
                 continue;
             }
@@ -210,7 +289,7 @@ public static class ComposeReconciliationPlanner
                  !inspections.TryGetValue(name, out inspected)) ||
                 ContainerIdentity.ResolveId(inventory.Select(c => c.Id), inspected.Id) != container.Id ||
                 inventory.Count(c => c.Id == container.Id) != 1 ||
-                !inspected.IsOwnedBy(project, service))
+                !IsOwnedInstance(inspected, project, service))
             {
                 result.Add(new(service, name, fingerprint, ComposeServiceChange.Incompatible,
                     ComposeServiceAction.Blocked, "Container ownership or inspected identity is unverified.", container.Id));
@@ -224,9 +303,9 @@ public static class ComposeReconciliationPlanner
             }
 
             inspected.Labels.TryGetValue(ComposeProject.ConfigHashLabel, out var appliedHash);
-            if (request.Operation != ComposeLifecycleOperation.Up)
+            if (request.Operation != ComposeLifecycleOperation.Up || excess)
             {
-                var action = request.Operation switch
+                var action = excess ? ComposeServiceAction.Remove : request.Operation switch
                 {
                     ComposeLifecycleOperation.Restart => ComposeServiceAction.Restart,
                     ComposeLifecycleOperation.Stop => ComposeServiceAction.Stop,
@@ -234,7 +313,8 @@ public static class ComposeReconciliationPlanner
                     _ => throw new InvalidOperationException("Unsupported Compose lifecycle operation."),
                 };
                 result.Add(new(service, name, appliedHash ?? string.Empty, ComposeServiceChange.Unchanged,
-                    action, "Explicit lifecycle operation; desired configuration is not applied.", inspected.Id));
+                    action, excess ? "Instance exceeds the desired replica count; retained instances are not changed." :
+                    "Explicit lifecycle operation; desired configuration is not applied.", inspected.Id));
                 continue;
             }
 
@@ -252,7 +332,110 @@ public static class ComposeReconciliationPlanner
                     container.State == ContainerState.Running ? ComposeServiceAction.Keep : ComposeServiceAction.Start,
                 reason, inspected.Id));
         }
-        return new(result.ToArray());
+        var entries = result.Select(p => p with
+        {
+            InstanceIndex = InstanceIndex(p.Service),
+            DesiredReplicas = DesiredReplicas(project, selected.Single(s => s.Name == p.Service.Name), request),
+        }).ToArray();
+        var collisions = entries.GroupBy(p => p.ContainerName, StringComparer.Ordinal).Where(g => g.Count() > 1)
+            .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+        return ValidateStartupDependencies(project, request, new(entries.Select(p =>
+            collisions.Contains(p.ContainerName) ? p with
+            {
+                Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible,
+                Reason = "Selected instances resolve to the same container name.",
+            } : p).ToArray()));
+    }
+
+    /// <summary>Recheck startup gates after image/network preflight refines Keep into Recreate/Restart.</summary>
+    public static ComposeReconciliationPlan ValidateStartupDependencies(ComposeProject project,
+        ComposeOperationRequest request, ComposeReconciliationPlan plan) =>
+        new(plan.Services.Select(p => request.Operation == ComposeLifecycleOperation.Up &&
+            p.Action is not (ComposeServiceAction.Keep or ComposeServiceAction.Remove or ComposeServiceAction.Blocked) &&
+            Dependencies(p.Service).Any(d => d.Required && project.Services.Any(s => s.Name == d.ServiceName &&
+                DesiredReplicas(project, s, request) == 0)) ? p with
+            {
+                Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible,
+                Reason = "A required dependency has zero desired replicas; this instance cannot be started.",
+            } : p).ToArray());
+
+    /// <summary>One expansion used by planning, inspection and adoption; never invents a second planner.</summary>
+    public static IReadOnlyList<ComposeService> ExpandInstances(ComposeProject project, ComposeOperationRequest request,
+        IReadOnlyList<ComposeService> selected, IReadOnlyList<ContainerInfo> inventory)
+    {
+        var result = new List<ComposeService>();
+        foreach (var service in selected)
+        {
+            var count = DesiredReplicas(project, service, request);
+            var desiredCount = request.Operation == ComposeLifecycleOperation.Up ? count : 0;
+            var remaining = MaximumPlanInstances - result.Count;
+            if (desiredCount < 0)
+                throw new InvalidOperationException("Replica counts must be nonnegative integers.");
+            if (desiredCount > remaining) throw ReplicaBudgetExceeded();
+            var indices = new HashSet<int>();
+            void AddExistingIndex(int index)
+            {
+                if (index < 1)
+                    throw new InvalidOperationException("Applied instance indices must be positive integers.");
+                indices.Add(index);
+                if (indices.Count > remaining) throw ReplicaBudgetExceeded();
+            }
+            foreach (var saved in project.AppliedServices.Values.Where(a => a.Service.Name == service.Name))
+                AddExistingIndex(saved.InstanceIndex);
+            // Names discover candidates only; inspection and all three labels authorize mutations.
+            foreach (var container in inventory)
+            {
+                if (ObservedInstanceIndex(project, service, container.Name) is { } index)
+                    AddExistingIndex(index);
+            }
+            // Count the union without iterating an arbitrary parsed Int32 replica count first.
+            if ((long)desiredCount + indices.Count(index => index > desiredCount) > remaining)
+                throw ReplicaBudgetExceeded();
+            for (var i = 1; i <= desiredCount; i++) indices.Add(i);
+            if (indices.Count == 0 && (count > 0 || request.Operation != ComposeLifecycleOperation.Up))
+                AddExistingIndex(1);
+            foreach (var index in request.Operation is ComposeLifecycleOperation.Down or ComposeLifecycleOperation.Stop
+                ? indices.OrderDescending() : indices.Order())
+            {
+                var key = index == 1 ? service.Name : $"{service.Name}#{index}";
+                var existingOnly = request.Operation != ComposeLifecycleOperation.Up || index > count;
+                var definition = existingOnly && project.AppliedServices.TryGetValue(key, out var saved)
+                    ? saved.Service : service;
+                result.Add(ForInstance(definition, index));
+            }
+        }
+        return result;
+    }
+
+    private static InvalidOperationException ReplicaBudgetExceeded() => new(
+        $"A local Compose operation can plan at most {MaximumPlanInstances} instances across its selected services, " +
+        "including retained and surplus instances. Reduce replica counts or select fewer services.");
+
+    private static string? ScalingConflict(ComposeProject project, ComposeService service, ComposeOperationRequest request)
+    {
+        var count = DesiredReplicas(project, service, request);
+        if (count != 1 && project.Services.Any(s =>
+            (s.Options.NetworkMode ?? s.Options.Network) == $"service:{service.Name}"))
+            return "A service referenced as a network namespace provider must have exactly one replica.";
+        if (count > 1)
+        {
+            if (!string.IsNullOrWhiteSpace(service.Options.Name))
+                return "Multiple replicas cannot use container_name. Remove the explicit name first.";
+            if (service.Options.PortMappings.Any(p => p.Contains(':')))
+                return "Multiple replicas cannot publish a fixed host port. Use container-only ports or a single replica.";
+            if (service.Options.HasSpecialNetworkMode)
+                return "Multiple replicas cannot use host, none, container or service network_mode.";
+            if (service.Options.GetNetworkAttachments().Any(n => !string.IsNullOrWhiteSpace(n.Ipv4Address)))
+                return "Multiple replicas cannot share a static network address.";
+        }
+        var mode = service.Options.NetworkMode ?? service.Options.Network;
+        if (mode?.StartsWith("service:", StringComparison.Ordinal) == true)
+        {
+            var dependency = project.Services.FirstOrDefault(s => s.Name == mode["service:".Length..]);
+            if (dependency is not null && DesiredReplicas(project, dependency, request) != 1)
+                return "A network namespace provider must have exactly one replica.";
+        }
+        return null;
     }
 
     /// <summary>
@@ -268,7 +451,7 @@ public static class ComposeReconciliationPlanner
         var volumeNames = o.Volumes.Select(v => v.Split(':')[0]).ToHashSet(StringComparer.Ordinal);
         var projection = new
         {
-            Name = ContainerName(project, service), Image = EffectiveImage(project, service),
+            Name = ContainerName(project, service, 1), Image = EffectiveImage(project, service),
             Detached = true, RemoveOnExit = false, Interactive = false, o.AllGpus,
             Command = Tokens(o.Command), Entrypoint = Tokens(o.Entrypoint),
             User = Trim(o.User), WorkingDir = Trim(o.WorkingDir), Hostname = Trim(o.Hostname),
@@ -281,7 +464,7 @@ public static class ComposeReconciliationPlanner
             Ports = Set(o.PortMappings), Environment = Pairs(o.EnvironmentVariables), Mounts = Set(o.Volumes),
             Labels = o.Labels.Where(p => p.Key != ComposeProject.ProjectLabel &&
                 p.Key != ComposeProject.ServiceLabel && p.Key != ComposeProject.ConfigHashLabel &&
-                p.Key != ComposeProject.ImageIdLabel &&
+                p.Key != ComposeProject.ImageIdLabel && p.Key != ComposeProject.InstanceLabel &&
                 p.Key is not ("com.wsldesktop.apply-operation" or "com.wsldesktop.network-operation"))
                 .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
             Dns = o.Dns.Select(Trim).ToArray(), DnsSearch = o.DnsSearch.Select(Trim).ToArray(),

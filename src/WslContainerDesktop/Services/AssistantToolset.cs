@@ -260,7 +260,7 @@ public sealed class AssistantToolset(
                 : template.ComposeProjectName;
             project.ApplyProjectNamespacing();
             var up = await composeSupervisor.UpAsync(project, ct).ConfigureAwait(false);
-            return $"Deployed compose template '{template.Name}'. Started {up.Started}/{up.Services.Count} services.";
+            return SummarizeCompose($"template '{template.Name}'", up);
         }
 
         if (template.RunOptions is null)
@@ -285,7 +285,15 @@ public sealed class AssistantToolset(
         project.ApplyProjectNamespacing();
         composeStore.Save(project);
         var up = await composeSupervisor.UpAsync(project, ct).ConfigureAwait(false);
-        return $"Deployed compose project '{project.Name}'. Started {up.Started}/{up.Services.Count} services: {string.Join(", ", project.Services.Select(s => s.Name))}.";
+        return SummarizeCompose($"project '{project.Name}'", up);
+    }
+
+    private static string SummarizeCompose(string target, ComposeUpResult result)
+    {
+        var status = result.IsCancelled ? "Cancelled" : result.AllSucceeded ? "Applied" : "Partially applied or failed";
+        var outcomes = string.Join("\n", result.Services.Select(service =>
+            $"{service.InstanceKey}: {(service.Success ? "succeeded" : "failed")} - {service.Detail}"));
+        return $"{status} compose {target}. Started {result.Started} instances. Per-instance outcomes:\n{outcomes}";
     }
 
     private AssistantResolvedToolCall ResolveDeployCompose(AiToolCall call, JsonElement args)

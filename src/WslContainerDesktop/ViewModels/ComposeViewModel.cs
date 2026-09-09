@@ -40,6 +40,7 @@ public partial class ComposeProjectRow : ObservableObject
     public string Name => Project.Name;
 
     public int ServiceCount => Project.Services.Count;
+    public long DesiredInstanceCount => Project.Services.Sum(s => (long)ComposeReconciliationPlanner.DesiredReplicas(Project, s, new()));
 
     [ObservableProperty]
     private int _runningCount;
@@ -51,7 +52,7 @@ public partial class ComposeProjectRow : ObservableObject
     {
         get
         {
-            var names = Project.Services.Select(s => s.Name).ToList();
+            var names = Project.Services.Select(s => $"{s.Name} × {ComposeReconciliationPlanner.DesiredReplicas(Project, s, new())}").ToList();
             return names.Count == 0 ? "No services" : string.Join(", ", names);
         }
     }
@@ -100,14 +101,15 @@ public partial class ComposeViewModel : ObservableObject
         StatusMessage = "Loading compose projects…";
         try
         {
-            IReadOnlyList<ContainerInfo> containers;
+            IReadOnlyList<ContainerInfo>? containers = null;
+            string? inventoryError = null;
             try
             {
                 containers = await _wslc.ListContainersAsync(all: true);
             }
-            catch
+            catch (Exception ex)
             {
-                containers = Array.Empty<ContainerInfo>();
+                inventoryError = ex.Message;
             }
 
             var projects = _store.GetAll();
@@ -115,13 +117,16 @@ public partial class ComposeViewModel : ObservableObject
             foreach (var project in projects)
             {
                 var row = new ComposeProjectRow(project, ManageServicesCommand);
-                UpdateStatus(row, containers);
+                if (containers is null) row.StatusText = "Status unavailable";
+                else UpdateStatus(row, containers);
                 Projects.Add(row);
             }
 
             StatusMessage = Projects.Count == 0
                 ? "No compose projects. Import one to get started."
                 : $"{Projects.Count} project{(Projects.Count == 1 ? "" : "s")}";
+            if (inventoryError is not null)
+                StatusMessage += $" - Container status unavailable: {inventoryError}";
             if (_supervisor.ReconciliationWarnings.Count > 0)
             {
                 StatusMessage += " - Network attention: " + string.Join("; ", _supervisor.ReconciliationWarnings);
@@ -135,27 +140,14 @@ public partial class ComposeViewModel : ObservableObject
 
     private static void UpdateStatus(ComposeProjectRow row, IReadOnlyList<ContainerInfo> containers)
     {
-        var running = 0;
-        foreach (var service in row.Project.Services)
-        {
-            var name = string.IsNullOrWhiteSpace(service.Options.Name)
-                ? row.Project.ContainerNameFor(service.Name)
-                : service.Options.Name!.Trim();
-
-            var container = containers.FirstOrDefault(c =>
-                string.Equals(c.Name.TrimStart('/'), name, StringComparison.Ordinal));
-            if (container is not null && container.State == ContainerState.Running)
-            {
-                running++;
-            }
-        }
+        var running = ComposeReconciliationPlanner.ObservedRunningCount(row.Project, containers);
 
         row.RunningCount = running;
         row.StatusText = running == 0
-            ? "Not running"
-            : running == row.ServiceCount
-                ? "Running"
-                : $"Partial ({running}/{row.ServiceCount})";
+            ? row.DesiredInstanceCount == 0 ? "Scaled to zero" : $"Not running (0/{row.DesiredInstanceCount} instances)"
+            : running == row.DesiredInstanceCount
+                ? $"Running ({running}/{row.DesiredInstanceCount} instances)"
+                : $"Partial ({running}/{row.DesiredInstanceCount} instances)";
     }
 
     [RelayCommand]
@@ -373,6 +365,24 @@ public partial class ComposeViewModel : ObservableObject
             }
 
             StatusMessage = $"{dialog.OperationLabel} — \"{row.Name}\"…";
+            var plan = await _supervisor.PlanAsync(row.Project, request);
+            var review = string.Join("\n", plan.Services.GroupBy(p => p.Service.Name).Select(group =>
+                $"{group.Key} — desired replicas: {group.First().DesiredReplicas}\n" +
+                string.Join("\n", group.Select(p => $"• {p.InstanceKey}: {p.Action} — {p.Reason}")) +
+                (group.First().StorageWarning is { } warning ? $"\n{warning}" : "")));
+            if (!plan.CanApply)
+            {
+                await _dialogs.ShowMessageAsync("Operation blocked", review);
+                return;
+            }
+            if (!await _dialogs.ShowConfirmAsync("Review instance changes",
+                review.Length == 0 ? "No instance changes are required." : review, dialog.OperationLabel))
+                return;
+            if (dialog.SaveReplicaOverrides)
+            {
+                foreach (var pair in request.Replicas) row.Project.ReplicaOverrides[pair.Key] = pair.Value;
+                _store.Save(row.Project);
+            }
             var result = request.Operation == ComposeLifecycleOperation.Up
                 ? await _supervisor.UpAsync(row.Project, request)
                 : await _supervisor.OperateAsync(row.Name, request);
@@ -382,7 +392,7 @@ public partial class ComposeViewModel : ObservableObject
                 : $"{dialog.OperationLabel} for \"{row.Name}\" — some services failed";
             if (request.Operation is ComposeLifecycleOperation.Up or ComposeLifecycleOperation.Restart)
             {
-                StatusMessage += $" — {result.Started} service(s) started";
+                StatusMessage += $" — {result.Started} instance(s) started";
             }
 
             await ShowServiceOutcomesAsync($"{dialog.OperationLabel}: {row.Name}", result);
@@ -404,8 +414,8 @@ public partial class ComposeViewModel : ObservableObject
             : string.Join("\n", result.Services.Select(service =>
             {
                 var reason = result.Plan?.Services.FirstOrDefault(entry =>
-                    string.Equals(entry.Service.Name, service.Service, StringComparison.Ordinal))?.Reason;
-                return $"• {service.Service}: {service.Action}{(service.Success ? "" : " (failed)")} — {service.Detail}" +
+                    string.Equals(entry.InstanceKey, service.InstanceKey, StringComparison.Ordinal))?.Reason;
+                return $"• {service.InstanceKey}: {service.Action}{(service.Success ? "" : " (failed)")} — {service.Detail}" +
                     (string.IsNullOrWhiteSpace(reason) || reason == service.Detail ? "" : $"\n  Reason: {reason}") +
                     (string.IsNullOrWhiteSpace(service.Warning) ? "" : $"\n  Warning: {service.Warning}");
             })));
@@ -420,12 +430,12 @@ public partial class ComposeViewModel : ObservableObject
             await RefreshAsync();
             if (result.AllSucceeded)
             {
-                StatusMessage = $"\"{project.Name}\" applied — {result.Started} service(s) started";
+                StatusMessage = $"\"{project.Name}\" applied — {result.Started} instance(s) started";
             }
             else
             {
                 var failed = result.Services.Where(s => !s.Success).ToList();
-                StatusMessage = $"\"{project.Name}\" apply incomplete — {result.Started} service(s) started";
+                StatusMessage = $"\"{project.Name}\" apply incomplete — {result.Started} instance(s) started";
 
                 if (failed.Any(f => ComposeProjectSupervisor.IsMountLimitFailure(f.Detail)))
                 {
@@ -526,11 +536,11 @@ public partial class ComposeViewModel : ObservableObject
             await RefreshAsync();
             if (result.AllSucceeded)
             {
-                StatusMessage = $"\"{row.Name}\" restarted — {result.Started} service(s) started";
+                StatusMessage = $"\"{row.Name}\" restarted — {result.Started} instance(s) started";
             }
             else
             {
-                StatusMessage = $"\"{row.Name}\" restart incomplete — {result.Started} service(s) started";
+                StatusMessage = $"\"{row.Name}\" restart incomplete — {result.Started} instance(s) started";
             }
 
             await ShowServiceOutcomesAsync($"Restart: {row.Name}", result);

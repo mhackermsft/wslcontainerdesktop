@@ -1,10 +1,9 @@
 {
   "environment": {},
-  "checks": { "/serviceNames": ["web"], "/services/web/image": "example.invalid/conformance:1" },
+  "checks": { "/serviceNames": ["web"], "/services/web/image": "example.invalid/conformance:1", "/services/web/replicas": 3 },
   "divergences": {},
   "warnings": [
-    "Service 'web': 'privileged' is not supported and was ignored.",
-    "Service 'web': 'deploy.replicas: 3' is not supported; a single instance is started."
+    "Service 'web': 'privileged' is not supported and was ignored."
   ],
   "diagnosticLimitation": "Warnings are actionable but import is not fail-closed. This does not certify that launching an unsupported configuration is safe; strict validation belongs to #82/#85."
 }
