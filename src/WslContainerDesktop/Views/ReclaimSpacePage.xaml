@@ -156,7 +156,7 @@
                             <TextBlock>
                                 <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Unused:" />
                                 <Run Text="{x:Bind ViewModel.UnusedVolumeCount, Mode=OneWay}" />
-                                <Run Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="anonymous" />
+                                <Run Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="(inspect snapshot)" />
                             </TextBlock>
                             <Button
                                 HorizontalAlignment="Stretch"
@@ -294,7 +294,7 @@
                             Margin="0,8"
                             HorizontalAlignment="Center"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="No unused volumes."
+                            Text="No volumes confirmed unused. Unknown usage is not counted."
                             Visibility="{x:Bind ViewModel.UnusedVolumes.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
                     </StackPanel>
                 </Border>

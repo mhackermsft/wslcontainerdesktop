@@ -230,7 +230,7 @@
                                     VerticalAlignment="Center"
                                     FontSize="13"
                                     Text="{x:Bind UsedByDisplay}"
-                                    ToolTipService.ToolTip="Anonymous volumes are matched to their container by creation time. wslc does not report which container uses a named volume."
+                                    ToolTipService.ToolTip="{x:Bind UsageDescription}"
                                     TextTrimming="CharacterEllipsis" />
 
                                 <TextBlock
@@ -283,7 +283,7 @@
                                             <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind TypeLabel}" />
                                         </Border>
                                         <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="USED BY" />
-                                        <TextBlock Grid.Row="1" Grid.Column="1" FontSize="13" Text="{x:Bind UsedByDisplay}" ToolTipService.ToolTip="Anonymous volumes are matched to their container by creation time. wslc does not report which container uses a named volume." TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1" FontSize="13" Text="{x:Bind UsedByDisplay}" ToolTipService.ToolTip="{x:Bind UsageDescription}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="CREATED" />
                                         <TextBlock Grid.Row="2" Grid.Column="1" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind CreatedAt, Converter={StaticResource RelativeTime}}" />
                                     </Grid>
