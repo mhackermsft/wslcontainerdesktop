@@ -1,0 +1,5 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  worker:
+    image: example.invalid/conformance:1
+    env_file: worker.env

@@ -9,6 +9,9 @@
     <IsTestProject>true</IsTestProject>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
+    <!-- A test-only entry point imports fixtures in a child with no inherited environment. -->
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <StartupObject>WslContainerDesktop.Tests.Services.ComposeConformanceWorker</StartupObject>
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
   </PropertyGroup>
 
@@ -143,5 +146,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Update="Fixtures\Capabilities\*.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\Compose\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

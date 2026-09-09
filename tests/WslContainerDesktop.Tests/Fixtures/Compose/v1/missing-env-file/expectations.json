@@ -1,0 +1,8 @@
+{
+  "environment": {},
+  "referenceError": "absent.env",
+  "checks": { "/serviceNames": ["web"], "/services/web/environment": {} },
+  "divergences": {},
+  "warnings": [],
+  "diagnosticLimitation": "Reference configuration must fail for a required missing env file. The importer silently skips it (#82). The current result is characterized, not endorsed as safe."
+}

@@ -1,0 +1,7 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  base:
+    image: example.invalid/conformance:1
+    environment:
+      KEEP: inherited
+      WINNER: base

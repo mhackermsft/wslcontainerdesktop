@@ -1,0 +1,10 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    command: ["echo", "override"]
+    environment:
+      WINNER: override
+    ports:
+      - "8443:443"
+    dns:
+      - 192.0.2.2

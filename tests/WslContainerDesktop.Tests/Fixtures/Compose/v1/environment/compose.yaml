@@ -1,0 +1,11 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:${WCD_TAG}
+    env_file:
+      - first.env
+      - second.env
+    environment:
+      WINNER: inline
+      EMPTY: ""
+      FROM_DOTENV: "${WCD_DOTENV}"

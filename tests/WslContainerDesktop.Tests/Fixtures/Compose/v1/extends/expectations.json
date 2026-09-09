@@ -1,0 +1,10 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/image": "example.invalid/conformance:1",
+    "/services/web/environment": { "KEEP": "inherited", "WINNER": "child" }
+  },
+  "divergences": {},
+  "warnings": []
+}

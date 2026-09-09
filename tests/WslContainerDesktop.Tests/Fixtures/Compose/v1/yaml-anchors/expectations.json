@@ -1,0 +1,11 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/image": "example.invalid/conformance:1",
+    "/services/web/environment": { "COUNT": "007", "ENABLED": "false", "COMMENT": "value # not a comment" },
+    "/services/web/labels": { "fixture.owner": "synthetic" }
+  },
+  "divergences": {},
+  "warnings": []
+}

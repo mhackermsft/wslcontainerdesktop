@@ -1,0 +1,6 @@
+{
+  "environment": {},
+  "checks": { "/serviceNames": ["web"], "/services/web/environment": { "MESSAGE": "first\nsecond" } },
+  "divergences": {},
+  "warnings": []
+}

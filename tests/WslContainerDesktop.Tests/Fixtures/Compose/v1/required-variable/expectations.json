@@ -1,0 +1,8 @@
+{
+  "environment": {},
+  "referenceError": "synthetic required value missing",
+  "checks": { "/serviceNames": ["web"], "/services/web/environment": { "REQUIRED": null } },
+  "divergences": {},
+  "warnings": [],
+  "diagnosticLimitation": "Reference configuration must fail. The importer silently substitutes empty, stores a bare inherited-variable entry, and returns a runnable service (#82). Checks characterize the current unsafe diagnostic gap, not conformance or safe failure."
+}

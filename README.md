@@ -415,6 +415,11 @@ Raw approved values are retained in execution memory and may be passed to worklo
 
 WSL Container Desktop can import a `docker-compose.yml` and run the whole stack, but it is **not** a drop-in replacement for the `docker compose` CLI. Understanding the model below will tell you what to expect.
 
+The [versioned configuration corpus](docs/COMPOSE-CONFORMANCE.md) records tested subsets and known
+differences, including empty environment values, `env_file` precedence, sequence overrides, and
+included-file paths. Its initial expectations are **spec-derived**, not captured Compose CLI output;
+passing them is not Docker Compose or WSLC runtime certification.
+
 ### Purpose & model — "desktop-as-daemon"
 
 The WSL container engine (`wslc`) has no advertised built-in Compose command or native restart-policy flag. **WSL Container Desktop acts as the orchestration layer above `wslc`**: it parses the Compose file, resolves dependencies, runs services (or creates/connects/starts multi-network services), then supervises the result.

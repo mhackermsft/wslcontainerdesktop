@@ -1,0 +1,15 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["cache", "db", "init", "web"],
+    "/services/db/healthcheck/test": ["CMD", "check", "two words"],
+    "/services/db/healthcheck/interval": "10s",
+    "/services/db/healthcheck/timeout": "2s",
+    "/services/db/healthcheck/start_period": "5s",
+    "/services/db/healthcheck/start_interval": "1s",
+    "/services/db/healthcheck/retries": 3,
+    "/services/web/depends_on": { "db": "service_healthy", "init": "service_completed_successfully", "cache": "service_started" }
+  },
+  "divergences": {},
+  "warnings": []
+}

@@ -1,0 +1,10 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/ports": ["8080:80", "5353:53/udp"],
+    "/services/web/volumes": ["data:/data:ro", "cache:/cache:ro"]
+  },
+  "divergences": {},
+  "warnings": []
+}

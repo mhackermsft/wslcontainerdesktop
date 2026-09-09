@@ -1,0 +1,8 @@
+# Synthetic GPL-3.0-or-later fixture. Config capture enables all profiles.
+services:
+  web:
+    image: example.invalid/conformance:1
+  debug:
+    image: example.invalid/conformance:1
+    profiles:
+      - debug

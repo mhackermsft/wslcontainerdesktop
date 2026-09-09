@@ -1,0 +1,7 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:1
+    env_file:
+      - path: absent.env
+        required: true

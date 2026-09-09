@@ -1,0 +1,6 @@
+# Synthetic GPL-3.0-or-later fixture.
+include:
+  - child/compose.yaml
+services:
+  web:
+    image: example.invalid/conformance:1

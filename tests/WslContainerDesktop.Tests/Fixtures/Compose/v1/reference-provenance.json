@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "expectationOrigin": "hand-authored-spec-projection",
+  "captureStatus": "pending-no-reference-cli-installed",
+  "composeCli": "2.39.4",
+  "composeReleasePublishedAt": "2025-09-19T08:49:23Z",
+  "composeReleaseUrl": "https://github.com/docker/compose/releases/tag/v2.39.4",
+  "specCommit": "c0c3dba71a73260cf9649e05370dcad6fe29e11c",
+  "specUrl": "https://github.com/compose-spec/compose-spec/tree/c0c3dba71a73260cf9649e05370dcad6fe29e11c",
+  "runtimeCertification": "none",
+  "notes": "No reference.json files have been captured. Expectations are projections derived from the specification, not claimed output of docker compose config. Per-case captured files take precedence as evidence of capture."
+}

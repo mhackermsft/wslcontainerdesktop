@@ -1,0 +1,19 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/command": "echo override",
+    "/services/web/environment": { "KEEP": "base", "WINNER": "override" },
+    "/services/web/ports": ["8080:80", "8443:443"],
+    "/services/web/dns": ["192.0.2.1", "192.0.2.2"]
+  },
+  "divergences": {
+    "/services/web/ports": {
+      "app": ["8443:443"], "reason": "The importer replaces port sequences instead of merging unique resource keys.", "issue": 83
+    },
+    "/services/web/dns": {
+      "app": ["192.0.2.2"], "reason": "The importer replaces ordinary sequences instead of appending them.", "issue": 83
+    }
+  },
+  "warnings": []
+}

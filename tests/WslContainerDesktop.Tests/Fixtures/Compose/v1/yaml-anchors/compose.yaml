@@ -1,0 +1,12 @@
+# Synthetic GPL-3.0-or-later fixture.
+x-base: &base
+  image: example.invalid/conformance:1
+  environment:
+    COUNT: "007"
+    ENABLED: "false"
+    COMMENT: "value # not a comment"
+services:
+  web:
+    <<: *base
+    labels:
+      fixture.owner: "synthetic"

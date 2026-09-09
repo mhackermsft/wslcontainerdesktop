@@ -1,0 +1,18 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:1
+    ports:
+      - "8080:80"
+      - target: 53
+        published: "5353"
+        protocol: udp
+    volumes:
+      - data:/data:ro
+      - type: volume
+        source: cache
+        target: /cache
+        read_only: true
+volumes:
+  data:
+  cache:
