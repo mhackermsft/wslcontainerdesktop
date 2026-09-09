@@ -119,13 +119,18 @@ public sealed class AiProviderContractTests
         handler.Enqueue(Response(kind, null, first, second));
         handler.Enqueue(Response(kind, "Final answer"));
         var calls = new List<AiToolCall>();
-        var answer = await Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (call, _) =>
+        var answer = await Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (call, _) =>
         {
             calls.Add(call);
             return Task.FromResult($"Evidence for {call.Id}");
         }, CancellationToken.None);
 
-        Assert.Equal("Final answer", answer);
+        Assert.Equal("Final answer", answer.FinalText);
+        Assert.Equal(4, answer.Messages.Count);
+        Assert.Equal("assistant", answer.Messages[0].Role);
+        Assert.Equal(2, answer.Messages[0].ToolCalls.Count);
+        Assert.Equal(calls.Select(c => c.Id), answer.Messages.Skip(1).Take(2).Select(m => m.ToolCallId));
+        Assert.Equal(answer.FinalText, answer.Messages[^1].Content);
         Assert.Equal(2, calls.Count);
         Assert.Equal(2, handler.Requests.Count);
         Assert.Equal(2, History.Length);
@@ -217,7 +222,7 @@ public sealed class AiProviderContractTests
         var executed = new List<AiToolCall>();
         var statuses = new Queue<string>(["succeeded", "failed", "partial"]);
 
-        var answer = await Create(kind, http, h.Settings).RunTurnAsync(history, tools, (call, _) =>
+        var answer = await Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, history), tools, (call, _) =>
         {
             executed.Add(call);
             return Task.FromResult(SensitiveResult(statuses.Dequeue()));
@@ -225,9 +230,12 @@ public sealed class AiProviderContractTests
 
         Assert.Equal(3, executed.Count);
         Assert.Equal(2, handler.Requests.Count);
-        Assert.Contains("Final approved-id context", answer);
-        Assert.DoesNotContain("synthetic-final-value", answer);
-        Assert.Contains("<redacted>", answer);
+        Assert.Contains("Final approved-id context", answer.FinalText);
+        Assert.DoesNotContain("synthetic-final-value", answer.FinalText);
+        Assert.Contains("<redacted>", answer.FinalText);
+        AssertNoSensitiveValues(JsonSerializer.Serialize(answer));
+        Assert.Equal(5, answer.Messages.Count);
+        Assert.Equal(3, answer.Messages[0].ToolCalls.Count);
         foreach (var call in executed)
         {
             Assert.Equal("inspect_container", call.Name);
@@ -309,7 +317,7 @@ public sealed class AiProviderContractTests
         handler.Enqueue(Response(kind, "Done"));
         var executed = 0;
 
-        await Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (call, _) =>
+        await Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (call, _) =>
         {
             executed++;
             using var original = JsonDocument.Parse(payload);
@@ -432,7 +440,7 @@ public sealed class AiProviderContractTests
                 error = new { message = "Synthetic request rejected", details = JsonSerializer.Deserialize<JsonElement>(SensitiveArguments()) },
             }), status);
             var error = await Assert.ThrowsAsync<AiProviderException>(() =>
-                Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+                Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
                     throw new InvalidOperationException("No execution expected"), CancellationToken.None));
 
             Assert.Equal((int)status, error.StatusCode);
@@ -446,6 +454,163 @@ public sealed class AiProviderContractTests
             Assert.Single(handler.Requests);
         }
     }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task TurnConfigurationAndCredentialStayCapturedAcrossToolCallbacks(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        var credentials = new MutableCredentials();
+        IAiChatProvider provider = kind switch
+        {
+            AiProviderKind.OpenAi => new OpenAiProvider(http, h.Settings, credentials),
+            AiProviderKind.AzureOpenAi => new AzureOpenAiProvider(http, h.Settings, credentials),
+            _ => new OllamaProvider(http, h.Settings),
+        };
+        var configuration = new AiChatConfiguration(kind, "https://captured.invalid/v1", "captured-model");
+        handler.Enqueue(Response(kind, null, AiContractHarness.Call("inspect_container")));
+        handler.Enqueue(Response(kind, "Captured result"));
+        var result = await provider.RunTurnAsync(new(configuration, History), Tools, (_, _) =>
+        {
+            foreach (var name in new[] { nameof(ISettingsService.AiOpenAiEndpoint), nameof(ISettingsService.AiAzureOpenAiEndpoint), nameof(ISettingsService.AiOllamaEndpoint) })
+                h.SettingsValues[name] = "https://changed.invalid";
+            foreach (var name in new[] { nameof(ISettingsService.AiOpenAiModel), nameof(ISettingsService.AiAzureOpenAiDeployment), nameof(ISettingsService.AiOllamaModel) })
+                h.SettingsValues[name] = "changed-model";
+            credentials.Secret = "synthetic-replacement";
+            return Task.FromResult("Evidence");
+        }, CancellationToken.None);
+
+        Assert.Equal("Captured result", result.FinalText);
+        Assert.Equal(kind == AiProviderKind.Ollama ? 0 : 1, credentials.Reads);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(handler.Requests[0].Uri, handler.Requests[1].Uri);
+        Assert.All(handler.Requests, captured =>
+        {
+            Assert.Equal("captured.invalid", captured.Uri.Host);
+            Assert.DoesNotContain("changed-model", captured.Body);
+            if (kind == AiProviderKind.AzureOpenAi)
+            {
+                Assert.Contains("/deployments/captured-model/", captured.Uri.AbsolutePath);
+                Assert.Equal("synthetic-original", captured.Headers["api-key"]);
+            }
+            else
+            {
+                using var body = JsonDocument.Parse(captured.Body);
+                Assert.Equal(configuration.Model, body.RootElement.GetProperty("model").GetString());
+                if (kind == AiProviderKind.OpenAi)
+                    Assert.Equal("Bearer synthetic-original", captured.Headers["Authorization"]);
+            }
+        });
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task ReturnedTranscriptRoundTripsIntoNextTurnWithoutInputHistory(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        var provider = Create(kind, http, h.Settings);
+        handler.Enqueue(Response(kind, null, AiContractHarness.Call("inspect_container", SensitiveArguments())));
+        handler.Enqueue(Response(kind, "First answer"));
+        handler.Enqueue(Response(kind, "Second answer"));
+        var first = await provider.RunTurnAsync(Request(h, kind, History), Tools,
+            (_, _) => Task.FromResult(SensitiveResult("partial")), CancellationToken.None);
+        Assert.Equal(3, first.Messages.Count);
+        Assert.All(first.Messages, message => Assert.NotEqual("user", message.Role));
+        var nextHistory = History.Concat(first.Messages).Append(new AiChatMessage { Role = "user", Content = "What happened?" }).ToArray();
+        var second = await provider.RunTurnAsync(Request(h, kind, nextHistory), Tools,
+            (_, _) => throw new InvalidOperationException("No replay expected"), CancellationToken.None);
+        Assert.Single(second.Messages);
+        AssertNoSensitiveValues(JsonSerializer.Serialize(first));
+        using var body = JsonDocument.Parse(handler.Requests[2].Body);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Equal(6, messages.GetArrayLength());
+        Assert.Equal("assistant", messages[2].GetProperty("role").GetString());
+        Assert.Equal("tool", messages[3].GetProperty("role").GetString());
+        using var outcome = JsonDocument.Parse(messages[3].GetProperty("content").GetString()!);
+        Assert.Equal("partial", outcome.RootElement.GetProperty("status").GetString());
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task TotalBudgetIsRecheckedBeforeEveryInferenceRequest(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        for (var i = 0; i < 3; i++)
+            handler.Enqueue(Response(kind, null, AiContractHarness.Call("inspect_container")));
+        var executed = 0;
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
+            {
+                executed++;
+                return Task.FromResult(new string('x', 11_000));
+            }, CancellationToken.None));
+        Assert.Contains("budget", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, executed);
+        Assert.Equal(3, handler.Requests.Count);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task OversizedDefinitionsFailBeforeTransport(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        var definition = new AiToolDefinition
+        {
+            Name = "inspect_container",
+            Description = "Oversized synthetic schema",
+            JsonSchemaParameters = JsonSerializer.Serialize(new { type = "object", description = new string('x', 40_000) }),
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), [definition],
+                (_, _) => throw new InvalidOperationException("No tool expected"), CancellationToken.None));
+        Assert.Empty(handler.Requests);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task CancellationAfterFirstToolStopsRemainingCalls(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        using var cancellation = new CancellationTokenSource();
+        handler.Enqueue(Response(kind, null, AiContractHarness.Call("inspect_container"), AiContractHarness.Call("inspect_container")));
+        var executed = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
+            {
+                executed++;
+                cancellation.Cancel();
+                return Task.FromResult("Completed first tool");
+            }, cancellation.Token));
+        Assert.Equal(1, executed);
+        Assert.Single(handler.Requests);
+    }
+
+    private sealed class MutableCredentials : IAiCredentialStore
+    {
+        public string Secret { get; set; } = "synthetic-original";
+        public int Reads { get; private set; }
+        public bool TryReadSecret(AiProviderKind provider, out string? secret)
+        {
+            Reads++;
+            secret = Secret;
+            return true;
+        }
+        public void WriteSecret(AiProviderKind provider, string secret) => throw new NotSupportedException();
+        public void DeleteSecret(AiProviderKind provider) => throw new NotSupportedException();
+    }
+
+    private static AiChatRequest Request(AiContractHarness harness, AiProviderKind kind, IReadOnlyList<AiChatMessage> history)
+        => new(AiConversationContext.Capture(harness.Settings, kind), history);
 
     private static string SensitiveArguments() => JsonSerializer.Serialize(new
     {
@@ -496,7 +661,7 @@ public sealed class AiProviderContractTests
         handler.Enqueue("PASSWORD=synthetic-private-value; Bearer synthetic-bearer " + new string('x', 600), (HttpStatusCode)status);
         var executed = 0;
         var error = await Assert.ThrowsAsync<AiProviderException>(() =>
-            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+            Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
             {
                 executed++;
                 return Task.FromResult("must not execute");
@@ -524,7 +689,7 @@ public sealed class AiProviderContractTests
         handler.Enqueue(Response(kind, null, AiContractHarness.Call()));
         handler.Enqueue("synthetic outage", HttpStatusCode.ServiceUnavailable);
         var executed = 0;
-        await Assert.ThrowsAsync<AiProviderException>(() => Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+        await Assert.ThrowsAsync<AiProviderException>(() => Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
         {
             executed++;
             return Task.FromResult("Mutation completed");
@@ -549,7 +714,7 @@ public sealed class AiProviderContractTests
             throw new InvalidOperationException("Unreachable");
         });
         var executed = 0;
-        var turn = Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+        var turn = Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
         {
             executed++;
             return Task.FromResult("must not execute");
@@ -572,7 +737,7 @@ public sealed class AiProviderContractTests
         var executed = 0;
         var failure = new InvalidOperationException("Synthetic partial operation failure");
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+            Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
             {
                 executed++;
                 return Task.FromException<string>(failure);
@@ -591,7 +756,7 @@ public sealed class AiProviderContractTests
         using var http = new AiHttpClient(handler);
         handler.Enqueue("{broken response");
         var executed = 0;
-        await Assert.ThrowsAnyAsync<JsonException>(() => Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+        await Assert.ThrowsAnyAsync<JsonException>(() => Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
         {
             executed++;
             return Task.FromResult("must not execute");
@@ -616,7 +781,7 @@ public sealed class AiProviderContractTests
         }
         var calls = new List<string>();
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (call, _) =>
+            Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (call, _) =>
             {
                 calls.Add(call.ArgumentsJson);
                 return Task.FromResult("read-only evidence");
@@ -656,7 +821,7 @@ public sealed class AiProviderContractTests
         handler.Enqueue(Response(kind, null, AiContractHarness.Call()));
         var executed = 0;
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+            Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
             {
                 executed++;
                 cancellation.Cancel();
@@ -677,7 +842,7 @@ public sealed class AiProviderContractTests
         using var handler = new AiContractHarness.ScriptedHttpHandler();
         using var http = new AiHttpClient(handler);
         var error = await Assert.ThrowsAsync<AiProviderException>(() =>
-            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+            Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (_, _) =>
                 throw new InvalidOperationException("Must not execute tools"), CancellationToken.None));
         Assert.Equal(AiFailureKind.Configuration, error.Kind);
         Assert.Equal(kind, error.Provider);
@@ -691,7 +856,7 @@ public sealed class AiProviderContractTests
         using var handler = new AiContractHarness.ScriptedHttpHandler();
         using var http = new AiHttpClient(handler);
         handler.Enqueue(Response(AiProviderKind.OpenAi, "Local response"));
-        await Create(AiProviderKind.OpenAi, http, h.Settings, key: null).RunTurnAsync(History, [], (_, _) =>
+        await Create(AiProviderKind.OpenAi, http, h.Settings, key: null).RunTurnAsync(Request(h, AiProviderKind.OpenAi, History), [], (_, _) =>
             throw new InvalidOperationException("No tool expected"), CancellationToken.None);
         Assert.False(Assert.Single(handler.Requests).Headers.ContainsKey("Authorization"));
     }

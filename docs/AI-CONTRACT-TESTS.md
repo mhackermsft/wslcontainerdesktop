@@ -184,7 +184,86 @@ the assistant writes sanitized event data, not retrospective cleanup, perfect
 secret detection, encrypted workload configuration, or SDK transport behavior.
 The README and Settings notice describe these limits.
 
-## Deliberate gaps and feature-layer acceptance
+## Structured history and conversation ownership (#96)
+
+`IAiChatProvider.RunTurnAsync` accepts `AiChatRequest`, containing an immutable
+`AiChatConfiguration` (provider kind, endpoint, model/deployment) and a copied
+message history. It returns `AiChatTurnResult` with final text and a structured
+new-turn transcript. Provider transports retain sanitized copies, while tool
+callbacks receive the original arguments.
+
+The service independently journals each actual tool callback and its paired
+outcome. This journal is authoritative even if a provider disconnects before
+returning its transcript or produces an uninformative prose summary. Completed
+outcomes survive failed/cancelled turns; actions that never reached execution are
+not-run, while incomplete executions remain explicitly unknown, never reported
+as rolled back. Failure diagnostics are sanitized. Any failed callback closes
+the turn to further actions or a success response, even when a provider swallows
+an unexpected exception. There is no automatic action replay. Reusing a call ID within a turn is rejected
+before another resolution or execution; this is not general exactly-once
+execution across separate model-generated calls.
+
+History is memory-only. The next send clears it when the selected provider,
+endpoint, or model/deployment differs; switching back does not restore an older
+conversation. In-flight requests retain their captured destination/model.
+Reset cancels the active generation and clears pending approvals and history.
+Service guards reject late callbacks after resolution, before approval,
+before execution, and before committing text/history. An old turn's cleanup
+cannot clear a new turn's approval. Overlapping sends are rejected rather than
+interleaved; tool callbacks within a turn are serialized.
+
+`AiConversationContext.Prepare` is used before provider requests and tool
+resolution. Its application input ceiling is 32,768 accounted UTF-8 JSON bytes
+for unknown/custom models, or 65,536 for the exact known IDs `gpt-4o`,
+`gpt-4o-mini`, `llama3.1`, and `qwen2.5`. Accounting includes messages, tool
+schemas, escaping, and a fixed plus per-item protocol reserve. These are
+conservative application ceilings, **not negotiated model context-window
+claims or an exact tokenizer**. Smaller server contexts may reject a request;
+no fallback to another model/provider occurs. #88 can replace the policy with
+configuration-keyed observed limits without bypassing `Prepare`.
+
+Old complete user turns are evicted together with all calls and outcomes,
+retaining the trusted system prompt and an explicit truncation notice. The
+notice is also shown in the final service response. An active turn or tool
+schema set that cannot fit fails closed instead of silently dropping live
+outcomes to continue inference. Retention can evict an oversized completed
+turn, also with the explicit notice. Shared per-evidence sanitization remains
+in effect before accounting/truncation. No model-generated summary replaces
+the surviving structured evidence.
+
+`AssistantHistoryContractTests` uses the real service, scripted provider races,
+all three captured HTTP adapters, and the production Copilot bridge to cover evidence round trips, failed-turn
+retention, local-to-cloud changes, switching back, configuration capture before
+asynchronous definition lookup, reset/cancellation and late callbacks, stale
+approval cleanup, overlapping sends, duplicate call IDs, partial cancellation
+outcomes, Unicode/schema accounting, paired eviction, and visible truncation.
+Include `FullyQualifiedName~AssistantHistoryContractTests` in the focused filter.
+
+`AiProviderContractTests` also checks immutable configuration and credential
+capture across tool continuations, returned transcript round trips, per-request
+aggregate budgets, oversized schemas, and stopping remaining calls on
+cancellation. `GitHubCopilotProviderContractTests` source-links the production
+`CopilotChatTurnRunner` bridge with a fake session delegate: no SDK session,
+sign-in, process, or credential store is created. The real service also runs over
+that bridge for history round trips and model isolation. It tracks actual
+callbacks/outcomes and stops the session after callback failure rather than
+accepting an SDK-swallowed error as success.
+
+Copilot's SDK owns its internal inference loop; the bridge cannot surgically
+prune that session. It therefore stops when the tracked session context exceeds
+the application ceiling, instead of pretending that pruning a local copy
+changed SDK state. A subsequent user turn creates a new session with bounded
+retained evidence. SDK-internal wire behavior and unobserved runtime overhead
+remain outside deterministic coverage; the app's history and tool evidence
+contracts are exercised without claiming live-provider compatibility.
+
+Combined focused command (both configured targets, with no deployment):
+
+```powershell
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~AssistantHistoryContractTests|FullyQualifiedName~AssistantOrchestrationContractTests|FullyQualifiedName~AssistantToolsetContractTests|FullyQualifiedName~AiProviderContractTests|FullyQualifiedName~AiTextSanitizerTests|FullyQualifiedName~GitHubCopilotProviderContractTests"
+```
+
+## Remaining feature-layer acceptance
 
 These are **unmet criteria**, not skipped tests or assertions that unsafe
 behavior is desirable. Scripted resolver tests remain orchestration-boundary
@@ -194,12 +273,11 @@ Serialized activity capture is a test sink, not the production on-disk store.
 
 | Layer | Regression coverage still required |
 | --- | --- |
-| #96 history | Structured multi-turn tool evidence, call/result pairing, provider isolation/switches, in-flight model/endpoint/configuration snapshots, failed-turn retention policy, late completions and stale approvals after reset, overlapping turns, context budgets and truncation. Current coverage only proves sequential text history and reset while approval is pending. |
 | #88 capabilities | Independent Unknown/chat/tool/JSON/streaming/context support, configuration-keyed observations, unsupported JSON, chat-only models, loading versus failures. A diagnosis JSON-mode serialization test is not capability negotiation. |
 | #89 streaming | Fragment assembly, complete validation before action, progress ordering, disconnect recovery, inference versus approval timeouts, cancellation/reset generations, partial outcomes and no replay. Current adapters return final strings. |
 | #90 runtime ownership | Fake inventory/process-backed local setup: ownership/name collisions, GPU versus other failures, safe fallback, partial creation, racing replacement, cancellation, cleanup failures and retained model data. No runtime lifecycle is invoked here. |
 | #92 Foundry Local | Deterministic dedicated adapter/runtime tests using the shared contracts, plus explicitly opted-in packaged and hardware runs. No Foundry dependency or model is acquired by this foundation. |
-| Copilot SDK adapter | Provider-specific SDK tool/history/error behavior needs a transport/session seam; the shared HTTP tests do not exercise the SDK or sign-in. |
+| Copilot SDK adapter | The production chat bridge now has fake-session history/budget/cancellation/failure coverage, including real-service round trips. SDK-internal transport, actual model events, sign-in and opaque runtime overhead still require an explicitly authorized live smoke run. |
 
 Do not treat the absence of automatic retries in these scenarios as general
 exactly-once execution or duplicate-model-call detection. Those guarantees need
