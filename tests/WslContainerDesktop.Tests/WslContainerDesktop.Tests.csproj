@@ -64,6 +64,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcExecutableIdentity.cs" Link="Services\WslcExecutableIdentity.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessRunner.cs" Link="Services\ProcessRunner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessExecutor.cs" Link="Services\ProcessExecutor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AiCapabilityGuidance.cs" Link="Services\AiCapabilityGuidance.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NativeHealthOptions.cs" Link="Models\NativeHealthOptions.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NativeHealthObservation.cs" Link="Models\NativeHealthObservation.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\NativeHealthPolicy.cs" Link="Services\NativeHealthPolicy.cs" />
