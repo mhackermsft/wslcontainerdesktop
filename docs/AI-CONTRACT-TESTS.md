@@ -3,7 +3,8 @@
 Issue #95 establishes deterministic coverage for existing orchestration and HTTP
 adapter contracts. It is a foundation, **not completion of all #95 acceptance
 criteria**. The feature layers below must add their own regression coverage as
-their contracts become available.
+their contracts become available. Issue #97 extends this foundation with real
+argument resolution, approval-bound container plans, and partial-execution tests.
 
 ## Running the deterministic suite
 
@@ -11,6 +12,9 @@ From the repository root on Windows with the .NET 10 SDK:
 
 ```powershell
 dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~AssistantOrchestrationContractTests|FullyQualifiedName~AiProviderContractTests"
+
+# Real toolset and orchestration together (Windows source-linked target):
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 -f net10.0-windows10.0.26100.0 --no-restore --filter "FullyQualifiedName~AssistantToolsetContractTests|FullyQualifiedName~AssistantOrchestrationContractTests"
 ```
 
 Use the repository's existing xUnit runner. If assets are missing, first audit
@@ -18,7 +22,8 @@ publication dates for the exact restore graph under the seven-day dependency-age
 policy, then restore. No additional test packages are needed. Source links compile
 the actual service and adapter implementations without loading the WinUI
 executable or activating its MSIX package. Tests run for both configured target
-frameworks; they require no credentials, server, WSL engine, running workload,
+frameworks, except real toolset tests run only on the Windows target already used
+by the real Compose supervisor. They require no credentials, server, WSL engine, running workload,
 model, or model download.
 
 ## Reusable boundaries and fixtures
@@ -37,6 +42,11 @@ synthetic credentials, and a queue-based HTTP handler that captures requests
 before disposal. Unconfigured calls throw; there is no network fallback.
 Task-completion signals control approval and cancellation timing without sleeps.
 Timeouts in tests are deadlock guards, not scheduling assumptions.
+An optional toolset factory allows the same harness to run the actual
+`AssistantToolset` instead of scripted resolution/execution. Its inventory and
+service interfaces use strict `NetworkTestProxy` fakes. Source-linked template,
+registry and Kubernetes dependencies compile their real contracts; no real
+registry, credential store, process runner, Compose deployment, or provider is invoked.
 
 The real `ContainerAssistantService` and `AssistantActionGate` are exercised for:
 
@@ -60,16 +70,58 @@ eight-iteration limit, and diagnosis JSON serialization/parsing. OpenAI also has
 keyless endpoint and URI normalization cases. Synthetic credential values are
 asserted absent from request bodies and URLs, not from required auth headers.
 
+## Exact action plan regressions (#97)
+
+`AssistantToolsetContractTests` exercises the production resolver and executor:
+
+- Malformed/empty/non-object JSON, unknown and duplicate fields, required
+  nonblank strings, nulls and wrong types fail with `InvalidOperationException`
+  before inventory or mutation. Run-option string arrays reject non-string and
+  blank entries rather than silently dropping them; all supported run fields
+  are checked for faithful capture and execution. Environment/label entries
+  require unique nonblank keys and `KEY=VALUE` syntax; CPU limits must be
+  positive decimals. Empty namespaces are accepted only for `delete_resource`.
+- Bulk intent requires `scope:"all"` with no filters, or nonblank name filters
+  without scope. Empty objects, invalid scope, blank filters and non-boolean
+  `onlyRunning` fail closed. Log-tail bounds (1–1000) and replica bounds (0–100)
+  are tested with valid endpoints and invalid numeric/types.
+- Exact IDs, safe unique hexadecimal ID prefixes (at least 12 characters), or
+  unique names resolve to captured immutable IDs; approval details include
+  names and IDs. Short/ambiguous prefixes and ID/name collisions across
+  different containers are rejected. Prefixes are resolved only before approval;
+  revalidation and mutation use the frozen inventory ID. Mutable inventory objects do
+  not mutate the approved identity snapshot (name/image/creation/known flag).
+  Missing, replaced, ambiguous or changed targets are skipped.
+- Bulk execution re-lists immediately before every target. New matching
+  containers are ignored; running-only targets that stop are skipped. Explicit
+  removal including stopped containers remains supported. An empty snapshot
+  does not expand after approval.
+- Normal per-target command failures continue without retry and report honest
+  failed/partial results. Inventory failures stop later mutations and preserve
+  completed and unattempted evidence. Structured JSON reports status and outcomes.
+- Cancellation before the first mutation throws; cancellation after partial
+  execution retains succeeded and not-run outcomes. Cancellation during a
+  mutation reports unknown rather than falsely claiming rollback or failure,
+  including cancellation originating independently of the caller token.
+- Definition probing propagates caller cancellation; invalid Compose with no
+  services fails before approval, including when the tool is auto-approved.
+- Real-toolset approval, rejection, late approval, cancellation/reset, and
+  auto-approved malformed calls run through the shared orchestration harness.
+
+These tests are deterministic safety-boundary tests, not an atomic transaction
+guarantee. Inventory can still change between the final check and the engine
+call. Uncertain outcomes require inspection and fresh approval, not a retry.
+
 ## Deliberate gaps and feature-layer acceptance
 
 These are **unmet criteria**, not skipped tests or assertions that unsafe
-behavior is desirable. Resolver failure tests use a scripted resolver and do
-not establish that the production toolset validates malformed arguments.
+behavior is desirable. Scripted resolver tests remain orchestration-boundary
+coverage; the separate real-toolset suite above establishes argument validation
+and inventory safety.
 Serialized activity capture is a test sink, not the production on-disk store.
 
 | Layer | Regression coverage still required |
 | --- | --- |
-| #97 exact action plans | Real `AssistantToolset` with fake inventory: malformed/non-object/wrong-typed/unknown fields, intentional all scope, immutable IDs, inventory drift and replacement, cancellation between targets, stale targets and honest partial mutations, including auto-approved validation. Scripted execution above proves the orchestration boundary only, not inventory safety. |
 | #91 privacy | Outbound inspect/log/environment/YAML/tool/error data and persisted activity redaction, original execution values, nested structures and truncation boundaries. Existing exception-detail redaction and synthetic auth transport tests do not establish a universal privacy boundary. |
 | #96 history | Structured multi-turn tool evidence, call/result pairing, provider isolation/switches, in-flight model/endpoint/configuration snapshots, failed-turn retention policy, late completions and stale approvals after reset, overlapping turns, context budgets and truncation. Current coverage only proves sequential text history and reset while approval is pending. |
 | #88 capabilities | Independent Unknown/chat/tool/JSON/streaming/context support, configuration-keyed observations, unsupported JSON, chat-only models, loading versus failures. A diagnosis JSON-mode serialization test is not capability negotiation. |

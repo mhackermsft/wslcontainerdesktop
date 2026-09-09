@@ -44,7 +44,7 @@ internal sealed class AiContractHarness
     public ScriptedTools Tools { get; } = new();
     public ContainerAssistantService Assistant { get; }
 
-    public AiContractHarness()
+    public AiContractHarness(Func<ISettingsService, IAssistantToolset>? toolsetFactory = null)
     {
         Settings = NetworkTestProxy.Create<ISettingsService>((method, args) =>
         {
@@ -73,7 +73,8 @@ internal sealed class AiContractHarness
             PersistedActivity.Add(JsonSerializer.Serialize(item));
             return null;
         });
-        Assistant = new(Settings, [Provider], Tools, new AssistantActionGate(Settings), activity);
+        Assistant = new(Settings, [Provider], toolsetFactory?.Invoke(Settings) ?? Tools,
+            new AssistantActionGate(Settings), activity);
     }
 
     public static AiToolCall Call(string name = "stop_container", string arguments = """{"id":"approved-id"}""") =>

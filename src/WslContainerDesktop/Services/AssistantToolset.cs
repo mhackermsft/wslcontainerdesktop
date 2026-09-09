@@ -35,28 +35,28 @@ public sealed class AssistantToolset(
     {
         var definitions = new List<AiToolDefinition>
         {
-            Tool("list_containers", "List containers, including stopped containers.", "{}"),
-            Tool("inspect_container", "Inspect a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
-            Tool("get_container_logs", "Get recent logs for a container.", ObjectSchema(("id", "string", "Container id or name"), ("tail", "integer", "Number of lines, max 1000"))),
-            Tool("list_images", "List local images.", "{}"),
-            Tool("list_volumes", "List volumes.", "{}"),
-            Tool("list_networks", "List networks.", "{}"),
-            Tool("engine_status", "Check WSL container engine availability and version.", "{}"),
-            Tool("list_compose_projects", "List saved compose projects.", "{}"),
-            Tool("run_container", "Run a container from structured options. Use for simple deployments such as nginx. Set gpus=true for GPU workloads (e.g. Ollama, CUDA).", RunContainerSchema()),
-            Tool("pull_image", "Pull a container image reference.", ObjectSchema(("reference", "string", "Image reference, e.g. nginx:alpine"))),
-            Tool("start_container", "Start a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
-            Tool("stop_container", "Stop a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
-            Tool("restart_container", "Restart a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
-            Tool("remove_container", "Remove a container by id or name.", ObjectSchema(("id", "string", "Container id or name"))),
-            Tool("stop_all_containers", "Stop running containers. Set namePrefix or nameContains to restrict to matching names (e.g. namePrefix \"wordpress_\"); omit BOTH filters to stop every running container.", BulkContainerSchema(includeOnlyRunning: false)),
-            Tool("remove_all_containers", "Remove containers after the app resolves the target list. Set namePrefix or nameContains to restrict to matching names (e.g. namePrefix \"wordpress_\"); omit BOTH filters to remove every container. Prefer this with a filter over multiple remove_container calls when the user names a group.", BulkContainerSchema(includeOnlyRunning: true)),
-            Tool("deploy_template", "Deploy an app template by id or name. Available templates include: " + TemplateList(), ObjectSchema(("idOrName", "string", "Template id or name, e.g. wordpress"))),
-            Tool("deploy_compose", "Deploy a multi-container application from a docker-compose YAML as a single project. ALWAYS use this (or deploy_template) for apps with more than one container (e.g. app + database, app + cache) so services share a network and can resolve each other by service name over DNS. Do NOT wire multiple run_container calls together.", DeployComposeSchema()),
-            Tool("create_volume", "Create a named volume.", ObjectSchema(("name", "string", "Volume name"))),
-            Tool("remove_volume", "Remove a named volume.", ObjectSchema(("name", "string", "Volume name"))),
-            Tool("create_network", "Create a named network.", ObjectSchema(("name", "string", "Network name"))),
-            Tool("remove_network", "Remove a named network.", ObjectSchema(("name", "string", "Network name"))),
+            Tool("list_containers", "List containers, including stopped containers."),
+            Tool("inspect_container", "Inspect a container by id or name."),
+            Tool("get_container_logs", "Get recent logs for a container."),
+            Tool("list_images", "List local images."),
+            Tool("list_volumes", "List volumes."),
+            Tool("list_networks", "List networks."),
+            Tool("engine_status", "Check WSL container engine availability and version."),
+            Tool("list_compose_projects", "List saved compose projects."),
+            Tool("run_container", "Run a container from structured options. Use for simple deployments such as nginx. Set gpus=true for GPU workloads (e.g. Ollama, CUDA)."),
+            Tool("pull_image", "Pull a container image reference."),
+            Tool("start_container", "Start a container by id or name."),
+            Tool("stop_container", "Stop a container by id or name."),
+            Tool("restart_container", "Restart a container by id or name."),
+            Tool("remove_container", "Remove a container by id or name."),
+            Tool("stop_all_containers", "Stop running containers. Set namePrefix or nameContains to restrict matching names, or explicitly set scope=\"all\" without filters for every running container."),
+            Tool("remove_all_containers", "Remove containers after the app resolves exact targets. Set namePrefix or nameContains to restrict matching names, or explicitly set scope=\"all\" without filters. onlyRunning defaults to true."),
+            Tool("deploy_template", "Deploy an app template by id or name. Available templates include: " + TemplateList()),
+            Tool("deploy_compose", "Deploy a multi-container application from a docker-compose YAML as a single project. ALWAYS use this (or deploy_template) for apps with more than one container (e.g. app + database, app + cache) so services share a network and can resolve each other by service name over DNS. Do NOT wire multiple run_container calls together."),
+            Tool("create_volume", "Create a named volume."),
+            Tool("remove_volume", "Remove a named volume."),
+            Tool("create_network", "Create a named network."),
+            Tool("remove_network", "Remove a named network."),
         };
 
         var browsableRegistries = settings.Registries.Where(registryCatalog.CanBrowse).ToList();
@@ -64,13 +64,9 @@ public sealed class AssistantToolset(
         {
             var names = string.Join(", ", browsableRegistries.Select(r => string.IsNullOrWhiteSpace(r.Name) ? r.Host : r.Name));
             definitions.Add(Tool("list_registry_repositories",
-                "List the repositories (image names) available in a configured remote registry. Browsable registries: " + names + ". Docker Hub's global catalog is not browsable.",
-                ObjectSchema(("registry", "string", "Registry name or host to browse, e.g. one of: " + names))));
+                "List the repositories (image names) available in a configured remote registry. Browsable registries: " + names + ". Docker Hub's global catalog is not browsable."));
             definitions.Add(Tool("list_registry_tags",
-                "List the available tags (versions) of a repository in a configured remote registry, so you can see what versions exist and which is newest. Browsable registries: " + names + ".",
-                ObjectSchema(
-                    ("registry", "string", "Registry name or host to browse, e.g. one of: " + names),
-                    ("repository", "string", "Repository/image name within the registry, e.g. myapp or team/myapp"))));
+                "List the available tags (versions) of a repository in a configured remote registry, so you can see what versions exist and which is newest. Browsable registries: " + names + "."));
         }
 
         try
@@ -79,17 +75,21 @@ public sealed class AssistantToolset(
             if (status.State is not ClusterState.NotInstalled)
             {
                 definitions.AddRange([
-                    Tool("k8s_status", "Get k3s cluster status.", "{}"),
-                    Tool("list_k8s_resources", "List k3s resources by kind: pods, deployments, services, ingresses, pvc, configmaps, secrets, jobs, cronjobs, namespaces.", ObjectSchema(("kind", "string", "Resource kind"), ("namespace", "string", "Optional namespace"))),
-                    Tool("get_k8s_logs", "Get recent logs for a pod.", ObjectSchema(("namespace", "string", "Namespace"), ("name", "string", "Pod name"), ("tail", "integer", "Number of lines"))),
-                    Tool("apply_yaml", "Apply a Kubernetes YAML manifest.", ObjectSchema(("yaml", "string", "Kubernetes YAML manifest"))),
-                    Tool("scale_deployment", "Scale a Kubernetes deployment.", ObjectSchema(("namespace", "string", "Namespace"), ("name", "string", "Deployment name"), ("replicas", "integer", "Replica count"))),
-                    Tool("restart_deployment", "Restart a Kubernetes deployment.", ObjectSchema(("namespace", "string", "Namespace"), ("name", "string", "Deployment name"))),
-                    Tool("delete_resource", "Delete a Kubernetes resource.", ObjectSchema(("kind", "string", "Resource kind"), ("namespace", "string", "Namespace or empty for cluster-scoped"), ("name", "string", "Resource name"))),
-                    Tool("cluster_start", "Start k3s.", "{}"),
-                    Tool("cluster_stop", "Stop k3s.", "{}"),
+                    Tool("k8s_status", "Get k3s cluster status."),
+                    Tool("list_k8s_resources", "List k3s resources by kind: pods, deployments, services, ingresses, pvc, configmaps, secrets, jobs, cronjobs, namespaces."),
+                    Tool("get_k8s_logs", "Get recent logs for a pod."),
+                    Tool("apply_yaml", "Apply a Kubernetes YAML manifest."),
+                    Tool("scale_deployment", "Scale a Kubernetes deployment."),
+                    Tool("restart_deployment", "Restart a Kubernetes deployment."),
+                    Tool("delete_resource", "Delete a Kubernetes resource. Namespace may be empty for a cluster-scoped resource."),
+                    Tool("cluster_start", "Start k3s."),
+                    Tool("cluster_stop", "Stop k3s."),
                 ]);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {
@@ -101,7 +101,8 @@ public sealed class AssistantToolset(
 
     public async Task<AssistantResolvedToolCall> ResolveAsync(AiToolCall call, CancellationToken ct)
     {
-        var args = ParseArgs(call.ArgumentsJson);
+        ct.ThrowIfCancellationRequested();
+        var args = ValidateArgs(call);
         return call.Name switch
         {
             "list_containers" => Resolved(call, AssistantPermissionCategory.ReadOnly, "List containers", "", token => ListContainersAsync(token)),
@@ -114,10 +115,8 @@ public sealed class AssistantToolset(
             "list_compose_projects" => Resolved(call, AssistantPermissionCategory.ReadOnly, "List compose projects", "", _ => Task.FromResult(ListComposeProjects())),
             "run_container" => ResolveRunContainer(call, args),
             "pull_image" => Resolved(call, AssistantPermissionCategory.CreateRun, $"Pull image {StringArg(args, "reference")}", call.ArgumentsJson, token => PullImageAsync(StringArg(args, "reference"), token)),
-            "start_container" => Resolved(call, AssistantPermissionCategory.Lifecycle, $"Start {StringArg(args, "id")}", call.ArgumentsJson, token => StartContainerAsync(StringArg(args, "id"), token)),
-            "stop_container" => Resolved(call, AssistantPermissionCategory.Lifecycle, $"Stop {StringArg(args, "id")}", call.ArgumentsJson, token => StopContainerAsync(StringArg(args, "id"), token)),
-            "restart_container" => Resolved(call, AssistantPermissionCategory.Lifecycle, $"Restart {StringArg(args, "id")}", call.ArgumentsJson, token => RestartContainerAsync(StringArg(args, "id"), token)),
-            "remove_container" => Resolved(call, AssistantPermissionCategory.Destructive, $"Remove {StringArg(args, "id")}", call.ArgumentsJson, token => RemoveContainerAsync(StringArg(args, "id"), token)),
+            "start_container" or "stop_container" or "restart_container" or "remove_container" =>
+                await ResolveContainerAsync(call, StringArg(args, "id"), ct).ConfigureAwait(false),
             "stop_all_containers" => await ResolveStopAllAsync(call, OptionalStringArg(args, "namePrefix"), OptionalStringArg(args, "nameContains"), ct).ConfigureAwait(false),
             "remove_all_containers" => await ResolveRemoveAllAsync(call, BoolArg(args, "onlyRunning", true), OptionalStringArg(args, "namePrefix"), OptionalStringArg(args, "nameContains"), ct).ConfigureAwait(false),
             "deploy_template" => Resolved(call, AssistantPermissionCategory.ComposeTemplate, $"Deploy template {StringArg(args, "idOrName")}", call.ArgumentsJson, token => DeployTemplateAsync(StringArg(args, "idOrName"), token)),
@@ -217,46 +216,6 @@ public sealed class AssistantToolset(
     public async Task<string> RemoveContainerAsync(string id, CancellationToken ct) =>
         Summarize(await wslc.RemoveContainerAsync(RequireValue(id, "container"), force: true, ct).ConfigureAwait(false));
 
-    [Description("High-risk: stop every currently running container.")]
-    public async Task<(string Result, IReadOnlyList<string> Targets)> StopAllContainersAsync(string? namePrefix, string? nameContains, CancellationToken ct)
-    {
-        var targets = await StopAllContainersAsyncPreview(namePrefix, nameContains, ct).ConfigureAwait(false);
-        var results = new List<string>();
-        foreach (var target in targets)
-        {
-            results.Add($"{target}: {Summarize(await wslc.StopContainerAsync(target, ct).ConfigureAwait(false))}");
-        }
-
-        return (targets.Count == 0 ? "No matching running containers." : string.Join(Environment.NewLine, results), targets);
-    }
-
-    [Description("High-risk: remove containers after resolving the concrete target list.")]
-    public async Task<(string Result, IReadOnlyList<string> Targets)> RemoveAllContainersAsync(bool onlyRunning, string? namePrefix, string? nameContains, CancellationToken ct)
-    {
-        var targets = await RemoveAllContainersAsyncPreview(onlyRunning, namePrefix, nameContains, ct).ConfigureAwait(false);
-        var results = new List<string>();
-        foreach (var target in targets)
-        {
-            results.Add($"{target}: {Summarize(await wslc.RemoveContainerAsync(target, force: true, ct).ConfigureAwait(false))}");
-        }
-
-        return (targets.Count == 0 ? "No matching containers." : string.Join(Environment.NewLine, results), targets);
-    }
-
-    public async Task<IReadOnlyList<string>> StopAllContainersAsyncPreview(string? namePrefix, string? nameContains, CancellationToken ct) =>
-        (await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false))
-        .Where(c => c.State.IsRunning())
-        .Where(c => MatchesNameFilter(c.Name, namePrefix, nameContains))
-        .Select(c => string.IsNullOrWhiteSpace(c.Name) ? c.Id : c.Name)
-        .ToList();
-
-    public async Task<IReadOnlyList<string>> RemoveAllContainersAsyncPreview(bool onlyRunning, string? namePrefix, string? nameContains, CancellationToken ct) =>
-        (await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false))
-        .Where(c => !onlyRunning || c.State.IsRunning())
-        .Where(c => MatchesNameFilter(c.Name, namePrefix, nameContains))
-        .Select(c => string.IsNullOrWhiteSpace(c.Name) ? c.Id : c.Name)
-        .ToList();
-
     private static bool MatchesNameFilter(string? name, string? namePrefix, string? nameContains)
     {
         var containerName = name ?? string.Empty;
@@ -333,22 +292,12 @@ public sealed class AssistantToolset(
     {
         var yaml = StringArg(args, "yaml");
         var projectName = OptionalStringArg(args, "projectName");
-        string summary;
-        string details;
-        try
-        {
-            var preview = ComposeImporter.ParseProject(yaml);
-            var name = ResolveComposeProjectName(projectName, preview.Name);
-            summary = $"Deploy compose project '{name}'";
-            details = preview.Services.Count == 0
-                ? "Warning: the compose YAML defines no services."
-                : "Services:\n" + string.Join(Environment.NewLine, preview.Services.Select(s => $"- {s.Name} ({s.Options.Image})"));
-        }
-        catch (Exception ex)
-        {
-            summary = "Deploy compose project";
-            details = "Compose YAML could not be parsed: " + ex.Message;
-        }
+        var preview = ComposeImporter.ParseProject(yaml);
+        if (preview.Services.Count == 0)
+            throw new InvalidOperationException("Invalid tool arguments: compose YAML defines no services.");
+        var name = ResolveComposeProjectName(projectName, preview.Name);
+        var summary = $"Deploy compose project '{name}'";
+        var details = "Services:\n" + string.Join(Environment.NewLine, preview.Services.Select(s => $"- {s.Name} ({s.Options.Image})"));
 
         return Resolved(call, AssistantPermissionCategory.ComposeTemplate, summary, details, token => DeployComposeAsync(yaml, projectName, token));
     }
@@ -522,19 +471,34 @@ public sealed class AssistantToolset(
 
     private string TemplateList() => string.Join(", ", templates.Templates.Select(t => $"{t.Id} ({t.Name})").Take(40));
 
-    private static AiToolDefinition Tool(string name, string description, string schema) => new()
+    private static AiToolDefinition Tool(string name, string description) => new()
     {
         Name = name,
         Description = description,
-        JsonSchemaParameters = schema == "{}" ? """{"type":"object","properties":{},"additionalProperties":false}""" : schema,
+        JsonSchemaParameters = ArgumentSchema(name),
     };
 
     private static string ObjectSchema(params (string Name, string Type, string Description)[] properties)
     {
-        var props = string.Join(",", properties.Select(p => $"\"{p.Name}\":{{\"type\":\"{p.Type}\",\"description\":{JsonSerializer.Serialize(p.Description)}}}"));
+        var props = string.Join(",", properties.Select(p => $"\"{p.Name}\":{{\"type\":\"{p.Type}\",\"description\":{JsonSerializer.Serialize(string.IsNullOrEmpty(p.Description) ? FieldDescription(p.Name) : p.Description)}{(p.Name == "tail" ? ",\"minimum\":1,\"maximum\":1000" : p.Name == "replicas" ? ",\"minimum\":0,\"maximum\":100" : "")}}}"));
         var required = string.Join(",", properties.Where(p => !p.Name.Equals("namespace", StringComparison.OrdinalIgnoreCase) && !p.Name.Equals("tail", StringComparison.OrdinalIgnoreCase)).Select(p => JsonSerializer.Serialize(p.Name)));
         return $$"""{"type":"object","properties":{ {{props}} },"required":[{{required}}],"additionalProperties":false}""";
     }
+
+    private static string FieldDescription(string name) => name switch
+    {
+        "id" => "Container id or name",
+        "tail" => "Number of log lines (1-1000); defaults to 200",
+        "reference" => "Image reference, e.g. nginx:alpine",
+        "idOrName" => "Template id or name, e.g. wordpress",
+        "registry" => "Configured registry name or host",
+        "repository" => "Repository/image name within the registry, e.g. team/myapp",
+        "namespace" => "Optional namespace; defaults depend on the resource operation",
+        "replicas" => "Replica count (0-100)",
+        "kind" => "Resource kind: pods, deployments, services, ingresses, pvc, configmaps, secrets, jobs, cronjobs, namespaces (singular aliases also accepted)",
+        "yaml" => "Complete Kubernetes YAML manifest",
+        _ => "Resource name",
+    };
 
     private static string DeployComposeSchema() =>
         "{\"type\":\"object\",\"properties\":{" +
@@ -549,9 +513,12 @@ public sealed class AssistantToolset(
             : string.Empty;
         return "{\"type\":\"object\",\"properties\":{" +
                onlyRunning +
-               "\"namePrefix\":{\"type\":\"string\",\"description\":\"Only affect containers whose name starts with this value, e.g. wordpress_. Omit to match all.\"}," +
-               "\"nameContains\":{\"type\":\"string\",\"description\":\"Only affect containers whose name contains this substring. Omit to match all.\"}" +
-               "},\"required\":[],\"additionalProperties\":false}";
+               "\"scope\":{\"type\":\"string\",\"enum\":[\"all\"],\"description\":\"Explicit all-container intent. Cannot be combined with filters.\"}," +
+               "\"namePrefix\":{\"type\":\"string\",\"minLength\":1,\"description\":\"Only affect containers whose name starts with this nonblank value.\"}," +
+               "\"nameContains\":{\"type\":\"string\",\"minLength\":1,\"description\":\"Only affect containers whose name contains this nonblank substring.\"}" +
+               "},\"required\":[],\"additionalProperties\":false," +
+               "\"oneOf\":[{\"required\":[\"scope\"],\"not\":{\"anyOf\":[{\"required\":[\"namePrefix\"]},{\"required\":[\"nameContains\"]}]}}," +
+               "{\"not\":{\"required\":[\"scope\"]},\"anyOf\":[{\"required\":[\"namePrefix\"]},{\"required\":[\"nameContains\"]}]}]}";
     }
 
     private static string RunContainerSchema() => """
@@ -624,24 +591,122 @@ public sealed class AssistantToolset(
 
     private async Task<AssistantResolvedToolCall> ResolveStopAllAsync(AiToolCall call, string? namePrefix, string? nameContains, CancellationToken ct)
     {
-        var targets = await StopAllContainersAsyncPreview(namePrefix, nameContains, ct).ConfigureAwait(false);
-        var summary = DescribeBulkScope("Stop", "running containers", namePrefix, nameContains);
-        return Resolved(call, AssistantPermissionCategory.Lifecycle, summary, BulkTargetDetails(targets), async token => (await StopAllContainersAsync(namePrefix, nameContains, token).ConfigureAwait(false)).Result);
+        return await ResolveBulkAsync(call, true, namePrefix, nameContains, ct).ConfigureAwait(false);
     }
 
     private async Task<AssistantResolvedToolCall> ResolveRemoveAllAsync(AiToolCall call, bool onlyRunning, string? namePrefix, string? nameContains, CancellationToken ct)
     {
-        var targets = await RemoveAllContainersAsyncPreview(onlyRunning, namePrefix, nameContains, ct).ConfigureAwait(false);
-        var scope = onlyRunning ? "running containers" : "containers";
-        var summary = DescribeBulkScope("Remove", scope, namePrefix, nameContains);
-        return Resolved(call, AssistantPermissionCategory.Destructive, summary, BulkTargetDetails(targets), async token => (await RemoveAllContainersAsync(onlyRunning, namePrefix, nameContains, token).ConfigureAwait(false)).Result);
+        return await ResolveBulkAsync(call, onlyRunning, namePrefix, nameContains, ct).ConfigureAwait(false);
+    }
+
+    private async Task<AssistantResolvedToolCall> ResolveBulkAsync(
+        AiToolCall call, bool onlyRunning, string? namePrefix, string? nameContains, CancellationToken ct)
+    {
+        var inventory = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+        var targets = inventory.Where(c => !onlyRunning || c.State.IsRunning())
+            .Where(c => MatchesNameFilter(c.Name, namePrefix, nameContains))
+            .Select(CaptureTarget).ToArray();
+        if (targets.Select(t => t.Id).Distinct(StringComparer.Ordinal).Count() != targets.Length)
+            throw new InvalidOperationException("Container inventory has ambiguous IDs; no action was prepared.");
+        var remove = call.Name == "remove_all_containers";
+        return Resolved(call, remove ? AssistantPermissionCategory.Destructive : AssistantPermissionCategory.Lifecycle,
+            DescribeBulkScope(remove ? "Remove" : "Stop", onlyRunning ? "running containers" : "containers", namePrefix, nameContains),
+            BulkTargetDetails(targets), token => ExecuteTargetsAsync(call.Name, targets, onlyRunning, token));
+    }
+
+    private async Task<AssistantResolvedToolCall> ResolveContainerAsync(AiToolCall call, string id, CancellationToken ct)
+    {
+        var inventory = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+        var resolvedId = ContainerIdentity.ResolveId(inventory.Select(c => c.Id), id);
+        var matches = inventory.Where(c => string.Equals(c.Id, resolvedId, StringComparison.Ordinal) ||
+            string.Equals(c.Name, id, StringComparison.Ordinal)).ToArray();
+        if (matches.Length != 1)
+            throw new InvalidOperationException("Container target is missing or ambiguous; no action was prepared.");
+        var target = CaptureTarget(matches[0]);
+        return Resolved(call, call.Name == "remove_container" ? AssistantPermissionCategory.Destructive : AssistantPermissionCategory.Lifecycle,
+            $"{call.Name}: {target.Name} ({target.Id})", BulkTargetDetails([target]),
+            token => ExecuteTargetsAsync(call.Name, [target], call.Name == "stop_container", token));
+    }
+
+    // Copy values, never retain mutable inventory rows or re-run name filters after approval.
+    private sealed record ContainerTarget(string Id, string Name, string Image, long CreatedAt, bool CreatedAtKnown);
+    private sealed record TargetOutcome(string Id, string Name, string Status, string Detail);
+
+    private static ContainerTarget CaptureTarget(ContainerInfo container)
+    {
+        if (string.IsNullOrWhiteSpace(container.Id))
+            throw new InvalidOperationException("Container has no stable ID; no action was prepared.");
+        return new(container.Id, container.Name, container.Image, container.CreatedAt, container.CreatedAtKnown);
+    }
+
+    private async Task<string> ExecuteTargetsAsync(string tool, ContainerTarget[] targets, bool onlyRunning, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var outcomes = new List<TargetOutcome>();
+        var cancelled = false;
+        for (var index = 0; index < targets.Length; index++)
+        {
+            var target = targets[index];
+            var mutationStarted = false;
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                var inventory = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                var matches = inventory.Where(c => string.Equals(c.Id, target.Id, StringComparison.Ordinal)).ToArray();
+                if (matches.Length != 1 || CaptureTarget(matches[0]) != target ||
+                    (onlyRunning && !matches[0].State.IsRunning()))
+                {
+                    outcomes.Add(new(target.Id, target.Name, "skipped", "Target missing, ambiguous, identity changed, or no longer running; fresh approval required."));
+                    continue;
+                }
+
+                ct.ThrowIfCancellationRequested();
+                mutationStarted = true;
+                var result = tool switch
+                {
+                    "start_container" => await wslc.StartContainerAsync(target.Id, ct).ConfigureAwait(false),
+                    "restart_container" => await wslc.RestartContainerAsync(target.Id, ct).ConfigureAwait(false),
+                    "stop_container" or "stop_all_containers" => await wslc.StopContainerAsync(target.Id, ct).ConfigureAwait(false),
+                    "remove_container" or "remove_all_containers" => await wslc.RemoveContainerAsync(target.Id, force: true, ct).ConfigureAwait(false),
+                    _ => throw new InvalidOperationException("Unsupported container mutation."),
+                };
+                outcomes.Add(new(target.Id, target.Name, result.Success ? "succeeded" : "failed", Summarize(result)));
+            }
+            catch (OperationCanceledException)
+            {
+                if (outcomes.Count == 0 && !mutationStarted)
+                    throw;
+                cancelled = true;
+                outcomes.Add(new(target.Id, target.Name, mutationStarted ? "unknown" : "not_run",
+                    mutationStarted ? "Cancelled during mutation; outcome unknown. Inspect before any retry." : "Cancelled before mutation."));
+                for (var remaining = index + 1; remaining < targets.Length; remaining++)
+                    outcomes.Add(new(targets[remaining].Id, targets[remaining].Name, "not_run", "Cancelled; not attempted."));
+                break;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or
+                System.ComponentModel.Win32Exception or JsonException or TimeoutException)
+            {
+                // Preserve completed outcomes and stop: an exception is not evidence that a mutation failed atomically.
+                outcomes.Add(new(target.Id, target.Name, mutationStarted ? "unknown" : "not_run",
+                    $"Execution stopped: {ex.Message}. No automatic retry."));
+                for (var remaining = index + 1; remaining < targets.Length; remaining++)
+                    outcomes.Add(new(targets[remaining].Id, targets[remaining].Name, "not_run", "Stopped after an execution or inventory error."));
+                break;
+            }
+        }
+        var status = cancelled ? "cancelled" : outcomes.Count == 0 ? "no_targets" :
+            outcomes.All(o => o.Status == "succeeded") ? "succeeded" :
+            outcomes.Any(o => o.Status == "succeeded") ? "partial" : "failed";
+        return JsonSerializer.Serialize(new { status, outcomes }, JsonOptions);
     }
 
     private static string DescribeBulkScope(string verb, string scope, string? namePrefix, string? nameContains)
     {
         if (!string.IsNullOrWhiteSpace(namePrefix))
         {
-            return $"{verb} {scope} named \"{namePrefix.Trim()}*\"";
+            return $"{verb} {scope} named \"{namePrefix.Trim()}*\"" +
+                (nameContains is null ? "" : $" containing \"{nameContains.Trim()}\"");
         }
 
         if (!string.IsNullOrWhiteSpace(nameContains))
@@ -652,10 +717,10 @@ public sealed class AssistantToolset(
         return $"{verb} all {scope}";
     }
 
-    private static string BulkTargetDetails(IReadOnlyList<string> targets) =>
+    private static string BulkTargetDetails(IReadOnlyList<ContainerTarget> targets) =>
         targets.Count == 0
             ? "No matching containers."
-            : "Targets:\n" + string.Join(Environment.NewLine, targets);
+            : "Targets:\n" + string.Join(Environment.NewLine, targets.Select(t => $"{t.Name} (ID: {t.Id}, image: {t.Image}, created: {(t.CreatedAtKnown ? t.CreatedAt.ToString(System.Globalization.CultureInfo.InvariantCulture) : "unknown")})"));
 
     private static AssistantResolvedToolCall Resolved(
         AiToolCall call,
@@ -665,18 +730,116 @@ public sealed class AssistantToolset(
         Func<CancellationToken, Task<string>> execute) =>
         new(call, category, summary, details, execute);
 
-    private static JsonElement ParseArgs(string json)
+    private static string ArgumentSchema(string tool) => tool switch
     {
+        "list_containers" or "list_images" or "list_volumes" or "list_networks" or "engine_status" or
+            "list_compose_projects" or "k8s_status" or "cluster_start" or "cluster_stop" =>
+            """{"type":"object","properties":{},"additionalProperties":false}""",
+        "inspect_container" or "start_container" or "stop_container" or "restart_container" or "remove_container" =>
+            ObjectSchema(("id", "string", "")),
+        "get_container_logs" => ObjectSchema(("id", "string", ""), ("tail", "integer", "")),
+        "pull_image" => ObjectSchema(("reference", "string", "")),
+        "deploy_template" => ObjectSchema(("idOrName", "string", "")),
+        "create_volume" or "remove_volume" or "create_network" or "remove_network" => ObjectSchema(("name", "string", "")),
+        "list_registry_repositories" => ObjectSchema(("registry", "string", "")),
+        "list_registry_tags" => ObjectSchema(("registry", "string", ""), ("repository", "string", "")),
+        "list_k8s_resources" => ObjectSchema(("kind", "string", ""), ("namespace", "string", "")),
+        "get_k8s_logs" => ObjectSchema(("namespace", "string", ""), ("name", "string", ""), ("tail", "integer", "")),
+        "apply_yaml" => ObjectSchema(("yaml", "string", "")),
+        "scale_deployment" => ObjectSchema(("namespace", "string", ""), ("name", "string", ""), ("replicas", "integer", "")),
+        "restart_deployment" => ObjectSchema(("namespace", "string", ""), ("name", "string", "")),
+        "delete_resource" => ObjectSchema(("kind", "string", ""), ("namespace", "string", ""), ("name", "string", "")),
+        "run_container" => RunContainerSchema(),
+        "deploy_compose" => DeployComposeSchema(),
+        "stop_all_containers" => BulkContainerSchema(false),
+        "remove_all_containers" => BulkContainerSchema(true),
+        _ => throw new InvalidOperationException($"Tool '{tool}' is not allowed."),
+    };
+
+    private static JsonElement ValidateArgs(AiToolCall call)
+    {
+        using var schemaDocument = JsonDocument.Parse(ArgumentSchema(call.Name));
+        JsonElement args;
         try
         {
-            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
-            return doc.RootElement.Clone();
+            using var doc = JsonDocument.Parse(call.ArgumentsJson);
+            args = doc.RootElement.Clone();
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            using var doc = JsonDocument.Parse("{}");
-            return doc.RootElement.Clone();
+            throw new InvalidOperationException("Invalid tool arguments: a valid JSON object is required.", ex);
         }
+
+        if (args.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("Invalid tool arguments: a JSON object is required.");
+        var schema = schemaDocument.RootElement;
+        var properties = schema.GetProperty("properties");
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var field in args.EnumerateObject())
+        {
+            if (!seen.Add(field.Name) || !properties.TryGetProperty(field.Name, out var property))
+                throw new InvalidOperationException($"Invalid tool arguments: unsupported or duplicate field '{field.Name}'.");
+            var valid = property.GetProperty("type").GetString() switch
+            {
+                "string" => field.Value.ValueKind == JsonValueKind.String &&
+                    (!string.IsNullOrWhiteSpace(field.Value.GetString()) ||
+                        (call.Name == "delete_resource" && field.Name == "namespace" && field.Value.GetString() == "")),
+                "boolean" => field.Value.ValueKind is JsonValueKind.True or JsonValueKind.False,
+                "integer" => field.Value.ValueKind == JsonValueKind.Number && field.Value.TryGetInt32(out var number) &&
+                    (!property.TryGetProperty("minimum", out var min) || number >= min.GetInt32()) &&
+                    (!property.TryGetProperty("maximum", out var max) || number <= max.GetInt32()),
+                "array" => field.Value.ValueKind == JsonValueKind.Array &&
+                    field.Value.EnumerateArray().All(item => item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString())),
+                _ => false,
+            };
+            if (!valid)
+                throw new InvalidOperationException($"Invalid tool arguments: field '{field.Name}' has an invalid type, empty value, or out-of-range value.");
+        }
+        if (schema.TryGetProperty("required", out var required))
+            foreach (var field in required.EnumerateArray())
+                if (!seen.Contains(field.GetString()!))
+                    throw new InvalidOperationException($"Invalid tool arguments: required field '{field.GetString()}' is missing.");
+
+        if (call.Name is "stop_all_containers" or "remove_all_containers")
+        {
+            var hasScope = seen.Contains("scope");
+            var hasFilter = seen.Contains("namePrefix") || seen.Contains("nameContains");
+            if (hasScope == hasFilter || (hasScope && args.GetProperty("scope").GetString() != "all"))
+                throw new InvalidOperationException("Invalid bulk scope: specify nonblank name filters OR scope=\"all\", never both.");
+        }
+        if (seen.Contains("kind") && !SupportedResourceKinds.Contains(StringArg(args, "kind").ToLowerInvariant()))
+            throw new InvalidOperationException("Invalid tool arguments: unsupported Kubernetes resource kind.");
+        if (call.Name == "run_container")
+            ValidateRunArguments(args);
+        return args;
+    }
+
+    private static readonly HashSet<string> SupportedResourceKinds = new(StringComparer.Ordinal)
+    {
+        "pod", "pods", "deployment", "deployments", "service", "services", "ingress", "ingresses",
+        "pvc", "pvcs", "persistentvolumeclaims", "configmap", "configmaps", "secret", "secrets",
+        "job", "jobs", "cronjob", "cronjobs", "namespace", "namespaces",
+    };
+
+    private static void ValidateRunArguments(JsonElement args)
+    {
+        foreach (var name in new[] { "environment", "labels" })
+        {
+            if (!args.TryGetProperty(name, out var items))
+                continue;
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in items.EnumerateArray())
+            {
+                var text = item.GetString()!;
+                var separator = text.IndexOf('=');
+                if (separator <= 0 || string.IsNullOrWhiteSpace(text[..separator]) || !keys.Add(text[..separator].Trim()))
+                    throw new InvalidOperationException($"Invalid tool arguments: '{name}' requires unique nonblank KEY=VALUE entries.");
+            }
+        }
+        if (args.TryGetProperty("cpuLimit", out var cpu) &&
+            (!decimal.TryParse(cpu.GetString(), System.Globalization.NumberStyles.AllowDecimalPoint,
+                System.Globalization.CultureInfo.InvariantCulture, out var value) || value <= 0))
+            throw new InvalidOperationException("Invalid tool arguments: cpuLimit must be a positive decimal.");
     }
 
     private static string StringArg(JsonElement args, string name)

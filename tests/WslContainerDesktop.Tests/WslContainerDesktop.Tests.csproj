@@ -104,7 +104,24 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcService.cs" Link="Services\IWslcService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeProjectStore.cs" Link="Services\IComposeProjectStore.cs" />
   </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'">
+    <!-- Compile the real resolver without activating the packaged application or its I/O services. -->
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolset.cs" Link="Services\AssistantToolset.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IKubernetesService.cs" Link="Services\IKubernetesService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\TemplateCatalog.cs" Link="Services\TemplateCatalog.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IUserTemplateStore.cs" Link="Services\IUserTemplateStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\RegistryCatalogService.cs" Link="Services\RegistryCatalogService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\RegistryCredentialStore.cs" Link="Services\RegistryCredentialStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IAzureCliService.cs" Link="Services\IAzureCliService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\StackTemplate.cs" Link="Models\StackTemplate.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ClusterStatus.cs" Link="Models\ClusterStatus.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\K8sResources.cs" Link="Models\K8sResources.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\K3sInstallResult.cs" Link="Models\K3sInstallResult.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\PortForward.cs" Link="Models\PortForward.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\AzureModels.cs" Link="Models\AzureModels.cs" />
+  </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <Compile Remove="Services\AssistantToolsetContractTests.cs" />
     <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
     <Compile Remove="Services\SupervisorMonitorDoubles.cs" />
   </ItemGroup>
