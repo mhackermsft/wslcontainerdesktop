@@ -1,0 +1,26 @@
+Usage: wslc container [<command>] [<options>]
+
+Commands:
+  attach   Attach to a container.
+  cp       Copy files between a container and the local filesystem.
+  create   Create a container.
+  exec     Execute a command in a running container.
+  export   Export a container's filesystem as a tar archive.
+  inspect  Inspect a container.
+  kill     Kill one or more running containers.
+  logs     View container logs.
+  list     List containers.
+  prune    Remove all stopped containers.
+  remove   Remove containers.
+  run      Run a container.
+  start    Start a container.
+  stats    Display container resource usage statistics.
+  stop     Stop containers.
+
+For more details on a specific command, pass it the help option. [-?]
+
+Options:
+  -?  --help     Shows help about the selected command
+
+Global Options:
+      --session  Specify the session to use

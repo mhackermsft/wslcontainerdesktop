@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
       <PrivateAssets>all</PrivateAssets>
@@ -36,5 +37,25 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkInfo.cs" Link="Models\NetworkInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\WslcByteSizeJsonConverter.cs" Link="Models\WslcByteSizeJsonConverter.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcJsonParser.cs" Link="Services\WslcJsonParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcCapabilities.cs" Link="Models\WslcCapabilities.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcCapability.cs" Link="Models\WslcCapability.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcCapabilitySupport.cs" Link="Models\WslcCapabilitySupport.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcFeature.cs" Link="Models\WslcFeature.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\AiDiagnosis.cs" Link="Models\AiDiagnosis.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\RegistryEntry.cs" Link="Models\RegistryEntry.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\HealthCheck.cs" Link="Models\HealthCheck.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\RestartPolicyConfig.cs" Link="Models\RestartPolicyConfig.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeProject.cs" Link="Models\ComposeProject.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerOptions.cs" Link="Models\RunContainerOptions.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ISettingsService.cs" Link="Services\ISettingsService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcCapabilitiesService.cs" Link="Services\IWslcCapabilitiesService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCapabilitiesService.cs" Link="Services\WslcCapabilitiesService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCapabilityHelpParser.cs" Link="Services\WslcCapabilityHelpParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcExecutableIdentity.cs" Link="Services\WslcExecutableIdentity.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessRunner.cs" Link="Services\ProcessRunner.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessExecutor.cs" Link="Services\ProcessExecutor.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Fixtures\Capabilities\*.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

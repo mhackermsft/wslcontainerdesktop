@@ -1,0 +1,46 @@
+Usage: wslc run [<options>] <image> [<command>] [<arguments>...]
+
+Options:
+      --cidfile              Write the container ID to the provided path
+      --cpus                 Number of CPUs (e.g. 0.5, 1, 2.5)
+  -d  --detach               Run container in detached mode
+      --dns                  IP address of the DNS nameserver in resolv.conf
+      --dns-option           Set DNS options
+      --dns-search           Set DNS search domains
+      --domainname           Container domain name
+      --entrypoint           Specifies the container init process executable
+  -e  --env                  Key=Value pairs for environment variables
+      --env-file             File containing key=value pairs of env variables
+      --gpus                 Add GPU devices to the container ('all' to pass all GPUs)
+      --health-cmd           Command to run to check container health
+      --health-interval      Time between running the health check (e.g. 30s, 1m30s)
+      --health-retries       Consecutive failures needed to report the container as unhealthy
+      --health-start-period  Start period for the container to initialize before health-check countdown (e.g. 30s, 1m30s)
+      --health-timeout       Maximum time to allow one health check to run (e.g. 30s, 1m30s)
+  -h  --hostname             Container host name
+  -i  --interactive          Attach to stdin and keep it open
+      --ip                   Assign the container an IPv4 address on the network
+  -l  --label                Set metadata on an object
+  -m  --memory               Memory limit (e.g. 512M, 1G)
+      --mount                Attach a filesystem mount to the container
+      --name                 Name of the container
+      --network              Connect a container to a network
+      --network-alias        Add a network-scoped alias for the container
+      --no-healthcheck       Disable any container-specified health check
+  -p  --publish              Publish a port from a container to host
+  -P  --publish-all          Publish all exposed ports to random host ports
+      --pull                 Image pull policy (always|missing|never) (default: missing)
+      --rm                   Remove the container after it stops
+      --shm-size             Size of /dev/shm (e.g. 64M, 1G)
+      --stop-signal          Signal to stop the container
+      --stop-timeout         Timeout (in seconds) to stop the container before killing it (-1 for no timeout)
+      --tmpfs                Mount tmpfs to the container at the given path
+  -t  --tty                  Open a TTY with the container process.
+      --ulimit               Ulimit options (format: <name>=<soft>[:<hard>], use -1 for unlimited)
+  -u  --user                 User ID for the process (name|uid|uid:gid)
+  -v  --volume               Bind mount a volume to the container
+  -w  --workdir              Working directory inside the container
+  -?  --help                 Shows help about the selected command
+
+Global Options:
+      --session              Specify the session to use
