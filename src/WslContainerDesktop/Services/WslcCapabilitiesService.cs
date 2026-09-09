@@ -72,7 +72,11 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
                 if (_entry is null || _entry.Identity != identity || IsExpired(_entry))
                 {
                     var lifetimeToken = _lifetime.Token;
-                    _entry = new(identity, Task.Run(() => ProbeAsync(identity, lifetimeToken)));
+                    _entry = new(identity, Task.Run(async () =>
+                    {
+                        var capabilities = await ProbeAsync(identity, lifetimeToken).ConfigureAwait(false);
+                        return new ProbeResult(capabilities, _clock.GetUtcNow());
+                    }));
                 }
 
                 entry = _entry;
@@ -85,8 +89,7 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 if (ReferenceEquals(entry, _entry) && currentIdentity == entry.Identity)
                 {
-                    entry.CompletedAt ??= _clock.GetUtcNow();
-                    return result;
+                    return result.Capabilities;
                 }
             }
             // Settings/binary changed while probing. Never publish evidence from the previous engine.
@@ -119,10 +122,9 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
             return false;
         }
 
-        entry.CompletedAt ??= _clock.GetUtcNow();
         return !entry.Task.IsCompletedSuccessfully ||
-            _clock.GetUtcNow() - entry.CompletedAt.Value >=
-            (entry.Task.Result.HasProbeFailures ? TimeSpan.FromSeconds(15) : TimeSpan.FromMinutes(5));
+            _clock.GetUtcNow() - entry.Task.Result.CompletedAt >=
+            (entry.Task.Result.Capabilities.HasProbeFailures ? TimeSpan.FromSeconds(15) : TimeSpan.FromMinutes(5));
     }
 
     private async Task<WslcCapabilities> ProbeAsync(WslcExecutableIdentity identity, CancellationToken lifetimeToken)
@@ -251,8 +253,7 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
         _lifetime.Dispose();
     }
 
-    private sealed record CacheEntry(WslcExecutableIdentity Identity, Task<WslcCapabilities> Task)
-    {
-        public DateTimeOffset? CompletedAt { get; set; }
-    }
+    private sealed record ProbeResult(WslcCapabilities Capabilities, DateTimeOffset CompletedAt);
+
+    private sealed record CacheEntry(WslcExecutableIdentity Identity, Task<ProbeResult> Task);
 }

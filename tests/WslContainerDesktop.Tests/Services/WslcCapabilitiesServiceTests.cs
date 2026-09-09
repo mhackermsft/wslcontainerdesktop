@@ -115,6 +115,40 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.True(snapshot.IsSupported(WslcFeature.ContainerCp));
     }
 
+    [Theory]
+    [InlineData("<COMMAND>")]
+    [InlineData("[COMMAND]")]
+    public async Task OptionArgumentPlaceholder_PreservesExactFeatureEvidence(string placeholder)
+    {
+        using var fixture = new Fixture();
+        fixture.Responses["run --help"] = Ok(Help("current", "run")
+            .Replace("--health-cmd           ", $"--health-cmd {placeholder}  "));
+
+        var snapshot = await fixture.Service.GetAsync();
+
+        Assert.True(snapshot.IsSupported(WslcFeature.HealthCmd));
+        Assert.False(snapshot.HasProbeFailures);
+    }
+
+    [Theory]
+    [InlineData("run", "Options:\n  --help  Show help.\n  --health-cmd")]
+    [InlineData("run", "Options:\n  --help  Show help.\n  --health-cmd <COMMAND")]
+    [InlineData("run", "Options:\n  --help  Show help.\n  --health-cmd COMMAND  Check health.")]
+    [InlineData("network", "Commands:\n  ls  List networks.\n  connect\n\nOptions:\n  --help  Show help.")]
+    public async Task UnparsedHelpRows_AreUnknownInsteadOfConfirmedAbsence(string command, string section)
+    {
+        using var fixture = new Fixture();
+        fixture.Responses[$"{command} --help"] = Ok($"Usage: wslc {command} [<options>]\n{section}");
+
+        var snapshot = await fixture.Service.GetAsync();
+
+        var feature = command == "run" ? WslcFeature.HealthCmd : WslcFeature.NetworkConnect;
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[feature].Support);
+        Assert.NotNull(snapshot[feature].Diagnostic);
+        Assert.Single(fixture.Warnings);
+        Assert.True(snapshot.IsSupported(WslcFeature.ContainerCp));
+    }
+
     [Fact]
     public async Task VersionFailure_DoesNotEraseIndependentHelpEvidence()
     {
@@ -324,6 +358,45 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.True(snapshot.HasProbeFailures);
         Assert.Same(snapshot, await fixture.Service.GetAsync());
         Assert.Equal(5, fixture.Calls.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelledOnlyWaiter_DoesNotDelayCompletedProbeExpiry(bool failedProbe)
+    {
+        using var fixture = new Fixture();
+        using var caller = new CancellationTokenSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (failedProbe)
+        {
+            fixture.Responses["container --help"] = new() { ExitCode = -1, StandardError = "Temporary failure" };
+        }
+        fixture.BeforeResponse = async (_, _, ct) =>
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+        };
+        var waiter = fixture.Service.GetAsync(caller.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        caller.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiter);
+
+        // Observe the shared task directly: another GetAsync waiter would mask the regression.
+        var entry = typeof(WslcCapabilitiesService)
+            .GetField("_entry", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(fixture.Service)!;
+        var probe = Assert.IsAssignableFrom<Task>(entry.GetType().GetProperty("Task")!.GetValue(entry));
+        release.SetResult();
+        await probe.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(5, fixture.Calls.Count);
+        fixture.Responses["container --help"] = Ok(Help("current", "container"));
+        fixture.Clock.Advance(failedProbe ? TimeSpan.FromSeconds(16) : TimeSpan.FromMinutes(6));
+
+        var snapshot = await fixture.Service.GetAsync();
+
+        Assert.False(snapshot.HasProbeFailures);
+        Assert.Equal(10, fixture.Calls.Count);
     }
 
     [Fact]

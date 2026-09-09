@@ -46,7 +46,7 @@ internal static class WslcCapabilityHelpParser
 
         var entries = new HashSet<string>(StringComparer.Ordinal);
         var pattern = options
-            ? @"^\s+(?:-\S+\s+)?(?<entry>--[a-z][a-z0-9-]*)\s{2,}\S"
+            ? @"^\s+(?:-\S+\s+)?(?<entry>--[a-z][a-z0-9-]*)(?:[ \t]+(?:<[^<>\r\n]+>|\[[^\[\]\r\n]+\]))?[ \t]{2,}\S"
             : @"^\s{2,}(?<entry>[a-z][a-z0-9-]*)\s{2,}\S";
         foreach (var line in lines.Skip(start + 1))
         {
@@ -59,6 +59,11 @@ internal static class WslcCapabilityHelpParser
             if (match.Success)
             {
                 entries.Add(match.Groups["entry"].Value);
+            }
+            else
+            {
+                // An unparsed row may advertise a feature; it is not evidence of absence.
+                return null;
             }
         }
 
