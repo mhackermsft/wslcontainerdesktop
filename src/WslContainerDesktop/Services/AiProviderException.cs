@@ -64,17 +64,19 @@ public sealed class AiProviderException : Exception
         string? modelOrDeployment = null,
         string? responseDetail = null,
         Exception? inner = null)
-        : base(message, inner)
+        : base(AiTextSanitizer.Sanitize(message))
     {
+        // Raw inner exceptions may contain provider payloads; retain only their sanitized message.
         Provider = provider;
-        Operation = operation;
+        Operation = AiTextSanitizer.Sanitize(operation);
         Kind = kind;
         StatusCode = statusCode;
-        Endpoint = endpoint;
-        ModelOrDeployment = modelOrDeployment;
-        ResponseDetail = string.IsNullOrWhiteSpace(responseDetail)
+        Endpoint = endpoint is null ? null : AiTextSanitizer.Sanitize(endpoint);
+        ModelOrDeployment = modelOrDeployment is null ? null : AiTextSanitizer.Sanitize(modelOrDeployment);
+        var detail = string.IsNullOrWhiteSpace(responseDetail) ? inner?.Message : responseDetail;
+        ResponseDetail = string.IsNullOrWhiteSpace(detail)
             ? null
-            : AiTextSanitizer.Truncate(AiTextSanitizer.Redact(responseDetail), 400);
+            : AiTextSanitizer.Sanitize(detail, 400);
     }
 
     public AiProviderKind Provider { get; }
@@ -91,7 +93,7 @@ public sealed class AiProviderException : Exception
 
     public string? ModelOrDeployment { get; }
 
-    /// <summary>Bounded, redacted response body or diagnostic detail. Never contains secrets.</summary>
+    /// <summary>Bounded response detail with recognized secret fields/shapes masked.</summary>
     public string? ResponseDetail { get; }
 
     /// <summary>Builds an exception for a non-success HTTP response, classifying <see cref="Kind"/>

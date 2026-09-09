@@ -167,6 +167,308 @@ public sealed class AiProviderContractTests
     }
 
     [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task TransportRedactsHistoryToolArgumentsAndEveryResultWithoutChangingExecution(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        var arguments = SensitiveArguments();
+        var priorCall = new AiToolCall { Id = "prior-call-id", Name = "inspect_container", ArgumentsJson = arguments };
+        AiChatMessage[] history =
+        [
+            History[0],
+            new() { Role = "user", Content = "Inspect approved-id\npassword: synthetic-user-value" },
+            new() { Role = "assistant", Content = "Previous context\npassword: synthetic-history-value", ToolCalls = [priorCall] },
+            new() { Role = "tool", ToolCallId = priorCall.Id, ToolName = priorCall.Name, Content = SensitiveResult("succeeded") },
+        ];
+        AiToolDefinition[] tools =
+        [
+            new()
+            {
+                Name = "inspect_container",
+                Description = "Inspect approved-id\npassword: synthetic-description-value",
+                JsonSchemaParameters = """{"type":"object","properties":{"id":{"type":"string"},"password":{"type":"string","description":"Password supplied by user"},"env":{"type":"array","items":{"type":"object"}}},"required":["id","password"]}""",
+            },
+        ];
+        var requestedCalls = new[] { "succeeded", "failed", "partial" }
+            .Select(status => new AiToolCall { Id = $"call-{status}", Name = "inspect_container", ArgumentsJson = arguments })
+            .ToArray();
+        handler.Enqueue(Response(kind, "Inspecting approved-id\npassword: synthetic-assistant-value", requestedCalls));
+        handler.Enqueue(Response(kind, "Final approved-id context\npassword: synthetic-final-value"));
+        var executed = new List<AiToolCall>();
+        var statuses = new Queue<string>(["succeeded", "failed", "partial"]);
+
+        var answer = await Create(kind, http, h.Settings).RunTurnAsync(history, tools, (call, _) =>
+        {
+            executed.Add(call);
+            return Task.FromResult(SensitiveResult(statuses.Dequeue()));
+        }, CancellationToken.None);
+
+        Assert.Equal(3, executed.Count);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Contains("Final approved-id context", answer);
+        Assert.DoesNotContain("synthetic-final-value", answer);
+        Assert.Contains("<redacted>", answer);
+        foreach (var call in executed)
+        {
+            Assert.Equal("inspect_container", call.Name);
+            Assert.False(string.IsNullOrWhiteSpace(call.Id));
+            using var original = JsonDocument.Parse(arguments);
+            using var actual = JsonDocument.Parse(call.ArgumentsJson);
+            Assert.True(JsonElement.DeepEquals(original.RootElement, actual.RootElement));
+            Assert.Contains("synthetic-argument-value", call.ArgumentsJson);
+        }
+        Assert.Equal(3, executed.Select(c => c.Id).Distinct().Count());
+        Assert.Same(priorCall, history[2].ToolCalls[0]);
+        Assert.Equal(arguments, priorCall.ArgumentsJson);
+        Assert.Contains("synthetic-history-value", history[2].Content);
+        Assert.Contains("synthetic-description-value", tools[0].Description);
+
+        foreach (var captured in handler.Requests)
+        {
+            AssertNoSensitiveValues(captured.Body);
+            using var request = JsonDocument.Parse(captured.Body);
+            var messages = request.RootElement.GetProperty("messages");
+            Assert.Equal(History[0].Content, messages[0].GetProperty("content").GetString());
+            Assert.Contains("Inspect approved-id", messages[1].GetProperty("content").GetString());
+            Assert.Contains("Previous context", messages[2].GetProperty("content").GetString());
+            AssertSafeArguments(kind, messages[2].GetProperty("tool_calls")[0].GetProperty("function").GetProperty("arguments"));
+            var definition = request.RootElement.GetProperty("tools")[0].GetProperty("function");
+            Assert.Equal("inspect_container", definition.GetProperty("name").GetString());
+            Assert.Contains("Inspect approved-id", definition.GetProperty("description").GetString());
+            using var schema = JsonDocument.Parse(tools[0].JsonSchemaParameters);
+            Assert.True(JsonElement.DeepEquals(schema.RootElement, definition.GetProperty("parameters")));
+            if (kind != AiProviderKind.Ollama)
+            {
+                Assert.Equal(priorCall.Id, messages[2].GetProperty("tool_calls")[0].GetProperty("id").GetString());
+                Assert.Equal(priorCall.Id, messages[3].GetProperty("tool_call_id").GetString());
+            }
+        }
+
+        using var secondRequest = JsonDocument.Parse(handler.Requests[1].Body);
+        var secondMessages = secondRequest.RootElement.GetProperty("messages");
+        Assert.Equal(8, secondMessages.GetArrayLength());
+        Assert.Contains("Inspecting approved-id", secondMessages[4].GetProperty("content").GetString());
+        for (var i = 0; i < executed.Count; i++)
+        {
+            var wireCall = secondMessages[4].GetProperty("tool_calls")[i];
+            AssertSafeArguments(kind, wireCall.GetProperty("function").GetProperty("arguments"));
+            var toolResult = secondMessages[5 + i];
+            Assert.Equal("tool", toolResult.GetProperty("role").GetString());
+            using var result = JsonDocument.Parse(toolResult.GetProperty("content").GetString()!);
+            Assert.Equal(new[] { "succeeded", "failed", "partial" }[i], result.RootElement.GetProperty("status").GetString());
+            Assert.Equal("approved-id", result.RootElement.GetProperty("id").GetString());
+            Assert.Equal("Retained diagnostic context", result.RootElement.GetProperty("detail").GetProperty("context").GetString());
+            if (kind == AiProviderKind.Ollama)
+            {
+                Assert.Equal(executed[i].Name, toolResult.GetProperty("tool_name").GetString());
+            }
+            else
+            {
+                Assert.Equal(requestedCalls[i].Id, executed[i].Id);
+                Assert.Equal(executed[i].Id, wireCall.GetProperty("id").GetString());
+                Assert.Equal(executed[i].Id, toolResult.GetProperty("tool_call_id").GetString());
+                Assert.Equal(executed[i].Name, toolResult.GetProperty("name").GetString());
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task OversizedStructuredArgumentsAndResultsAreRedactedBeforeTruncation(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        var payload = JsonSerializer.Serialize(new
+        {
+            password = "synthetic-argument-value",
+            padding = new string('x', 30_000),
+            env = new[] { "API_TOKEN=synthetic-env-value" },
+        });
+        handler.Enqueue(Response(kind, null, AiContractHarness.Call("inspect_container", payload)));
+        handler.Enqueue(Response(kind, "Done"));
+        var executed = 0;
+
+        await Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (call, _) =>
+        {
+            executed++;
+            using var original = JsonDocument.Parse(payload);
+            using var actual = JsonDocument.Parse(call.ArgumentsJson);
+            Assert.True(JsonElement.DeepEquals(original.RootElement, actual.RootElement));
+            return Task.FromResult(payload);
+        }, CancellationToken.None);
+
+        Assert.Equal(1, executed);
+        Assert.Equal(2, handler.Requests.Count);
+        AssertNoSensitiveValues(handler.Requests[1].Body);
+        using var request = JsonDocument.Parse(handler.Requests[1].Body);
+        var messages = request.RootElement.GetProperty("messages");
+        var arguments = messages[2].GetProperty("tool_calls")[0].GetProperty("function").GetProperty("arguments");
+        var argumentsJson = kind == AiProviderKind.Ollama ? arguments.GetRawText() : arguments.GetString()!;
+        using var safeArguments = JsonDocument.Parse(argumentsJson);
+        Assert.Equal(JsonValueKind.Object, safeArguments.RootElement.ValueKind);
+        Assert.True(safeArguments.RootElement.GetProperty("truncated").GetBoolean());
+        Assert.True(argumentsJson.Length <= 12_000);
+        var resultJson = messages[3].GetProperty("content").GetString()!;
+        using var safeResult = JsonDocument.Parse(resultJson);
+        Assert.True(safeResult.RootElement.GetProperty("truncated").GetBoolean());
+        Assert.True(resultJson.Length <= 12_000);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public void MessageSerializersDefensivelyRedactDirectInputs(AiProviderKind kind)
+    {
+        var call = AiContractHarness.Call("inspect_container", SensitiveArguments());
+        var assistant = new AiChatMessage
+        {
+            Role = "assistant", Content = "Retained context\npassword: synthetic-assistant-value", ToolCalls = [call],
+        };
+        var result = new AiChatMessage
+        {
+            Role = "tool", Content = SensitiveResult("partial"), ToolCallId = call.Id, ToolName = call.Name,
+        };
+        foreach (var message in new[] { assistant, result, new AiChatMessage { Role = "user", Content = SensitiveArguments() } })
+        {
+            var serialized = JsonSerializer.Serialize(kind == AiProviderKind.Ollama
+                ? OllamaProvider.ToOllamaMessage(message)
+                : OpenAiProvider.ToOpenAiMessage(message));
+            AssertNoSensitiveValues(serialized);
+            using var wire = JsonDocument.Parse(serialized);
+            Assert.Equal(message.Role, wire.RootElement.GetProperty("role").GetString());
+            if (message.ToolCalls.Count > 0)
+            {
+                AssertSafeArguments(kind, wire.RootElement.GetProperty("tool_calls")[0].GetProperty("function").GetProperty("arguments"));
+            }
+        }
+        Assert.Contains("synthetic-argument-value", call.ArgumentsJson);
+        Assert.Contains("synthetic-assistant-value", assistant.Content);
+        Assert.Contains("synthetic-result-value", result.Content);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task DiagnosisSanitizesUserEvidenceButPreservesTrustedSystemPrompt(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        handler.Enqueue(Response(kind, """{"summary":"Diagnosis","likelyCause":"test","confidence":0.8}"""));
+        const string system = "Trusted schema instructions: password: is a field name, not user evidence.";
+        var evidence = JsonSerializer.Serialize(new
+        {
+            id = "approved-id",
+            padding = new string('x', 16_000),
+            arguments = JsonSerializer.Deserialize<JsonElement>(SensitiveArguments()),
+        });
+        await ((IAiProvider)Create(kind, http, h.Settings)).CompleteAsync(new AiPromptRequest(system, evidence), CancellationToken.None);
+
+        var captured = Assert.Single(handler.Requests);
+        AssertNoSensitiveValues(captured.Body);
+        using var request = JsonDocument.Parse(captured.Body);
+        var messages = request.RootElement.GetProperty("messages");
+        Assert.Equal(system, messages[0].GetProperty("content").GetString());
+        using var safe = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal("approved-id", safe.RootElement.GetProperty("id").GetString());
+        Assert.Equal(16_000, safe.RootElement.GetProperty("padding").GetString()!.Length);
+        Assert.Contains("synthetic-argument-value", evidence);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public void ToolSerializersPreserveTrustedSchemaWhileRedactingDescription(AiProviderKind kind)
+    {
+        var tool = new AiToolDefinition
+        {
+            Name = "inspect_container",
+            Description = "Retained tool context\npassword: synthetic-description-value",
+            JsonSchemaParameters = """{"type":"object","properties":{"password":{"type":"string","description":"Password parameter"}},"required":["password"]}""",
+        };
+        var serialized = JsonSerializer.Serialize(kind == AiProviderKind.Ollama
+            ? OllamaProvider.ToOllamaTool(tool)
+            : OpenAiProvider.ToOpenAiTool(tool));
+
+        AssertNoSensitiveValues(serialized);
+        using var wire = JsonDocument.Parse(serialized);
+        var function = wire.RootElement.GetProperty("function");
+        Assert.Equal(tool.Name, function.GetProperty("name").GetString());
+        Assert.Contains("Retained tool context", function.GetProperty("description").GetString());
+        using var schema = JsonDocument.Parse(tool.JsonSchemaParameters);
+        Assert.True(JsonElement.DeepEquals(schema.RootElement, function.GetProperty("parameters")));
+        Assert.Contains("synthetic-description-value", tool.Description);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task NestedHttpErrorBodiesAreRedactedIncludingOllamaBadRequest(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        foreach (var status in new[] { HttpStatusCode.BadRequest, HttpStatusCode.ServiceUnavailable })
+        {
+            using var handler = new AiContractHarness.ScriptedHttpHandler();
+            using var http = new AiHttpClient(handler);
+            handler.Enqueue(JsonSerializer.Serialize(new
+            {
+                error = new { message = "Synthetic request rejected", details = JsonSerializer.Deserialize<JsonElement>(SensitiveArguments()) },
+            }), status);
+            var error = await Assert.ThrowsAsync<AiProviderException>(() =>
+                Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+                    throw new InvalidOperationException("No execution expected"), CancellationToken.None));
+
+            Assert.Equal((int)status, error.StatusCode);
+            Assert.Equal(kind == AiProviderKind.Ollama && status == HttpStatusCode.BadRequest
+                ? AiFailureKind.Configuration
+                : status == HttpStatusCode.ServiceUnavailable ? AiFailureKind.ServerError : AiFailureKind.Unexpected, error.Kind);
+            Assert.NotNull(error.ResponseDetail);
+            Assert.True(error.ResponseDetail.Length <= 400);
+            AssertNoSensitiveValues(error.ToString());
+            AssertNoSensitiveValues(error.ResponseDetail);
+            Assert.Single(handler.Requests);
+        }
+    }
+
+    private static string SensitiveArguments() => JsonSerializer.Serialize(new
+    {
+        id = "approved-id",
+        password = "synthetic-argument-value",
+        env = new[] { new { name = "API_TOKEN", value = "synthetic-env-value" }, new { name = "MODE", value = "development" } },
+        environment = new[] { "DB_PASSWORD=synthetic-array-value", "MODE=development" },
+        manifest = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: retained-name\nstringData:\n  arbitrary: synthetic-yaml-value\n",
+    });
+
+    private static string SensitiveResult(string status) => JsonSerializer.Serialize(new
+    {
+        status,
+        id = "approved-id",
+        detail = new { password = "synthetic-result-value", context = "Retained diagnostic context" },
+        output = SensitiveArguments(),
+    });
+
+    private static void AssertNoSensitiveValues(string text)
+    {
+        foreach (var name in new[] { "argument", "env", "array", "yaml", "user", "history", "description", "assistant", "result", "final" })
+        {
+            Assert.DoesNotContain($"synthetic-{name}-value", text);
+        }
+    }
+
+    private static void AssertSafeArguments(AiProviderKind kind, JsonElement arguments)
+    {
+        using var parsed = JsonDocument.Parse(kind == AiProviderKind.Ollama ? arguments.GetRawText() : arguments.GetString()!);
+        var root = parsed.RootElement;
+        Assert.Equal("approved-id", root.GetProperty("id").GetString());
+        Assert.Equal("<redacted>", root.GetProperty("password").GetString());
+        Assert.Equal("API_TOKEN", root.GetProperty("env")[0].GetProperty("name").GetString());
+        Assert.Equal("<redacted>", root.GetProperty("env")[0].GetProperty("value").GetString());
+        Assert.Equal("development", root.GetProperty("env")[1].GetProperty("value").GetString());
+        Assert.Equal("MODE=development", root.GetProperty("environment")[1].GetString());
+        Assert.Contains("retained-name", root.GetProperty("manifest").GetString());
+        AssertNoSensitiveValues(root.GetRawText());
+    }
+
+    [Theory]
     [MemberData(nameof(HttpFailures))]
     public async Task HttpFailuresAreTypedRedactedAndNotRetried(AiProviderKind kind, int status, AiFailureKind expected)
     {

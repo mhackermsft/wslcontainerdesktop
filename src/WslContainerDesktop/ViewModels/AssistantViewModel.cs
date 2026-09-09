@@ -262,7 +262,7 @@ public partial class AssistantViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Assistant turn failed.");
+            _logger.LogError("Assistant turn failed ({Type}): {Detail}", ex.GetType().Name, AiTextSanitizer.Sanitize(ex.Message));
             if (generation == _turnSeq)
             {
                 Feedback = AiErrorClassifier.Classify(ex, AssistantContext(), ct);

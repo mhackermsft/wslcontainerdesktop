@@ -106,7 +106,7 @@ public sealed class GitHubCopilotProvider(
                 }
             });
 
-            await session.SendAsync(new MessageOptions { Prompt = request.UserPrompt }, timeout.Token).ConfigureAwait(false);
+            await session.SendAsync(new MessageOptions { Prompt = AiTextSanitizer.Sanitize(request.UserPrompt, AiTextSanitizer.DiagnosticLimit) }, timeout.Token).ConfigureAwait(false);
             await done.Task.ConfigureAwait(false);
             return new CopilotRunResult(content.ToString(), model, actualModel);
         }
@@ -124,7 +124,7 @@ public sealed class GitHubCopilotProvider(
         }
         catch (Exception ex)
         {
-            logger.LogDebug(ex, "GitHub Copilot diagnostics failed.");
+            logger.LogDebug("GitHub Copilot diagnostics failed: {Detail}", AiTextSanitizer.Sanitize(ex.Message));
             throw new AiProviderException(
                 Kind,
                 operation,
@@ -178,7 +178,7 @@ public sealed class GitHubCopilotProvider(
                 timeout.Token).ConfigureAwait(false);
 
             var data = message?.Data ?? throw new InvalidOperationException("GitHub Copilot returned no assistant message.");
-            return string.IsNullOrWhiteSpace(data.Content) ? "Done." : data.Content;
+            return string.IsNullOrWhiteSpace(data.Content) ? "Done." : AiTextSanitizer.Sanitize(data.Content);
         }
         catch (OperationCanceledException)
         {
@@ -190,7 +190,7 @@ public sealed class GitHubCopilotProvider(
         }
         catch (Exception ex)
         {
-            logger.LogDebug(ex, "GitHub Copilot assistant chat failed.");
+            logger.LogDebug("GitHub Copilot assistant chat failed: {Detail}", AiTextSanitizer.Sanitize(ex.Message));
             throw new AiProviderException(
                 Kind,
                 "Assistant chat",
@@ -208,7 +208,7 @@ public sealed class GitHubCopilotProvider(
         var declarations = new List<AIFunctionDeclaration>();
         foreach (var tool in tools)
         {
-            declarations.Add(new DelegatingAssistantFunction(tool, invokeToolAsync));
+            declarations.Add(new DelegatingAssistantFunction(AiTextSanitizer.SanitizeDefinition(tool), invokeToolAsync));
         }
 
         return declarations;
@@ -232,7 +232,7 @@ public sealed class GitHubCopilotProvider(
     {
         var builder = new StringBuilder();
         builder.AppendLine("Continue this tool-calling conversation. Use the declared tools when an action or live data is needed.");
-        foreach (var message in history)
+        foreach (var message in history.Select(AiTextSanitizer.SanitizeMessage))
         {
             if (message.ToolCalls.Count > 0)
             {
@@ -275,7 +275,8 @@ public sealed class GitHubCopilotProvider(
                 Name = definition.Name,
                 ArgumentsJson = json,
             };
-            return await invokeToolAsync(call, cancellationToken).ConfigureAwait(false);
+            var result = await invokeToolAsync(call, cancellationToken).ConfigureAwait(false);
+            return AiTextSanitizer.Sanitize(result);
         }
     }
 
@@ -292,7 +293,7 @@ public sealed class GitHubCopilotProvider(
             UseLoggedInUser = true,
             BaseDirectory = SafeBaseDirectory(),
             WorkingDirectory = SafeWorkingDirectory(),
-            Logger = logger,
+            Logger = AiTextSanitizer.WrapLogger(logger),
         });
     }
 
@@ -319,7 +320,8 @@ public sealed class GitHubCopilotProvider(
         }
         catch (Exception ex)
         {
-            logger.LogDebug(ex, "Failed to validate GitHub Copilot model {Model}.", requested);
+            logger.LogDebug("Failed to validate GitHub Copilot model {Model}: {Detail}",
+                AiTextSanitizer.Sanitize(requested), AiTextSanitizer.Sanitize(ex.Message));
             throw;
         }
     }

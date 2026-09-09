@@ -55,7 +55,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
             messages = new[]
             {
                 new { role = "system", content = request.SystemPrompt },
-                new { role = "user", content = request.UserPrompt },
+                new { role = "user", content = AiTextSanitizer.Sanitize(request.UserPrompt, AiTextSanitizer.DiagnosticLimit) },
             },
             options = new { temperature = 0.2 },
         }, ct).ConfigureAwait(false);
@@ -90,7 +90,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
         var endpoint = NormalizeBase(settings.AiOllamaEndpoint, "http://localhost:11434");
         var uri = new Uri(endpoint, "/api/chat");
         var model = settings.AiOllamaModel.Trim();
-        var messages = history.ToList();
+        var messages = history.Select(AiTextSanitizer.SanitizeMessage).ToList();
         for (var i = 0; i < 8; i++)
         {
             using var response = await http.PostAsJsonAsync(uri, new
@@ -126,10 +126,11 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
             var turn = ParseToolTurn(messageElement);
             if (turn.ToolCalls.Count == 0)
             {
-                return string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : turn.AssistantText!;
+                return string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);
             }
 
-            messages.Add(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls });
+            // The execution calls stay original; only redacted copies enter conversation history.
+            messages.Add(AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls }));
             foreach (var call in turn.ToolCalls)
             {
                 var toolResult = await invokeToolAsync(call, ct).ConfigureAwait(false);
@@ -138,7 +139,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
                     Role = "tool",
                     ToolCallId = call.Id,
                     ToolName = call.Name,
-                    Content = toolResult,
+                    Content = AiTextSanitizer.Sanitize(toolResult),
                 });
             }
         }
@@ -152,8 +153,9 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
         "Choose an Ollama model in Settings first.",
         AiFailureKind.Configuration);
 
-    private static object ToOllamaMessage(AiChatMessage message)
+    internal static object ToOllamaMessage(AiChatMessage message)
     {
+        message = AiTextSanitizer.SanitizeMessage(message);
         if (message.Role == "tool")
         {
             // Ollama identifies tool results by name, not an id.
@@ -186,8 +188,9 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
         return new { role = message.Role, content = message.Content ?? string.Empty };
     }
 
-    private static object ToOllamaTool(AiToolDefinition tool)
+    internal static object ToOllamaTool(AiToolDefinition tool)
     {
+        tool = AiTextSanitizer.SanitizeDefinition(tool);
         using var schema = JsonDocument.Parse(tool.JsonSchemaParameters);
         return new
         {

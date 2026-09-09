@@ -45,6 +45,9 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiProviderJson.cs" Link="Services\AiProviderJson.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiProviderException.cs" Link="Services\AiProviderException.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiTextSanitizer.cs" Link="Services\AiTextSanitizer.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AiDiagnosticsService.cs" Link="Services\AiDiagnosticsService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AiErrorClassifier.cs" Link="Services\AiErrorClassifier.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\AiFeedback.cs" Link="Models\AiFeedback.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerDetails.cs" Link="Models\ContainerDetails.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerMount.cs" Link="Models\ContainerMount.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerMounts.cs" Link="Models\ContainerMounts.cs" />

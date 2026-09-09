@@ -5,6 +5,8 @@ adapter contracts. It is a foundation, **not completion of all #95 acceptance
 criteria**. The feature layers below must add their own regression coverage as
 their contracts become available. Issue #97 extends this foundation with real
 argument resolution, approval-bound container plans, and partial-execution tests.
+Issue #91 adds the shared evidence/privacy boundary and deterministic regression
+coverage described below.
 
 ## Running the deterministic suite
 
@@ -112,6 +114,58 @@ These tests are deterministic safety-boundary tests, not an atomic transaction
 guarantee. Inventory can still change between the final check and the engine
 call. Uncertain outcomes require inspection and fresh approval, not a retry.
 
+## Privacy boundary regressions (#91)
+
+`AiTextSanitizer.Sanitize(text, maxChars = 12000)` is the reusable evidence,
+display and audit entry point. It applies complete-input redaction before
+head/tail truncation. `Redact(text)` remains the unbounded structured/text
+operation. Oversized JSON is replaced with a valid JSON object containing
+`truncated: true` and a sanitized preview; malformed structured-looking evidence
+is explicitly omitted. Bulk execution results instead retain overall `status`
+and structured target identities/statuses, shorten detail strings first, and
+report `omittedOutcomes` when even the target rows cannot fit. Neither form is an
+execution input.
+`SanitizeMessage` copies content and argument JSON while preserving protocol IDs,
+roles and tool names. `SanitizeDefinition` preserves the schema/name and sanitizes
+the description. Future tool/history/streaming integrations must call these at
+their outbound/retention boundary, never overwrite the executor's original values.
+Diagnosis preview and provider transports share the 48,000-character
+`DiagnosticLimit`. `WrapLogger` supplies a sanitized logger for SDK integrations;
+it forwards only sanitized strings, not original structured state, scopes or
+exception objects. This wrapper has synthetic sink coverage. Copilot session-store
+disablement remains in place; no live SDK session is created by these tests.
+
+`AiTextSanitizerTests` covers nested JSON, sensitive fields with structured values,
+environment arrays and name/value pairs (either property order), embedded JSON
+and YAML, Kubernetes Secret data, YAML nested/block scalars, quoted assignments,
+headers/cookies, URL credentials, connection strings, private keys, invalid/deep
+structures, idempotence, bounded valid JSON and secrets crossing truncation
+boundaries. Ordinary context, IDs, schemas and explicit detection limitations
+are asserted. Source-linked diagnostic preview and error-classification tests
+cover section sanitization before joining/truncation and displayable errors.
+
+Real orchestration captures serialized activity at the persistence boundary,
+provider callback evidence, sanitized approval details, rejection, resolution
+and execution errors, text history, and untrusted instruction-like log content.
+Real toolset tests cover inspect/log success and failure, approved run environment
+values arriving unchanged at the executor, command truncation, and #97 structured
+partial/unknown/not-run outcomes with command errors and thrown exceptions.
+The HTTP adapter suite captures outbound message bodies for all three adapters,
+including echoed call arguments and tool results, while asserting original
+execution arguments and unchanged protocol metadata/schema.
+
+Run the existing tests with the combined filter:
+
+```powershell
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~AiTextSanitizerTests|FullyQualifiedName~AiProviderContractTests|FullyQualifiedName~AssistantOrchestrationContractTests|FullyQualifiedName~AssistantToolsetContractTests"
+```
+
+Fixtures contain synthetic secrets only. Activity capture is the serialized
+`IActivityLog.Record` input, not a packaged on-disk integration test. This proves
+the assistant writes sanitized event data, not retrospective cleanup, perfect
+secret detection, encrypted workload configuration, or SDK transport behavior.
+The README and Settings notice describe these limits.
+
 ## Deliberate gaps and feature-layer acceptance
 
 These are **unmet criteria**, not skipped tests or assertions that unsafe
@@ -122,7 +176,6 @@ Serialized activity capture is a test sink, not the production on-disk store.
 
 | Layer | Regression coverage still required |
 | --- | --- |
-| #91 privacy | Outbound inspect/log/environment/YAML/tool/error data and persisted activity redaction, original execution values, nested structures and truncation boundaries. Existing exception-detail redaction and synthetic auth transport tests do not establish a universal privacy boundary. |
 | #96 history | Structured multi-turn tool evidence, call/result pairing, provider isolation/switches, in-flight model/endpoint/configuration snapshots, failed-turn retention policy, late completions and stale approvals after reset, overlapping turns, context budgets and truncation. Current coverage only proves sequential text history and reset while approval is pending. |
 | #88 capabilities | Independent Unknown/chat/tool/JSON/streaming/context support, configuration-keyed observations, unsupported JSON, chat-only models, loading versus failures. A diagnosis JSON-mode serialization test is not capability negotiation. |
 | #89 streaming | Fragment assembly, complete validation before action, progress ordering, disconnect recovery, inference versus approval timeouts, cancellation/reset generations, partial outcomes and no replay. Current adapters return final strings. |
