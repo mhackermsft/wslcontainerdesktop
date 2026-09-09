@@ -96,6 +96,8 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\HealthCheck.cs" Link="Models\HealthCheck.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RestartPolicyConfig.cs" Link="Models\RestartPolicyConfig.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeProject.cs" Link="Models\ComposeProject.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeReconciliationPlan.cs" Link="Models\ComposeReconciliationPlan.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeReconciliationPlanner.cs" Link="Services\ComposeReconciliationPlanner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerOptions.cs" Link="Models\RunContainerOptions.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ISettingsService.cs" Link="Services\ISettingsService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcCapabilitiesService.cs" Link="Services\IWslcCapabilitiesService.cs" />
@@ -129,6 +131,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeConfigurationException.cs" Link="Services\ComposeConfigurationException.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeNetworkOrchestrator.cs" Link="Services\ComposeNetworkOrchestrator.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.cs" Link="Services\ComposeProjectSupervisor.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.Reconciliation.cs" Link="Services\ComposeProjectSupervisor.Reconciliation.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcService.cs" Link="Services\IWslcService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeProjectStore.cs" Link="Services\IComposeProjectStore.cs" />
   </ItemGroup>
@@ -154,6 +157,7 @@
     <Compile Remove="Services\ComposeRuntime*.cs" />
     <Compile Remove="Services\AssistantToolsetContractTests.cs" />
     <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
+    <Compile Remove="Services\ComposeReconciliationSupervisorTests.cs" />
     <Compile Remove="Services\SupervisorMonitorDoubles.cs" />
   </ItemGroup>
   <ItemGroup>

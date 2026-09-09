@@ -23,16 +23,19 @@ namespace WslContainerDesktop.Services;
 public sealed record ComposeServiceResult(string Service, bool Success, string Detail, string? Warning = null)
 {
     public string? ContainerId { get; init; }
+    public ComposeServiceAction Action { get; init; }
 }
 
 /// <summary>Aggregate result of bringing a compose project up.</summary>
 public sealed class ComposeUpResult
 {
     public IReadOnlyList<ComposeServiceResult> Services { get; init; } = Array.Empty<ComposeServiceResult>();
+    public ComposeReconciliationPlan? Plan { get; init; }
 
     public bool AllSucceeded => Services.All(s => s.Success);
 
-    public int Started => Services.Count(s => s.Success);
+    public int Started => Services.Count(s => s.Success && s.Action is
+        ComposeServiceAction.Start or ComposeServiceAction.Create or ComposeServiceAction.Recreate or ComposeServiceAction.Restart);
 
     public IReadOnlyList<string> Warnings => Services.Where(s => s.Warning is not null)
         .Select(s => $"{s.Service}: {s.Warning}").ToList();
@@ -48,7 +51,7 @@ public sealed class ComposeUpResult
 /// in-process (there is no background daemon), so it pauses when the app is closed and resumes via
 /// <see cref="ReconcileAsync"/> on the next launch.</para>
 /// </summary>
-public sealed class ComposeProjectSupervisor
+public sealed partial class ComposeProjectSupervisor
 {
     private readonly IWslcService _wslc;
     private readonly IComposeProjectStore _store;
@@ -87,17 +90,25 @@ public sealed class ComposeProjectSupervisor
     }
 
     /// <summary>
-    /// Brings the project up: (re)creates each service container in dependency order, gating any
-    /// <c>service_healthy</c> edges on a health probe, and enrolls health/restart policies. The
-    /// project is persisted so it can be managed and re-adopted later.
+    /// Applies a resolved project non-disruptively: keeps unchanged running instances, starts
+    /// stopped instances and selectively recreates changes, with dependency readiness gates.
     /// </summary>
-    public async Task<ComposeUpResult> UpAsync(ComposeProject project, CancellationToken ct = default)
+    public Task<ComposeUpResult> UpAsync(ComposeProject project, CancellationToken ct = default) =>
+        UpAsync(project, new ComposeOperationRequest(), ct);
+
+    public async Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
+        CancellationToken ct = default)
     {
+        if (request.Operation != ComposeLifecycleOperation.Up)
+            throw new ArgumentException("Up requires an Up operation.", nameof(request));
         var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
+        var desired = SnapshotProject(project);
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return await UpCoreAsync(project, maximumStopVersion, ct).ConfigureAwait(false);
+            desired.AppliedServices = _store.Get(project.Name)?.AppliedServices ?? desired.AppliedServices;
+            desired.AppliedStateKnown = true;
+            return await UpCoreAsync(desired, maximumStopVersion, ct, request).ConfigureAwait(false);
         }
         finally
         {
@@ -131,52 +142,63 @@ public sealed class ComposeProjectSupervisor
     }
 
     private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, long maximumStopVersion, CancellationToken ct,
-        IReadOnlyDictionary<string, NetworkStartupPlan>? networkPlans = null)
+        ComposeOperationRequest request)
     {
+        var plan = await ReadPlanAsync(project, request, ct).ConfigureAwait(false);
+        if (!plan.CanApply)
+            return RejectedPlan(plan);
+        ValidateResourceDeclarations(project, plan);
+        var networkPreflight = await PreflightNetworksAsync(project, plan, ct).ConfigureAwait(false);
+        plan = networkPreflight.Plan;
+        var networkPlans = networkPreflight.Networks;
+        if (!plan.CanApply) return RejectedPlan(plan);
+
+        // Finish the complete selected graph's fallible preparation before stopping any workload.
+        plan = await PreserveCompletedDependenciesAsync(project, plan, ct).ConfigureAwait(false);
+        plan = await PrepareImagesAsync(project, plan, request, ct).ConfigureAwait(false);
+        var prepared = new Dictionary<string, RunContainerOptions>(StringComparer.Ordinal);
+        foreach (var entry in plan.Services.Where(p => p.Action is ComposeServiceAction.Create or ComposeServiceAction.Recreate))
+            prepared.Add(entry.Service.Name, await PrepareRunAsync(project, entry, ct).ConfigureAwait(false));
+        await ProvisionResourcesAsync(ResourcesForPlan(project, plan), ct).ConfigureAwait(false);
         _store.Save(project);
 
-        // Provision declared networks/volumes and build any images before starting services.
-        await ProvisionResourcesAsync(project, ct).ConfigureAwait(false);
-        await BuildImagesAsync(project, ct).ConfigureAwait(false);
-
-        var order = ResolveOrder(project);
         var results = new List<ComposeServiceResult>();
         var started = new HashSet<string>(StringComparer.Ordinal);
         var startedContainers = new Dictionary<string, (string? Id, DateTimeOffset StartedAt)>(StringComparer.Ordinal);
 
-        foreach (var service in order)
+        foreach (var entry in plan.Services)
         {
             ct.ThrowIfCancellationRequested();
-
-            // Skip services excluded by the active profile set (docker compose profile semantics).
-            if (!IsServiceActive(project, service))
-            {
-                continue;
-            }
-
-            var unavailable = service.DependsOn.Where(d => !started.Contains(d.ServiceName)).ToList();
-            if (unavailable.Count > 0)
+            var service = entry.Service;
+            var dependencies = ComposeReconciliationPlanner.Dependencies(service);
+            // A running unchanged dependent needs no startup gate and must not be disrupted by
+            // a failed dependency update. Gates apply when we actually start/recreate a workload.
+            var unavailable = dependencies.Where(d => d.Required && !started.Contains(d.ServiceName)).ToList();
+            if (entry.Action != ComposeServiceAction.Keep && unavailable.Count > 0)
             {
                 results.Add(new ComposeServiceResult(service.Name, false,
-                    $"Required dependencies are not ready: {string.Join(", ", unavailable.Select(d => d.ServiceName))}."));
+                    $"Required dependencies are not ready: {string.Join(", ", unavailable.Select(d => d.ServiceName))}.")
+                    { Action = ComposeServiceAction.Blocked, ContainerId = entry.ContainerId });
                 continue;
             }
 
             // Honor service_healthy dependencies before creating this service.
             var dependencyFailed = false;
-            foreach (var dep in service.DependsOn.Where(d => d.Condition == DependencyCondition.ServiceHealthy))
+            foreach (var dep in dependencies.Where(d => entry.Action != ComposeServiceAction.Keep &&
+                d.Condition == DependencyCondition.ServiceHealthy))
             {
                 var depService = project.Services.FirstOrDefault(s =>
                     string.Equals(s.Name, dep.ServiceName, StringComparison.Ordinal));
                 if (depService is null || !started.Contains(dep.ServiceName))
                 {
+                    if (!dep.Required) continue;
                     dependencyFailed = true;
                     break;
                 }
 
                 var identity = startedContainers[dep.ServiceName];
                 var healthy = await WaitForHealthyAsync(project, depService, identity.Id, identity.StartedAt, ct).ConfigureAwait(false);
-                if (!healthy)
+                if (!healthy && dep.Required)
                 {
                     dependencyFailed = true;
                     break;
@@ -185,12 +207,14 @@ public sealed class ComposeProjectSupervisor
             if (dependencyFailed)
             {
                 results.Add(new ComposeServiceResult(service.Name, false,
-                    "A required service_healthy dependency is missing, failed, or did not become healthy. Service was not started."));
+                    "A required service_healthy dependency is missing, failed, or did not become healthy. Service was not started.")
+                    { Action = ComposeServiceAction.Blocked, ContainerId = entry.ContainerId });
                 continue;
             }
 
             // Honor service_completed_successfully dependencies (one-shot init/migration services).
-            foreach (var dep in service.DependsOn.Where(d => d.Condition == DependencyCondition.ServiceCompletedSuccessfully))
+            foreach (var dep in dependencies.Where(d => entry.Action != ComposeServiceAction.Keep &&
+                d.Condition == DependencyCondition.ServiceCompletedSuccessfully))
             {
                 var depService = project.Services.FirstOrDefault(s =>
                     string.Equals(s.Name, dep.ServiceName, StringComparison.Ordinal));
@@ -199,38 +223,54 @@ public sealed class ComposeProjectSupervisor
                     continue;
                 }
 
-                var completed = await WaitForCompletedAsync(project, depService, ct).ConfigureAwait(false);
-                if (!completed)
+                var completed = await WaitForCompletedAsync(project, depService, startedContainers[dep.ServiceName].Id, ct).ConfigureAwait(false);
+                if (!completed && dep.Required)
                 {
-                    _logger.LogWarning(
-                        "Dependency {Dep} did not complete successfully within {Timeout}s; starting {Service} anyway.",
-                        dep.ServiceName, (int)HealthyWaitTimeout.TotalSeconds, service.Name);
+                    dependencyFailed = true;
+                    break;
                 }
             }
+            if (dependencyFailed)
+            {
+                results.Add(new(service.Name, false,
+                    "A required service_completed_successfully dependency failed or did not complete. Service was not started.")
+                    { Action = ComposeServiceAction.Blocked, ContainerId = entry.ContainerId });
+                continue;
+            }
 
-            var result = await StartServiceAsync(project, service, maximumStopVersion, ct,
-                networkPlans is null ? null : networkPlans[service.Name]).ConfigureAwait(false);
+            var result = entry.Action switch
+            {
+                ComposeServiceAction.Keep => await ReuseExistingAsync(project, entry,
+                    networkPlans[service.Name].Warning, maximumStopVersion, ct).ConfigureAwait(false),
+                ComposeServiceAction.Start or ComposeServiceAction.Restart =>
+                    await StartExistingAsync(project, entry, maximumStopVersion, ct).ConfigureAwait(false),
+                _ => await StartServiceAsync(project, service, maximumStopVersion, ct,
+                    networkPlans[service.Name], prepared[service.Name], entry.ContainerId).ConfigureAwait(false),
+            };
+            result = result with { Action = entry.Action };
             results.Add(result);
             if (result.Success)
             {
                 started.Add(service.Name);
-                startedContainers[service.Name] = (result.ContainerId, DateTimeOffset.UtcNow);
+                startedContainers[service.Name] = (result.ContainerId,
+                    entry.Action == ComposeServiceAction.Keep ? DateTimeOffset.MinValue : DateTimeOffset.UtcNow);
                 var readyProject = ProjectWithServices(project, [service]);
                 SeedHealthChecks(readyProject);
                 SeedRestartPolicies(readyProject);
+                RecordApplied(project, entry, result.ContainerId!);
                 _monitor.RequestRefresh();
             }
         }
 
-        return new ComposeUpResult { Services = results };
+        return new ComposeUpResult { Services = results, Plan = plan };
     }
 
     /// <summary>
-    /// A service starts when it declares no profiles, or when one of its profiles is in the project's
-    /// <see cref="ComposeProject.ActiveProfiles"/> — matching <c>docker compose</c>'s profile rules.
+    /// Profile predicate for enrolling selected service snapshots; selection itself belongs to the planner.
     /// </summary>
     private static bool IsServiceActive(ComposeProject project, ComposeService service) =>
         service.Profiles.Count == 0 ||
+        project.ActiveProfiles.Contains("*", StringComparer.Ordinal) ||
         service.Profiles.Any(p => project.ActiveProfiles.Contains(p, StringComparer.Ordinal));
 
     /// <summary>
@@ -266,54 +306,19 @@ public sealed class ComposeProjectSupervisor
             }
         }
 
-        foreach (var volume in project.Volumes.Where(v => !v.External && !string.IsNullOrWhiteSpace(v.Name)))
+        foreach (var volume in project.Volumes.Where(v => !string.IsNullOrWhiteSpace(v.Name)))
         {
-            try
+            var existing = await _wslc.InspectVolumeAsync(volume.Name, ct).ConfigureAwait(false);
+            if (existing.Success) continue;
+            if (volume.External || !existing.ErrorText.Contains("WSLC_E_VOLUME_NOT_FOUND", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Volume '{volume.Name}': {existing.ErrorText}");
+            var labels = new Dictionary<string, string>(volume.Labels, StringComparer.Ordinal)
             {
-                await _wslc.CreateVolumeAsync(volume.Name, volume.Driver, volume.DriverOpts, volume.Labels, ct)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Creating volume {Volume} failed (may already exist).", volume.Name);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Builds an image for every service that declares a <c>build:</c> section, tagging it so the
-    /// service runs the freshly built image. A failed build is logged and left to surface when the
-    /// service fails to run.
-    /// </summary>
-    private async Task BuildImagesAsync(ComposeProject project, CancellationToken ct)
-    {
-        foreach (var service in project.Services.Where(s => s.Build is { } b && b.IsValid))
-        {
-            var build = service.Build!;
-            if (!Directory.Exists(build.Context))
-            {
-                _logger.LogWarning(
-                    "Build context {Context} for service {Service} does not exist; skipping build.",
-                    build.Context, service.Name);
-                continue;
-            }
-
-            var tag = BuiltImageTag(project, service);
-            try
-            {
-                var result = await _wslc.BuildImageAsync(
-                    build.Context, tag, build.Dockerfile, build.Args, build.Target, build.Labels,
-                    build.NoCache, build.Pull, ct)
-                    .ConfigureAwait(false);
-                if (!result.Success)
-                {
-                    _logger.LogWarning("Build for service {Service} failed: {Detail}", service.Name, Summarize(result));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Build for service {Service} threw.", service.Name);
-            }
+                [ComposeProject.ProjectLabel] = project.Name,
+            };
+            var created = await _wslc.CreateVolumeAsync(volume.Name, volume.Driver, volume.DriverOpts, labels, ct).ConfigureAwait(false);
+            if (!created.Success)
+                throw new InvalidOperationException($"Create volume '{volume.Name}': {created.ErrorText}");
         }
     }
 
@@ -344,37 +349,10 @@ public sealed class ComposeProjectSupervisor
             return;
         }
 
-        var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
-        foreach (var service in project.Services)
-        {
-            var name = ResolveContainerName(project, service);
-            var existing = FindByName(containers, name);
-            if (existing is null)
-            {
-                RemoveHealthChecks(ProjectWithServices(project, [service]));
-                RemoveRestartPolicies(ProjectWithServices(project, [service]));
-                continue;
-            }
-
-            var state = await _networks.InspectAsync(existing.Id, ct).ConfigureAwait(false);
-            if (!state.IsOwnedBy(project, service))
-            {
-                throw new InvalidOperationException($"Container '{name}' is not owned by this project; it was not removed.");
-            }
-
-            ct.ThrowIfCancellationRequested();
-            // Deregister only the verified service we are about to stop, not untouched siblings.
-            RemoveHealthChecks(ProjectWithServices(project, [service]));
-            RemoveRestartPolicies(ProjectWithServices(project, [service]));
-            await _wslc.StopContainerAsync(
-                existing.Id, service.StopGracePeriodSeconds, service.Options.StopSignal, ct)
-                .ConfigureAwait(false);
-            var removed = await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
-            if (!removed.Success)
-            {
-                throw new InvalidOperationException($"Remove container '{name}': {removed.ErrorText}");
-            }
-        }
+        var result = await ExistingCoreAsync(project,
+            new ComposeOperationRequest { Operation = ComposeLifecycleOperation.Down }, long.MaxValue, ct).ConfigureAwait(false);
+        if (!result.AllSucceeded)
+            throw new InvalidOperationException(string.Join("; ", result.Services.Where(s => !s.Success).Select(s => s.Detail)));
 
         // Remove project-created networks (like `docker compose down`). Volumes are preserved
         // unless the caller requested their removal (like `docker compose down --volumes`).
@@ -408,59 +386,27 @@ public sealed class ComposeProjectSupervisor
         {
             foreach (var volume in project.Volumes.Where(v => !v.External && !string.IsNullOrWhiteSpace(v.Name)))
             {
-                try
+                var inspect = await _wslc.InspectVolumeAsync(volume.Name, ct).ConfigureAwait(false);
+                if (!inspect.Success && inspect.ErrorText.Contains("WSLC_E_VOLUME_NOT_FOUND", StringComparison.Ordinal))
+                    continue;
+                if (!inspect.Success) throw new InvalidOperationException(inspect.ErrorText);
+                if (!NetworkIsOwned(inspect.StandardOutput, project.Name))
                 {
-                    await _wslc.RemoveVolumeAsync(volume.Name, ct).ConfigureAwait(false);
+                    _logger.LogWarning("Preserving volume {Volume}: project ownership could not be verified.", volume.Name);
+                    continue;
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Removing volume {Volume} failed (may be in use).", volume.Name);
-                }
+                var removed = await _wslc.RemoveVolumeAsync(volume.Name, ct).ConfigureAwait(false);
+                if (!removed.Success) throw new InvalidOperationException(removed.ErrorText);
             }
         }
     }
 
     /// <summary>
-    /// Restarts the whole project: brings it down (stops and removes its containers) and then back
-    /// up in dependency order. Returns the up result so callers can report per-service outcomes.
+    /// Restarts existing containers without applying edited configuration, rebuilding images,
+    /// recreating containers, or removing shared resources.
     /// </summary>
-    public async Task<ComposeUpResult> RestartAsync(string projectName, CancellationToken ct = default)
-    {
-        var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
-        var project = _store.Get(projectName);
-        if (project is null)
-        {
-            return new ComposeUpResult();
-        }
-
-        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            var networkPlans = new Dictionary<string, NetworkStartupPlan>(StringComparer.Ordinal);
-            foreach (var service in project.Services.Where(s => IsServiceActive(project, s)))
-            {
-                try
-                {
-                    networkPlans.Add(service.Name, await PreflightNetworkAsync(project, service, ct).ConfigureAwait(false));
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    return new ComposeUpResult { Services = [new(service.Name, false, ex.Message)] };
-                }
-            }
-
-            await DownCoreAsync(projectName, removeVolumes: false, ct).ConfigureAwait(false);
-            return await UpCoreAsync(project, maximumStopVersion, ct, networkPlans).ConfigureAwait(false);
-        }
-        finally
-        {
-            _lifecycleGate.Release();
-        }
-    }
+    public Task<ComposeUpResult> RestartAsync(string projectName, CancellationToken ct = default) =>
+        OperateAsync(projectName, new ComposeOperationRequest { Operation = ComposeLifecycleOperation.Restart }, ct);
 
     /// <summary>
     /// Startup reconciliation: re-enrolls health/restart policies for stored projects whose
@@ -481,11 +427,13 @@ public sealed class ComposeProjectSupervisor
             var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
             foreach (var project in projects)
             {
-                RemoveHealthChecks(project);
-                RemoveRestartPolicies(project);
                 var ready = new List<ComposeService>();
-                foreach (var service in project.Services.Where(s => IsServiceActive(project, s)))
+                var appliedProject = ExistingProject(project);
+                var services = appliedProject.Services;
+                foreach (var desired in services)
                 {
+                    var service = project.AppliedServices.TryGetValue(desired.Name, out var applied)
+                        ? applied.Service : desired;
                     var existing = FindByName(containers, ResolveContainerName(project, service));
                     if (existing is null)
                     {
@@ -497,11 +445,35 @@ public sealed class ComposeProjectSupervisor
                         var state = await _networks.InspectAsync(existing.Id, ct).ConfigureAwait(false);
                         if (!state.IsOwnedBy(project, service))
                         {
+                            var unsafeService = ProjectWithServices(project, [service]);
+                            RemoveHealthChecks(unsafeService);
+                            RemoveRestartPolicies(unsafeService);
                             throw new InvalidOperationException("Container ownership does not match the saved project.");
                         }
+                        if (applied is not null &&
+                            (ContainerIdentity.ResolveId(containers.Select(c => c.Id), applied.ContainerId) != existing.Id ||
+                             ContainerIdentity.ResolveId([state.Id], applied.ContainerId) != state.Id))
+                        {
+                            var replacedService = ProjectWithServices(project, [service]);
+                            RemoveHealthChecks(replacedService);
+                            RemoveRestartPolicies(replacedService);
+                            throw new InvalidOperationException("The saved applied instance was replaced outside Compose; apply the project to reconcile it.");
+                        }
+                        if (applied?.ManuallyStopped == true)
+                        {
+                            if (_suppression?.IsSuppressed(ResolveContainerName(project, service)) == false)
+                                _suppression.Suppress(ResolveContainerName(project, service));
+                            var stoppedService = ProjectWithServices(project, [service]);
+                            RemoveHealthChecks(stoppedService);
+                            RemoveRestartPolicies(stoppedService);
+                            continue;
+                        }
+                        if (applied is null && state.Labels.TryGetValue(ComposeProject.ConfigHashLabel, out var fingerprint) &&
+                            fingerprint != ComposeReconciliationPlanner.Fingerprint(project, service))
+                            throw new InvalidOperationException("Existing configuration differs from the desired project; apply it explicitly.");
 
                         var options = service.Options.Clone();
-                        PrepareNetworkOptions(project, service, options);
+                        PrepareNetworkOptions(appliedProject, service, options);
                         if (options.GetNetworkAttachments().Count > 1)
                         {
                             var capabilities = await _capabilities.GetAsync(ct).ConfigureAwait(false);
@@ -548,71 +520,6 @@ public sealed class ComposeProjectSupervisor
         }
     }
 
-    /// <summary>
-    /// Computes a start order that respects <c>depends_on</c> edges (Kahn's algorithm). Any services
-    /// left over by a dependency cycle are appended in their declared order so nothing is dropped.
-    /// </summary>
-    public static IReadOnlyList<ComposeService> ResolveOrder(ComposeProject project)
-    {
-        var byName = project.Services
-            .GroupBy(s => s.Name, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
-
-        var indegree = project.Services.ToDictionary(s => s.Name, _ => 0, StringComparer.Ordinal);
-        var dependents = project.Services.ToDictionary(s => s.Name, _ => new List<string>(), StringComparer.Ordinal);
-
-        foreach (var service in project.Services)
-        {
-            foreach (var dep in service.DependsOn)
-            {
-                // Only count edges to services that actually exist in this project.
-                if (!byName.ContainsKey(dep.ServiceName) || dep.ServiceName == service.Name)
-                {
-                    continue;
-                }
-
-                indegree[service.Name]++;
-                dependents[dep.ServiceName].Add(service.Name);
-            }
-        }
-
-        // Seed the queue with roots, preserving declared order for determinism.
-        var queue = new Queue<string>(project.Services
-            .Where(s => indegree[s.Name] == 0)
-            .Select(s => s.Name));
-
-        var ordered = new List<ComposeService>();
-        var placed = new HashSet<string>(StringComparer.Ordinal);
-        while (queue.Count > 0)
-        {
-            var name = queue.Dequeue();
-            if (!placed.Add(name))
-            {
-                continue;
-            }
-
-            ordered.Add(byName[name]);
-            foreach (var next in dependents[name])
-            {
-                if (--indegree[next] == 0)
-                {
-                    queue.Enqueue(next);
-                }
-            }
-        }
-
-        // Append any services caught in a cycle, in declared order.
-        foreach (var service in project.Services)
-        {
-            if (placed.Add(service.Name))
-            {
-                ordered.Add(service);
-            }
-        }
-
-        return ordered;
-    }
-
     /// <summary>How many times to stage-and-verify a config/secret bind before giving up. Each retry
     /// stages the file at a fresh unique path to bust wslc's per-path 9P negative cache. Kept small:
     /// a single fresh-path retry clears a one-off race, and each abandoned path leaks a wslc mount
@@ -620,39 +527,49 @@ public sealed class ComposeProjectSupervisor
     private const int MaxStagedMountAttempts = 2;
 
     private async Task<ComposeServiceResult> StartServiceAsync(ComposeProject project, ComposeService service,
-        long maximumStopVersion, CancellationToken ct, NetworkStartupPlan? networkPlan = null)
+        long maximumStopVersion, CancellationToken ct, NetworkStartupPlan networkPlan,
+        RunContainerOptions prepared, string? expectedId)
     {
         var name = ResolveContainerName(project, service);
         bool nativeNetworks;
         string? networkWarning = null;
+        Action? restoreSupervision = null;
+        var oldRemoved = false;
 
         try
         {
-            networkPlan ??= await PreflightNetworkAsync(project, service, ct).ConfigureAwait(false);
             nativeNetworks = networkPlan.Native;
             networkWarning = networkPlan.Warning;
             var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
             var existing = FindByName(containers, name);
+            if (expectedId is null ? existing is not null :
+                existing is null || ContainerIdentity.ResolveId(containers.Select(c => c.Id), expectedId) != existing.Id)
+                throw new InvalidOperationException($"Container '{name}' changed since preflight; apply again.");
             if (existing is not null)
             {
                 var state = await _networks.InspectAsync(existing.Id, ct).ConfigureAwait(false);
-                if (!state.IsOwnedBy(project, service))
+                if (!state.IsOwnedBy(project, service) || expectedId is null ||
+                    ContainerIdentity.ResolveId([state.Id], expectedId) != state.Id)
                 {
                     return new ComposeServiceResult(service.Name, false,
                         $"Container '{name}' is not owned by this project and will not be replaced.");
                 }
 
                 ct.ThrowIfCancellationRequested();
-                RemoveHealthChecks(ProjectWithServices(project, [service]));
-                RemoveRestartPolicies(ProjectWithServices(project, [service]));
-                await _wslc.StopContainerAsync(
-                    existing.Id, service.StopGracePeriodSeconds, service.Options.StopSignal, ct)
+                restoreSupervision = SuspendSupervision(project, service);
+                var previous = project.AppliedServices.TryGetValue(service.Name, out var applied)
+                    ? applied.Service : service;
+                var stop = await _wslc.StopContainerAsync(
+                    state.Id, previous.StopGracePeriodSeconds, previous.Options.StopSignal, ct)
                     .ConfigureAwait(false);
-                var removed = await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
+                if (!stop.Success)
+                    return new(service.Name, false, Summarize(stop));
+                var removed = await _wslc.RemoveContainerAsync(state.Id, force: true, ct).ConfigureAwait(false);
                 if (!removed.Success)
                 {
                     return new ComposeServiceResult(service.Name, false, removed.ErrorText);
                 }
+                oldRemoved = true;
             }
             else
             {
@@ -669,80 +586,44 @@ public sealed class ComposeProjectSupervisor
         {
             return new ComposeServiceResult(service.Name, false, ex.Message);
         }
-
-        // A config/secret file bind can silently fail: under wslc session mount pressure runc can't
-        // stat the host source and pre-creates it as a DIRECTORY, so the container starts but reads a
-        // directory where its config should be (nginx: "Is a directory"). Worse, the raced path is
-        // then poisoned — wslc's 9P layer caches the missing-source result per path, so re-running the
-        // same staged path keeps failing even in an otherwise clean session. Windows-side detection is
-        // unreliable (the file→directory view lags), so before running the real container we verify
-        // each staged bind from INSIDE the VM (authoritative). Only a *confirmed* directory mount
-        // triggers a re-stage at a FRESH path (which the cache treats as new); if the probe itself
-        // can't run we fail open and let the real run surface any genuine error. Only file-mount
-        // services pay the verification cost.
-        string? nonce = null;
-        for (var attempt = 1; attempt <= MaxStagedMountAttempts; attempt++)
+        finally
         {
-            var options = CloneForRun(project, service, name, nonce);
-            var stagedSources = options.Volumes
-                .Where(v => v.StartsWith(StagingRoot, StringComparison.OrdinalIgnoreCase))
-                .Select(SourceOf)
-                .ToList();
-
-            if (stagedSources.Count > 0 && await AnyStagedMountRacedAsync(stagedSources, ct).ConfigureAwait(false))
-            {
-                if (attempt < MaxStagedMountAttempts)
-                {
-                    nonce = Guid.NewGuid().ToString("N")[..8];
-                    _logger.LogWarning(
-                        "Staged config/secret bind for {Name} mounted as a directory (wslc mount " +
-                        "pressure); re-staging at a fresh path (attempt {Next}/{Max}).",
-                        name, attempt + 1, MaxStagedMountAttempts);
-                    continue;
-                }
-
-                return new ComposeServiceResult(service.Name, false, MountLimitMessage);
-            }
-
-            try
-            {
-                string containerId;
-                if (nativeNetworks)
-                {
-                    containerId = await _networks.CreateAndStartAsync(options, ct, maximumStopVersion).ConfigureAwait(false);
-                }
-                else
-                {
-                    var run = await _wslc.RunContainerAsync(options, ct, maximumStopVersion).ConfigureAwait(false);
-                    if (!run.Success)
-                    {
-                        return new ComposeServiceResult(service.Name, false, Summarize(run), networkWarning);
-                    }
-                    var state = await _networks.InspectAsync(name, ct).ConfigureAwait(false);
-                    if (!state.IsOwnedBy(project, service))
-                    {
-                        throw new InvalidOperationException("Started container ownership could not be verified.");
-                    }
-                    containerId = state.Id;
-                }
-
-                await ApplyExtraHostsAsync(name, service, ct).ConfigureAwait(false);
-                return new ComposeServiceResult(service.Name, true, $"Started as {name}", networkWarning)
-                {
-                    ContainerId = containerId,
-                };
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                return new ComposeServiceResult(service.Name, false, ex.Message);
-            }
+            if (!oldRemoved) restoreSupervision?.Invoke();
         }
 
-        return new ComposeServiceResult(service.Name, false, MountLimitMessage);
+        var operation = Guid.NewGuid().ToString("N");
+        prepared.Labels[ApplyOperationLabel] = operation;
+        var launched = false;
+        try
+        {
+            string containerId;
+            if (nativeNetworks)
+            {
+                containerId = await _networks.CreateAndStartAsync(prepared, ct, maximumStopVersion).ConfigureAwait(false);
+            }
+            else
+            {
+                var run = await _wslc.RunContainerAsync(prepared, ct, maximumStopVersion).ConfigureAwait(false);
+                if (!run.Success)
+                    return new(service.Name, false, Summarize(run), networkWarning);
+                // Complete observation of an acknowledged run even if cancellation arrives now.
+                using var observation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var state = await _networks.InspectAsync(name, observation.Token).ConfigureAwait(false);
+                if (!state.IsOwnedBy(project, service) || !state.HasLabel(ApplyOperationLabel, operation))
+                    throw new InvalidOperationException("Started container ownership could not be verified.");
+                containerId = state.Id;
+            }
+            launched = true;
+            await ApplyExtraHostsAsync(name, service, ct).ConfigureAwait(false);
+            return new(service.Name, true, $"Started as {name}", networkWarning) { ContainerId = containerId };
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { return new(service.Name, false, ex.Message); }
+        finally
+        {
+            if (!launched && !nativeNetworks)
+                await CleanupPartialRunAsync(name, operation).ConfigureAwait(false);
+        }
     }
 
     /// <summary>The host source of a "<c>source:/target:ro</c>" bind string.</summary>
@@ -837,6 +718,11 @@ public sealed class ComposeProjectSupervisor
             _logger.LogWarning("Cannot establish the new container identity for dependency {Name}.", dep.Name);
             return false;
         }
+        if (dep.Health is null && dep.Options.Health is null)
+        {
+            _logger.LogWarning("Dependency {Name} has no configured health check.", dep.Name);
+            return false;
+        }
         var name = ResolveContainerName(project, dep);
         var deadline = DateTimeOffset.UtcNow + HealthyWaitTimeout;
 
@@ -857,10 +743,7 @@ public sealed class ComposeProjectSupervisor
             {
                 await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
+            catch (OperationCanceledException) { throw; }
         }
 
         return false;
@@ -870,7 +753,7 @@ public sealed class ComposeProjectSupervisor
     /// Waits until the dependency container has exited with code 0 (compose
     /// <c>service_completed_successfully</c>). Returns false on timeout or a non-zero/unreadable exit.
     /// </summary>
-    private async Task<bool> WaitForCompletedAsync(ComposeProject project, ComposeService dep, CancellationToken ct)
+    private async Task<bool> WaitForCompletedAsync(ComposeProject project, ComposeService dep, string? expectedId, CancellationToken ct)
     {
         var name = ResolveContainerName(project, dep);
         var deadline = DateTimeOffset.UtcNow + HealthyWaitTimeout;
@@ -881,10 +764,13 @@ public sealed class ComposeProjectSupervisor
 
             var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
             var container = FindByName(containers, name);
+            if (container is null || expectedId is null ||
+                ContainerIdentity.ResolveId(containers.Select(c => c.Id), expectedId) != container.Id)
+                return false;
 
             // Only inspect the exit code once the container has actually stopped.
             if (container is not null &&
-                container.State is ContainerState.Stopped or ContainerState.Created)
+                container.State is ContainerState.Stopped)
             {
                 return await ExitedCleanlyAsync(container.Id, ct).ConfigureAwait(false);
             }
@@ -893,10 +779,7 @@ public sealed class ComposeProjectSupervisor
             {
                 await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
+            catch (OperationCanceledException) { throw; }
         }
 
         return false;
@@ -921,8 +804,10 @@ public sealed class ComposeProjectSupervisor
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             return match.Success && int.TryParse(match.Groups[1].Value, out var code) && code == 0;
         }
-        catch
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
         {
+            _logger.LogDebug(ex, "Could not read Compose dependency exit status.");
             return false;
         }
     }
@@ -1006,7 +891,7 @@ public sealed class ComposeProjectSupervisor
     }
 
     private static ComposeProject ProjectWithServices(ComposeProject project, IEnumerable<ComposeService> services) =>
-        new() { Name = project.Name, ActiveProfiles = project.ActiveProfiles, Services = services.ToList() };
+        new() { Name = project.Name, ActiveProfiles = ["*"], Services = services.ToList() };
 
     private static bool NetworkIsOwned(string json, string project)
     {
@@ -1087,15 +972,12 @@ public sealed class ComposeProjectSupervisor
             string.Equals(d.Name, reference.Source, StringComparison.Ordinal));
         if (def is null || string.IsNullOrWhiteSpace(def.File) || string.IsNullOrWhiteSpace(reference.Target))
         {
-            return;
+            throw new InvalidOperationException($"Compose {kind} reference cannot be materialized.");
         }
 
         if (!File.Exists(def.File))
         {
-            _logger.LogWarning(
-                "Compose {Kind} '{Name}' source file '{File}' not found; skipping mount into {Target}.",
-                kind, def.Name, def.File, reference.Target);
-            return;
+            throw new InvalidOperationException($"Compose {kind} source is missing.");
         }
 
         var mountSource = MaterializeForMount(project, kind, def.Name, def.File, stagingNonce);
@@ -1135,22 +1017,17 @@ public sealed class ComposeProjectSupervisor
             Directory.CreateDirectory(dir);
             var dest = Path.Combine(dir, Path.GetFileName(source));
 
-            // A prior raced run may have left a directory at dest (runc pre-created the missing bind
-            // source). File.Copy can't overwrite a directory, so clear it first.
+            // Do not delete an unexpected directory while preparing a file mount.
             if (Directory.Exists(dest))
-            {
-                Directory.Delete(dest, recursive: true);
-            }
+                throw new IOException("The staged mount destination is a directory.");
 
             File.Copy(source, dest, overwrite: true);
             return dest;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex,
-                "Failed to stage compose {Kind} '{Name}' from '{Source}'; binding source in place.",
-                kind, name, source);
-            return source;
+            _logger.LogDebug(ex, "Failed to stage Compose file mount.");
+            throw new InvalidOperationException($"Compose {kind} could not be staged; existing containers were preserved.");
         }
     }
 
@@ -1181,9 +1058,7 @@ public sealed class ComposeProjectSupervisor
 
     /// <summary>The container name a service runs as: an explicit <c>container_name</c>, else <c>project_service</c>.</summary>
     private static string ResolveContainerName(ComposeProject project, ComposeService service) =>
-        string.IsNullOrWhiteSpace(service.Options.Name)
-            ? project.ContainerNameFor(service.Name)
-            : service.Options.Name!.Trim();
+        ComposeReconciliationPlanner.ContainerName(project, service);
 
     private static ContainerInfo? FindByName(IReadOnlyList<ContainerInfo> containers, string name) =>
         containers.FirstOrDefault(c =>
@@ -1218,12 +1093,7 @@ public sealed class ComposeProjectSupervisor
             });
         }
 
-        if (toAdd.Count == 0)
-        {
-            return;
-        }
-
-        var names = new HashSet<string>(toAdd.Select(c => c.ContainerName), StringComparer.Ordinal);
+        var names = project.Services.Select(s => ResolveContainerName(project, s)).ToHashSet(StringComparer.Ordinal);
 
         // Replace the list reference atomically so the watchdog never enumerates a mutating list.
         var merged = _settings.HealthChecks

@@ -77,6 +77,13 @@ public sealed class ComposeProjectStore : IComposeProjectStore
         lock (_gate)
         {
             project.Name = project.Name.Trim();
+            var previous = _projects.FirstOrDefault(p => string.Equals(p.Name, project.Name, StringComparison.OrdinalIgnoreCase));
+            if (previous is not null && !ReferenceEquals(previous, project) && !project.AppliedStateKnown)
+            {
+                foreach (var applied in previous.AppliedServices)
+                    project.AppliedServices.TryAdd(applied.Key, applied.Value);
+            }
+            project.AppliedStateKnown = true;
             _projects.RemoveAll(p => string.Equals(p.Name, project.Name, StringComparison.OrdinalIgnoreCase));
             _projects.Add(project);
             Persist();
@@ -126,6 +133,7 @@ public sealed class ComposeProjectStore : IComposeProjectStore
 
                 project.Name = project.Name.Trim();
                 project.Services ??= new List<ComposeService>();
+                project.AppliedServices ??= new();
                 _projects.RemoveAll(p => string.Equals(p.Name, project.Name, StringComparison.OrdinalIgnoreCase));
                 _projects.Add(project);
             }
@@ -139,18 +147,25 @@ public sealed class ComposeProjectStore : IComposeProjectStore
 
     private void Persist()
     {
+        var temporary = ProjectsFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             Directory.CreateDirectory(SettingsDirectory);
             var json = JsonSerializer.Serialize(
                 _projects.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList(),
                 SerializerOptions);
-            File.WriteAllText(ProjectsFile, json);
+            File.WriteAllText(temporary, json);
+            File.Move(temporary, ProjectsFile, overwrite: true);
         }
         catch (Exception ex)
         {
-            // Best effort; ignore persistence failures.
             _logger.LogWarning(ex, "Failed to save compose projects to {Path}.", ProjectsFile);
+            throw new InvalidOperationException("Compose project state could not be saved.", ex);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Could not remove temporary Compose state file."); }
         }
     }
 }

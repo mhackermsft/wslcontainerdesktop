@@ -223,14 +223,35 @@ public sealed class ComposeNetworkOrchestratorTests
         public Dictionary<string, RunContainerOptions> Containers { get; } = new();
         public Dictionary<string, List<NetworkAttachment>> Endpoints { get; } = new();
         public Dictionary<string, string?> Networks { get; } = new();
+        public Dictionary<string, string?> Volumes { get; } = new();
+        public Dictionary<string, List<object>?> Mounts { get; } = new();
+        public Dictionary<string, ContainerState> States { get; } = new();
+        public Dictionary<string, int> ExitCodes { get; } = new();
+        public Dictionary<string, string> ContainerIds { get; } = new();
+        public Dictionary<string, string> InspectionErrors { get; } = new();
+        public List<ImageInfo> Images { get; } = [new() { Id = "sha256:fixture-v1", Repository = "fixture", Tag = "latest" }];
         public List<string> Mutations { get; } = new();
+        public List<string> Reads { get; } = new();
         public string? FailNetwork { get; init; }
         public string? FailRun { get; init; }
+        public bool FailRunAfterCreate { get; set; }
+        public string? FailStop { get; set; }
+        public string? FailStart { get; set; }
+        public string? FailRemove { get; set; }
+        public bool FailPull { get; set; }
+        public bool FailBuild { get; set; }
+        public string? FailCreateVolume { get; set; }
+        public string? FailRemoveVolume { get; set; }
+        public string? VolumeInspectionError { get; set; }
+        public Exception? ImageInventoryError { get; set; }
+        public string NextImageId { get; set; } = "sha256:fixture-v2";
         public bool MutateBeforeFailure { get; init; }
         public CancellationTokenSource? CancelOnConnect { get; init; }
         public Func<Task>? BeforeList { get; set; }
         public Action<string, string>? BeforeConnect { get; set; }
         public Action<string>? AfterStart { get; set; }
+        public Action<string>? AfterRun { get; set; }
+        public Action<string>? AfterStop { get; set; }
         public Action? BeforeStart { get; init; }
         public bool LastStartWasExplicit { get; private set; }
         public long? LastRunMaximumStopVersion { get; private set; }
@@ -247,6 +268,26 @@ public sealed class ComposeNetworkOrchestratorTests
                 {
                     case nameof(IWslcService.ListContainersAsync):
                         return ListAsync();
+                    case nameof(IWslcService.ListImagesAsync):
+                        Reads.Add("images");
+                        return ImageInventoryError is { } error
+                            ? Task.FromException<IReadOnlyList<ImageInfo>>(error)
+                            : Task.FromResult<IReadOnlyList<ImageInfo>>(Images.ToList());
+                    case nameof(IWslcService.PullImageAsync):
+                    case nameof(IWslcService.BuildImageAsync):
+                    {
+                        var build = method.Name == nameof(IWslcService.BuildImageAsync);
+                        var reference = (string)args[build ? 1 : 0]!;
+                        Mutations.Add($"{(build ? "build" : "pull")}:{reference}");
+                        if (build ? FailBuild : FailPull)
+                            return Result(false, error: "fixture image preparation failed");
+                        var separator = reference.LastIndexOf(':');
+                        var repository = separator > reference.LastIndexOf('/') ? reference[..separator] : reference;
+                        var tag = separator > reference.LastIndexOf('/') ? reference[(separator + 1)..] : "latest";
+                        Images.RemoveAll(i => i.Repository == repository && i.Tag == tag);
+                        Images.Add(new() { Id = NextImageId, Repository = repository, Tag = tag });
+                        return Result(true);
+                    }
                     case nameof(IWslcService.CreateContainerAsync):
                     case nameof(IWslcService.RunContainerAsync):
                     {
@@ -260,11 +301,19 @@ public sealed class ComposeNetworkOrchestratorTests
                             return Result(false, error: "creation failed");
                         }
                         Add(options);
+                        States[options.Name!] = create ? ContainerState.Created : ContainerState.Running;
+                        if (!create)
+                            AfterRun?.Invoke(options.Name!);
+                        if (!create && FailRunAfterCreate)
+                            return Result(false, error: "fixture run failed after creating the container");
                         return Result(true, options.Name!);
                     }
                     case nameof(IWslcService.InspectContainerAsync):
                     {
-                        var name = (string)args[0]!;
+                        var name = ResolveName((string)args[0]!);
+                        Reads.Add("inspect:" + name);
+                        if (InspectionErrors.TryGetValue(name, out var inspectionError))
+                            return Result(false, error: inspectionError);
                         if (!Containers.TryGetValue(name, out var options))
                         {
                             return Result(false, error: "WSLC_E_CONTAINER_NOT_FOUND");
@@ -273,7 +322,9 @@ public sealed class ComposeNetworkOrchestratorTests
                         {
                             new
                             {
-                                Id = name, Config = new { options.Labels },
+                                Id = ContainerIds[name], Config = new { options.Labels },
+                                State = new { ExitCode = ExitCodes.GetValueOrDefault(name) },
+                                Mounts = Mounts[name],
                                 NetworkSettings = new
                                 {
                                     Networks = Endpoints[name].ToDictionary(e => e.Network,
@@ -285,7 +336,7 @@ public sealed class ComposeNetworkOrchestratorTests
                     case nameof(IWslcService.ConnectNetworkAsync):
                     {
                         var endpoint = (NetworkAttachment)args[0]!;
-                        var id = (string)args[1]!;
+                        var id = ResolveName((string)args[1]!);
                         Mutations.Add("connect:" + endpoint.Network);
                         BeforeConnect?.Invoke(endpoint.Network, id);
                         CancelOnConnect?.Cancel();
@@ -298,23 +349,63 @@ public sealed class ComposeNetworkOrchestratorTests
                     }
                     case nameof(IWslcService.DisconnectNetworkAsync):
                         Mutations.Add("disconnect:" + args[0]);
-                        Endpoints[(string)args[1]!].RemoveAll(n => n.Network == (string)args[0]!);
+                        Endpoints[ResolveName((string)args[1]!)].RemoveAll(n => n.Network == (string)args[0]!);
                         return Result(true);
                     case nameof(IWslcService.StartContainerAsync):
                         LastStartWasExplicit = (bool)args[2]!;
                         BeforeStart?.Invoke();
                         Mutations.Add("start:" + args[0]);
-                        AfterStart?.Invoke((string)args[0]!);
+                        var startedName = ResolveName((string)args[0]!);
+                        if (startedName == FailStart)
+                            return Result(false, error: "fixture start failed");
+                        States[startedName] = ContainerState.Running;
+                        AfterStart?.Invoke(startedName);
                         return Result(true);
                     case nameof(IWslcService.StopContainerAsync):
                         Mutations.Add("stop:" + args[0]);
+                        var stoppedName = ResolveName((string)args[0]!);
+                        if (stoppedName == FailStop)
+                            return Result(false, error: "fixture stop failed");
+                        States[stoppedName] = ContainerState.Stopped;
+                        AfterStop?.Invoke(stoppedName);
                         return Result(true);
                     case nameof(IWslcService.RemoveContainerAsync):
                         Mutations.Add("remove:" + args[0]);
-                        Containers.Remove((string)args[0]!);
-                        Endpoints.Remove((string)args[0]!);
+                        var removedName = ResolveName((string)args[0]!);
+                        if (removedName == FailRemove)
+                            return Result(false, error: "fixture remove failed");
+                        Containers.Remove(removedName);
+                        Endpoints.Remove(removedName);
+                        States.Remove(removedName);
+                        ExitCodes.Remove(removedName);
+                        ContainerIds.Remove(removedName);
+                        Mounts.Remove(removedName);
+                        return Result(true);
+                    case nameof(IWslcService.InspectVolumeAsync):
+                        Reads.Add("volume:" + args[0]);
+                        if (VolumeInspectionError is { } volumeError)
+                            return Result(false, error: volumeError);
+                        return Volumes.TryGetValue((string)args[0]!, out var volumeOwner)
+                            ? Result(true, JsonSerializer.Serialize(new
+                            {
+                                Name = (string)args[0]!,
+                                Labels = new Dictionary<string, string?> { [ComposeProject.ProjectLabel] = volumeOwner },
+                            }))
+                            : Result(false, error: "WSLC_E_VOLUME_NOT_FOUND");
+                    case nameof(IWslcService.CreateVolumeAsync):
+                        Mutations.Add("volume-create:" + args[0]);
+                        if ((string)args[0]! == FailCreateVolume)
+                            return Result(false, error: "fixture volume creation failed");
+                        Volumes[(string)args[0]!] = ((IReadOnlyDictionary<string, string>)args[3]!)[ComposeProject.ProjectLabel];
+                        return Result(true);
+                    case nameof(IWslcService.RemoveVolumeAsync):
+                        Mutations.Add("volume-remove:" + args[0]);
+                        if ((string)args[0]! == FailRemoveVolume)
+                            return Result(false, error: "fixture volume removal failed");
+                        Volumes.Remove((string)args[0]!);
                         return Result(true);
                     case nameof(IWslcService.InspectNetworkAsync):
+                        Reads.Add("network:" + args[0]);
                         return Networks.TryGetValue((string)args[0]!, out var owner)
                             ? Result(true, JsonSerializer.Serialize(new { Labels = new Dictionary<string, string?> { [ComposeProject.ProjectLabel] = owner } }))
                             : Result(false, error: "WSLC_E_NETWORK_NOT_FOUND");
@@ -335,17 +426,27 @@ public sealed class ComposeNetworkOrchestratorTests
         public void Add(RunContainerOptions options, bool allEndpoints = false)
         {
             Containers[options.Name!] = options.Clone();
+            ContainerIds[options.Name!] = options.Name!;
+            States[options.Name!] = ContainerState.Running;
+            Mounts[options.Name!] = [];
             Endpoints[options.Name!] = options.GetNetworkAttachments().Take(allEndpoints ? int.MaxValue : 1).ToList();
         }
 
         private async Task<IReadOnlyList<ContainerInfo>> ListAsync()
         {
+            Reads.Add("containers");
             if (BeforeList is not null)
             {
                 await BeforeList();
             }
-            return Containers.Keys.Select(n => new ContainerInfo { Id = n, Name = n }).ToList();
+            return Containers.Keys.Select(n => new ContainerInfo
+            {
+                Id = ContainerIds[n], Name = n, StateValue = (int)States[n],
+            }).ToList();
         }
+
+        private string ResolveName(string id) =>
+            ContainerIds.FirstOrDefault(pair => pair.Value == id).Key ?? id;
 
         private static Task<CommandResult> Result(bool success, string output = "", string error = "") =>
             Task.FromResult(new CommandResult { ExitCode = success ? 0 : 1, StandardOutput = output, StandardError = error });

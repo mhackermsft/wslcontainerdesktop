@@ -302,13 +302,17 @@ Local/external `extends` resolves in its own service namespace with distinct inh
 rules, cycle detection and source-file path ownership. It never imports external top-level
 resources or reads the external file's sibling `.env`.
 The first present sibling override is merged over the main base. Active `profiles:` come from
-`COMPOSE_PROFILES`. The persisted `compose-projects.json` schema is unchanged.
+`COMPOSE_PROFILES`. The persisted `compose-projects.json` retains desired configuration and adds
+backward-compatible per-service applied snapshots for lifecycle reconciliation.
 See [the parser decision, publication audit and file-graph contracts](COMPOSE-PARSER.md).
 
-`ComposeProjectSupervisor` brings a project **up / down / restart as a unit**: on `up` it first
-**provisions** declared (non-external) `networks:`/`volumes:` via `wslc network/volume create`, then
-**builds** images for services with a `build:` section (tagged `project_service`), then starts each
-service as a labelled container (`com.wsldesktop.project` / `com.wsldesktop.service`) in `depends_on`
+`ComposeProjectSupervisor` applies shared `ComposeReconciliationPlanner` plans for whole-project
+and targeted **up / down / restart / stop**. Up compares normalized configuration and image IDs,
+keeps unchanged running instances, starts unchanged stopped instances, and selectively recreates
+changed ones. It completes selected-graph preflight, necessary image work, file staging and resource
+preparation before stopping any workload. Restart stop/starts existing instances without applying
+edits, rebuilding images or removing resources. See [the reconciliation contract](COMPOSE-RECONCILIATION.md).
+New containers retain ownership labels (`com.wsldesktop.project` / `com.wsldesktop.service`) in `depends_on`
 topological order. It **skips services excluded by the active `profiles:`** (a service with no
 profile always starts; a profiled service starts only when one of its profiles is active). It gives
 each container its **service name as a `--network-alias`** so siblings
@@ -393,7 +397,7 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 | Feature | Support |
 |---|---|
 | `image`, `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `domainname`, `labels` | **Supported** — command argv preserves quoted/empty tokens; empty command/entrypoint clearing of image defaults at runtime is not certified |
-| `build:` (short + long form: `context`, `dockerfile`, `args`, `target`, `labels`, `no_cache`, `pull`, `pull_policy`) | **Supported** — built and tagged `project_service` on up; `context` resolves against the compose folder; `pull_policy: always/build` maps to `--pull` |
+| `build:` and image `pull_policy` | **Supported subset** — build when missing, build configuration changes or explicitly requested; local-first missing/always/never/build image decisions precede replacement. Build-context content edits require explicit rebuild; no registry interval policies |
 | `ports` (short `"h:c"` and long `host_ip/target/published/protocol`) | **Supported subset** — normalized uniqueness, IPv6 host bindings and bounded ranges; other long-form fields warn |
 | `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported subset** — target-key merging; unsupported long mount types/modes reject and unsupported nested options warn |
 | `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Supported subset** — exact empty/null distinction and last-file/inline precedence for simple assignments; required inputs reject if missing/unreadable, `required: false` permits only absence. Full dotenv syntax and `format` are not implemented |
@@ -411,9 +415,9 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 | YAML quoting, flow/block collections, anchors/aliases, `<<`, `\|`/`>` folding/chomping | **Supported within bounded single-document Compose YAML** via maintained parser; invalid syntax/duplicates/cycles reject; no arbitrary tagged types or full Compose schema validation |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
 | `healthcheck` | **Capability-gated** — native shell checks when required run/create flags are supported; complete app backend for `CMD` argv or unsupported flags; unknown support is surfaced |
-| `depends_on` incl. `condition: service_healthy` / `service_completed_successfully` | **Supported** — start ordering + health/exit gating |
+| `depends_on` incl. conditions, `required`, `restart` | **Supported subset** — deterministic closure/order, required health/exit gates, optional dependencies and explicit dependency restart propagation; unchanged running peers are not disrupted by failed updates |
 | `restart:` (`no`/`always`/`on-failure`/`unless-stopped`) | **Supported (best-effort)** while the app runs; restart backoff timing is not byte-for-byte identical to Docker |
-| Project lifecycle (`up`/`down`/`restart`), re-adoption on relaunch | **Supported** |
+| Project and targeted lifecycle, re-adoption | **Supported subset** — shared explainable plans, selective recreation, applied snapshots, preserved storage; restart is distinct from apply. See [intentional differences](COMPOSE-RECONCILIATION.md) |
 | `cap_add`/`cap_drop`, arbitrary `devices`, `sysctls`, `privileged`, rootfs `read_only`, `init`, `pid`/`ipc`, `mac_address`, `logging` drivers | **Not supported** — not advertised in current CLI help; GPU and read-only mount support are separate |
 | `deploy.replicas` / scaling, Swarm `deploy` | **Not implemented** — no native Compose/scaling command; local scaling does not inherently require a daemon |
 | Always-on restart after the app closes | **Not supported** — restart/auto-heal remain app-owned; no advertised native `--restart` |
