@@ -64,6 +64,8 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcExecutableIdentity.cs" Link="Services\WslcExecutableIdentity.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessRunner.cs" Link="Services\ProcessRunner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessExecutor.cs" Link="Services\ProcessExecutor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcFileTransfer.cs" Link="Services\WslcFileTransfer.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCopyInput.cs" Link="Services\WslcCopyInput.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkAttachment.cs" Link="Models\NetworkAttachment.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerNetworkState.cs" Link="Models\ContainerNetworkState.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerStats.cs" Link="Models\ContainerStats.cs" />

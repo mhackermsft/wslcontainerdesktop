@@ -655,7 +655,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 var result = await _wslc.CopyToContainerAsync(Selected.Id, path, FilesCurrentPath);
                 if (!result.Success)
                 {
-                    failed.Add(Path.GetFileName(path));
+                    failed.Add($"{Path.GetFileName(path)}: {result.ErrorText}");
                 }
             }
 
@@ -685,6 +685,28 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         await ExecuteAsync($"Copying {SelectedFile.Name} to the host…",
             () => _wslc.CopyFromContainerAsync(Selected.Id, SelectedFile.Path, hostDirectory));
+    }
+
+    /// <summary>Downloads a known path without requiring a shell-backed directory listing.</summary>
+    public async Task CopyPathOutAsync(string hostDirectory)
+    {
+        var selected = Selected;
+        if (selected is null)
+        {
+            return;
+        }
+
+        var dialog = new Dialogs.SimpleInputDialog("Download from container", "Absolute file or directory path", "/path/to/file")
+        {
+            Value = SelectedFile?.Path ?? FilesCurrentPath,
+        };
+        if (await _dialogs.ShowDialogAsync(dialog) != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+        {
+            return;
+        }
+        var path = dialog.Value;
+        await ExecuteAsync($"Copying from {selected.Name}...",
+            () => _wslc.CopyFromContainerAsync(selected.Id, path, hostDirectory));
     }
 
     public async Task DeleteSelectedFileAsync()
@@ -804,14 +826,16 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 .ConfigureAwait(false);
             if (!result.Success)
             {
+                _logger.LogWarning("Could not stage container file for dragging: {Error}", result.ErrorText);
                 return null;
             }
 
             var localPath = Path.Combine(tempDir, entry.Name);
             return File.Exists(localPath) ? localPath : null;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Could not stage container file for dragging.");
             return null;
         }
     }
@@ -820,10 +844,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     // sufficient uniqueness for temp-directory names across containers on the same host.
     private const int ShortIdLength = 12;
 
-    private const string TempRootFolderName = "WslContainerDesktop";
+    private const string TempRootFolderName = "container-file-previews";
 
     /// <summary>Root of the temp tree used to stage files opened/downloaded from containers.</summary>
-    private static string TempRoot => Path.Combine(Path.GetTempPath(), TempRootFolderName);
+    private static string TempRoot => Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, TempRootFolderName);
 
     private static string GetTempDir(string containerId)
     {

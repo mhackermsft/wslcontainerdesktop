@@ -56,6 +56,7 @@ public static class ProcessExecutor
         string launchErrorContext = "Could not launch the process.",
         CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         using var process = new Process { StartInfo = psi };
 
         var stdout = new StringBuilder();
@@ -127,10 +128,12 @@ public static class ProcessExecutor
             {
                 process.Kill(entireProcessTree: true);
             }
-            catch
+            catch (InvalidOperationException)
             {
-                // ignore
+                // The process already exited.
             }
+
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
             // Distinguish a caller-requested cancellation (rethrow) from a timeout (report it).
             if (ct.IsCancellationRequested)
