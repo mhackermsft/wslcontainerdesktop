@@ -1653,8 +1653,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Captures a running container's settings (via <c>wslc inspect</c>, diffed against its image) as
-    /// a reusable run profile. Binds and hostname aren't recoverable from a running container, so they
-    /// are reported as not captured.
+    /// a reusable run profile. Recoverable mounts are included; storage limitations and hostname
+    /// are reported before saving.
     /// </summary>
     [RelayCommand]
     private async Task SaveAsProfileAsync(ContainerRowViewModel? row)
@@ -1693,7 +1693,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 // Non-fatal: without the image diff we keep image-baked env/cmd too.
             }
 
-            var options = ContainerConfigImporter.FromInspect(containerResult.StandardOutput, imageJson);
+            var options = ContainerConfigImporter.FromInspect(containerResult.StandardOutput, out var warnings, imageJson);
             if (options is null)
             {
                 await _dialogs.ShowMessageAsync("Save as run profile",
@@ -1701,10 +1701,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            var notCaptured = new[] { "volume/bind mounts", "hostname" };
+            var notCaptured = new[] { "hostname" };
             var suggested = string.IsNullOrWhiteSpace(options.Name) ? row.Name : options.Name!;
 
-            var dialog = new SaveRunProfileDialog(suggested, options, notCaptured);
+            var dialog = new SaveRunProfileDialog(suggested, options, notCaptured, warnings);
             var result = await _dialogs.ShowDialogAsync(dialog);
             if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary ||
                 string.IsNullOrWhiteSpace(dialog.ProfileName))
