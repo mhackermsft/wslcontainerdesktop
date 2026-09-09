@@ -37,6 +37,10 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\AssistantModels.cs" Link="Models\AssistantModels.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\AiChatModels.cs" Link="Models\AiChatModels.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\AiCapabilities.cs" Link="Models\AiCapabilities.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\FoundryLocalModels.cs" Link="Models\FoundryLocalModels.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\FoundryLocal*.cs" Link="Services\%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IFoundryLocalRuntimeService.cs" Link="Services\IFoundryLocalRuntimeService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\FoundryLocalSettingsViewModel.cs" Link="ViewModels\FoundryLocalSettingsViewModel.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAiCapabilityService.cs" Link="Services\IAiCapabilityService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ILocalAiSetupService.cs" Link="Services\ILocalAiSetupService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\LocalAiSetupService.cs" Link="Services\LocalAiSetupService.cs" />
@@ -110,6 +114,9 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeReconciliationPlanner.cs" Link="Services\ComposeReconciliationPlanner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerOptions.cs" Link="Models\RunContainerOptions.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ISettingsService.cs" Link="Services\ISettingsService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\SettingsService.cs" Link="Services\SettingsService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AppConstants.cs" Link="Services\AppConstants.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolCatalog.cs" Link="Services\AssistantToolCatalog.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcCapabilitiesService.cs" Link="Services\IWslcCapabilitiesService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCapabilitiesService.cs" Link="Services\WslcCapabilitiesService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCapabilityHelpParser.cs" Link="Services\WslcCapabilityHelpParser.cs" />

@@ -168,6 +168,7 @@ public partial class AssistantViewModel : ObservableObject
             AiProviderKind.GitHubCopilot => Format("GitHub Copilot", _settings.AiGitHubCopilotModel),
             AiProviderKind.AzureOpenAi => Format("Azure OpenAI", _settings.AiAzureOpenAiDeployment),
             AiProviderKind.OpenAi => Format("OpenAI", _settings.AiOpenAiModel),
+            AiProviderKind.FoundryLocal => Format("Foundry Local", _settings.AiFoundryLocalModel),
             _ => "No AI provider configured",
         };
         IsProviderAvailable = _settings.AiFeaturesEnabled

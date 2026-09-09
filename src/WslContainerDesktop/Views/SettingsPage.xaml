@@ -327,6 +327,7 @@
                             IsOn="{x:Bind ViewModel.AiFeaturesEnabled, Mode=TwoWay}" />
                     </Grid>
                     <ComboBox
+                        AutomationProperties.AutomationId="AiProviderComboBox"
                         Header="Provider"
                         MinWidth="260"
                         SelectedIndex="{x:Bind ViewModel.SelectedAiProviderIndex, Mode=TwoWay}">
@@ -335,6 +336,7 @@
                         <ComboBoxItem Content="Ollama (local)" />
                         <ComboBoxItem Content="Azure OpenAI" />
                         <ComboBoxItem Content="OpenAI-compatible" />
+                        <ComboBoxItem AutomationProperties.AutomationId="FoundryLocalProviderOption" Content="Foundry Local (local REST)" />
                     </ComboBox>
                     <Border
                         Padding="14"
@@ -528,6 +530,34 @@
                                         Command="{x:Bind ViewModel.RefreshOpenAiModelsCommand}"
                                         Content="Refresh" />
                                 </Grid>
+                            </StackPanel>
+                            <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.ShowFoundryLocalSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <TextBox AutomationProperties.AutomationId="FoundryLocalEndpointTextBox"
+                                    Header="Foundry Local URL (explicit loopback host and port)"
+                                    Text="{x:Bind ViewModel.FoundryLocal.Endpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox AutomationProperties.AutomationId="FoundryLocalModelTextBox"
+                                    Header="Actual model ID (not an alias)"
+                                    Text="{x:Bind ViewModel.FoundryLocal.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <InfoBar AutomationProperties.AutomationId="FoundryLocalAcquisitionInfoBar"
+                                    IsOpen="True" IsClosable="False" Severity="Warning"
+                                    Title="REST integration only — prerequisites must be acquired separately"
+                                    Message="{x:Bind ViewModel.FoundryLocal.AcquisitionGuidance}" />
+                                <TextBlock Text="{x:Bind ViewModel.FoundryLocal.MemoryPolicy}" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button AutomationProperties.AutomationId="FoundryLocalRefreshButton"
+                                        Content="Refresh metadata" Command="{x:Bind ViewModel.FoundryLocal.RunOperationCommand}" CommandParameter="refresh" />
+                                    <Button AutomationProperties.AutomationId="FoundryLocalLoadButton"
+                                        Content="Load unavailable" IsEnabled="False"
+                                        ToolTipService.ToolTip="Loading may acquire unaudited execution providers. Use an externally prepared, already-loaded host; this app cannot verify EP preparation." />
+                                    <Button AutomationProperties.AutomationId="FoundryLocalUnloadButton"
+                                        Content="Unload model" Command="{x:Bind ViewModel.FoundryLocal.RunOperationCommand}" CommandParameter="unload" />
+                                    <Button AutomationProperties.AutomationId="FoundryLocalCancelButton"
+                                        Content="Cancel request" Command="{x:Bind ViewModel.FoundryLocal.RunOperationCancelCommand}" />
+                                </StackPanel>
+                                <TextBlock AutomationProperties.AutomationId="FoundryLocalStatusText"
+                                    Text="{x:Bind ViewModel.FoundryLocal.Status, Mode=OneWay}" TextWrapping="Wrap" />
+                                <TextBlock AutomationProperties.AutomationId="FoundryLocalInventoryText"
+                                    Text="{x:Bind ViewModel.FoundryLocal.InventoryText, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                             </StackPanel>
                             <Grid ColumnSpacing="8" Visibility="{x:Bind ViewModel.ShowAiSecretSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <Grid.ColumnDefinitions>

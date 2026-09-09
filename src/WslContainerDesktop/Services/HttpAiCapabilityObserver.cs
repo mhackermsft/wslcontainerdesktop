@@ -158,6 +158,10 @@ public sealed class HttpAiCapabilityObserver(
                     return state;
                 }
                 using var doc = JsonDocument.Parse(reply.Body);
+                if (Kind == AiProviderKind.FoundryLocal && String(doc.RootElement, "model") != state.Configuration.Model)
+                    return state;
+                if (Kind == AiProviderKind.FoundryLocal && !ValidFoundryReply(doc.RootElement, feature))
+                    return state;
                 var message = Kind == AiProviderKind.Ollama
                     ? doc.RootElement.GetProperty("message")
                     : doc.RootElement.GetProperty("choices")[0].GetProperty("message");
@@ -227,6 +231,23 @@ public sealed class HttpAiCapabilityObserver(
         return ValidJsonAck(args.ValueKind == JsonValueKind.String ? args.GetString()! : args.GetRawText());
     }
 
+    private static bool ValidFoundryReply(JsonElement root, string feature)
+    {
+        var choices = root.GetProperty("choices");
+        if (choices.GetArrayLength() != 1 || choices[0].GetProperty("index").GetInt32() != 0) return false;
+        var choice = choices[0];
+        if (String(choice, "finish_reason") != (feature == "tools" ? "tool_calls" : "stop")) return false;
+        var message = choice.GetProperty("message");
+        if (String(message, "role") != "assistant") return false;
+        if (feature != "tools") return !message.TryGetProperty("tool_calls", out var unexpected)
+            || unexpected.ValueKind == JsonValueKind.Null || unexpected.GetArrayLength() == 0;
+        var calls = message.GetProperty("tool_calls");
+        if (calls.GetArrayLength() != 1 || String(calls[0], "type") != "function") return false;
+        var id = String(calls[0], "id");
+        return id.Length is > 0 and <= 256 && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-')
+            && calls[0].GetProperty("function").GetProperty("arguments").ValueKind == JsonValueKind.String;
+    }
+
     private static bool ValidJsonAck(string value)
     {
         try
@@ -288,6 +309,7 @@ public sealed class HttpAiCapabilityObserver(
         ct.ThrowIfCancellationRequested();
         var uri = Kind switch
         {
+            AiProviderKind.FoundryLocal => FoundryLocalEndpoint.BuildUri(configuration.Endpoint, "v1/" + route),
             AiProviderKind.Ollama => new Uri(new Uri(configuration.Endpoint.TrimEnd('/') + "/"), "/" + route),
             AiProviderKind.AzureOpenAi => new Uri(configuration.Endpoint.TrimEnd('/') +
                 "/openai/deployments/" + Uri.EscapeDataString(configuration.Model) +
@@ -315,16 +337,23 @@ public sealed class HttpAiCapabilityObserver(
         value.ValueKind == JsonValueKind.Object && value.TryGetProperty(property, out var text)
         && text.ValueKind == JsonValueKind.String ? text.GetString() ?? "" : "";
 
-    private static bool IsValidEndpoint(AiChatConfiguration configuration) =>
-        Uri.TryCreate(configuration.Endpoint, UriKind.Absolute, out var endpoint)
+    private static bool IsValidEndpoint(AiChatConfiguration configuration)
+    {
+        if (configuration.Kind == AiProviderKind.FoundryLocal)
+        {
+            try { FoundryLocalRuntimeService.Validate(configuration); return true; }
+            catch (ArgumentException) { return false; }
+        }
+        return Uri.TryCreate(configuration.Endpoint, UriKind.Absolute, out var endpoint)
         && endpoint.IsWellFormedOriginalString()
         && endpoint.Scheme is "http" or "https"
         && !string.IsNullOrEmpty(endpoint.Host)
         && string.IsNullOrEmpty(endpoint.UserInfo);
+    }
 
     private string? CaptureKey()
     {
-        if (Kind == AiProviderKind.Ollama) return null;
+        if (Kind is AiProviderKind.Ollama or AiProviderKind.FoundryLocal) return null;
         credentials.TryReadSecret(Kind, out var key);
         return key;
     }

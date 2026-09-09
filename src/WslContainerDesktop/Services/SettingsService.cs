@@ -20,15 +20,24 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class SettingsService(ILogger<SettingsService> logger) : ISettingsService
+public sealed class SettingsService : ISettingsService
 {
     private const string DefaultWslcPath = @"C:\Program Files\WSL\wslc.exe";
 
-    private static readonly string SettingsDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "WslContainerDesktop");
+    private readonly ILogger<SettingsService> _logger;
+    private readonly string _settingsDirectory;
+    private readonly string _settingsFile;
 
-    private static readonly string SettingsFile = Path.Combine(SettingsDirectory, "settings.json");
+    public SettingsService(ILogger<SettingsService> logger) : this(logger, Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WslContainerDesktop")) { }
+
+    // Allows deterministic persistence tests without reading/writing the user's settings.
+    internal SettingsService(ILogger<SettingsService> logger, string settingsDirectory)
+    {
+        _logger = logger;
+        _settingsDirectory = settingsDirectory;
+        _settingsFile = Path.Combine(settingsDirectory, "settings.json");
+    }
 
     public string WslcPath { get; set; } = ResolveDefaultWslcPath();
     public int RefreshIntervalSeconds { get; set; } = 5;
@@ -48,6 +57,8 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     public string AiAzureOpenAiDeployment { get; set; } = string.Empty;
     public string AiOpenAiEndpoint { get; set; } = "https://api.openai.com/v1";
     public string AiOpenAiModel { get; set; } = "gpt-4o-mini";
+    public string AiFoundryLocalEndpoint { get; set; } = string.Empty;
+    public string AiFoundryLocalModel { get; set; } = string.Empty;
     public string AiGitHubCopilotModel { get; set; } = "auto";
     public bool AiAssistantAutoCreateRun { get; set; }
     public bool AiAssistantAutoLifecycle { get; set; }
@@ -89,12 +100,12 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     {
         try
         {
-            if (!File.Exists(SettingsFile))
+            if (!File.Exists(_settingsFile))
             {
                 return;
             }
 
-            var json = File.ReadAllText(SettingsFile);
+            var json = File.ReadAllText(_settingsFile);
             var dto = JsonSerializer.Deserialize<SettingsDto>(json);
             if (dto is null)
             {
@@ -125,6 +136,8 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             AiAzureOpenAiDeployment = dto.AiAzureOpenAiDeployment ?? string.Empty;
             AiOpenAiEndpoint = string.IsNullOrWhiteSpace(dto.AiOpenAiEndpoint) ? "https://api.openai.com/v1" : dto.AiOpenAiEndpoint;
             AiOpenAiModel = string.IsNullOrWhiteSpace(dto.AiOpenAiModel) ? "gpt-4o-mini" : dto.AiOpenAiModel;
+            AiFoundryLocalEndpoint = dto.AiFoundryLocalEndpoint ?? string.Empty;
+            AiFoundryLocalModel = dto.AiFoundryLocalModel ?? string.Empty;
             AiGitHubCopilotModel = string.IsNullOrWhiteSpace(dto.AiGitHubCopilotModel) ? "auto" : dto.AiGitHubCopilotModel;
             AiAssistantAutoCreateRun = dto.AiAssistantAutoCreateRun;
             AiAssistantAutoLifecycle = dto.AiAssistantAutoLifecycle;
@@ -231,7 +244,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         catch (Exception ex)
         {
             // Corrupt settings should never crash the app; fall back to defaults.
-            logger.LogWarning(ex, "Failed to load settings from {Path}; using defaults.", SettingsFile);
+            _logger.LogWarning(ex, "Failed to load settings from {Path}; using defaults.", _settingsFile);
         }
     }
 
@@ -239,7 +252,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
     {
         try
         {
-            Directory.CreateDirectory(SettingsDirectory);
+            Directory.CreateDirectory(_settingsDirectory);
             var dto = new SettingsDto
             {
                 WslcPath = WslcPath,
@@ -260,6 +273,8 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                 AiAzureOpenAiDeployment = AiAzureOpenAiDeployment,
                 AiOpenAiEndpoint = AiOpenAiEndpoint,
                 AiOpenAiModel = AiOpenAiModel,
+                AiFoundryLocalEndpoint = AiFoundryLocalEndpoint,
+                AiFoundryLocalModel = AiFoundryLocalModel,
                 AiGitHubCopilotModel = AiGitHubCopilotModel,
                 AiAssistantAutoCreateRun = AiAssistantAutoCreateRun,
                 AiAssistantAutoLifecycle = AiAssistantAutoLifecycle,
@@ -309,12 +324,12 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
             };
 
             var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(SettingsFile, json);
+            File.WriteAllText(_settingsFile, json);
         }
         catch (Exception ex)
         {
             // Best effort; ignore persistence failures.
-            logger.LogWarning(ex, "Failed to save settings to {Path}.", SettingsFile);
+            _logger.LogWarning(ex, "Failed to save settings to {Path}.", _settingsFile);
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
@@ -377,6 +392,8 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
         public string? AiAzureOpenAiDeployment { get; set; }
         public string? AiOpenAiEndpoint { get; set; }
         public string? AiOpenAiModel { get; set; }
+        public string? AiFoundryLocalEndpoint { get; set; }
+        public string? AiFoundryLocalModel { get; set; }
         public string? AiGitHubCopilotModel { get; set; }
         public bool AiAssistantAutoCreateRun { get; set; }
         public bool AiAssistantAutoLifecycle { get; set; }

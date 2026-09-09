@@ -376,6 +376,19 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 ### AI features *(optional — off by default)*
 AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, until you turn it on in **Settings → AI diagnostics** and pick a provider.
 
+**Foundry Local (experimental REST integration)** has separate endpoint/model
+settings for an explicitly prepared local host; inference does not require an
+Ollama container or the WSLC engine. Supply the host's actual loopback URL and
+exact model ID, not a sample port or guessed model. Catalog metadata does not
+prove tool support, hardware acceleration or offline readiness. Downloads,
+in-app model loading and native SDK provisioning are not enabled: exact model/runtime/execution-provider
+versions, publication dates and licenses must be audited before acquisition.
+Use an already-loaded host; explicit selected-model unload is available without
+forcing the host's memory policy. There is no cloud fallback, and assistant actions still require the existing
+capability and approval gates. **Live Foundry compatibility, signed x64 MSIX and
+hardware/offline acceptance remain unverified**; see the
+[integration scope and prerequisites](docs/FOUNDRY-LOCAL.md).
+
 - **Choose your provider** — **GitHub Copilot** (uses your Copilot CLI sign-in), **Azure OpenAI**, any **OpenAI-compatible** endpoint, or **Ollama** for fully local inference. API keys are stored in **Windows Credential Manager**, never in plain text.
 - **Any OpenAI-compatible host, local or remote** — the **OpenAI-compatible** provider lets you set the **base URL** yourself (default `https://api.openai.com/v1`), so you can point the app at a server running on your own PC or anywhere else: Ollama's OpenAI API (`http://localhost:11434/v1`), LM Studio (`http://localhost:1234/v1`), llama.cpp / vLLM (`http://localhost:8000/v1`), or an internal gateway. `/chat/completions` is appended automatically. The **API key is optional** for servers that do not require one, and **Refresh** lists the models the endpoint actually serves (you can still type any model id).
 - **Ownership-safe local AI** — **Set up local AI** creates or reuses only an ownership-verified Ollama container at `127.0.0.1:11434`. It never adopts a native/remote server just because the endpoint answers, downloads a default model, or warms one automatically. Existing provider endpoints remain separately configurable. Running a container does not prove chat/tool readiness.

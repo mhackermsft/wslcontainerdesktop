@@ -101,6 +101,7 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowOllamaSettings))]
     [NotifyPropertyChangedFor(nameof(ShowAzureOpenAiSettings))]
     [NotifyPropertyChangedFor(nameof(ShowOpenAiSettings))]
+    [NotifyPropertyChangedFor(nameof(ShowFoundryLocalSettings))]
     [NotifyPropertyChangedFor(nameof(ShowAiSecretSettings))]
     private int _selectedAiProviderIndex;
 
@@ -168,6 +169,9 @@ public partial class SettingsViewModel : ObservableObject
     public bool ShowAzureOpenAiSettings => CurrentAiProvider == AiProviderKind.AzureOpenAi;
 
     public bool ShowOpenAiSettings => CurrentAiProvider == AiProviderKind.OpenAi;
+
+    public bool ShowFoundryLocalSettings => CurrentAiProvider == AiProviderKind.FoundryLocal;
+    public FoundryLocalSettingsViewModel FoundryLocal { get; }
 
     public bool ShowAiSecretSettings => CurrentAiProvider is AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi;
 
@@ -256,8 +260,9 @@ public partial class SettingsViewModel : ObservableObject
         return groups;
     }
 
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger)
+    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger, FoundryLocalSettingsViewModel foundryLocal)
     {
+        FoundryLocal = foundryLocal;
         _settings = settings;
         _wslc = wslc;
         _dialogs = dialogs;
@@ -372,6 +377,7 @@ public partial class SettingsViewModel : ObservableObject
         _settings.AiProvider = Enum.IsDefined(typeof(AiProviderKind), value)
             ? (AiProviderKind)value
             : AiProviderKind.None;
+        FoundryLocal.OnProviderChanged();
         LoadStoredAiSecretIndicator();
         _settings.Save();
         if (_settings.AiProvider == AiProviderKind.GitHubCopilot)
@@ -462,6 +468,12 @@ public partial class SettingsViewModel : ObservableObject
     private void LoadStoredAiSecretIndicator()
     {
         AiApiKey = string.Empty;
+        if (_settings.AiProvider == AiProviderKind.FoundryLocal)
+        {
+            ProviderFeedback = AiFeedback.Informational("Foundry Local",
+                "Uses only your explicit loopback URL and actual model ID. No API key, cloud fallback, WSLC engine or Ollama container is used for inference.");
+            return;
+        }
         if (_settings.AiProvider == AiProviderKind.GitHubCopilot)
         {
             ProviderFeedback = AiFeedback.Informational(

@@ -402,7 +402,20 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
         services.AddSingleton<IAiCredentialStore, AiCredentialStore>();
-        services.AddSingleton<IAiCapabilityService, AiCapabilityService>();
+        services.AddSingleton<FoundryLocalHttpClient>();
+        services.AddSingleton<IFoundryLocalRuntimeService, FoundryLocalRuntimeService>();
+        services.AddSingleton<IAiCapabilityService>(sp =>
+        {
+            var service = new AiCapabilityService(sp.GetServices<IAiCapabilityObserver>(),
+                sp.GetRequiredService<IAiCredentialStore>());
+            sp.GetRequiredService<IFoundryLocalRuntimeService>().StateChanged += service.Invalidate;
+            return service;
+        });
+        services.AddSingleton<IAiCapabilityObserver, FoundryLocalCapabilityObserver>();
+        services.AddSingleton<FoundryLocalProvider>();
+        services.AddSingleton<IAiProvider>(sp => sp.GetRequiredService<FoundryLocalProvider>());
+        services.AddSingleton<IAiChatProvider>(sp => sp.GetRequiredService<FoundryLocalProvider>());
+        services.AddTransient<FoundryLocalSettingsViewModel>();
         foreach (var kind in new[] { AiProviderKind.Ollama, AiProviderKind.OpenAi, AiProviderKind.AzureOpenAi })
             services.AddSingleton<IAiCapabilityObserver>(sp => new HttpAiCapabilityObserver(
                 kind, sp.GetRequiredService<AiHttpClient>(), sp.GetRequiredService<IAiCredentialStore>()));
