@@ -23,7 +23,8 @@ public sealed class ContainerAssistantService(
     IEnumerable<IAiChatProvider> providers,
     IAssistantToolset tools,
     IAssistantActionGate gate,
-    IActivityLog activity) : IContainerAssistant
+    IActivityLog activity,
+    IAiCapabilityService capabilities) : IContainerAssistant
 {
     private readonly List<AiChatMessage> _history = new() { new AiChatMessage { Role = "system", Content = SystemPrompt } };
     private readonly Dictionary<string, PendingApproval> _pending = new(StringComparer.Ordinal);
@@ -74,12 +75,18 @@ public sealed class ContainerAssistantService(
         {
             var provider = providers.FirstOrDefault(p => p.Kind == turn.Configuration.Kind)
                 ?? throw new InvalidOperationException($"AI provider '{turn.Configuration.Kind}' is not registered for assistant chat.");
+            var observation = await capabilities.GetAsync(turn.Configuration, ct: token).ConfigureAwait(false);
+            lock (_stateGate) EnsureCurrent(turn);
+            if (!observation.CanUseTools)
+                throw new InvalidOperationException("Assistant actions require observed chat and tool support. " + observation.NextStep);
             var definitions = (await tools.GetDefinitionsAsync(token).ConfigureAwait(false))
                 .Select(AiTextSanitizer.SanitizeDefinition).ToArray();
             IReadOnlyList<AiChatMessage> snapshot;
             lock (_stateGate)
             {
                 EnsureCurrent(turn);
+                if (!capabilities.GetCached(turn.Configuration).CanUseTools)
+                    throw new InvalidOperationException("Tool capability observation changed before the request. Test capabilities again.");
                 turn.Definitions = definitions;
                 snapshot = AiConversationContext.Prepare([.. _history, .. turn.Messages], definitions, turn.Configuration);
                 turn.PriorHistory = snapshot.Take(snapshot.Count - 1).ToArray();
@@ -237,6 +244,8 @@ public sealed class ContainerAssistantService(
         lock (_stateGate)
         {
             EnsureCurrent(turn, ct);
+            if (!capabilities.GetCached(turn.Configuration).CanUseTools)
+                throw new InvalidOperationException("Tool capability observation expired or changed. Test capabilities before a fresh action.");
             if (!turn.CallIds.Add(call.Id))
                 throw new InvalidOperationException("Duplicate tool-call identifier; the action was not executed again.");
             var callMessage = AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", ToolCalls = [call] });
@@ -348,6 +357,8 @@ public sealed class ContainerAssistantService(
         lock (_stateGate)
         {
             EnsureCurrent(turn, ct);
+            if (!capabilities.GetCached(turn.Configuration).CanUseTools)
+                throw new InvalidOperationException("Tool capability observation expired or changed. No action was started.");
             Audit(ActivityKind.AssistantToolInvoked, $"Invoked: {tool.Call.Name}", tool.Details);
             invocation.Started = true;
             var previous = turn.Messages[invocation.OutcomeIndex];

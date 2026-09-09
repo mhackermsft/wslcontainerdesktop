@@ -21,7 +21,8 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider, IAiChatProvider
+public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings, IAiCredentialStore credentials,
+    IAiCapabilityService? capabilities = null) : IAiProvider, IAiChatProvider
 {
     public AiProviderKind Kind => AiProviderKind.OpenAi;
 
@@ -52,17 +53,19 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         var uri = ChatCompletionsUri();
         using var message = new HttpRequestMessage(HttpMethod.Post, uri);
         ApplyAuthorization(message);
-        message.Content = JsonContent.Create(new
+        var payload = new Dictionary<string, object>
         {
-            model = settings.AiOpenAiModel.Trim(),
-            temperature = 0.2,
-            response_format = new { type = "json_object" },
-            messages = new[]
+            ["model"] = settings.AiOpenAiModel.Trim(),
+            ["temperature"] = 0.2,
+            ["messages"] = new[]
             {
                 new { role = "system", content = request.SystemPrompt },
                 new { role = "user", content = AiTextSanitizer.Sanitize(request.UserPrompt, AiTextSanitizer.DiagnosticLimit) },
             },
-        });
+        };
+        if (capabilities?.GetCached(AiConversationContext.Capture(settings, Kind)).StructuredJson.Support == AiSupport.Supported)
+            payload["response_format"] = new { type = "json_object" };
+        message.Content = JsonContent.Create(payload);
 
         using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -106,14 +109,18 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
             using var message = new HttpRequestMessage(HttpMethod.Post, uri);
             if (!string.IsNullOrWhiteSpace(key))
                 message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-            message.Content = JsonContent.Create(new
+            var payload = new Dictionary<string, object>
             {
-                model = configuration.Model.Trim(),
-                temperature = 0.2,
-                messages = messages.Select(ToOpenAiMessage).ToList(),
-                tools = tools.Select(ToOpenAiTool).ToList(),
-                tool_choice = "auto",
-            });
+                ["model"] = configuration.Model.Trim(),
+                ["temperature"] = 0.2,
+                ["messages"] = messages.Select(ToOpenAiMessage).ToList(),
+            };
+            if (tools.Count > 0)
+            {
+                payload["tools"] = tools.Select(ToOpenAiTool).ToList();
+                payload["tool_choice"] = "auto";
+            }
+            message.Content = JsonContent.Create(payload);
 
             using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);

@@ -264,6 +264,7 @@ public partial class SettingsViewModel : ObservableObject
         _aiCredentials = aiCredentials;
         _localAi = localAi;
         _aiAvailability = aiAvailability;
+        _aiAvailability.Changed += (_, _) => OnPropertyChanged(nameof(AiCapabilityStatus));
         _http = http;
         _logger = logger;
 
@@ -446,6 +447,8 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         _aiCredentials.WriteSecret(_settings.AiProvider, secret);
+        // Notify existing settings observers to re-read readiness using the new credential identity.
+        _settings.Save();
         AiApiKey = string.Empty;
         ProviderFeedback = AiFeedback.Success(
             "Credential saved",
@@ -626,20 +629,29 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    private async Task TestAiProviderAsync()
+    public string AiCapabilityStatus => _aiAvailability.Observation?.StatusText
+        ?? "Enable AI and choose a provider. Capability observations are unknown until checked.";
+
+    [RelayCommand(IncludeCancelCommand = true)]
+    private async Task TestAiProviderAsync(CancellationToken ct)
     {
         IsBusy = true;
-        ProviderFeedback = AiFeedback.Informational("Testing provider", "Sending a test request to the selected provider…");
+        ProviderFeedback = AiFeedback.Informational("Testing capabilities",
+            "Checking metadata and bounded synthetic chat/tool/JSON requests. Cold starts may take up to 90 seconds. No app actions or downloads run; cancel at any time.");
         try
         {
-            var result = await _aiDiagnostics.TestProviderAsync();
-            await _aiAvailability.RefreshAsync();
-            ProviderFeedback = AiFeedback.Success("Provider test succeeded", result);
+            var result = await _aiDiagnostics.TestProviderAsync(ct);
+            await _aiAvailability.RefreshAsync(ct);
+            ProviderFeedback = AiFeedback.Informational("Capability observations", result);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            ProviderFeedback = AiFeedback.Informational("Test cancelled",
+                "The test stopped. Only completed checks can remain cached. No model download or app action was started.");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AI provider test failed.");
+            _logger.LogWarning("AI capability test could not complete.");
             ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Provider test"));
         }
         finally

@@ -542,14 +542,26 @@
                             Grid.Column="0"
                             VerticalAlignment="Center"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="Verify the selected provider can respond before using it."
+                            Text="Verify capabilities separately. Tests use synthetic prompts, never container data or app actions."
                             TextWrapping="Wrap" />
-                        <Button
-                            Grid.Column="1"
-                            AutomationProperties.AutomationId="TestAiProviderButton"
-                            Command="{x:Bind ViewModel.TestAiProviderCommand}"
-                            Content="Test" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button
+                                AutomationProperties.AutomationId="TestAiProviderButton"
+                                Command="{x:Bind ViewModel.TestAiProviderCommand}"
+                                Content="Test capabilities" />
+                            <Button
+                                AutomationProperties.AutomationId="CancelAiCapabilityTestButton"
+                                Command="{x:Bind ViewModel.TestAiProviderCancelCommand}"
+                                Content="Cancel test" />
+                        </StackPanel>
                     </Grid>
+                    <InfoBar
+                        AutomationProperties.AutomationId="AiCapabilityStatusInfoBar"
+                        IsClosable="False"
+                        IsOpen="True"
+                        Message="{x:Bind ViewModel.AiCapabilityStatus, Mode=OneWay}"
+                        Severity="Informational"
+                        Title="Current AI capabilities" />
                     <InfoBar
                         x:Name="ProviderFeedbackBar"
                         AutomationProperties.AutomationId="ProviderFeedbackInfoBar"

@@ -24,42 +24,50 @@ namespace WslContainerDesktop.Services;
 public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
 {
     private static readonly TimeSpan DebounceDelay = TimeSpan.FromMilliseconds(750);
-    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(20);
-    private const int MaxRetryAttempts = 3;
-
     private readonly ISettingsService _settings;
-    private readonly IEnumerable<IAiProvider> _providers;
+    private readonly IAiCapabilityService _capabilities;
     private readonly DispatcherQueue _dispatcher;
     private readonly ILogger<AiAvailabilityService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private CancellationTokenSource? _debounceCts;
-    private bool _isAvailable;
-    private bool _shouldRetry;
+    private AiChatConfiguration? _configuration;
 
     public AiAvailabilityService(
         ISettingsService settings,
-        IEnumerable<IAiProvider> providers,
+        IAiCapabilityService capabilities,
         DispatcherQueue dispatcher,
         ILogger<AiAvailabilityService> logger)
     {
         _settings = settings;
-        _providers = providers;
+        _capabilities = capabilities;
         _dispatcher = dispatcher;
         _logger = logger;
 
         _settings.Changed += OnSettingsChanged;
 
-        // Verify at startup and retry while a configured provider is temporarily unavailable.
+        // Startup reads metadata only. Generation/warm-up is an explicit Settings operation.
         ScheduleRefresh();
     }
 
-    public bool IsAvailable => _isAvailable;
+    public bool IsAvailable => Observation?.CanChat == true;
+    public bool CanUseTools => Observation?.CanUseTools == true;
+    public AiCapabilitySnapshot? Observation => IsConfigured()
+        ? _capabilities.GetCached(AiConversationContext.Capture(_settings, _settings.AiProvider)) : null;
 
     public event EventHandler? Changed;
 
-    private void OnSettingsChanged(object? sender, EventArgs e) => ScheduleRefresh();
+    private void OnSettingsChanged(object? sender, EventArgs e)
+    {
+        var current = IsConfigured() ? AiConversationContext.Capture(_settings, _settings.AiProvider) : null;
+        if (current != _configuration)
+        {
+            _configuration = current;
+            _capabilities.Invalidate();
+            _dispatcher.TryEnqueue(() => Changed?.Invoke(this, EventArgs.Empty));
+        }
+        ScheduleRefresh();
+    }
 
     private void ScheduleRefresh()
     {
@@ -75,23 +83,16 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         try
         {
             await Task.Delay(DebounceDelay, ct).ConfigureAwait(false);
-            var retryAttempts = 0;
-            do
-            {
-                await RefreshAsync(ct).ConfigureAwait(false);
-                if (_isAvailable || !_shouldRetry || !IsConfigured() || retryAttempts >= MaxRetryAttempts)
-                {
-                    break;
-                }
-
-                retryAttempts++;
-                await Task.Delay(RetryDelay, ct).ConfigureAwait(false);
-            }
-            while (!ct.IsCancellationRequested);
+            await RefreshAsync(ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             // A newer schedule superseded this one (debounce, retry delay, gate wait, or in-flight probe).
+        }
+        catch (Exception)
+        {
+            // Never log provider evidence or exception objects from a background observation.
+            _logger.LogDebug("AI metadata refresh could not complete. Use Test capabilities in Settings.");
         }
     }
 
@@ -100,17 +101,15 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
 
     public async Task RefreshAsync(CancellationToken ct = default)
     {
-        // Serialize checks; TestAsync runs a real (and possibly slow) model round-trip.
+        // Serialize metadata reads; never call the diagnosis-style TestAsync here.
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var available = await ProbeAsync(ct).ConfigureAwait(false);
-            if (available == _isAvailable)
-            {
-                return;
-            }
-
-            _isAvailable = available;
+            var configuration = IsConfigured() ? AiConversationContext.Capture(_settings, _settings.AiProvider) : null;
+            _ = configuration is null ? null
+                : await _capabilities.GetAsync(configuration, ct: ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            _configuration = configuration;
             _dispatcher.TryEnqueue(() => Changed?.Invoke(this, EventArgs.Empty));
         }
         finally
@@ -119,56 +118,11 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         }
     }
 
-    private async Task<bool> ProbeAsync(CancellationToken ct)
-    {
-        _shouldRetry = false;
-        if (!_settings.AiFeaturesEnabled || _settings.AiProvider == AiProviderKind.None)
-        {
-            return false;
-        }
-
-        var provider = _providers.FirstOrDefault(p => p.Kind == _settings.AiProvider);
-        if (provider is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(TestTimeout);
-            await provider.TestAsync(cts.Token).ConfigureAwait(false);
-            return true;
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // A newer schedule superseded this probe; propagate so we don't record a false negative.
-            throw;
-        }
-        catch (AiProviderException ex) when (ex.Kind is
-            AiFailureKind.Authentication or
-            AiFailureKind.Configuration or
-            AiFailureKind.NotFound)
-        {
-            // Retrying cannot repair credentials, configuration, or a missing route. A settings
-            // change schedules a fresh probe, so stop the 5s loop until the user fixes the cause.
-            _logger.LogDebug(ex, "AI availability probe requires configuration for provider {Provider}.", _settings.AiProvider);
-            return false;
-        }
-        catch (Exception ex)
-        {
-            // Timeouts, connection failures, throttling, and provider-side errors may recover.
-            _shouldRetry = true;
-            _logger.LogDebug(ex, "AI availability probe failed for provider {Provider}.", _settings.AiProvider);
-            return false;
-        }
-    }
-
     public void Dispose()
     {
         _settings.Changed -= OnSettingsChanged;
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
-        _gate.Dispose();
+        // An in-flight refresh may still release the semaphore after cancellation.
     }
 }

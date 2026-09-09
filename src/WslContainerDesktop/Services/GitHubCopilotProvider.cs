@@ -28,7 +28,7 @@ namespace WslContainerDesktop.Services;
 #pragma warning disable GHCP001 // Required SDK permission hook so Copilot surfaces our declared tool calls to the app gate.
 public sealed class GitHubCopilotProvider(
     ISettingsService settings,
-    ILogger<GitHubCopilotProvider> logger) : IAiProvider, IAiChatProvider
+    ILogger<GitHubCopilotProvider> logger) : IAiProvider, IAiChatProvider, IAiCapabilityObserver
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(3);
     private const string DefaultModel = "auto";
@@ -36,6 +36,50 @@ public sealed class GitHubCopilotProvider(
     public AiProviderKind Kind => AiProviderKind.GitHubCopilot;
 
     public string DisplayName => Kind.DisplayName();
+
+    public async Task<AiCapabilitySnapshot> ReadMetadataAsync(AiChatConfiguration configuration, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var state = new AiCapabilitySnapshot(configuration);
+        if (FindCopilotCliPath() is not { } path)
+            return state with { Runtime = AiRuntimeState.Unavailable };
+        try
+        {
+            await using var client = CreateClient();
+            await client.StartAsync(ct).ConfigureAwait(false);
+            var models = await client.ListModelsAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            var file = new FileInfo(path);
+            return state with
+            {
+                Endpoint = AiEndpointState.Reachable, Runtime = AiRuntimeState.Ready,
+                Model = models.Any(m => string.Equals(m.Id, configuration.Model, StringComparison.OrdinalIgnoreCase))
+                    ? AiModelState.Available : AiModelState.Missing,
+                RuntimeIdentity = AiCapabilityService.HashIdentity($"{file.Length}:{file.LastWriteTimeUtc.Ticks}"),
+                // SDK inventory does not establish tool/JSON support for a selected model.
+            };
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception)
+        {
+            // CLI/entitlement/auth failures are not all authentication failures; remain explicit unknown.
+            return state with { Runtime = AiRuntimeState.Unavailable };
+        }
+    }
+
+    public async Task<AiCapabilitySnapshot> ProbeAsync(AiCapabilitySnapshot metadata, CancellationToken ct)
+    {
+        try
+        {
+            return await CopilotCapabilityProbe.RunAsync(metadata, RunTurnAsync, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception)
+        {
+            // Do not retain SDK errors, prompts, callback evidence or exceptions in observations.
+            return metadata;
+        }
+    }
 
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {

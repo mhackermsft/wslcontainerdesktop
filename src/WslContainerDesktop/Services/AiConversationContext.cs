@@ -37,12 +37,31 @@ public static class AiConversationContext
         _ => throw new InvalidOperationException("Choose an assistant provider before starting a conversation."),
     };
 
-    // Application input ceilings, not claims about a server's negotiated context size.
-    // UTF-8 JSON bytes conservatively account for non-ASCII text, escaping and protocol overhead.
-    // Unknown/custom models get the smaller ceiling until capability observations are available.
-    public static int InputByteLimit(AiChatConfiguration configuration) =>
-        configuration.Model is "gpt-4o" or "gpt-4o-mini" or "llama3.1" or "qwen2.5"
-            ? 65_536 : 32_768;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<AiChatConfiguration,
+        (int Bytes, DateTimeOffset Expires)> ObservedLimits = new();
+
+    // A byte-accounted observation can only LOWER our policy ceiling. Token counts are never
+    // converted into bytes and familiar model names grant no extra budget.
+    public static int InputByteLimit(AiChatConfiguration configuration)
+    {
+        if (ObservedLimits.TryGetValue(configuration, out var limit) && limit.Expires > DateTimeOffset.UtcNow)
+            return Math.Min(32_768, limit.Bytes);
+        ForgetObservedLimit(configuration);
+        return 32_768;
+    }
+
+    internal static void SetObservedLimit(AiChatConfiguration configuration, int? bytes, DateTimeOffset expires)
+    {
+        ForgetObservedLimit(configuration);
+        if (bytes is > 0)
+        {
+            if (ObservedLimits.Count >= 32) ObservedLimits.Clear();
+            ObservedLimits[configuration] = (bytes.Value, expires);
+        }
+    }
+
+    internal static void ForgetObservedLimit(AiChatConfiguration configuration) =>
+        ObservedLimits.TryRemove(configuration, out _);
 
     public static int Measure(
         IReadOnlyList<AiChatMessage> messages, IReadOnlyList<AiToolDefinition> tools) =>

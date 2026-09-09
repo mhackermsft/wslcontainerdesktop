@@ -20,7 +20,8 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService settings, IAiCredentialStore credentials) : IAiProvider, IAiChatProvider
+public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService settings, IAiCredentialStore credentials,
+    IAiCapabilityService? capabilities = null) : IAiProvider, IAiChatProvider
 {
     private const string ApiVersion = "2024-10-21";
 
@@ -55,16 +56,18 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
         var uri = CompletionUri();
         using var message = new HttpRequestMessage(HttpMethod.Post, uri);
         message.Headers.Add("api-key", key);
-        message.Content = JsonContent.Create(new
+        var payload = new Dictionary<string, object>
         {
-            temperature = 0.2,
-            response_format = new { type = "json_object" },
-            messages = new[]
+            ["temperature"] = 0.2,
+            ["messages"] = new[]
             {
                 new { role = "system", content = request.SystemPrompt },
                 new { role = "user", content = AiTextSanitizer.Sanitize(request.UserPrompt, AiTextSanitizer.DiagnosticLimit) },
             },
-        });
+        };
+        if (capabilities?.GetCached(AiConversationContext.Capture(settings, Kind)).StructuredJson.Support == AiSupport.Supported)
+            payload["response_format"] = new { type = "json_object" };
+        message.Content = JsonContent.Create(payload);
 
         using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -111,13 +114,17 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
             messages = AiConversationContext.Prepare(messages, tools, configuration).ToList();
             using var message = new HttpRequestMessage(HttpMethod.Post, uri);
             message.Headers.Add("api-key", key);
-            message.Content = JsonContent.Create(new
+            var payload = new Dictionary<string, object>
             {
-                temperature = 0.2,
-                messages = messages.Select(OpenAiProvider.ToOpenAiMessage).ToList(),
-                tools = tools.Select(OpenAiProvider.ToOpenAiTool).ToList(),
-                tool_choice = "auto",
-            });
+                ["temperature"] = 0.2,
+                ["messages"] = messages.Select(OpenAiProvider.ToOpenAiMessage).ToList(),
+            };
+            if (tools.Count > 0)
+            {
+                payload["tools"] = tools.Select(OpenAiProvider.ToOpenAiTool).ToList();
+                payload["tool_choice"] = "auto";
+            }
+            message.Content = JsonContent.Create(payload);
 
             using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);

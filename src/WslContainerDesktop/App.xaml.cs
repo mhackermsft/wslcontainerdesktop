@@ -402,6 +402,11 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
         services.AddSingleton<IAiCredentialStore, AiCredentialStore>();
+        services.AddSingleton<IAiCapabilityService, AiCapabilityService>();
+        foreach (var kind in new[] { AiProviderKind.Ollama, AiProviderKind.OpenAi, AiProviderKind.AzureOpenAi })
+            services.AddSingleton<IAiCapabilityObserver>(sp => new HttpAiCapabilityObserver(
+                kind, sp.GetRequiredService<AiHttpClient>(), sp.GetRequiredService<IAiCredentialStore>()));
+        services.AddSingleton<IAiCapabilityObserver, GitHubCopilotProvider>();
         services.AddSingleton<IAiProvider, GitHubCopilotProvider>();
         services.AddSingleton<IAiProvider, OllamaProvider>();
         services.AddSingleton<IAiProvider, AzureOpenAiProvider>();
@@ -463,7 +468,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         // Captures the UI DispatcherQueue like StatusMonitor: first resolved from OnLaunched.
         services.AddSingleton<IAiAvailabilityService>(sp => new AiAvailabilityService(
             sp.GetRequiredService<ISettingsService>(),
-            sp.GetRequiredService<IEnumerable<IAiProvider>>(),
+            sp.GetRequiredService<IAiCapabilityService>(),
             DispatcherQueue.GetForCurrentThread()
                 ?? throw new InvalidOperationException("AiAvailabilityService must first be resolved on the UI thread."),
             sp.GetRequiredService<ILogger<AiAvailabilityService>>()));

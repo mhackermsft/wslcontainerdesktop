@@ -17,14 +17,14 @@
 namespace WslContainerDesktop.Services;
 
 /// <summary>
-/// Tracks whether the app can actually talk to the configured AI provider. AI entry points
-/// (the assistant button, the Diagnose button) observe this so they only appear once a real
-/// round-trip to the model has succeeded — not merely because AI is toggled on in Settings.
+/// Projects independent capability observations for UI entry points. Startup is metadata-only.
 /// </summary>
 public interface IAiAvailabilityService
 {
-    /// <summary>True when AI is enabled, a provider is chosen, and a live test call succeeded.</summary>
+    /// <summary>Chat/diagnosis readiness, NOT proof of tool support.</summary>
     bool IsAvailable { get; }
+    bool CanUseTools { get; }
+    Models.AiCapabilitySnapshot? Observation { get; }
 
     /// <summary>Raised (on the UI thread) whenever <see cref="IsAvailable"/> changes.</summary>
     event EventHandler? Changed;

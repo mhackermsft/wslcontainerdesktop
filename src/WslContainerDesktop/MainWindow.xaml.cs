@@ -70,7 +70,7 @@ public sealed partial class MainWindow : Window
     {
         AssistantButton.Visibility = _settings.AiFeaturesEnabled
             && _settings.AiProvider != Models.AiProviderKind.None
-            && _aiAvailability.IsAvailable
+            && _aiAvailability.CanUseTools
             ? Visibility.Visible
             : Visibility.Collapsed;
     }

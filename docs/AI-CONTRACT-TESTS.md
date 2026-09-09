@@ -213,14 +213,16 @@ cannot clear a new turn's approval. Overlapping sends are rejected rather than
 interleaved; tool callbacks within a turn are serialized.
 
 `AiConversationContext.Prepare` is used before provider requests and tool
-resolution. Its application input ceiling is 32,768 accounted UTF-8 JSON bytes
-for unknown/custom models, or 65,536 for the exact known IDs `gpt-4o`,
-`gpt-4o-mini`, `llama3.1`, and `qwen2.5`. Accounting includes messages, tool
+resolution. Its default application input ceiling is 32,768 accounted UTF-8 JSON
+bytes for **every** model. #88 removed the model-name exceptions. A fresh,
+configuration-keyed, explicitly byte-accounted observation can only lower this
+ceiling; token-window metadata is retained separately and never converted into
+bytes. Accounting includes messages, tool
 schemas, escaping, and a fixed plus per-item protocol reserve. These are
 conservative application ceilings, **not negotiated model context-window
 claims or an exact tokenizer**. Smaller server contexts may reject a request;
-no fallback to another model/provider occurs. #88 can replace the policy with
-configuration-keyed observed limits without bypassing `Prepare`.
+no fallback to another model/provider occurs. Configuration/runtime invalidation
+and observation expiry discard observed byte limits without bypassing `Prepare`.
 
 Old complete user turns are evicted together with all calls and outcomes,
 retaining the trusted system prompt and an explicit truncation notice. The
@@ -263,6 +265,116 @@ Combined focused command (both configured targets, with no deployment):
 dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~AssistantHistoryContractTests|FullyQualifiedName~AssistantOrchestrationContractTests|FullyQualifiedName~AssistantToolsetContractTests|FullyQualifiedName~AiProviderContractTests|FullyQualifiedName~AiTextSanitizerTests|FullyQualifiedName~GitHubCopilotProviderContractTests"
 ```
 
+## Independent capability observations (#88)
+
+`IAiCapabilityService.GetAsync(AiChatConfiguration, bool probe = false,
+CancellationToken ct = default)` performs metadata-only observation unless
+explicitly asked to probe. `GetCached(configuration)` is a fail-closed read for
+consumers; `Invalidate()` clears evidence/context limits and cancels an in-flight
+observation. `IAiCapabilityObserver` exposes `Kind`, `ReadMetadataAsync(configuration,
+ct)` and `ProbeAsync(metadata, ct)` for provider/runtime integrations.
+
+`AiCapabilitySnapshot` is immutable and memory-only:
+
+- Chat, Tools, StructuredJson and Streaming each carry `AiSupport`
+  (Unknown/Supported/Unsupported) and `AiObservationSource`.
+- Context has its own support/source, nullable `ContextTokens`, and nullable
+  `InputByteCeiling` measured in the application's accounted UTF-8 JSON bytes.
+  No token-to-byte conversion or name-based budget boost is permitted.
+- Endpoint, Authentication, Runtime, Model, Download and Load are independent
+  enums with explicit Unknown values. A generic 404 does not establish a missing
+  model; a generic 503/timeout does not establish loading or unsupported features.
+  `Endpoint.InvalidConfiguration` reports malformed, relative, non-HTTP(S), or
+  embedded-credential endpoints with fixed correction guidance and no transport.
+- Runtime/model identity hashes are opaque, not displayable evidence. Only
+  app-owned status vocabulary reaches `StatusText`/`NextStep`. Raw response bodies,
+  SDK errors, credentials and provider evidence are not retained in observations.
+  `Configuration` remains an execution destination, not a safe display/log string.
+
+The service holds one active configuration and credential fingerprint. Switching
+provider/endpoint/model, credential changes, explicit invalidation and observed
+runtime/model-identity changes discard prior evidence; switching back cannot
+resurrect a previous conversation or capability entry. Metadata has a one-minute
+cache. Explicit generations are coalesced/cached for ten minutes when chat is
+ready, or one minute otherwise. There is **no background generation or retry
+loop**. Metadata refresh can revalidate identity without generating again.
+Refreshing metadata never renews the original generation-proof expiry: expired
+probe-derived fields are withdrawn independently of still-fresh metadata.
+Runtime versions/revisions are used where recognized metadata supplies them
+(Ollama runtime version/model digest; Copilot CLI file identity); generic
+OpenAI/Azure endpoints do not provide a portable runtime identity protocol, so
+unknown identities remain unknown and observations expire. External runtime
+changes can remain unseen within the metadata freshness window.
+
+HTTP metadata uses OpenAI model inventory without inferring feature support from
+names or arbitrary extension fields. Ollama's recognized `/api/show` capabilities
+and context-token metadata are combined with installed/loaded inventory. A tags
+listing does not warm or download a model. Azure deployment-list authorization
+differs from inference authorization, so it is not guessed from a model list.
+Copilot metadata lists configured-model availability without starting an inference
+session; failed CLI/entitlement checks are not automatically mislabeled as auth.
+
+Explicit HTTP probes send at most three synthetic, non-streaming requests with
+64 output tokens each: plain chat, a single `capability_ack` function schema, and
+JSON mode. Responses are bounded to 256 KiB. Only a validated acknowledgement
+proves tool support; refusal prose or ignored schemas remain Unknown. Recognized
+unsupported-feature codes apply only to the named feature. JSON rejection keeps
+successful chat independent. No callback reaches the app toolset. Copilot uses
+the source-linked bridge for synthetic chat/acknowledgement; its SDK has no
+negotiated JSON option here, so JSON and streaming remain Unknown. Its generation
+bound is the shared deadline/context guard, not an asserted SDK token limit.
+
+Metadata checks have a ten-second deadline; explicit checks have a ninety-second
+total deadline and a cancel command in Settings. Cancellation/invalidated late
+results do not publish. Loading and timeout feedback explains waiting and the
+short cooldown, rather than retrying or downloading. Saving credentials and
+configuration changes are independent from a successful capability check.
+
+The action-capable assistant requires positive chat **and** tool observations,
+before fetching definitions, after their async lookup, before resolving a callback, and again before
+execution after approval. Chat-only diagnosis is separate: HTTP providers omit
+unproven/unsupported JSON options and continue to request/parse a JSON answer
+through the ordinary prompt; malformed output still fails, without replay.
+Configuration changes during an async diagnosis observation stop the send rather
+than forwarding previewed evidence to the newly selected destination.
+Empty-tool chat omits tool options. Existing `AiChatConfiguration(Kind, Endpoint,
+Model)`, `AiChatRequest(Configuration, History)`, `AiChatTurnResult(FinalText,
+Messages)` and `IAiChatProvider` callbacks are unchanged. Journal, linked
+cancellation, generation, approval, original executor and opaque Copilot context
+guards remain in force.
+
+`AiCapabilityContractTests` covers passive metadata, chat-only/tool-capable
+observations, JSON and tool rejection, ignored/malformed schemas, auth/missing
+model/loading/generic failures, no automatic downloads, immutable probe
+credentials, coalescing/cooldown/expiry, configuration/credential/runtime/model
+revision invalidation, cancelled late metadata/generation, observed byte limits,
+diagnosis/chat options and destination races, pre-definition and post-approval action guards, and the
+production Copilot synthetic probe seam. Existing orchestration fixtures now
+explicitly provide positive synthetic capability evidence; production has no
+permissive default.
+Additional regressions cover proof expiry after metadata refresh (including the
+exact expiry boundary), invalid endpoints without transport, and a malformed
+Copilot acknowledgement followed by an SDK-swallowed error and another callback.
+That failed check cannot subsequently grant tool support.
+
+Run all related contracts (both configured frameworks, no deployment):
+
+```powershell
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~AiCapabilityContractTests|FullyQualifiedName~AssistantHistoryContractTests|FullyQualifiedName~AssistantOrchestrationContractTests|FullyQualifiedName~AssistantToolsetContractTests|FullyQualifiedName~AiProviderContractTests|FullyQualifiedName~AiTextSanitizerTests|FullyQualifiedName~GitHubCopilotProviderContractTests"
+```
+
+### Follow-on integration rules
+
+- #89 may add recognized streaming observations and consume this snapshot; it
+  must not infer streaming from successful non-streaming chat or bypass the journal.
+- #90 and #92 should implement the observer seam using authoritative runtime
+  identities and separate download/load states, calling `Invalidate()` **before**
+  owned transitions/replacement. Metadata methods must never download or load a
+  model. A capability probe is not permission to deploy workloads.
+- No streaming transport, runtime lifecycle manager or Foundry adapter/model
+  acquisition is implemented by #88. Real-provider/hardware behavior remains
+  subject to the explicit opt-in smoke policy below.
+
 ## Remaining feature-layer acceptance
 
 These are **unmet criteria**, not skipped tests or assertions that unsafe
@@ -273,7 +385,7 @@ Serialized activity capture is a test sink, not the production on-disk store.
 
 | Layer | Regression coverage still required |
 | --- | --- |
-| #88 capabilities | Independent Unknown/chat/tool/JSON/streaming/context support, configuration-keyed observations, unsupported JSON, chat-only models, loading versus failures. A diagnosis JSON-mode serialization test is not capability negotiation. |
+| #88 live compatibility | Deterministic observation/consumer contracts are covered above. Actual provider metadata conventions, SDK transport/entitlement failures and hardware cold starts still require explicitly authorized smoke runs; unknown metadata is not filled with guesses. |
 | #89 streaming | Fragment assembly, complete validation before action, progress ordering, disconnect recovery, inference versus approval timeouts, cancellation/reset generations, partial outcomes and no replay. Current adapters return final strings. |
 | #90 runtime ownership | Fake inventory/process-backed local setup: ownership/name collisions, GPU versus other failures, safe fallback, partial creation, racing replacement, cancellation, cleanup failures and retained model data. No runtime lifecycle is invoked here. |
 | #92 Foundry Local | Deterministic dedicated adapter/runtime tests using the shared contracts, plus explicitly opted-in packaged and hardware runs. No Foundry dependency or model is acquired by this foundation. |
