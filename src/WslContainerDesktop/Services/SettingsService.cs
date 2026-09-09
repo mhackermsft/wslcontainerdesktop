@@ -186,6 +186,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                             HealthCheckConfig.MaxIntervalSeconds),
                         MaxRestarts = Math.Clamp(h.MaxRestarts, 0, HealthCheckConfig.MaxRestartLimit),
                         Enabled = h.Enabled,
+                        DesiredHealth = h.DesiredHealth?.Clone(),
                     };
 
                     if (config.IsValid)
@@ -292,6 +293,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
                         IntervalSeconds = h.IntervalSeconds,
                         MaxRestarts = h.MaxRestarts,
                         Enabled = h.Enabled,
+                        DesiredHealth = h.DesiredHealth?.Clone(),
                     })
                     .ToList(),
                 RestartPolicies = RestartPolicies
@@ -400,6 +402,7 @@ public sealed class SettingsService(ILogger<SettingsService> logger) : ISettings
 
     private sealed class HealthCheckDto
     {
+        public NativeHealthOptions? DesiredHealth { get; set; }
         public string? ContainerName { get; set; }
         public int Kind { get; set; }
         public string? Command { get; set; }

@@ -28,6 +28,7 @@ public sealed class RunContainerOptions
     public bool Interactive { get; set; }
     public bool AllGpus { get; set; }
     public string? Command { get; set; }
+    public NativeHealthOptions? Health { get; set; }
 
     /// <summary>Overrides the image entrypoint (compose <c>entrypoint:</c>). Free text, split like <see cref="Command"/>.</summary>
     public string? Entrypoint { get; set; }
@@ -161,6 +162,7 @@ public sealed class RunContainerOptions
         Interactive = Interactive,
         AllGpus = AllGpus,
         Command = Command,
+        Health = Health?.Clone(),
         Entrypoint = Entrypoint,
         User = User,
         WorkingDir = WorkingDir,
@@ -186,13 +188,13 @@ public sealed class RunContainerOptions
         Domainname = Domainname,
     };
 
-    public List<string> ToArguments() =>
-        BuildArguments(create: false);
+    public List<string> ToArguments(IReadOnlyList<string>? healthArguments = null) =>
+        BuildArguments(create: false, healthArguments);
 
-    public List<string> ToCreateArguments() =>
-        BuildArguments(create: true);
+    public List<string> ToCreateArguments(IReadOnlyList<string>? healthArguments = null) =>
+        BuildArguments(create: true, healthArguments);
 
-    private List<string> BuildArguments(bool create)
+    private List<string> BuildArguments(bool create, IReadOnlyList<string>? healthArguments)
     {
         var args = new List<string> { create ? "create" : "run" };
 
@@ -349,6 +351,11 @@ public sealed class RunContainerOptions
         {
             args.Add("-v");
             args.Add(v.Trim());
+        }
+
+        if (healthArguments is not null)
+        {
+            args.AddRange(healthArguments);
         }
 
         args.Add(Image.Trim());

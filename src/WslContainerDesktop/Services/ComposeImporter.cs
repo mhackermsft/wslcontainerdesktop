@@ -567,7 +567,8 @@ public static class ComposeImporter
             Configs = ParseFileMounts(svc.Child("configs"), "/"),
         };
 
-        service.Health = ParseHealthCheck(svc.Child("healthcheck"), service.Restart);
+        service.Health = ParseHealthCheck(svc.Child("healthcheck"), service.Restart, svc.Scalar("restart"));
+        options.Health = service.Health?.DesiredHealth?.Clone();
         service.ExtraHosts = ParseExtraHosts(svc.Child("extra_hosts"));
         if (options.NetworkMode?.StartsWith("service:", StringComparison.Ordinal) == true)
         {
@@ -1391,76 +1392,46 @@ public static class ComposeImporter
     /// restart budget is derived from the service's <c>restart</c> policy, since the desktop
     /// watchdog restarts unhealthy containers within a budget.
     /// </summary>
-    private static HealthCheckConfig? ParseHealthCheck(Node? node, RestartPolicyKind restart)
+    private static HealthCheckConfig? ParseHealthCheck(Node? node, RestartPolicyKind restart, string? restartText)
     {
         if (node is not MappingNode map)
         {
             return null;
         }
 
-        if (string.Equals(map.Scalar("disable"), "true", StringComparison.OrdinalIgnoreCase))
+        var test = map.Child("test") switch
         {
-            return null;
-        }
-
-        var command = ExtractHealthTest(map.Child("test"));
-        if (string.IsNullOrWhiteSpace(command))
+            ScalarNode s => new List<string> { "CMD-SHELL", s.Value },
+            SequenceNode seq => seq.Items.OfType<ScalarNode>().Select(s => s.Value).ToList(),
+            _ => new List<string>(),
+        };
+        var desired = new NativeHealthOptions
         {
-            return null;
-        }
-
-        var interval = ParseDurationSeconds(map.Scalar("interval")) ?? 30;
+            Test = test,
+            Disabled = string.Equals(map.Scalar("disable"), "true", StringComparison.OrdinalIgnoreCase),
+            Interval = map.Scalar("interval"),
+            Timeout = map.Scalar("timeout"),
+            StartPeriod = map.Scalar("start_period"),
+            StartInterval = map.Scalar("start_interval"),
+            Retries = map.Scalar("retries") is { } retries
+                ? int.TryParse(retries, out var n) ? n : 0 : null,
+        };
 
         return new HealthCheckConfig
         {
             Kind = HealthProbeKind.Command,
-            Command = command,
-            IntervalSeconds = interval,
-            MaxRestarts = RestartBudget(restart, map.Scalar("retries")),
+            Command = test.Count == 2 && test[0] == "CMD-SHELL" ? test[1] : string.Empty,
+            DesiredHealth = desired,
+            IntervalSeconds = ParseDurationSeconds(desired.Interval) ?? 30,
+            MaxRestarts = RestartBudget(restart, restartText),
             Enabled = true,
         };
     }
 
-    /// <summary>
-    /// Reads a compose healthcheck <c>test</c>, which is either a shell string or a list whose first
-    /// element is <c>CMD</c> (exec form) or <c>CMD-SHELL</c> (shell string). Returns a single shell
-    /// command suitable for <c>wslc exec &lt;id&gt; sh -c</c>.
-    /// </summary>
-    private static string ExtractHealthTest(Node? node)
-    {
-        switch (node)
-        {
-            case ScalarNode s:
-                return s.Value.Trim();
-
-            case SequenceNode seq when seq.Items.Count > 0:
-                var parts = seq.Items.OfType<ScalarNode>().Select(x => x.Value).ToList();
-                if (parts.Count == 0)
-                {
-                    return string.Empty;
-                }
-
-                if (string.Equals(parts[0], "NONE", StringComparison.OrdinalIgnoreCase))
-                {
-                    return string.Empty;
-                }
-
-                if (string.Equals(parts[0], "CMD-SHELL", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(parts[0], "CMD", StringComparison.OrdinalIgnoreCase))
-                {
-                    return string.Join(' ', parts.Skip(1)).Trim();
-                }
-
-                return string.Join(' ', parts).Trim();
-
-            default:
-                return string.Empty;
-        }
-    }
-
     /// <summary>Translates a restart policy (and optional on-failure count) into a watchdog restart budget.</summary>
-    private static int RestartBudget(RestartPolicyKind restart, string? retries)
+    private static int RestartBudget(RestartPolicyKind restart, string? restartText)
     {
+        var retries = restartText?.Split(':', 2).ElementAtOrDefault(1);
         return restart switch
         {
             RestartPolicyKind.Always or RestartPolicyKind.UnlessStopped => HealthCheckConfig.MaxRestartLimit,

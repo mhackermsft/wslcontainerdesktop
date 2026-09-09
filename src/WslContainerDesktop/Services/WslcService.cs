@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
@@ -23,10 +24,16 @@ namespace WslContainerDesktop.Services;
 public sealed class WslcService(
     ProcessRunner runner,
     ILogger<WslcService> logger,
-    IWslcCapabilitiesService capabilities) : IWslcService
+    IWslcCapabilitiesService capabilities,
+    ISettingsService settings,
+    RestartSuppressionState suppression) : IWslcService
 {
     private readonly IWslcCapabilitiesService _capabilities = capabilities;
     private readonly ContainerPortResolver _containerPorts = new();
+    private sealed record PendingHealth(RunContainerOptions Options, string ExecutablePath);
+    private readonly ConcurrentDictionary<string, PendingHealth> _pendingHealth = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _createGate = new(1, 1);
+    private const int PendingHealthLimit = 256;
 
     private WslcFileTransfer FileTransfer => new(
         _capabilities, ProcessRunner.RunAtPathAsync, ProcessRunner.RunCopyWithInputFileAtPathAsync,
@@ -136,8 +143,50 @@ public sealed class WslcService(
         return containers;
     }
 
-    public Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default) =>
-        runner.RunAsync(["start", id], ct);
+    public async Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default, bool explicitStart = true)
+    {
+        var resume = explicitStart ? await CaptureStartIntentAsync(id, ct).ConfigureAwait(false) : null;
+        var pending = FindPendingHealth(id);
+        if (pending.Value is not null)
+        {
+            var current = await _capabilities.GetAsync(ct).ConfigureAwait(false);
+            if (!string.Equals(current.ExecutablePath, pending.Value.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Pending health configuration belongs to a different WSLC executable. Switch back before starting this container.");
+            if (pending.Value.Options.Name == id)
+            {
+                var inspect = await InspectContainerAsync(id, ct).ConfigureAwait(false);
+                if (!inspect.Success || NativeHealthParser.ContainerId(inspect.StandardOutput) != pending.Key)
+                    throw new InvalidOperationException("The container name no longer identifies the container awaiting health enrollment. No start was attempted.");
+            }
+        }
+        var result = await runner.RunAsync(["start", id], ct).ConfigureAwait(false);
+        if (result.Success && pending.Value is not null)
+        {
+            RegisterHealth(pending.Value.Options);
+            _pendingHealth.TryRemove(pending.Key, out _);
+        }
+        if (resume is { } token)
+            suppression.CompleteExplicitStart(token, result.Success);
+        return result;
+    }
+
+    private async Task<RestartSuppressionState.ResumeToken?> CaptureStartIntentAsync(string id, CancellationToken ct)
+    {
+        var version = suppression.Version;
+        if (!suppression.HasSuppressedContainers)
+            return null;
+        var inspect = await InspectContainerAsync(id, ct).ConfigureAwait(false);
+        if (!inspect.Success)
+            throw new InvalidOperationException($"Cannot resolve container identity before explicitly starting '{id}': {inspect.ErrorText}");
+        using var document = JsonDocument.Parse(inspect.StandardOutput);
+        var root = document.RootElement;
+        if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() == 1)
+            root = root[0];
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("Name", out var name) ||
+            name.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(name.GetString()))
+            throw new InvalidOperationException("Container inspect did not provide a name; restart suppression cannot be safely resumed.");
+        return suppression.CaptureExplicitStart(name.GetString()!, version);
+    }
 
     public Task<CommandResult> StopContainerAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["stop", id], ct);
@@ -163,6 +212,7 @@ public sealed class WslcService(
 
     public async Task<CommandResult> RestartContainerAsync(string id, CancellationToken ct = default)
     {
+        var resume = await CaptureStartIntentAsync(id, ct).ConfigureAwait(false);
         var stop = await runner.RunAsync(["stop", id], ct).ConfigureAwait(false);
         // Ignore stop failures (container may already be stopped) and attempt start.
         var start = await runner.RunAsync(["start", id], ct).ConfigureAwait(false);
@@ -171,13 +221,15 @@ public sealed class WslcService(
             return stop;
         }
 
+        if (resume is { } token)
+            suppression.CompleteExplicitStart(token, start.Success);
         return start;
     }
 
     public Task<CommandResult> KillContainerAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["kill", id], ct);
 
-    public Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default)
+    public async Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default)
     {
         var args = new List<string> { "remove" };
         if (force)
@@ -186,17 +238,115 @@ public sealed class WslcService(
         }
 
         args.Add(id);
-        return runner.RunAsync(args, ct);
+        var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
+        if (result.Success)
+            foreach (var pending in _pendingHealth.Where(p => MatchesPendingHealth(p.Key, p.Value, id)))
+                _pendingHealth.TryRemove(pending.Key, out _);
+        return result;
     }
 
     public Task<CommandResult> PruneContainersAsync(CancellationToken ct = default) =>
         runner.RunAsync(["container", "prune"], ct);
 
-    public Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default) =>
-        runner.RunAsync(options.ToArguments(), ct);
+    public async Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default)
+    {
+        var resume = string.IsNullOrWhiteSpace(options.Name)
+            ? (RestartSuppressionState.ResumeToken?)null : suppression.CaptureExplicitStart(options.Name);
+        var selection = options.Health is null ? new NativeHealthSelection(true, [])
+            : NativeHealthPolicy.Select(options.Health, await _capabilities.GetAsync(ct).ConfigureAwait(false));
+        var effective = options.Clone();
+        if (effective.Health is not null && string.IsNullOrWhiteSpace(effective.Name))
+            effective.Name = "wcd-" + Guid.NewGuid().ToString("N")[..12];
+        var result = await runner.RunAsync(effective.ToArguments(selection.Arguments), ct).ConfigureAwait(false);
+        if (!result.Success)
+            return result;
+        if (resume is { } token)
+            suppression.CompleteExplicitStart(token, true);
+        RegisterHealth(effective);
+        if (selection.Diagnostic is null)
+            return result;
+        logger.LogWarning("{Diagnostic}", selection.Diagnostic);
+        return new CommandResult
+        {
+            ExitCode = result.ExitCode, StandardOutput = result.StandardOutput,
+            StandardError = result.StandardError + Environment.NewLine + selection.Diagnostic,
+        };
+    }
 
-    public Task<CommandResult> CreateContainerAsync(RunContainerOptions options, CancellationToken ct = default) =>
-        runner.RunAsync(options.ToCreateArguments(), ct);
+    private void RegisterHealth(RunContainerOptions options)
+    {
+        if (options.Health is null || string.IsNullOrWhiteSpace(options.Name))
+            return;
+        var previous = settings.HealthChecks.FirstOrDefault(h => h.ContainerName == options.Name);
+        var config = previous?.Clone() ?? new HealthCheckConfig { ContainerName = options.Name, MaxRestarts = 0 };
+        config.DesiredHealth = options.Health.Clone();
+        config.Kind = HealthProbeKind.Command;
+        config.Enabled = true;
+        config.Command = options.Health.Test.Count == 2 && options.Health.Test[0] == "CMD-SHELL"
+            ? options.Health.Test[1] : string.Empty;
+        settings.HealthChecks = settings.HealthChecks.Where(h => h.ContainerName != options.Name).Append(config).ToList();
+        settings.Save();
+    }
+
+    public async Task<CommandResult> CreateContainerAsync(RunContainerOptions options, CancellationToken ct = default)
+    {
+        await _createGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await CreateContainerCoreAsync(options, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _createGate.Release();
+        }
+    }
+
+    private async Task<CommandResult> CreateContainerCoreAsync(RunContainerOptions options, CancellationToken ct)
+    {
+        var snapshot = options.Health is null ? null : await _capabilities.GetAsync(ct).ConfigureAwait(false);
+        var selection = snapshot is null ? new NativeHealthSelection(true, [])
+            : NativeHealthPolicy.Select(options.Health, snapshot, forCreate: true);
+        if (options.Health is not null && _pendingHealth.Count >= PendingHealthLimit)
+            throw new InvalidOperationException("Too many created containers await health enrollment. Start or remove those containers before creating another health-checked container.");
+        var effective = options.Clone();
+        if (effective.Health is not null && string.IsNullOrWhiteSpace(effective.Name))
+            effective.Name = "wcd-" + Guid.NewGuid().ToString("N")[..12];
+        var result = await runner.RunAsync(effective.ToCreateArguments(selection.Arguments), ct).ConfigureAwait(false);
+        if (!result.Success)
+            return result;
+        // Creation alone is not enrollment: multi-network orchestration may still fail and remove it.
+        if (effective.Health is not null)
+        {
+            var id = result.StandardOutput.Trim();
+            if (id.Length != 64 || !id.All(Uri.IsHexDigit))
+                throw new InvalidOperationException("Container creation succeeded but returned no unambiguous ID; health enrollment cannot be deferred safely. Inspect the created container before retrying.");
+            _pendingHealth[id] = new(effective, snapshot!.ExecutablePath);
+        }
+        if (selection.Diagnostic is null)
+            return result;
+        logger.LogWarning("{Diagnostic}", selection.Diagnostic);
+        return new CommandResult
+        {
+            ExitCode = result.ExitCode, StandardOutput = result.StandardOutput,
+            StandardError = result.StandardError + Environment.NewLine + selection.Diagnostic,
+        };
+    }
+
+    private static bool MatchesPendingHealth(string key, PendingHealth pending, string id) =>
+        key == id || pending.Options.Name == id || id.Length >= 12 && key.StartsWith(id, StringComparison.Ordinal);
+
+    private KeyValuePair<string, PendingHealth> FindPendingHealth(string id)
+    {
+        var matches = _pendingHealth.Where(p => MatchesPendingHealth(p.Key, p.Value, id)).Take(2).ToArray();
+        if (matches.Length > 1)
+            throw new InvalidOperationException("Container identifier is ambiguous for pending health enrollment. Use the full container ID.");
+        return matches.FirstOrDefault();
+    }
+
+    public Task<CommandResult> ExecHealthAsync(string id, NativeHealthOptions health, CancellationToken ct = default)
+    {
+        return runner.RunAsync(NativeHealthPolicy.ExecArguments(id, health), ct);
+    }
 
     public Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default) =>
         runner.RunAsync(["logs", "--tail", tail.ToString(), id], ct);

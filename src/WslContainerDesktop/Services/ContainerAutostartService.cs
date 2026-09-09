@@ -162,7 +162,7 @@ public sealed class ContainerAutostartService : IDisposable
                 continue;
             }
 
-            var result = await _wslc.StartContainerAsync(container.Id, ct).ConfigureAwait(false);
+            var result = await _wslc.StartContainerAsync(container.Id, ct, explicitStart: false).ConfigureAwait(false);
             if (result.Success)
             {
                 restored++;

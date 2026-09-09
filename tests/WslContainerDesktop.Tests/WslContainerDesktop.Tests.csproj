@@ -64,6 +64,13 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcExecutableIdentity.cs" Link="Services\WslcExecutableIdentity.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessRunner.cs" Link="Services\ProcessRunner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessExecutor.cs" Link="Services\ProcessExecutor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\NativeHealthOptions.cs" Link="Models\NativeHealthOptions.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\NativeHealthObservation.cs" Link="Models\NativeHealthObservation.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\NativeHealthPolicy.cs" Link="Services\NativeHealthPolicy.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\NativeHealthParser.cs" Link="Services\NativeHealthParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\NativeHealthMonitor.cs" Link="Services\NativeHealthMonitor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\HealthProbeProgress.cs" Link="Services\HealthProbeProgress.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\RestartSuppressionState.cs" Link="Services\RestartSuppressionState.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcFileTransfer.cs" Link="Services\WslcFileTransfer.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCopyInput.cs" Link="Services\WslcCopyInput.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkAttachment.cs" Link="Models\NetworkAttachment.cs" />
@@ -78,6 +85,7 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
+    <Compile Remove="Services\SupervisorMonitorDoubles.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Update="Fixtures\Capabilities\*.txt" CopyToOutputDirectory="PreserveNewest" />
