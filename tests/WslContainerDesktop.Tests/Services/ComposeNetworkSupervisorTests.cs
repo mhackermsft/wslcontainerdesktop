@@ -24,6 +24,135 @@ namespace WslContainerDesktop.Tests.Services;
 
 public sealed class ComposeNetworkSupervisorTests
 {
+    [Theory]
+    [InlineData(WslcCapabilitySupport.Supported)]
+    [InlineData(WslcCapabilitySupport.Unsupported)]
+    public async Task HealthDependenciesUseVerifiedStartupIdentityAndSeedBeforeWaiting(WslcCapabilitySupport networkSupport)
+    {
+        var fixture = new Fixture(networkSupport);
+        fixture.Snapshot = HealthCapabilities(networkSupport);
+        var desired = new NativeHealthOptions { Test = ["CMD-SHELL", "true"] };
+        fixture.Project.Services[0].Options.Health = desired;
+        fixture.Project.Services[0].Health = new()
+        {
+            DesiredHealth = desired.Clone(), Command = "true", MaxRestarts = 0,
+        };
+        fixture.Project.Services.Add(new()
+        {
+            Name = "dependent", Options = new() { Image = "fixture" },
+            DependsOn = [new() { ServiceName = "web", Condition = DependencyCondition.ServiceHealthy }],
+        });
+        fixture.Monitor.RefreshRequested = () =>
+        {
+            Assert.Contains(fixture.HealthChecks, check => check.ContainerName == "demo_web");
+            fixture.Monitor.Latest = new([new()
+            {
+                Id = "demo_web", Name = "demo_web", StateValue = (int)ContainerState.Running,
+            }]);
+            fixture.Health.Latest = new([new()
+            {
+                ContainerId = "demo_web", ContainerName = "demo_web",
+                State = ContainerHealthState.Healthy, ObservedAt = DateTimeOffset.UtcNow,
+            }]);
+        };
+
+        var result = await fixture.Supervisor.UpAsync(fixture.Project);
+
+        Assert.True(result.AllSucceeded);
+        Assert.Equal("demo_web", result.Services[0].ContainerId);
+        Assert.Contains("run:demo_dependent", fixture.Engine.Mutations);
+        Assert.Equal(desired.Test, fixture.Engine.Containers["demo_web"].Health!.Test);
+    }
+
+    [Fact]
+    public async Task UnknownCreateHealthCannotRemoveExistingMultiNetworkContainer()
+    {
+        var fixture = new Fixture();
+        fixture.Snapshot = HealthCapabilities(WslcCapabilitySupport.Supported, unknownCreate: true);
+        fixture.Project.Services[0].Options.Health = new() { Test = ["CMD-SHELL", "true"] };
+        fixture.Engine.Add(Options());
+
+        var result = await fixture.Supervisor.UpAsync(fixture.Project);
+
+        Assert.False(result.AllSucceeded);
+        Assert.Empty(fixture.Engine.Mutations);
+        Assert.Empty(fixture.HealthChecks);
+    }
+
+    private static WslcCapabilities HealthCapabilities(WslcCapabilitySupport networkSupport, bool unknownCreate = false) =>
+        new("wslc.exe", "fixture", Enum.GetValues<WslcFeature>().ToDictionary(feature => feature,
+            feature => new WslcCapability(feature is WslcFeature.NetworkConnect or WslcFeature.NetworkDisconnect
+                ? networkSupport
+                : unknownCreate && feature == WslcFeature.CreateHealthCmd
+                    ? WslcCapabilitySupport.Unknown : WslcCapabilitySupport.Supported, "fixture diagnostic")));
+
+    [Theory]
+    [InlineData(false, WslcCapabilitySupport.Supported, false)]
+    [InlineData(false, WslcCapabilitySupport.Supported, true)]
+    [InlineData(false, WslcCapabilitySupport.Unsupported, false)]
+    [InlineData(false, WslcCapabilitySupport.Unsupported, true)]
+    [InlineData(true, WslcCapabilitySupport.Supported, false)]
+    [InlineData(true, WslcCapabilitySupport.Supported, true)]
+    [InlineData(true, WslcCapabilitySupport.Unsupported, false)]
+    [InlineData(true, WslcCapabilitySupport.Unsupported, true)]
+    public async Task ProjectStartPreservesStopIntentArrivingDuringPreflight(
+        bool restart, WslcCapabilitySupport support, bool previouslyStopped)
+    {
+        var fixture = new Fixture(support);
+        if (previouslyStopped)
+            fixture.Suppression.Suppress("demo_web");
+        var requestEpoch = fixture.Suppression.Version;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.BeforeCapabilities = () =>
+        {
+            entered.TrySetResult();
+            return unblock.Task;
+        };
+        if (restart)
+            fixture.Engine.Add(Options(), allEndpoints: true);
+
+        var start = restart ? fixture.Supervisor.RestartAsync("demo") : fixture.Supervisor.UpAsync(fixture.Project);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        fixture.Suppression.Suppress("demo_web");
+        unblock.SetResult();
+        var result = await start.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.AllSucceeded);
+        Assert.True(fixture.Suppression.IsSuppressed("demo_web"));
+        if (support == WslcCapabilitySupport.Unsupported)
+            Assert.Equal(requestEpoch, fixture.Engine.LastRunMaximumStopVersion);
+        else
+            Assert.False(fixture.Engine.LastStartWasExplicit);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RestartHealthPreflightPreservesEveryServiceBeforeTeardown(bool invalidHealth)
+    {
+        var fixture = new Fixture();
+        fixture.Snapshot = HealthCapabilities(WslcCapabilitySupport.Supported, unknownCreate: !invalidHealth);
+        fixture.Engine.Add(Options(), allEndpoints: true);
+        var other = Options("demo_other");
+        other.Labels[ComposeProject.ServiceLabel] = "other";
+        other.Health = new() { Test = ["CMD-SHELL", "true"], Retries = invalidHealth ? 0 : 3 };
+        fixture.Project.Services.Add(new() { Name = "other", Options = other });
+        fixture.Engine.Add(other, allEndpoints: true);
+        var health = new HealthCheckConfig { ContainerName = "demo_web", Command = "old-probe" };
+        var restart = new RestartPolicyConfig { ContainerName = "demo_other", Policy = RestartPolicyKind.Always };
+        fixture.HealthChecks.Add(health);
+        fixture.RestartPolicies.Add(restart);
+
+        var result = await fixture.Supervisor.RestartAsync("demo");
+
+        Assert.False(result.AllSucceeded);
+        Assert.Empty(fixture.Engine.Mutations);
+        Assert.Equal(2, fixture.Engine.Containers.Count);
+        Assert.Same(health, Assert.Single(fixture.HealthChecks));
+        Assert.Same(restart, Assert.Single(fixture.RestartPolicies));
+    }
+
     [Fact]
     public async Task LegacyOnlyRunsPrimaryAndReturnsTruthfulWarning()
     {
@@ -306,8 +435,12 @@ public sealed class ComposeNetworkSupervisorTests
         public List<RestartPolicyConfig> RestartPolicies { get; private set; } = new();
         public List<HealthCheckConfig> HealthChecks { get; private set; } = new();
         public ComposeProjectSupervisor Supervisor { get; }
+        public HealthWatchdog Health { get; } = new();
+        public StatusMonitor Monitor { get; } = new();
+        public RestartSuppressionState Suppression { get; } = new();
         public WslcCapabilities Snapshot { get; set; }
         public Exception? CapabilityError { get; set; }
+        public Func<Task>? BeforeCapabilities { get; set; }
         public int CapabilityReads { get; private set; }
 
         public Fixture(WslcCapabilitySupport support = WslcCapabilitySupport.Supported, Engine? engine = null)
@@ -318,9 +451,7 @@ public sealed class ComposeNetworkSupervisorTests
             {
                 if (method.Name != nameof(IWslcCapabilitiesService.GetAsync))
                     throw new InvalidOperationException(method.Name);
-                CapabilityReads++;
-                return CapabilityError is null
-                    ? Task.FromResult(Snapshot) : Task.FromException<WslcCapabilities>(CapabilityError);
+                return ReadCapabilitiesAsync();
             });
             var store = NetworkTestProxy.Create<IComposeProjectStore>((method, _) => method.Name switch
             {
@@ -342,7 +473,17 @@ public sealed class ComposeNetworkSupervisorTests
                 }
             });
             Supervisor = new(Engine.Service, store, settings, NullLogger<ComposeProjectSupervisor>.Instance,
-                capabilities);
+                capabilities, Health, Monitor, Suppression);
+        }
+
+        private async Task<WslcCapabilities> ReadCapabilitiesAsync()
+        {
+            CapabilityReads++;
+            if (BeforeCapabilities is not null)
+                await BeforeCapabilities();
+            if (CapabilityError is not null)
+                throw CapabilityError;
+            return Snapshot;
         }
     }
 }

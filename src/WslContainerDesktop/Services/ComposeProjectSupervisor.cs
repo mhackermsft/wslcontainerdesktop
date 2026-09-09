@@ -44,7 +44,7 @@ public sealed class ComposeUpResult
 /// dependencies on a health probe, and enrolls services with a health check into the existing
 /// <see cref="HealthWatchdog"/> so their restart policy is enforced while the app runs.
 ///
-/// <para><b>Requires the app to be running:</b> restart and health enforcement is performed
+/// <para><b>Requires the app to be running:</b> restart and app-owned health enforcement is performed
 /// in-process (there is no background daemon), so it pauses when the app is closed and resumes via
 /// <see cref="ReconcileAsync"/> on the next launch.</para>
 /// </summary>
@@ -54,6 +54,9 @@ public sealed class ComposeProjectSupervisor
     private readonly IComposeProjectStore _store;
     private readonly ISettingsService _settings;
     private readonly ILogger<ComposeProjectSupervisor> _logger;
+    private readonly HealthWatchdog _health;
+    private readonly StatusMonitor _monitor;
+    private readonly RestartSuppressionState? _suppression;
     private readonly IWslcCapabilitiesService _capabilities;
     private readonly ComposeNetworkOrchestrator _networks;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
@@ -67,14 +70,20 @@ public sealed class ComposeProjectSupervisor
         IComposeProjectStore store,
         ISettingsService settings,
         ILogger<ComposeProjectSupervisor> logger,
-        IWslcCapabilitiesService capabilities)
+        IWslcCapabilitiesService capabilities,
+        HealthWatchdog health,
+        StatusMonitor monitor,
+        RestartSuppressionState? suppression = null)
     {
         _wslc = wslc;
         _store = store;
         _settings = settings;
         _logger = logger;
         _capabilities = capabilities;
-        _networks = new ComposeNetworkOrchestrator(wslc, logger);
+        _health = health;
+        _monitor = monitor;
+        _suppression = suppression;
+        _networks = new ComposeNetworkOrchestrator(wslc, logger, suppression);
     }
 
     /// <summary>
@@ -84,10 +93,11 @@ public sealed class ComposeProjectSupervisor
     /// </summary>
     public async Task<ComposeUpResult> UpAsync(ComposeProject project, CancellationToken ct = default)
     {
+        var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return await UpCoreAsync(project, ct).ConfigureAwait(false);
+            return await UpCoreAsync(project, maximumStopVersion, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -111,10 +121,16 @@ public sealed class ComposeProjectSupervisor
         string? warning = null;
         var native = endpoints.Count > 1 && ComposeNetworkOrchestrator.SelectNative(desired,
             await _capabilities.GetAsync(ct).ConfigureAwait(false), out warning);
+        var desiredHealth = service.Options.Health ?? service.Health?.DesiredHealth;
+        if (desiredHealth is not null)
+        {
+            NativeHealthPolicy.Select(desiredHealth,
+                await _capabilities.GetAsync(ct).ConfigureAwait(false), forCreate: native);
+        }
         return new(native, warning);
     }
 
-    private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, CancellationToken ct,
+    private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, long maximumStopVersion, CancellationToken ct,
         IReadOnlyDictionary<string, NetworkStartupPlan>? networkPlans = null)
     {
         _store.Save(project);
@@ -126,6 +142,7 @@ public sealed class ComposeProjectSupervisor
         var order = ResolveOrder(project);
         var results = new List<ComposeServiceResult>();
         var started = new HashSet<string>(StringComparer.Ordinal);
+        var startedContainers = new Dictionary<string, (string? Id, DateTimeOffset StartedAt)>(StringComparer.Ordinal);
 
         foreach (var service in order)
         {
@@ -146,22 +163,30 @@ public sealed class ComposeProjectSupervisor
             }
 
             // Honor service_healthy dependencies before creating this service.
+            var dependencyFailed = false;
             foreach (var dep in service.DependsOn.Where(d => d.Condition == DependencyCondition.ServiceHealthy))
             {
                 var depService = project.Services.FirstOrDefault(s =>
                     string.Equals(s.Name, dep.ServiceName, StringComparison.Ordinal));
                 if (depService is null || !started.Contains(dep.ServiceName))
                 {
-                    continue;
+                    dependencyFailed = true;
+                    break;
                 }
 
-                var healthy = await WaitForHealthyAsync(project, depService, ct).ConfigureAwait(false);
+                var identity = startedContainers[dep.ServiceName];
+                var healthy = await WaitForHealthyAsync(project, depService, identity.Id, identity.StartedAt, ct).ConfigureAwait(false);
                 if (!healthy)
                 {
-                    _logger.LogWarning(
-                        "Dependency {Dep} did not become healthy within {Timeout}s; starting {Service} anyway.",
-                        dep.ServiceName, (int)HealthyWaitTimeout.TotalSeconds, service.Name);
+                    dependencyFailed = true;
+                    break;
                 }
+            }
+            if (dependencyFailed)
+            {
+                results.Add(new ComposeServiceResult(service.Name, false,
+                    "A required service_healthy dependency is missing, failed, or did not become healthy. Service was not started."));
+                continue;
             }
 
             // Honor service_completed_successfully dependencies (one-shot init/migration services).
@@ -183,15 +208,17 @@ public sealed class ComposeProjectSupervisor
                 }
             }
 
-            var result = await StartServiceAsync(project, service, ct,
+            var result = await StartServiceAsync(project, service, maximumStopVersion, ct,
                 networkPlans is null ? null : networkPlans[service.Name]).ConfigureAwait(false);
             results.Add(result);
             if (result.Success)
             {
                 started.Add(service.Name);
+                startedContainers[service.Name] = (result.ContainerId, DateTimeOffset.UtcNow);
                 var readyProject = ProjectWithServices(project, [service]);
                 SeedHealthChecks(readyProject);
                 SeedRestartPolicies(readyProject);
+                _monitor.RequestRefresh();
             }
         }
 
@@ -399,6 +426,7 @@ public sealed class ComposeProjectSupervisor
     /// </summary>
     public async Task<ComposeUpResult> RestartAsync(string projectName, CancellationToken ct = default)
     {
+        var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
         var project = _store.Get(projectName);
         if (project is null)
         {
@@ -426,7 +454,7 @@ public sealed class ComposeProjectSupervisor
             }
 
             await DownCoreAsync(projectName, removeVolumes: false, ct).ConfigureAwait(false);
-            return await UpCoreAsync(project, ct, networkPlans).ConfigureAwait(false);
+            return await UpCoreAsync(project, maximumStopVersion, ct, networkPlans).ConfigureAwait(false);
         }
         finally
         {
@@ -592,7 +620,7 @@ public sealed class ComposeProjectSupervisor
     private const int MaxStagedMountAttempts = 2;
 
     private async Task<ComposeServiceResult> StartServiceAsync(ComposeProject project, ComposeService service,
-        CancellationToken ct, NetworkStartupPlan? networkPlan = null)
+        long maximumStopVersion, CancellationToken ct, NetworkStartupPlan? networkPlan = null)
     {
         var name = ResolveContainerName(project, service);
         bool nativeNetworks;
@@ -681,11 +709,11 @@ public sealed class ComposeProjectSupervisor
                 string containerId;
                 if (nativeNetworks)
                 {
-                    containerId = await _networks.CreateAndStartAsync(options, ct).ConfigureAwait(false);
+                    containerId = await _networks.CreateAndStartAsync(options, ct, maximumStopVersion).ConfigureAwait(false);
                 }
                 else
                 {
-                    var run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
+                    var run = await _wslc.RunContainerAsync(options, ct, maximumStopVersion).ConfigureAwait(false);
                     if (!run.Success)
                     {
                         return new ComposeServiceResult(service.Name, false, Summarize(run), networkWarning);
@@ -800,9 +828,15 @@ public sealed class ComposeProjectSupervisor
         }
     }
 
-    /// <summary>Waits until the dependency container passes its health probe (or is running if it has none).</summary>
-    private async Task<bool> WaitForHealthyAsync(ComposeProject project, ComposeService dep, CancellationToken ct)
+    /// <summary>Consumes the same health evidence as the badges; never launches duplicate probes.</summary>
+    private async Task<bool> WaitForHealthyAsync(ComposeProject project, ComposeService dep,
+        string? expectedId, DateTimeOffset notBefore, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(expectedId))
+        {
+            _logger.LogWarning("Cannot establish the new container identity for dependency {Name}.", dep.Name);
+            return false;
+        }
         var name = ResolveContainerName(project, dep);
         var deadline = DateTimeOffset.UtcNow + HealthyWaitTimeout;
 
@@ -810,27 +844,13 @@ public sealed class ComposeProjectSupervisor
         {
             ct.ThrowIfCancellationRequested();
 
-            var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+            var containers = _monitor.Latest?.Containers ?? Array.Empty<ContainerInfo>();
             var container = FindByName(containers, name);
             if (container is not null && container.State == ContainerState.Running)
             {
-                if (dep.Health is null || string.IsNullOrWhiteSpace(dep.Health.Command))
-                {
-                    return true; // No probe defined: "started" is the best signal we have.
-                }
-
-                try
-                {
-                    var probe = await _wslc.ExecAsync(container.Id, dep.Health.Command, ct).ConfigureAwait(false);
-                    if (probe.Success)
-                    {
-                        return true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Health probe for dependency {Name} threw.", name);
-                }
+                var health = _health.Latest.Containers.FirstOrDefault(h => h.ContainerName == name);
+                if (health is not null && NativeHealthPolicy.IsDependencyReady(container, health, expectedId, notBefore))
+                    return true;
             }
 
             try
@@ -919,6 +939,7 @@ public sealed class ComposeProjectSupervisor
             Interactive = false,
             AllGpus = src.AllGpus,
             Command = src.Command,
+            Health = src.Health?.Clone() ?? service.Health?.DesiredHealth?.Clone(),
             Entrypoint = src.Entrypoint,
             User = src.User,
             WorkingDir = src.WorkingDir,
@@ -1179,7 +1200,7 @@ public sealed class ComposeProjectSupervisor
                 continue;
             }
 
-            if (service.Health is null || string.IsNullOrWhiteSpace(service.Health.Command))
+            if (service.Health is null)
             {
                 continue;
             }
@@ -1193,6 +1214,7 @@ public sealed class ComposeProjectSupervisor
                 IntervalSeconds = service.Health.IntervalSeconds,
                 MaxRestarts = service.Health.MaxRestarts,
                 Enabled = true,
+                DesiredHealth = service.Health.DesiredHealth?.Clone(),
             });
         }
 
@@ -1247,7 +1269,8 @@ public sealed class ComposeProjectSupervisor
                 continue;
             }
 
-            var hasHealth = service.Health is not null && !string.IsNullOrWhiteSpace(service.Health.Command);
+            var hasHealth = service.Health is { MaxRestarts: > 0 } &&
+                service.Health.DesiredHealth?.IsDisabled != true;
             if (service.Restart == RestartPolicyKind.No || hasHealth)
             {
                 continue;

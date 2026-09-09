@@ -16,6 +16,7 @@
 
 using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using WslContainerDesktop.Models;
@@ -53,6 +54,7 @@ public sealed class HealthWatchdog : IDisposable
     private readonly ISettingsService _settings;
     private readonly ILogger<HealthWatchdog> _logger;
     private readonly DispatcherQueue _dispatcher;
+    private readonly RestartPolicyWatchdog _restartWatchdog;
 
     private readonly ConcurrentDictionary<string, Runtime> _runtime = new(StringComparer.Ordinal);
 
@@ -70,13 +72,15 @@ public sealed class HealthWatchdog : IDisposable
 
     public HealthSnapshot Latest { get; private set; } = new();
 
-    public HealthWatchdog(IWslcService wslc, StatusMonitor monitor, ISettingsService settings, ILogger<HealthWatchdog> logger)
+    public HealthWatchdog(IWslcService wslc, StatusMonitor monitor, ISettingsService settings,
+        ILogger<HealthWatchdog> logger, RestartPolicyWatchdog restartWatchdog)
     {
         _wslc = wslc;
         _monitor = monitor;
         _settings = settings;
         _logger = logger;
         _dispatcher = monitor.Dispatcher;
+        _restartWatchdog = restartWatchdog;
     }
 
     public void Start()
@@ -99,7 +103,11 @@ public sealed class HealthWatchdog : IDisposable
         _loop = Task.Run(() => LoopAsync(_cts.Token));
     }
 
-    private void OnStatusChanged(object? sender, EngineStatusSnapshot e) => _containers = e.Containers;
+    private void OnStatusChanged(object? sender, EngineStatusSnapshot e)
+    {
+        _containers = e.Containers;
+        Publish();
+    }
 
     private async Task LoopAsync(CancellationToken ct)
     {
@@ -128,8 +136,21 @@ public sealed class HealthWatchdog : IDisposable
     private void Tick(CancellationToken ct)
     {
         var configs = _settings.HealthChecks
-            .Where(c => c.Enabled && c.IsValid)
+            .Where(c => c.Enabled && c.IsValid && c.DesiredHealth?.IsDisabled != true)
             .ToList();
+        foreach (var container in _containers)
+        {
+            var name = container.Name.TrimStart('/');
+            if (!configs.Any(c => c.ContainerName == name) &&
+                (container.NativeHealth.State is NativeHealthState.Starting or NativeHealthState.Healthy or NativeHealthState.Unhealthy ||
+                 container.NativeHealth.State == NativeHealthState.Unknown &&
+                 (container.NativeHealth.Configuration?.HasCommand == true || _runtime.ContainsKey(name))))
+                configs.Add(new HealthCheckConfig
+                {
+                    ContainerName = name, MaxRestarts = 0,
+                    DesiredHealth = container.NativeHealth.Configuration, Command = "engine-owned",
+                });
+        }
 
         var active = new HashSet<string>(configs.Select(c => c.ContainerName), StringComparer.Ordinal);
         var changed = false;
@@ -157,6 +178,18 @@ public sealed class HealthWatchdog : IDisposable
             if (rt.CheckInProgress)
             {
                 continue;
+            }
+            var fingerprint = JsonSerializer.Serialize(cfg);
+            rt.Kind = cfg.Kind;
+            if (!string.Equals(rt.Configuration, fingerprint, StringComparison.Ordinal))
+            {
+                rt.Configuration = fingerprint;
+                rt.Progress.Reset(now);
+                rt.RestartCount = 0;
+                rt.LastCheck = DateTimeOffset.MinValue;
+                rt.LastNativeObservation = DateTimeOffset.MinValue;
+                rt.State = ContainerHealthState.Unknown;
+                changed = true;
             }
 
             var container = containers.FirstOrDefault(c =>
@@ -186,14 +219,38 @@ public sealed class HealthWatchdog : IDisposable
                 else if (rt.State != ContainerHealthState.Unknown)
                 {
                     rt.State = ContainerHealthState.Unknown;
-                    rt.ConsecutiveFailures = 0;
+                    rt.Progress.Reset(now);
                     changed = true;
                 }
 
                 continue;
             }
 
-            if ((now - rt.LastCheck).TotalSeconds < cfg.EffectiveIntervalSeconds)
+            if (rt.ContainerId != container.Id || rt.StartedAt != container.StateChangedAt)
+            {
+                rt.State = ContainerHealthState.Unknown;
+                rt.LastCheck = DateTimeOffset.MinValue;
+                rt.ContainerId = container.Id;
+                rt.StartedAt = container.StateChangedAt;
+                rt.Progress.Reset(now);
+                rt.LastNativeObservation = DateTimeOffset.MinValue;
+            }
+
+            TimeSpan interval;
+            try
+            {
+                interval = ProbeInterval(cfg, rt, now);
+            }
+            catch (InvalidOperationException ex)
+            {
+                rt.State = ContainerHealthState.Unknown;
+                rt.Detail = ex.Message;
+                changed = true;
+                continue;
+            }
+            if (cfg.Kind == HealthProbeKind.Command && container.NativeHealth.OwnsCommandProbe)
+                interval = TimeSpan.FromSeconds(1);
+            if (now - rt.LastCheck < interval)
             {
                 continue;
             }
@@ -213,11 +270,59 @@ public sealed class HealthWatchdog : IDisposable
         try
         {
             rt.MaxRestarts = cfg.MaxRestarts;
-            var healthy = cfg.Kind == HealthProbeKind.Command
-                ? await ProbeCommandAsync(container.Id, cfg.Command, cfg.EffectiveIntervalSeconds, ct).ConfigureAwait(false)
-                : await ProbeTcpAsync(cfg.TcpPort, ct).ConfigureAwait(false);
+            bool healthy;
+            var native = cfg.Kind == HealthProbeKind.Command && container.NativeHealth.OwnsCommandProbe;
+            rt.ObservationMaxAge = TimeSpan.FromSeconds(15);
+            if (native)
+            {
+                var observation = container.NativeHealth;
+                if (DateTimeOffset.UtcNow - observation.ObservedAt > TimeSpan.FromSeconds(15))
+                {
+                    rt.State = ContainerHealthState.Unknown;
+                    rt.Detail = "Engine health observation is stale; awaiting a fresh status poll.";
+                    rt.LastCheck = DateTimeOffset.UtcNow;
+                    Publish();
+                    return;
+                }
+                if (observation.ObservedAt <= rt.LastNativeObservation)
+                    return;
+                rt.LastNativeObservation = observation.ObservedAt;
+                if (observation.State is NativeHealthState.Unknown or NativeHealthState.Starting)
+                {
+                    rt.State = ContainerHealthState.Unknown;
+                    rt.Detail = observation.Diagnostic ?? (observation.State == NativeHealthState.Starting
+                        ? "Engine health: starting" : "Engine health: unknown");
+                    rt.LastCheck = observation.ObservedAt;
+                    Publish();
+                    return;
+                }
+                healthy = observation.State == NativeHealthState.Healthy;
+                if (!NativeHealthPolicy.MatchesDesiredCheck(cfg, observation.Configuration))
+                {
+                    rt.State = healthy ? ContainerHealthState.Healthy : ContainerHealthState.Down;
+                    rt.MaxRestarts = 0;
+                    rt.LastCheck = observation.ObservedAt;
+                    rt.Detail = $"Engine health: {(healthy ? "healthy" : "unhealthy")}; existing engine check differs from the requested check. App probes/autoheal are suspended to avoid duplicate checks. Recreate explicitly to apply desired settings.";
+                    Publish();
+                    return;
+                }
+            }
+            else if (cfg.Kind == HealthProbeKind.Command && cfg.DesiredHealth?.IsDisabled == true)
+            {
+                rt.State = ContainerHealthState.Unknown;
+                rt.Detail = "Health check disabled";
+                rt.LastCheck = DateTimeOffset.UtcNow;
+                Publish();
+                return;
+            }
+            else
+            {
+                healthy = cfg.Kind == HealthProbeKind.Command
+                    ? await ProbeCommandAsync(container.Id, cfg, ct).ConfigureAwait(false)
+                    : await ProbeTcpAsync(cfg.TcpPort, ct).ConfigureAwait(false);
+            }
 
-            rt.LastCheck = DateTimeOffset.UtcNow;
+            rt.LastCheck = native ? container.NativeHealth.ObservedAt : DateTimeOffset.UtcNow;
             var current = _containers.FirstOrDefault(c => c.Id == container.Id);
             if (current is null || current.State != ContainerState.Running ||
                 current.StateChangedAt != container.StateChangedAt)
@@ -227,31 +332,49 @@ public sealed class HealthWatchdog : IDisposable
                 Publish();
                 return;
             }
+            var unhealthy = rt.Progress.Record(healthy, native,
+                cfg.DesiredHealth?.Retries ?? (cfg.DesiredHealth is null ? 1 : 3),
+                StartPeriod(cfg), rt.LastCheck);
 
             if (healthy)
             {
-                var recovered = rt.State != ContainerHealthState.Healthy;
                 rt.State = ContainerHealthState.Healthy;
-                rt.ConsecutiveFailures = 0;
                 rt.RestartCount = 0;
-                rt.Detail = "Healthy";
-                if (recovered)
+                if (!native)
                 {
-                    Publish();
+                    var interval = ProbeInterval(cfg, rt, rt.LastCheck);
+                    if (interval > rt.ObservationMaxAge)
+                        rt.ObservationMaxAge = interval;
                 }
+                rt.Detail = native ? "Engine health: healthy" : "App health: healthy (app must remain open)";
+                if (!native && cfg.DesiredHealth is { } desired &&
+                    new[] { desired.Interval, desired.StartInterval }.Any(value =>
+                        value is not null && NativeHealthPolicy.Duration(value) < TimeSpan.FromSeconds(1)))
+                    rt.Detail += "; sub-second intervals cannot be honored (1s scheduler resolution)";
+                // A repeated success refreshes dependency evidence even without a badge transition.
+                Publish();
 
                 return;
             }
 
-            rt.ConsecutiveFailures++;
+            if (!unhealthy)
+            {
+                rt.Detail = rt.Progress.ConsecutiveFailures == 0
+                    ? "Health check: starting (startup grace)"
+                    : $"Health check failed ({rt.Progress.ConsecutiveFailures} consecutive failure(s)); awaiting retry threshold.";
+                Publish();
+                return;
+            }
 
             // If the policy was disabled/removed while this probe was in flight, don't enforce it.
-            if (!IsStillActive(cfg))
+            if (cfg.MaxRestarts > 0 && !IsStillActive(cfg))
             {
                 return;
             }
 
-            if (cfg.MaxRestarts > 0 && rt.RestartCount < cfg.MaxRestarts)
+            if (cfg.MaxRestarts > 0 && rt.RestartCount < cfg.MaxRestarts &&
+                !_restartWatchdog.IsRestartSuppressed(cfg.ContainerName) &&
+                _containers.Any(c => c.Id == container.Id && c.State == ContainerState.Running))
             {
                 rt.RestartCount++;
                 var announce = rt.State != ContainerHealthState.Degraded;
@@ -265,16 +388,30 @@ public sealed class HealthWatchdog : IDisposable
                         $"Health check failed. Auto-restarting (attempt {rt.RestartCount} of {cfg.MaxRestarts}).");
                 }
 
-                var restart = await _wslc.RestartContainerAsync(container.Id, ct).ConfigureAwait(false);
+                _monitor.SuppressExitNotification(container.Id);
+                var stop = await _wslc.StopContainerAsync(container.Id, ct).ConfigureAwait(false);
+                // A manual stop/teardown arriving during autoheal must not be undone by its start.
+                var restart = !stop.Success ? stop :
+                    _restartWatchdog.IsRestartSuppressed(cfg.ContainerName) || !IsStillActive(cfg)
+                        ? new CommandResult { ExitCode = -1, StandardError = "Autoheal cancelled by a stop or policy change." }
+                        : await _wslc.StartContainerAsync(container.Id, ct, explicitStart: false).ConfigureAwait(false);
 
                 // Give the container time to come back before the next probe.
                 rt.LastCheck = DateTimeOffset.UtcNow;
+                rt.LastNativeObservation = rt.LastCheck;
+                rt.Progress.Reset(rt.LastCheck);
+                _monitor.RequestRefresh();
 
                 // If the restart itself failed and the budget is now spent, escalate immediately
                 // rather than waiting for a probe against a container that never came back.
-                if (!restart.Success && rt.RestartCount >= cfg.MaxRestarts)
+                if (!restart.Success)
                 {
-                    await EscalateDownAsync(cfg, container, rt, ct).ConfigureAwait(false);
+                    _logger.LogWarning("Autoheal failed for {Name}: {Detail}", cfg.ContainerName, restart.ErrorText);
+                    rt.Detail = "Autoheal failed: " + restart.ErrorText;
+                    if (rt.RestartCount >= cfg.MaxRestarts)
+                        await EscalateDownAsync(cfg, container, rt, ct).ConfigureAwait(false);
+                    else
+                        Publish();
                 }
             }
             else
@@ -290,6 +427,9 @@ public sealed class HealthWatchdog : IDisposable
         {
             _logger.LogDebug(ex, "Health probe for {Name} failed.", cfg.ContainerName);
             rt.LastCheck = DateTimeOffset.UtcNow;
+            rt.State = ContainerHealthState.Unknown;
+            rt.Detail = $"Health check unavailable: {ex.Message}";
+            Publish();
         }
         finally
         {
@@ -310,7 +450,7 @@ public sealed class HealthWatchdog : IDisposable
             : "Down — health check failing";
         Publish();
 
-        if (cfg.MaxRestarts > 0)
+        if (cfg.MaxRestarts > 0 && !_restartWatchdog.IsRestartSuppressed(cfg.ContainerName) && IsStillActive(cfg))
         {
             if (announce)
             {
@@ -319,7 +459,14 @@ public sealed class HealthWatchdog : IDisposable
             }
 
             // Enforce the stop even if we were already Down (e.g. the user manually restarted it).
-            await _wslc.StopContainerAsync(container.Id, ct).ConfigureAwait(false);
+            _monitor.SuppressExitNotification(container.Id);
+            var stop = await _wslc.StopContainerAsync(container.Id, ct).ConfigureAwait(false);
+            if (!stop.Success)
+            {
+                rt.Detail = "Unhealthy; stop failed: " + stop.ErrorText;
+                _logger.LogWarning("Health stop failed for {Name}: {Detail}", cfg.ContainerName, stop.ErrorText);
+                Publish();
+            }
         }
         else if (announce)
         {
@@ -330,23 +477,41 @@ public sealed class HealthWatchdog : IDisposable
     /// <summary>True when an enabled, valid policy for this container still exists in settings.</summary>
     private bool IsStillActive(HealthCheckConfig cfg) =>
         _settings.HealthChecks.Any(c =>
-            c.Enabled && c.IsValid &&
-            string.Equals(c.ContainerName, cfg.ContainerName, StringComparison.Ordinal));
+            c.Enabled && c.IsValid && c.DesiredHealth?.IsDisabled != true &&
+            string.Equals(c.ContainerName, cfg.ContainerName, StringComparison.Ordinal) &&
+            string.Equals(JsonSerializer.Serialize(c), JsonSerializer.Serialize(cfg), StringComparison.Ordinal));
 
-    private async Task<bool> ProbeCommandAsync(string id, string command, int timeoutSeconds, CancellationToken ct)
+    private static TimeSpan StartPeriod(HealthCheckConfig cfg) => cfg.DesiredHealth?.StartPeriod is { } period
+        ? NativeHealthPolicy.Duration(period, allowZero: true) : TimeSpan.Zero;
+
+    private static TimeSpan ProbeInterval(HealthCheckConfig cfg, Runtime rt, DateTimeOffset now)
+    {
+        if (cfg.DesiredHealth is not { } health)
+            return TimeSpan.FromSeconds(cfg.EffectiveIntervalSeconds);
+        if (!rt.Progress.HasSucceeded && now - rt.Progress.StartedAt < StartPeriod(cfg))
+            return health.StartInterval is { } startup
+                ? NativeHealthPolicy.Duration(startup) : TimeSpan.FromSeconds(5);
+        return health.Interval is { } interval ? NativeHealthPolicy.Duration(interval) : TimeSpan.FromSeconds(30);
+    }
+
+    private async Task<bool> ProbeCommandAsync(string id, HealthCheckConfig cfg, CancellationToken ct)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        linked.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 60)));
+        linked.CancelAfter(cfg.DesiredHealth?.Timeout is { } timeout
+            ? NativeHealthPolicy.Duration(timeout)
+            : TimeSpan.FromSeconds(cfg.DesiredHealth is null ? Math.Clamp(cfg.EffectiveIntervalSeconds, 10, 60) : 30));
         try
         {
-            var result = await _wslc.ExecAsync(id, command, linked.Token).ConfigureAwait(false);
+            var result = cfg.DesiredHealth is { } desired
+                ? await _wslc.ExecHealthAsync(id, desired, linked.Token).ConfigureAwait(false)
+                : await _wslc.ExecAsync(id, cfg.Command, linked.Token).ConfigureAwait(false);
             return result.Success;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
-        catch
+        catch (OperationCanceledException) when (linked.IsCancellationRequested)
         {
             // A timed-out or failed probe counts as unhealthy.
             return false;
@@ -379,14 +544,7 @@ public sealed class HealthWatchdog : IDisposable
     private void Publish()
     {
         var items = _runtime
-            .Select(kv => new ContainerHealthSnapshot
-            {
-                ContainerName = kv.Key,
-                State = kv.Value.State,
-                RestartCount = kv.Value.RestartCount,
-                MaxRestarts = kv.Value.MaxRestarts,
-                Detail = kv.Value.Detail,
-            })
+            .Select(kv => CreateSnapshot(kv.Key, kv.Value))
             .ToList();
 
         var worst = items.Count == 0
@@ -396,6 +554,35 @@ public sealed class HealthWatchdog : IDisposable
         var snapshot = new HealthSnapshot { Containers = items, Worst = worst };
         Latest = snapshot;
         _dispatcher.TryEnqueue(() => HealthChanged?.Invoke(this, snapshot));
+    }
+
+    private ContainerHealthSnapshot CreateSnapshot(string name, Runtime rt)
+    {
+        var state = rt.State;
+        var detail = rt.Detail;
+        var container = _containers.FirstOrDefault(c => c.Id == rt.ContainerId);
+        // A host TCP policy remains independent; do not hide engine failures or silently turn
+        // them into TCP autoheal triggers.
+        if (rt.Kind == HealthProbeKind.Tcp && container?.State == ContainerState.Running &&
+            container.NativeHealth.State == NativeHealthState.Unhealthy)
+        {
+            state = ContainerHealthState.Down;
+            detail += "; engine health: unhealthy (reported independently of the TCP restart policy)";
+        }
+        else if (rt.Kind == HealthProbeKind.Tcp && container?.State == ContainerState.Running &&
+            container.NativeHealth.State is NativeHealthState.Starting or NativeHealthState.Unknown)
+        {
+            if (state == ContainerHealthState.Healthy)
+                state = ContainerHealthState.Unknown;
+            detail += "; engine health: " + container.NativeHealth.State.ToString().ToLowerInvariant();
+        }
+        return new ContainerHealthSnapshot
+        {
+            ContainerName = name, ContainerId = rt.ContainerId, ContainerGeneration = rt.StartedAt,
+            ObservedAt = rt.LastCheck, State = state, RestartCount = rt.RestartCount,
+            ObservationMaxAge = rt.ObservationMaxAge,
+            MaxRestarts = rt.MaxRestarts, Detail = detail,
+        };
     }
 
     public void Dispose()
@@ -424,11 +611,17 @@ public sealed class HealthWatchdog : IDisposable
     private sealed class Runtime
     {
         public ContainerHealthState State = ContainerHealthState.Unknown;
-        public int ConsecutiveFailures;
+        public HealthProbeProgress Progress { get; } = new();
         public int RestartCount;
         public int MaxRestarts;
         public string Detail = string.Empty;
         public DateTimeOffset LastCheck = DateTimeOffset.MinValue;
+        public DateTimeOffset LastNativeObservation = DateTimeOffset.MinValue;
+        public TimeSpan ObservationMaxAge = TimeSpan.FromSeconds(15);
+        public string ContainerId = string.Empty;
+        public string Configuration = string.Empty;
+        public HealthProbeKind Kind;
+        public ulong StartedAt;
         public volatile bool CheckInProgress;
     }
 }

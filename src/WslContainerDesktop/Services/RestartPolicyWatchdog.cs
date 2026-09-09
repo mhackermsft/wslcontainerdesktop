@@ -43,7 +43,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
     private readonly ConcurrentDictionary<string, Runtime> _runtime = new(StringComparer.Ordinal);
 
     /// <summary>Container names the user intentionally stopped; suppresses restart except for <c>always</c>.</summary>
-    private readonly ConcurrentDictionary<string, byte> _suppressed = new(StringComparer.Ordinal);
+    private readonly RestartSuppressionState _suppression;
 
     private volatile IReadOnlyList<ContainerInfo> _containers = Array.Empty<ContainerInfo>();
     private CancellationTokenSource? _cts;
@@ -60,12 +60,14 @@ public sealed class RestartPolicyWatchdog : IDisposable
     /// <summary>Raised (on the UI thread) when a restart or give-up event should surface a toast.</summary>
     public event Action<string, string>? NotificationRequested;
 
-    public RestartPolicyWatchdog(IWslcService wslc, StatusMonitor monitor, ISettingsService settings, ILogger<RestartPolicyWatchdog> logger)
+    public RestartPolicyWatchdog(IWslcService wslc, StatusMonitor monitor, ISettingsService settings, ILogger<RestartPolicyWatchdog> logger,
+        RestartSuppressionState suppression)
     {
         _wslc = wslc;
         _monitor = monitor;
         _settings = settings;
         _logger = logger;
+        _suppression = suppression;
         _dispatcher = monitor.Dispatcher;
     }
 
@@ -95,7 +97,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
     {
         if (!string.IsNullOrWhiteSpace(containerName))
         {
-            _suppressed[containerName.TrimStart('/')] = 1;
+            _suppression.Suppress(containerName);
         }
     }
 
@@ -133,7 +135,8 @@ public sealed class RestartPolicyWatchdog : IDisposable
 
         // Containers that also have a health check are owned by the HealthWatchdog; don't fight it.
         var healthWatched = new HashSet<string>(
-            _settings.HealthChecks.Where(h => h.Enabled && h.IsValid).Select(h => h.ContainerName),
+            _settings.HealthChecks.Where(h => h.Enabled && h.IsValid && h.MaxRestarts > 0 &&
+                h.DesiredHealth?.IsDisabled != true).Select(h => h.ContainerName),
             StringComparer.Ordinal);
 
         var active = new HashSet<string>(policies.Select(p => p.ContainerName), StringComparer.Ordinal);
@@ -173,7 +176,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
 
             if (container.State == ContainerState.Running)
             {
-                // Sustained running resets the budget and clears any manual-stop suppression.
+                // Running resets the budget, but only a successful explicit start clears stop intent.
                 rt.RunningSince ??= now;
                 var runningSince = container.StateChangedAtKnown
                     ? container.StateChangedUtc
@@ -182,7 +185,6 @@ public sealed class RestartPolicyWatchdog : IDisposable
                 {
                     rt.RestartCount = 0;
                     rt.Exhausted = false;
-                    _suppressed.TryRemove(policy.ContainerName, out _);
                 }
 
                 continue;
@@ -201,7 +203,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
                 continue;
             }
 
-            var suppressed = _suppressed.ContainsKey(policy.ContainerName);
+            var suppressed = _suppression.IsSuppressed(policy.ContainerName);
             if (suppressed && policy.Policy != RestartPolicyKind.Always)
             {
                 continue;
@@ -249,7 +251,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
             Notify($"Restarting {policy.ContainerName}",
                 $"Container exited; restarting (attempt {rt.RestartCount} of {policy.MaxRestarts}).");
 
-            var start = await _wslc.StartContainerAsync(container.Id, ct).ConfigureAwait(false);
+            var start = await _wslc.StartContainerAsync(container.Id, ct, explicitStart: false).ConfigureAwait(false);
             if (!start.Success)
             {
                 _logger.LogDebug("Restart of {Name} failed: {Detail}", policy.ContainerName,
@@ -299,6 +301,8 @@ public sealed class RestartPolicyWatchdog : IDisposable
         _settings.RestartPolicies.Any(p =>
             p.Enabled && p.IsValid &&
             string.Equals(p.ContainerName, policy.ContainerName, StringComparison.Ordinal));
+
+    public bool IsRestartSuppressed(string containerName) => _suppression.IsSuppressed(containerName);
 
     private void Notify(string title, string message) =>
         _dispatcher.TryEnqueue(() => NotificationRequested?.Invoke(title, message));

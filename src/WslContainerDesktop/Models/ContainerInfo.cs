@@ -24,6 +24,10 @@ namespace WslContainerDesktop.Models;
 [JsonConverter(typeof(ContainerInfoJsonConverter))]
 public sealed class ContainerInfo
 {
+    [JsonIgnore]
+    public NativeHealthObservation NativeHealth { get; set; } =
+        new(NativeHealthState.Unknown, Diagnostic: "Health has not been inspected.");
+
     [JsonPropertyName("Id")]
     public string Id { get; set; } = string.Empty;
 

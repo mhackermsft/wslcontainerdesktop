@@ -23,7 +23,8 @@ namespace WslContainerDesktop.Services;
 /// Establishes all required endpoints before starting a newly created workload. Re-adoption only
 /// adds missing endpoints; it never rewrites or removes pre-existing endpoint configuration.
 /// </summary>
-public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger)
+public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger,
+    RestartSuppressionState? suppression = null)
 {
     private const string OperationLabel = "com.wsldesktop.network-operation";
 
@@ -51,9 +52,11 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
         }
     }
 
-    public async Task<string> CreateAndStartAsync(RunContainerOptions options, CancellationToken ct)
+    public async Task<string> CreateAndStartAsync(RunContainerOptions options, CancellationToken ct,
+        long maximumStopVersion = long.MaxValue)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Name);
+        var resume = suppression?.CaptureExplicitStart(options.Name, maximumStopVersion);
         var request = options.Clone();
         var operation = Guid.NewGuid().ToString("N");
         request.Labels[OperationLabel] = operation;
@@ -69,7 +72,9 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
             }
 
             await EnsureAttachmentsAsync(state.Id, request.GetNetworkAttachments(), rollback: false, ct).ConfigureAwait(false);
-            RequireSuccess(await wslc.StartContainerAsync(state.Id, ct).ConfigureAwait(false), "Start container");
+            RequireSuccess(await wslc.StartContainerAsync(state.Id, ct, explicitStart: false).ConfigureAwait(false), "Start container");
+            if (resume is { } token)
+                suppression!.CompleteExplicitStart(token, true);
             complete = true;
             return state.Id;
         }

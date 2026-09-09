@@ -1263,7 +1263,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private void RefreshHealth()
     {
         var configured = _settings.HealthChecks
-            .Where(h => h.Enabled && h.IsValid)
+            .Where(h => h.Enabled && h.IsValid && h.DesiredHealth?.IsDisabled != true)
             .Select(h => h.ContainerName)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -1272,18 +1272,20 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         foreach (var row in Containers)
         {
-            row.HasHealthCheck = configured.Contains(row.Name);
+            row.HasHealthCheck = configured.Contains(row.Name) || states.ContainsKey(row.Name);
             if (states.TryGetValue(row.Name, out var snapshot))
             {
                 row.Health = snapshot.State;
                 row.HealthRestartCount = snapshot.RestartCount;
                 row.HealthMaxRestarts = snapshot.MaxRestarts;
+                row.HealthDetail = snapshot.Detail;
             }
             else if (!row.HasHealthCheck)
             {
                 row.Health = ContainerHealthState.Unknown;
                 row.HealthRestartCount = 0;
                 row.HealthMaxRestarts = 0;
+                row.HealthDetail = string.Empty;
             }
         }
     }
@@ -1639,6 +1641,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         _settings.HealthChecks = updated;
         _settings.Save();
+        if (row.Model.NativeHealth.OwnsCommandProbe)
+            StatusMessage += ". Existing engine health is unchanged; native health changes require explicit container recreation.";
         RefreshHealth();
     }
 

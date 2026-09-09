@@ -58,6 +58,8 @@ public sealed class StatusMonitor : IDisposable
     private readonly INotificationService _notifications;
     private readonly DispatcherQueue _dispatcher;
     private readonly ILogger<StatusMonitor> _logger;
+    private readonly NativeHealthMonitor _nativeHealth = new();
+    private string? _nativeHealthExecutable;
 
     private CancellationTokenSource? _cts;
     private Task? _loop;
@@ -108,6 +110,7 @@ public sealed class StatusMonitor : IDisposable
     /// <summary>Forces an immediate refresh outside the normal cadence.</summary>
     public void RequestRefresh()
     {
+        _nativeHealth.Invalidate();
         _ = Task.Run(PollOnceAsync);
     }
 
@@ -251,6 +254,13 @@ public sealed class StatusMonitor : IDisposable
             else
             {
                 var containers = await _wslc.ListContainersAsync(all: true).ConfigureAwait(false);
+                if (!string.Equals(_nativeHealthExecutable, _settings.WslcPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    _nativeHealthExecutable = _settings.WslcPath;
+                    _nativeHealth.Invalidate();
+                }
+                await _nativeHealth.RefreshAsync(containers, _wslc.InspectContainerAsync,
+                    detail => _logger.LogDebug("Native health: {Detail}", detail), _cts?.Token ?? default).ConfigureAwait(false);
                 var running = containers.Count(c => c.State == ContainerState.Running);
                 var total = containers.Count;
 

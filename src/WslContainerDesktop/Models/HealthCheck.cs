@@ -77,6 +77,16 @@ public sealed class HealthCheckConfig
 
     public bool Enabled { get; set; } = true;
 
+    /// <summary>Additive desired timing/argv settings. Null preserves old saved probe behavior.</summary>
+    public NativeHealthOptions? DesiredHealth { get; set; }
+
+    public HealthCheckConfig Clone() => new()
+    {
+        ContainerName = ContainerName, Kind = Kind, Command = Command, TcpPort = TcpPort,
+        IntervalSeconds = IntervalSeconds, MaxRestarts = MaxRestarts, Enabled = Enabled,
+        DesiredHealth = DesiredHealth?.Clone(),
+    };
+
     /// <summary>Clamped probe interval, guarding against out-of-range persisted values.</summary>
     public int EffectiveIntervalSeconds =>
         Math.Clamp(IntervalSeconds, MinIntervalSeconds, MaxIntervalSeconds);
@@ -85,7 +95,7 @@ public sealed class HealthCheckConfig
     public bool IsValid =>
         !string.IsNullOrWhiteSpace(ContainerName) &&
         (Kind == HealthProbeKind.Command
-            ? !string.IsNullOrWhiteSpace(Command)
+            ? !string.IsNullOrWhiteSpace(Command) || DesiredHealth is not null
             : TcpPort is > 0 and <= 65535);
 }
 
@@ -93,6 +103,10 @@ public sealed class HealthCheckConfig
 public sealed class ContainerHealthSnapshot
 {
     public string ContainerName { get; init; } = string.Empty;
+    public string ContainerId { get; init; } = string.Empty;
+    public ulong ContainerGeneration { get; init; }
+    public DateTimeOffset ObservedAt { get; init; }
+    public TimeSpan ObservationMaxAge { get; init; } = TimeSpan.FromSeconds(15);
     public ContainerHealthState State { get; init; }
     public int RestartCount { get; init; }
     public int MaxRestarts { get; init; }

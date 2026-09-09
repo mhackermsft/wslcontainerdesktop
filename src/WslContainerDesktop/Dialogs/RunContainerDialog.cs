@@ -503,6 +503,7 @@ public sealed class RunContainerDialog : ContentDialog
 
             // Fields the form doesn't surface but were imported/loaded are preserved verbatim.
             Entrypoint = _appliedExtras?.Entrypoint,
+            Health = _appliedExtras?.Health?.Clone(),
             User = _appliedExtras?.User,
             WorkingDir = _appliedExtras?.WorkingDir,
             Hostname = _appliedExtras?.Hostname,

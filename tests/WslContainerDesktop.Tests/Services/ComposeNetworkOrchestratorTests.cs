@@ -53,6 +53,38 @@ public sealed class ComposeNetworkOrchestratorTests
         Assert.Equal("172.29.0.2", engine.Endpoints["demo_web"][1].Ipv4Address);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExplicitRecreateResumesOnlyTheStopThatPrecededIt(bool laterStop)
+    {
+        var suppression = new RestartSuppressionState();
+        suppression.Suppress("demo_web");
+        var engine = new Engine
+        {
+            BeforeStart = () =>
+            {
+                if (laterStop)
+                    suppression.Suppress("demo_web");
+            },
+        };
+        var orchestrator = new ComposeNetworkOrchestrator(engine.Service, NullLogger.Instance, suppression);
+        await orchestrator.CreateAndStartAsync(Options(), default);
+        Assert.Equal(laterStop, suppression.IsSuppressed("demo_web"));
+        Assert.False(engine.LastStartWasExplicit);
+    }
+
+    [Fact]
+    public async Task FailedNetworkRecreateDoesNotClearManualStop()
+    {
+        var suppression = new RestartSuppressionState();
+        suppression.Suppress("demo_web");
+        var engine = new Engine { FailNetwork = "b" };
+        var orchestrator = new ComposeNetworkOrchestrator(engine.Service, NullLogger.Instance, suppression);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.CreateAndStartAsync(Options(), default));
+        Assert.True(suppression.IsSuppressed("demo_web"));
+    }
+
     [Fact]
     public async Task FailedSecondEndpointNeverStartsAndRemovesOnlyCreatedContainer()
     {
@@ -199,6 +231,9 @@ public sealed class ComposeNetworkOrchestratorTests
         public Func<Task>? BeforeList { get; set; }
         public Action<string, string>? BeforeConnect { get; set; }
         public Action<string>? AfterStart { get; set; }
+        public Action? BeforeStart { get; init; }
+        public bool LastStartWasExplicit { get; private set; }
+        public long? LastRunMaximumStopVersion { get; private set; }
         public IWslcService Service { get; }
         public ComposeNetworkOrchestrator Orchestrator => new(Service, NullLogger.Instance);
 
@@ -217,6 +252,8 @@ public sealed class ComposeNetworkOrchestratorTests
                     {
                         var options = (RunContainerOptions)args[0]!;
                         var create = method.Name == nameof(IWslcService.CreateContainerAsync);
+                        if (!create)
+                            LastRunMaximumStopVersion = (long)args[2]!;
                         Mutations.Add($"{(create ? "create" : "run")}:{options.Name}");
                         if (Containers.ContainsKey(options.Name!) || options.Name == FailRun)
                         {
@@ -264,6 +301,8 @@ public sealed class ComposeNetworkOrchestratorTests
                         Endpoints[(string)args[1]!].RemoveAll(n => n.Network == (string)args[0]!);
                         return Result(true);
                     case nameof(IWslcService.StartContainerAsync):
+                        LastStartWasExplicit = (bool)args[2]!;
+                        BeforeStart?.Invoke();
                         Mutations.Add("start:" + args[0]);
                         AfterStart?.Invoke((string)args[0]!);
                         return Result(true);

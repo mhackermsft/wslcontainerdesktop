@@ -50,7 +50,7 @@ public interface IWslcService
 
     // Containers
     Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(bool all = true, CancellationToken ct = default);
-    Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default);
+    Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default, bool explicitStart = true);
     Task<CommandResult> StopContainerAsync(string id, CancellationToken ct = default);
 
     /// <summary>Stops a container, waiting <paramref name="timeSeconds"/> before SIGKILL and optionally sending <paramref name="signal"/> first (compose <c>stop_grace_period</c>/<c>stop_signal</c>).</summary>
@@ -59,7 +59,8 @@ public interface IWslcService
     Task<CommandResult> KillContainerAsync(string id, CancellationToken ct = default);
     Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default);
     Task<CommandResult> PruneContainersAsync(CancellationToken ct = default);
-    Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default);
+    Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default,
+        long maximumStopVersion = long.MaxValue);
     Task<CommandResult> CreateContainerAsync(RunContainerOptions options, CancellationToken ct = default);
     Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default);
     Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default);
@@ -77,6 +78,7 @@ public interface IWslcService
 
     /// <summary>Runs a shell command inside a container (`wslc exec &lt;id&gt; sh -c &lt;command&gt;`) and returns its result.</summary>
     Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default);
+    Task<CommandResult> ExecHealthAsync(string id, NativeHealthOptions health, CancellationToken ct = default);
 
     /// <summary>
     /// Computes the filesystem changes of a container relative to its base image (a `docker diff`
