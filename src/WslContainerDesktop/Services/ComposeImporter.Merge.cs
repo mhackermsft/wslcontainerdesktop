@@ -20,7 +20,7 @@ public static partial class ComposeImporter
 {
     private static MappingNode MergeMappings(MappingNode basis, MappingNode overlay, string context = "")
     {
-        var result = new Dictionary<string, Node>(((MappingNode)ApplyTags(basis)).Map, StringComparer.Ordinal);
+        var result = new Dictionary<string, Node>(basis.Map, StringComparer.Ordinal);
         foreach (var (key, value) in overlay.Map)
         {
             var childContext = context switch
@@ -33,7 +33,12 @@ public static partial class ComposeImporter
             result[key] = result.TryGetValue(key, out var previous)
                 ? MergeValue(previous, value, childContext) : value;
         }
-        return new MappingNode(result);
+        return new MappingNode(result)
+        {
+            Source = overlay.Source, Tag = basis.Tag,
+            DefaultBuildContext = overlay.Child("context")?.Tag == "!reset"
+                ? overlay.DefaultBuildContext : basis.DefaultBuildContext ?? overlay.DefaultBuildContext,
+        };
     }
 
     private static Node MergeValue(Node basis, Node overlay, string context)
@@ -47,13 +52,15 @@ public static partial class ComposeImporter
             return overlay;
         // Null is an absent override except for shell command fields (above).
         if (overlay is NullNode) return basis;
+        if (basis.Tag == "!reset") return overlay;
         if (basis is MappingNode bm && overlay is MappingNode om)
             return MergeMappings(bm, om, context);
         if (basis is SequenceNode bs && overlay is SequenceNode os)
         {
             if (context == "service.extra_hosts")
                 return new SequenceNode(bs.Items.Concat(os.Items)
-                    .DistinctBy(n => ((ScalarNode)n).Value, StringComparer.Ordinal).ToList());
+                    .DistinctBy(n => ((ScalarNode)n).Value, StringComparer.Ordinal).ToList())
+                    { Tag = basis.Tag, Source = overlay.Source };
             if (context is "service.ports" or "service.volumes" or "service.secrets" or "service.configs")
             {
                 var items = new List<Node>(bs.Items);
@@ -69,9 +76,9 @@ public static partial class ComposeImporter
                     }
                     else items[index] = MergeValue(items[index], value, context + ".item");
                 }
-                return new SequenceNode(items);
+                return new SequenceNode(items) { Tag = basis.Tag, Source = overlay.Source };
             }
-            return new SequenceNode([.. bs.Items, .. os.Items]);
+            return new SequenceNode([.. bs.Items, .. os.Items]) { Tag = basis.Tag, Source = overlay.Source };
         }
         return overlay;
     }
@@ -79,14 +86,159 @@ public static partial class ComposeImporter
     private static Node ApplyTags(Node node)
     {
         if (node.Tag == "!reset") return new NullNode();
-        return node switch
+        Node result = node switch
         {
             MappingNode map => new MappingNode(map.Map.Where(p => p.Value.Tag != "!reset")
-                .ToDictionary(p => p.Key, p => ApplyTags(p.Value), StringComparer.Ordinal)),
+                .ToDictionary(p => p.Key, p => ApplyTags(p.Value), StringComparer.Ordinal))
+                { DefaultBuildContext = map.DefaultBuildContext },
             SequenceNode seq => new SequenceNode(seq.Items.Select(ApplyTags).ToList()),
             ScalarNode scalar => new ScalarNode(scalar.Value),
             _ => new NullNode(),
         };
+        result.Source = node.Source;
+        return result;
+    }
+
+    private static MappingNode ExtendService(MappingNode basis, MappingNode child)
+    {
+        if (child.Child("healthcheck") is MappingNode health && health.Tag != "!reset" &&
+            IsTrue(((MappingNode)ApplyTags(health)).Child("disable")) &&
+            (basis.Child("healthcheck") is not MappingNode inherited || inherited.Tag == "!reset" ||
+                !IsTrue(((MappingNode)ApplyTags(inherited)).Child("disable"))))
+            throw FileError(child.Source + " extends.healthcheck.disable",
+                "cannot disable an inherited healthcheck unless the base also disables it");
+        return (MappingNode)ExtendValue(basis, child, "");
+    }
+
+    private static bool IsTrue(Node? node) =>
+        node is ScalarNode scalar && bool.TryParse(scalar.Value, out var value) && value;
+
+    private static Node ExtendValue(Node basis, Node child, string field)
+    {
+        if (child.Tag is "!reset" or "!override") return child;
+        if (basis.Tag == "!reset") return child;
+        if (basis is MappingNode bm && child is MappingNode cm &&
+            field is "" or "build" or "deploy" or "deploy.resources" or "deploy.placement" or
+                "deploy.reservations" or "logging" or "blkio_config")
+        {
+            var map = new Dictionary<string, Node>(bm.Map, StringComparer.Ordinal);
+            foreach (var (key, value) in cm.Map)
+                map[key] = map.TryGetValue(key, out var previous)
+                    ? ExtendValue(previous, value, field.Length == 0 ? key : field + "." + key) : value;
+            return new MappingNode(map)
+            {
+                Source = child.Source,
+                DefaultBuildContext = cm.Child("context")?.Tag == "!reset"
+                    ? cm.DefaultBuildContext : bm.DefaultBuildContext ?? cm.DefaultBuildContext,
+            };
+        }
+        if (basis is MappingNode baseMap && child is MappingNode childMap &&
+            field is "annotations" or "build.args" or "build.labels" or "build.extra_hosts" or
+                "deploy.labels" or "deploy.update_config" or "deploy.rollback_config" or
+                "deploy.restart_policy" or "deploy.resources.limits" or "environment" or "healthcheck" or
+                "labels" or "logging.options" or "sysctls" or "storage_opt" or "ulimits")
+        {
+            var map = new Dictionary<string, Node>(baseMap.Map, StringComparer.Ordinal);
+            foreach (var pair in childMap.Map) map[pair.Key] = pair.Value;
+            return new MappingNode(map) { Source = child.Source };
+        }
+        if (basis is SequenceNode bs && child is SequenceNode cs)
+        {
+            if (field is "volumes" or "devices" or "blkio_config.device_read_bps" or
+                "blkio_config.device_read_iops" or "blkio_config.device_write_bps" or "blkio_config.device_write_iops")
+            {
+                var items = new List<Node>(bs.Items);
+                foreach (var item in cs.Items)
+                {
+                    var index = items.FindIndex(n => ExtendsTarget(n, field) == ExtendsTarget(item, field));
+                    if (index < 0) items.Add(item);
+                    else items[index] = item;
+                }
+                return new SequenceNode(items) { Source = child.Source };
+            }
+            if (field is "dns" or "dns_search" or "env_file" or "tmpfs")
+                return new SequenceNode([.. bs.Items, .. cs.Items]) { Source = child.Source };
+            if (field is "cap_add" or "cap_drop" or "configs" or "deploy.placement.constraints" or
+                "deploy.placement.preferences" or "deploy.reservations.generic_resources" or "device_cgroup_rules" or
+                "expose" or "external_links" or "ports" or "secrets" or "security_opt")
+            {
+                return new SequenceNode(bs.Items.Concat(cs.Items)
+                    .DistinctBy(n => ExtendsSequenceIdentity(n, field), NodeEqualityComparer.Instance).ToList())
+                    { Source = child.Source };
+            }
+            if (field == "extra_hosts")
+            {
+                var items = new List<Node>(bs.Items);
+                var hosts = cs.Items.Cast<ScalarNode>().Select(n => n.Value.Split(':', 2)[0])
+                    .ToHashSet(StringComparer.Ordinal);
+                items.RemoveAll(n => hosts.Contains(((ScalarNode)n).Value.Split(':', 2)[0]));
+                items.AddRange(cs.Items);
+                return new SequenceNode(items) { Source = child.Source };
+            }
+        }
+        return child;
+    }
+
+    private static Node ExtendsSequenceIdentity(Node node, string field)
+    {
+        if (node is not MappingNode map || field is not ("ports" or "secrets" or "configs")) return node;
+        var canonical = new Dictionary<string, Node>(map.Map, StringComparer.Ordinal);
+        if (field == "ports")
+            canonical["host_ip"] = new ScalarNode(map.Scalar("host_ip") ?? "0.0.0.0");
+        else
+            canonical["target"] = new ScalarNode(ResourceKey(node, "service." + field));
+        return new MappingNode(canonical);
+    }
+
+    private static string ExtendsTarget(Node node, string field) => field switch
+    {
+        "volumes" => ResourceKey(node, "service.volumes"),
+        "devices" => node is ScalarNode scalar
+            ? scalar.Value.Split(':').ElementAtOrDefault(1) ?? scalar.Value
+            : RequiredScalar((node as MappingNode)?.Child("target"), "extends devices.target"),
+        _ => RequiredScalar((node as MappingNode)?.Child("path"), "extends " + field + ".path"),
+    };
+
+    private static bool EqualNodes(Node left, Node right) => (left, right) switch
+    {
+        (NullNode, NullNode) => true,
+        (ScalarNode a, ScalarNode b) => a.Value == b.Value,
+        (SequenceNode a, SequenceNode b) => a.Items.Count == b.Items.Count &&
+            a.Items.Zip(b.Items).All(p => EqualNodes(p.First, p.Second)),
+        (MappingNode a, MappingNode b) => a.Map.Count == b.Map.Count &&
+            a.Map.All(p => b.Map.TryGetValue(p.Key, out var value) && EqualNodes(p.Value, value)),
+        _ => false,
+    };
+
+    private sealed class NodeEqualityComparer : IEqualityComparer<Node>
+    {
+        public static NodeEqualityComparer Instance { get; } = new();
+
+        public bool Equals(Node? left, Node? right) =>
+            ReferenceEquals(left, right) || left is not null && right is not null && EqualNodes(left, right);
+
+        public int GetHashCode(Node node)
+        {
+            var hash = new HashCode();
+            hash.Add(node.GetType());
+            switch (node)
+            {
+                case ScalarNode scalar:
+                    hash.Add(scalar.Value, StringComparer.Ordinal);
+                    break;
+                case SequenceNode sequence:
+                    foreach (var child in sequence.Items) hash.Add(GetHashCode(child));
+                    break;
+                case MappingNode mapping:
+                    foreach (var (key, value) in mapping.Map.OrderBy(p => p.Key, StringComparer.Ordinal))
+                    {
+                        hash.Add(key, StringComparer.Ordinal);
+                        hash.Add(GetHashCode(value));
+                    }
+                    break;
+            }
+            return hash.ToHashCode();
+        }
     }
 
     private static MappingNode NormalizeRoot(MappingNode root)

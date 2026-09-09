@@ -294,11 +294,16 @@ Nested default/required/alternative expressions distinguish unset/empty and pres
 Mappings merge, ordinary sequences append, resource sequences merge by their spec keys, and
 command/entrypoint/health-test values replace. `!reset` and `!override` work on mapping values.
 Block scalar blank lines, indentation, folding and chomping are preserved.
-Top-level `include:` remains a best-effort merge (main file wins), not the spec's independent
-project mechanism; `extends:` resolves local/external bases but still has file-resolution gaps.
-The first present sibling override is merged over the base. Active `profiles:` come from
+`ComposeImporter.Files` owns a per-import, bounded local file graph. Includes load independent
+projects and reject resource conflicts instead of merging them under the main file. Long include
+path lists explicitly merge override layers; no sibling overrides are auto-loaded for children.
+Identical definitions are accepted idempotently, so shared diamond-include resources appear once.
+Local/external `extends` resolves in its own service namespace with distinct inheritance merge
+rules, cycle detection and source-file path ownership. It never imports external top-level
+resources or reads the external file's sibling `.env`.
+The first present sibling override is merged over the main base. Active `profiles:` come from
 `COMPOSE_PROFILES`. The persisted `compose-projects.json` schema is unchanged.
-See [the parser decision, publication audit, boundaries and #83 contracts](COMPOSE-PARSER.md).
+See [the parser decision, publication audit and file-graph contracts](COMPOSE-PARSER.md).
 
 `ComposeProjectSupervisor` brings a project **up / down / restart as a unit**: on `up` it first
 **provisions** declared (non-external) `networks:`/`volumes:` via `wslc network/volume create`, then
@@ -350,7 +355,9 @@ if every attempt still fails.
 Import is **file-based** (the user picks the `docker-compose.yml` from disk) rather than paste-based,
 so the importer knows the file's folder: it seeds `${VAR}` interpolation defaults from a sibling
 `.env` file and resolves relative `env_file`, `build.context`, and `secrets`/`configs` `file:` paths
-against that folder. During import the parser also **collects warnings** for any compose keys it does
+against their owning project/source folder. Included projects have child `.env` defaults below
+the parent's interpolation snapshot; an explicit include `project_directory` and include
+`env_file` paths resolve against the parent project. During import the parser also **collects warnings** for any compose keys it does
 not honor (e.g. `privileged`, `cap_add`, `logging`, unknown top-level keys) plus partially-supported
 features (`deploy.replicas` scaling); these are shown in a confirmation dialog
 so the user can cancel or import anyway before the project is saved. `x-` extension keys and
@@ -389,14 +396,14 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 | `build:` (short + long form: `context`, `dockerfile`, `args`, `target`, `labels`, `no_cache`, `pull`, `pull_policy`) | **Supported** — built and tagged `project_service` on up; `context` resolves against the compose folder; `pull_policy: always/build` maps to `--pull` |
 | `ports` (short `"h:c"` and long `host_ip/target/published/protocol`) | **Supported subset** — normalized uniqueness, IPv6 host bindings and bounded ranges; other long-form fields warn |
 | `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported subset** — target-key merging; unsupported long mount types/modes reject and unsupported nested options warn |
-| `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Partial** — exact empty/null distinction and last-file/inline precedence for simple assignments; dotenv syntax and required-file failure handling remain incomplete (#83) |
+| `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Supported subset** — exact empty/null distinction and last-file/inline precedence for simple assignments; required inputs reject if missing/unreadable, `required: false` permits only absence. Full dotenv syntax and `format` are not implemented |
 | Top-level `networks:` / `volumes:` **creation** (driver, `driver_opts`, labels; `external` skipped) | **Supported** — created on up via `wslc network/volume create`; networks removed on down |
 | `networks` / `network_mode` per service, service-name DNS aliases | **Capability-gated** — create/connect/start for multiple native endpoints; legacy first-network fallback with warning. Special host/none/container/service modes remain distinct. |
-| `secrets:` / `configs:` (file-backed) | **Supported (best-effort)** — source file bind-mounted read-only (`/run/secrets/<name>` or the config target); no in-engine secret store |
+| `secrets:` / `configs:` (file-backed) | **Supported (best-effort runtime)** — required source files validated for readability at import (binary allowed), then staged and bound read-only (`/run/secrets/<name>` or config target); references must be declared. No in-engine secret store |
 | `tmpfs`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`, `dns`/`dns_search`/`dns_opt` | **Supported** — mapped to the matching `wslc run`/`wslc stop` flags |
 | `profiles:` | **Supported** — services with a profile start only when one of their profiles is in the project's active set (from `COMPOSE_PROFILES` in the environment / `.env`); unprofiled services always start |
-| `extends:` (same-file and cross-file `file:`/`service:`) | **Partial** — resolved before model projection using shared merging; missing references, cycles, path ownership and extends-specific sequence deduplication remain #83 work |
-| `include:` (top-level) | **Partial** — short `- file.yml` and long `- path:` forms; files are merged under the main file, unlike Compose's independent project/conflict rules; included `env_file` paths currently resolve against the main directory |
+| `extends:` (same-file and local cross-file `file:`/`service:`) | **Supported subset** — missing references/cycles reject; inherited paths belong to source files using the calling interpolation environment. Inheritance-specific sequence deduplication and target replacement differ from overrides; external top-level resources are not imported |
+| `include:` (top-level) | **Supported local subset** — independent projects, conflicts reject without merging while identical duplicate definitions are idempotent; nested short paths and long path lists with `project_directory`/`env_file`; project-relative paths and child `.env` defaults below parent environment. No child sibling-override discovery; remote/unsupported forms reject |
 | `extra_hosts:` | **Supported (best-effort)** — appended to the container's `/etc/hosts` via `exec` after start (no `--add-host` flag); `host-gateway` resolves to the container's default gateway |
 | Sibling override merge rules | **Supported normalized subset** — recursive maps, appended sequences, target-key volumes/secrets/configs, tuple-key ports; command/entrypoint/healthcheck.test replace; mixed environment/labels/build args merge by key. Captured CLI differences remain for duplicate DNS and equivalent mixed-form ports |
 | `!reset` / `!override` | **Supported** on mapping values; tags at document roots or on sequence items are explicitly rejected |
