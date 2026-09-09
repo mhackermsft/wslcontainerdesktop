@@ -39,9 +39,20 @@ public sealed class VolumeInfo
     [JsonIgnore]
     public bool IsAnonymous { get; set; }
 
-    /// <summary>Best-effort container this volume belongs to (empty when unknown/orphaned).</summary>
+    /// <summary>All exact container users, or explicitly labelled legacy estimates.</summary>
     [JsonIgnore]
-    public string UsedBy { get; set; } = string.Empty;
+    public IReadOnlyList<string> ContainerUsers { get; set; } = Array.Empty<string>();
+
+    [JsonIgnore]
+    public VolumeUsageState UsageState { get; set; }
+
+    [JsonIgnore]
+    public string UsedBy => string.Join(", ", ContainerUsers);
+
+    [JsonIgnore]
+    public string UsageDescription =>
+        $"{UsedByDisplay}\n\nInspect users include stopped containers. Estimated users are based on creation time only. " +
+        "Unknown or partial usage is not proof that a volume is unused. The engine determines removal eligibility.";
 
     /// <summary>
     /// Short 12-char id for anonymous volumes (whose name is a hash); the real name
@@ -54,22 +65,23 @@ public sealed class VolumeInfo
     [JsonIgnore]
     public string TypeLabel => IsAnonymous ? "Anonymous" : "Named";
 
-    /// <summary>
-    /// "Used by" display. For anonymous volumes we can correlate to a container by
-    /// creation time, so an empty value means genuinely orphaned ("—"). For named
-    /// volumes wslc exposes no usage data, so we say "Unknown" rather than imply unused.
-    /// </summary>
+    /// <summary>Incomplete snapshots never imply that a volume is unused.</summary>
     [JsonIgnore]
     public string UsedByDisplay
     {
         get
         {
-            if (!string.IsNullOrEmpty(UsedBy))
+            if (UsageState == VolumeUsageState.Estimated)
             {
-                return UsedBy;
+                return $"{UsedBy} (estimated; usage unknown)";
             }
 
-            return IsAnonymous ? "— (orphaned)" : "Unknown";
+            if (ContainerUsers.Count > 0)
+            {
+                return UsageState == VolumeUsageState.Partial ? $"{UsedBy} (other users unknown)" : UsedBy;
+            }
+
+            return UsageState == VolumeUsageState.Unused ? "Unused (inspect snapshot)" : "Unknown";
         }
     }
 

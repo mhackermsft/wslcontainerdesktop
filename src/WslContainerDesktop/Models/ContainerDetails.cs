@@ -115,19 +115,11 @@ public sealed class ContainerDetails
                 networkMode = nm.GetString() ?? "-";
             }
 
-            var mounts = new List<string>();
-            if (el.TryGetProperty("Mounts", out var mountsEl) && mountsEl.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var m in mountsEl.EnumerateArray())
-                {
-                    var src = m.TryGetProperty("Source", out var s) ? s.GetString() : null;
-                    var dst = m.TryGetProperty("Destination", out var d) ? d.GetString() : null;
-                    if (!string.IsNullOrEmpty(dst))
-                    {
-                        mounts.Add(string.IsNullOrEmpty(src) ? dst! : $"{src} -> {dst}");
-                    }
-                }
-            }
+            var mounts = ContainerMounts.Parse(el).Items
+                .Where(m => !string.IsNullOrEmpty(m.Destination))
+                .Select(m => string.IsNullOrEmpty(m.Source ?? m.Name)
+                    ? m.Destination! : $"{m.Source ?? m.Name} -> {m.Destination}")
+                .ToList();
 
             return new ContainerDetails
             {

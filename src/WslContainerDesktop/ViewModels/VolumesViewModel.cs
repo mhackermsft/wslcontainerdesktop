@@ -18,6 +18,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Dialogs;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -28,6 +29,8 @@ public partial class VolumesViewModel : ObservableObject
 {
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
+    private readonly ILogger<VolumesViewModel> _logger;
+    private CancellationTokenSource? _refreshCancellation;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -51,33 +54,49 @@ public partial class VolumesViewModel : ObservableObject
 
     public ObservableCollection<VolumeInfo> Volumes { get; } = new();
 
-    public VolumesViewModel(IWslcService wslc, DialogService dialogs)
+    public VolumesViewModel(IWslcService wslc, DialogService dialogs, ILogger<VolumesViewModel> logger)
     {
         _wslc = wslc;
         _dialogs = dialogs;
+        _logger = logger;
     }
 
     [RelayCommand]
-    public async Task RefreshAsync()
+    public async Task RefreshAsync(CancellationToken ct = default)
     {
+        _refreshCancellation?.Cancel();
+        using var refresh = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _refreshCancellation = refresh;
+        refresh.CancelAfter(TimeSpan.FromSeconds(45));
+        ct = refresh.Token;
         IsBusy = true;
         StatusMessage = "Loading volumes…";
         try
         {
-            var volumes = (await _wslc.ListVolumesAsync()).ToList();
+            var volumes = (await _wslc.ListVolumesAsync(ct)).ToList();
 
             // Enrich each volume with created-time + anonymous flag from inspect.
             foreach (var v in volumes)
             {
-                var inspect = await _wslc.InspectVolumeAsync(v.Name);
+                var inspect = await _wslc.InspectVolumeAsync(v.Name, ct);
                 if (inspect.Success)
                 {
                     v.EnrichFromInspect(inspect.StandardOutput);
                 }
+                else
+                {
+                    _logger.LogWarning("Could not inspect volume {Volume}: {Error}", v.Name, inspect.ErrorText);
+                }
             }
 
-            await CorrelateWithContainersAsync(volumes);
+            var containers = await _wslc.ListContainersAsync(all: true, ct: ct);
+            var warnings = await VolumeUsageResolver.ResolveAsync(volumes, containers, _wslc.InspectContainerAsync, ct);
+            foreach (var warning in warnings)
+            {
+                _logger.LogWarning("Volume usage: {Warning}", warning);
+            }
 
+            ct.ThrowIfCancellationRequested();
             Volumes.Clear();
             // Named first, then anonymous; each alphabetical/by-time.
             foreach (var v in volumes
@@ -88,6 +107,17 @@ public partial class VolumesViewModel : ObservableObject
             }
 
             StatusMessage = $"{Volumes.Count} volume{(Volumes.Count == 1 ? "" : "s")}";
+            if (warnings.Count > 0)
+            {
+                StatusMessage += " - usage incomplete; unknown does not mean unused";
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            if (ReferenceEquals(_refreshCancellation, refresh))
+            {
+                StatusMessage = "Volume refresh cancelled or timed out; displayed data may be stale";
+            }
         }
         catch (Exception ex)
         {
@@ -96,56 +126,15 @@ public partial class VolumesViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
-        }
-    }
-
-    /// <summary>
-    /// Best-effort maps anonymous volumes to the container that created them. wslc does
-    /// not report volume→container links, but an image-declared anonymous volume is created
-    /// at the same instant as its container, so we match on creation time (to the second).
-    /// </summary>
-    private async Task CorrelateWithContainersAsync(IReadOnlyList<VolumeInfo> volumes)
-    {
-        var anonymous = volumes.Where(v => v.IsAnonymous && v.CreatedAt is not null).ToList();
-        if (anonymous.Count == 0)
-        {
-            return;
-        }
-
-        IReadOnlyList<ContainerInfo> containers;
-        try
-        {
-            containers = await _wslc.ListContainersAsync(all: true);
-        }
-        catch
-        {
-            return;
-        }
-
-        foreach (var vol in anonymous)
-        {
-            var volSecond = vol.CreatedAt!.Value.ToUnixTimeSeconds();
-
-            // Find the container whose creation time is closest within a 3-second window.
-            ContainerInfo? best = null;
-            long bestDelta = long.MaxValue;
-            foreach (var c in containers)
+            if (ReferenceEquals(_refreshCancellation, refresh))
             {
-                var delta = Math.Abs(c.CreatedAt - volSecond);
-                if (delta <= 3 && delta < bestDelta)
-                {
-                    bestDelta = delta;
-                    best = c;
-                }
-            }
-
-            if (best is not null)
-            {
-                vol.UsedBy = best.Name;
+                _refreshCancellation = null;
+                IsBusy = false;
             }
         }
     }
+
+    public void CancelRefresh() => _refreshCancellation?.Cancel();
 
     [RelayCommand]
     private async Task CreateAsync()
@@ -301,7 +290,8 @@ public partial class VolumesViewModel : ObservableObject
                     message =
                         $"{name} is still attached to a container, so it can't be removed.\n\n" +
                         "Stop and remove the container that uses it first, then try again.\n\n" +
-                        "(Note: the WSL container preview does not report which container uses a named volume.)";
+                        "The Used by column includes stopped containers when inspect metadata is available. " +
+                        "Unknown or partial usage is not proof that a volume is unused.";
                 }
 
                 await _dialogs.ShowMessageAsync("Can't remove volume", message);

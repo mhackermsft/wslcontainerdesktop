@@ -19,6 +19,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
@@ -33,10 +34,16 @@ public sealed partial class VolumesPage : Page
 
     public VolumesViewModel ViewModel { get; }
 
-    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        await ViewModel.RefreshAsync();
+        UiSafe.Run(() => ViewModel.RefreshAsync());
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        ViewModel.CancelRefresh();
+        base.OnNavigatedFrom(e);
     }
 
     private static VolumeInfo? VolumeOf(object sender) =>

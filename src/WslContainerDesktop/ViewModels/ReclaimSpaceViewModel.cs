@@ -17,6 +17,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -35,6 +36,7 @@ public partial class ReclaimSpaceViewModel : ObservableObject
 
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
+    private readonly ILogger<ReclaimSpaceViewModel> _logger;
 
     private long _imagesTotalBytes;
     private long _imagesReclaimableBytes;
@@ -82,13 +84,14 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     /// <summary>Dangling (untagged) images, which a plain image prune removes.</summary>
     public ObservableCollection<ImageInfo> DanglingImages { get; } = new();
 
-    /// <summary>Anonymous volumes with no correlated container (safe to prune).</summary>
+    /// <summary>Volumes unused in a complete inspect snapshot; the engine decides prune eligibility.</summary>
     public ObservableCollection<VolumeInfo> UnusedVolumes { get; } = new();
 
-    public ReclaimSpaceViewModel(IWslcService wslc, DialogService dialogs)
+    public ReclaimSpaceViewModel(IWslcService wslc, DialogService dialogs, ILogger<ReclaimSpaceViewModel> logger)
     {
         _wslc = wslc;
         _dialogs = dialogs;
+        _logger = logger;
     }
 
     /// <summary>An image is "dangling" when it has no repository or tag (i.e. <c>&lt;none&gt;</c>).</summary>
@@ -99,16 +102,36 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         string.IsNullOrEmpty(value) || value.Equals("<none>", StringComparison.OrdinalIgnoreCase);
 
     [RelayCommand]
-    public async Task RefreshAsync()
+    public async Task RefreshAsync(CancellationToken ct = default)
     {
+        using var refresh = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        refresh.CancelAfter(TimeSpan.FromSeconds(45));
+        ct = refresh.Token;
         IsBusy = true;
         StatusMessage = "Calculating disk usage…";
         try
         {
-            var images = await _wslc.ListImagesAsync();
-            var containers = await _wslc.ListContainersAsync(all: true);
-            var volumes = (await _wslc.ListVolumesAsync()).ToList();
-            await EnrichVolumesAsync(volumes, containers);
+            var images = await _wslc.ListImagesAsync(ct);
+            var containers = await _wslc.ListContainersAsync(all: true, ct: ct);
+            var volumes = (await _wslc.ListVolumesAsync(ct)).ToList();
+            foreach (var volume in volumes)
+            {
+                var inspect = await _wslc.InspectVolumeAsync(volume.Name, ct);
+                if (inspect.Success)
+                {
+                    volume.EnrichFromInspect(inspect.StandardOutput);
+                }
+                else
+                {
+                    _logger.LogWarning("Could not inspect volume {Volume}: {Error}", volume.Name, inspect.ErrorText);
+                }
+            }
+            var warnings = await VolumeUsageResolver.ResolveAsync(volumes, containers, _wslc.InspectContainerAsync, ct);
+            foreach (var warning in warnings)
+            {
+                _logger.LogWarning("Volume usage: {Warning}", warning);
+            }
+            ct.ThrowIfCancellationRequested();
 
             // Images. Sizes are per-image and may share layers, so the totals are an upper
             // bound (matching how `df`-style views typically present them).
@@ -138,9 +161,8 @@ public partial class ReclaimSpaceViewModel : ObservableObject
             ContainerCount = containers.Count;
             StoppedContainerCount = containers.Count(c => c.State != ContainerState.Running);
 
-            // Volumes. wslc does not report volume sizes, and named-volume usage is unknown,
-            // so "unused" is limited to anonymous volumes with no correlated container.
-            var unused = volumes.Where(v => v.IsAnonymous && string.IsNullOrEmpty(v.UsedBy)).ToList();
+            // Never infer reclaimable storage from missing metadata or legacy estimates.
+            var unused = volumes.Where(v => v.UsageState == VolumeUsageState.Unused).ToList();
             VolumeCount = volumes.Count;
             UnusedVolumeCount = unused.Count;
 
@@ -154,6 +176,14 @@ public partial class ReclaimSpaceViewModel : ObservableObject
             StatusMessage = _imagesReclaimableBytes > 0
                 ? $"Up to {TotalReclaimableSize} reclaimable from dangling images"
                 : "Nothing obvious to reclaim";
+            if (warnings.Count > 0)
+            {
+                StatusMessage += " - volume usage incomplete; unknown volumes are not counted as unused";
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            StatusMessage = "Disk usage refresh cancelled or timed out; displayed data may be stale";
         }
         catch (Exception ex)
         {
@@ -163,44 +193,6 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         finally
         {
             IsBusy = false;
-        }
-    }
-
-    /// <summary>
-    /// Fills IsAnonymous/CreatedAt from <c>volume inspect</c> and best-effort correlates
-    /// anonymous volumes to a container by creation time (mirrors VolumesViewModel).
-    /// </summary>
-    private async Task EnrichVolumesAsync(IReadOnlyList<VolumeInfo> volumes, IReadOnlyList<ContainerInfo> containers)
-    {
-        foreach (var v in volumes)
-        {
-            var inspect = await _wslc.InspectVolumeAsync(v.Name);
-            if (inspect.Success)
-            {
-                v.EnrichFromInspect(inspect.StandardOutput);
-            }
-        }
-
-        foreach (var vol in volumes.Where(v => v.IsAnonymous && v.CreatedAt is not null))
-        {
-            var volSecond = vol.CreatedAt!.Value.ToUnixTimeSeconds();
-
-            ContainerInfo? best = null;
-            long bestDelta = long.MaxValue;
-            foreach (var c in containers)
-            {
-                var delta = Math.Abs(c.CreatedAt - volSecond);
-                if (delta <= 3 && delta < bestDelta)
-                {
-                    bestDelta = delta;
-                    best = c;
-                }
-            }
-
-            if (best is not null)
-            {
-                vol.UsedBy = best.Name;
-            }
         }
     }
 
@@ -276,8 +268,8 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         var ok = await _dialogs.ShowConfirmAsync(
             "Remove unused volumes",
             "Remove all unused volumes? Any data they hold will be lost.\n\n" +
-            "(wslc does not report which container uses a named volume, so only volumes " +
-            "not attached to a running container are affected.)",
+            "Usage is a snapshot, including stopped containers when metadata is available. " +
+            "Unknown usage is not proof of eligibility; the engine determines which volumes can be pruned.",
             "Remove");
         if (!ok)
         {
