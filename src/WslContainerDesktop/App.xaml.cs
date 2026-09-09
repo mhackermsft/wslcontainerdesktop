@@ -394,6 +394,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<ProcessRunner>();
+        services.AddSingleton<IWslcCapabilitiesService, WslcCapabilitiesService>();
         services.AddSingleton<IWslcService, WslcService>();
         services.AddSingleton<IWslSystemService, WslSystemService>();
         services.AddSingleton<IKubernetesService, KubernetesService>();

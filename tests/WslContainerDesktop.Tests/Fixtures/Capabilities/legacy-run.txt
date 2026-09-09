@@ -1,0 +1,10 @@
+Usage: wslc run [<options>] <image> [<command>] [<arguments>...]
+
+Options:
+  -d  --detach   Run container in detached mode
+      --name     Name of the container
+      --network  Connect a container to a network
+  -?  --help     Shows help about the selected command
+
+Global Options:
+      --session  Specify the session to use

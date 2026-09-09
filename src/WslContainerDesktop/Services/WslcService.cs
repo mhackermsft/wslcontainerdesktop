@@ -20,8 +20,12 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class WslcService(ProcessRunner runner, ILogger<WslcService> logger) : IWslcService
+public sealed class WslcService(
+    ProcessRunner runner,
+    ILogger<WslcService> logger,
+    IWslcCapabilitiesService capabilities) : IWslcService
 {
+    private readonly IWslcCapabilitiesService _capabilities = capabilities;
     private readonly ContainerPortResolver _containerPorts = new();
 
     // ---- Engine ---------------------------------------------------------

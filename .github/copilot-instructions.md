@@ -8,6 +8,10 @@ For deep design detail read `docs/ARCHITECTURE.md`; user-facing features live in
 
 ## Environment & build
 
+- **MSIT dependency-age policy:** Do not install or upgrade to a NuGet package or other dependency
+  version published less than **7 days** ago. Check authoritative publication dates before
+  restoring new versions, including transitive and build/test dependencies. If a date cannot be
+  verified, stop rather than assuming compliance.
 - **Requires Windows 11** with the WSL container preview (`wslc.exe`, default
   `C:\Program Files\WSL\wslc.exe`) and the **.NET 10 SDK**. The app cannot fully build on Linux —
   the WindowsAppSDK XAML compiler step requires Windows.

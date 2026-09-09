@@ -29,11 +29,18 @@ public sealed class ProcessRunner(ISettingsService settings)
     /// <summary>Runs wslc with the given arguments and returns captured output.</summary>
     public Task<CommandResult> RunAsync(
         IEnumerable<string> arguments,
+        CancellationToken cancellationToken = default) =>
+        RunAtPathAsync(settings.WslcPath, arguments, cancellationToken);
+
+    /// <summary>Runs against a captured executable path so a shared probe cannot mix engines.</summary>
+    internal static Task<CommandResult> RunAtPathAsync(
+        string executablePath,
+        IEnumerable<string> arguments,
         CancellationToken cancellationToken = default)
     {
         var psi = new ProcessStartInfo
         {
-            FileName = settings.WslcPath,
+            FileName = executablePath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -49,7 +56,7 @@ public sealed class ProcessRunner(ISettingsService settings)
 
         return ProcessExecutor.RunAsync(
             psi,
-            launchErrorContext: $"Could not launch '{settings.WslcPath}'.",
+            launchErrorContext: $"Could not launch '{executablePath}'.",
             ct: cancellationToken);
     }
 
@@ -114,4 +121,3 @@ public sealed class ProcessRunner(ISettingsService settings)
         Process.Start(psi);
     }
 }
-
