@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <!-- Real supervisor coverage needs Windows.Storage; pure model/parser tests remain portable. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">net10.0;net10.0-windows10.0.26100.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -62,6 +64,18 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcExecutableIdentity.cs" Link="Services\WslcExecutableIdentity.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessRunner.cs" Link="Services\ProcessRunner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessExecutor.cs" Link="Services\ProcessExecutor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkAttachment.cs" Link="Models\NetworkAttachment.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerNetworkState.cs" Link="Models\ContainerNetworkState.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerStats.cs" Link="Models\ContainerStats.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerFsChange.cs" Link="Models\ContainerFsChange.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeImporter.cs" Link="Services\ComposeImporter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeNetworkOrchestrator.cs" Link="Services\ComposeNetworkOrchestrator.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.cs" Link="Services\ComposeProjectSupervisor.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcService.cs" Link="Services\IWslcService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeProjectStore.cs" Link="Services\IComposeProjectStore.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Update="Fixtures\Capabilities\*.txt" CopyToOutputDirectory="PreserveNewest" />

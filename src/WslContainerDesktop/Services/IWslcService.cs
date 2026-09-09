@@ -60,6 +60,7 @@ public interface IWslcService
     Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default);
     Task<CommandResult> PruneContainersAsync(CancellationToken ct = default);
     Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default);
+    Task<CommandResult> CreateContainerAsync(RunContainerOptions options, CancellationToken ct = default);
     Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default);
     Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default);
     Task<CommandResult> ListFilesAsync(string id, string path, CancellationToken ct = default);
@@ -144,7 +145,18 @@ public interface IWslcService
         IReadOnlyList<string>? driverOpts = null,
         IReadOnlyDictionary<string, string>? labels = null,
         CancellationToken ct = default);
+    Task<CommandResult> CreateNetworkAsync(
+        string name,
+        string? driver,
+        IReadOnlyList<string>? driverOpts,
+        IReadOnlyDictionary<string, string>? labels,
+        string? subnet,
+        string? gateway,
+        string? ipRange,
+        CancellationToken ct = default);
     Task<CommandResult> RemoveNetworkAsync(string name, CancellationToken ct = default);
     Task<CommandResult> PruneNetworksAsync(CancellationToken ct = default);
     Task<CommandResult> InspectNetworkAsync(string name, CancellationToken ct = default);
+    Task<CommandResult> ConnectNetworkAsync(NetworkAttachment endpoint, string containerId, CancellationToken ct = default);
+    Task<CommandResult> DisconnectNetworkAsync(string network, string containerId, CancellationToken ct = default);
 }

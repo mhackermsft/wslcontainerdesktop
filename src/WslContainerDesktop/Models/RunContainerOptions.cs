@@ -54,11 +54,58 @@ public sealed class RunContainerOptions
     public string? Network { get; set; }
 
     /// <summary>
-    /// All networks the service declared (compose <c>networks:</c>). <c>wslc run</c> attaches a
-    /// container to a single network, so <see cref="ToArguments"/> uses the first entry; the rest are
-    /// retained in the model/import for fidelity and future multi-attach support.
+    /// All networks the service declared. Retained for compatibility with saved projects/profiles.
+    /// The Compose supervisor attaches additional endpoints when the engine supports it.
     /// </summary>
     public List<string> Networks { get; set; } = new();
+
+    /// <summary>Additive per-network configuration. Empty in projects saved by earlier versions.</summary>
+    public List<NetworkAttachment> NetworkAttachments { get; set; } = new();
+
+    /// <summary>Explicit Compose network_mode, which must not receive ordinary network endpoints.</summary>
+    public string? NetworkMode { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasSpecialNetworkMode => !string.IsNullOrWhiteSpace(NetworkMode) ||
+        (NetworkAttachments.Count == 0 &&
+         (Network is "host" or "none" or "bridge" ||
+          Network?.StartsWith("container:", StringComparison.Ordinal) == true ||
+          Network?.StartsWith("service:", StringComparison.Ordinal) == true));
+
+    /// <summary>Normalizes old and new saved options without changing their desired configuration.</summary>
+    public List<NetworkAttachment> GetNetworkAttachments()
+    {
+        if (HasSpecialNetworkMode)
+        {
+            return new();
+        }
+
+        var names = new[] { Network }.Concat(Networks).Concat(NetworkAttachments.Select(n => n.Network))
+            .Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!.Trim()).Distinct(StringComparer.Ordinal);
+        var result = new List<NetworkAttachment>();
+        foreach (var name in names)
+        {
+            var declarations = NetworkAttachments.Where(n => n.Network.Trim() == name).ToList();
+            var ips = declarations.Select(n => n.Ipv4Address).Where(ip => !string.IsNullOrWhiteSpace(ip))
+                .Distinct(StringComparer.Ordinal).ToList();
+            if (ips.Count > 1)
+            {
+                throw new InvalidOperationException($"Network '{name}' has conflicting IPv4 addresses.");
+            }
+
+            result.Add(new NetworkAttachment
+            {
+                Network = name,
+                Ipv4Address = ips.FirstOrDefault(),
+                Aliases = declarations.SelectMany(n => n.Aliases)
+                    .Concat(result.Count == 0 ? Aliases : Enumerable.Empty<string>())
+                    .Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim())
+                    .Distinct(StringComparer.Ordinal).ToList(),
+            });
+        }
+
+        return result;
+    }
 
     /// <summary>Raw "host:container" or "host:container/proto" strings.</summary>
     public List<string> PortMappings { get; set; } = new();
@@ -122,6 +169,8 @@ public sealed class RunContainerOptions
         MemoryLimit = MemoryLimit,
         Network = Network,
         Networks = new List<string>(Networks),
+        NetworkAttachments = NetworkAttachments.Select(n => n.Clone()).ToList(),
+        NetworkMode = NetworkMode,
         PortMappings = new List<string>(PortMappings),
         EnvironmentVariables = new List<string>(EnvironmentVariables),
         Volumes = new List<string>(Volumes),
@@ -137,11 +186,17 @@ public sealed class RunContainerOptions
         Domainname = Domainname,
     };
 
-    public List<string> ToArguments()
-    {
-        var args = new List<string> { "run" };
+    public List<string> ToArguments() =>
+        BuildArguments(create: false);
 
-        if (Detached)
+    public List<string> ToCreateArguments() =>
+        BuildArguments(create: true);
+
+    private List<string> BuildArguments(bool create)
+    {
+        var args = new List<string> { create ? "create" : "run" };
+
+        if (Detached && !create)
         {
             args.Add("-d");
         }
@@ -169,20 +224,17 @@ public sealed class RunContainerOptions
         }
 
         // wslc run attaches a container to one network; use the primary (first declared) network.
-        var primaryNetwork = !string.IsNullOrWhiteSpace(Network)
+        var endpoint = GetNetworkAttachments().FirstOrDefault();
+        var primaryNetwork = !string.IsNullOrWhiteSpace(NetworkMode) ? NetworkMode :
+            !string.IsNullOrWhiteSpace(Network)
             ? Network!.Trim()
-            : Networks.FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))?.Trim();
+            : endpoint?.Network;
         if (!string.IsNullOrWhiteSpace(primaryNetwork))
         {
             args.Add("--network");
             args.Add(primaryNetwork);
 
-            // Aliases only apply when attached to a user network.
-            foreach (var alias in Aliases.Where(a => !string.IsNullOrWhiteSpace(a)).Distinct(StringComparer.Ordinal))
-            {
-                args.Add("--network-alias");
-                args.Add(alias.Trim());
-            }
+            endpoint?.AddEndpointArguments(args);
         }
 
         foreach (var d in Dns.Where(x => !string.IsNullOrWhiteSpace(x)))

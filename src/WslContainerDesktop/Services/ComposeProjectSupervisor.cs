@@ -20,7 +20,10 @@ using WslContainerDesktop.Models;
 namespace WslContainerDesktop.Services;
 
 /// <summary>Per-service outcome of a compose <c>up</c>.</summary>
-public sealed record ComposeServiceResult(string Service, bool Success, string Detail);
+public sealed record ComposeServiceResult(string Service, bool Success, string Detail, string? Warning = null)
+{
+    public string? ContainerId { get; init; }
+}
 
 /// <summary>Aggregate result of bringing a compose project up.</summary>
 public sealed class ComposeUpResult
@@ -30,6 +33,9 @@ public sealed class ComposeUpResult
     public bool AllSucceeded => Services.All(s => s.Success);
 
     public int Started => Services.Count(s => s.Success);
+
+    public IReadOnlyList<string> Warnings => Services.Where(s => s.Warning is not null)
+        .Select(s => $"{s.Service}: {s.Warning}").ToList();
 }
 
 /// <summary>
@@ -48,6 +54,10 @@ public sealed class ComposeProjectSupervisor
     private readonly IComposeProjectStore _store;
     private readonly ISettingsService _settings;
     private readonly ILogger<ComposeProjectSupervisor> _logger;
+    private readonly IWslcCapabilitiesService _capabilities;
+    private readonly ComposeNetworkOrchestrator _networks;
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    public IReadOnlyList<string> ReconciliationWarnings { get; private set; } = Array.Empty<string>();
 
     /// <summary>How long to wait for a <c>service_healthy</c> dependency before starting dependents.</summary>
     private static readonly TimeSpan HealthyWaitTimeout = TimeSpan.FromSeconds(90);
@@ -56,12 +66,15 @@ public sealed class ComposeProjectSupervisor
         IWslcService wslc,
         IComposeProjectStore store,
         ISettingsService settings,
-        ILogger<ComposeProjectSupervisor> logger)
+        ILogger<ComposeProjectSupervisor> logger,
+        IWslcCapabilitiesService capabilities)
     {
         _wslc = wslc;
         _store = store;
         _settings = settings;
         _logger = logger;
+        _capabilities = capabilities;
+        _networks = new ComposeNetworkOrchestrator(wslc, logger);
     }
 
     /// <summary>
@@ -71,7 +84,22 @@ public sealed class ComposeProjectSupervisor
     /// </summary>
     public async Task<ComposeUpResult> UpAsync(ComposeProject project, CancellationToken ct = default)
     {
+        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await UpCoreAsync(project, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, CancellationToken ct)
+    {
         _store.Save(project);
+        RemoveHealthChecks(project);
+        RemoveRestartPolicies(project);
 
         // Provision declared networks/volumes and build any images before starting services.
         await ProvisionResourcesAsync(project, ct).ConfigureAwait(false);
@@ -88,6 +116,14 @@ public sealed class ComposeProjectSupervisor
             // Skip services excluded by the active profile set (docker compose profile semantics).
             if (!IsServiceActive(project, service))
             {
+                continue;
+            }
+
+            var unavailable = service.DependsOn.Where(d => !started.Contains(d.ServiceName)).ToList();
+            if (unavailable.Count > 0)
+            {
+                results.Add(new ComposeServiceResult(service.Name, false,
+                    $"Required dependencies are not ready: {string.Join(", ", unavailable.Select(d => d.ServiceName))}."));
                 continue;
             }
 
@@ -137,8 +173,9 @@ public sealed class ComposeProjectSupervisor
             }
         }
 
-        SeedHealthChecks(project);
-        SeedRestartPolicies(project);
+        var readyProject = ProjectWithServices(project, project.Services.Where(s => started.Contains(s.Name)));
+        SeedHealthChecks(readyProject);
+        SeedRestartPolicies(readyProject);
         return new ComposeUpResult { Services = results };
     }
 
@@ -152,21 +189,34 @@ public sealed class ComposeProjectSupervisor
 
     /// <summary>
     /// Creates the project's declared networks and volumes before its services start. External
-    /// resources are assumed to already exist and are skipped; "already exists" errors are ignored so
-    /// <c>up</c> is idempotent. Never throws — provisioning failures fall through to the run attempt.
+    /// resources must already exist. Only networks created by this project receive ownership labels.
     /// </summary>
     private async Task ProvisionResourcesAsync(ComposeProject project, CancellationToken ct)
     {
-        foreach (var network in project.Networks.Where(n => !n.External && !string.IsNullOrWhiteSpace(n.Name)))
+        foreach (var network in project.Networks.Where(n => !string.IsNullOrWhiteSpace(n.Name)))
         {
-            try
+            var existing = await _wslc.InspectNetworkAsync(network.Name, ct).ConfigureAwait(false);
+            if (existing.Success)
             {
-                await _wslc.CreateNetworkAsync(network.Name, network.Driver, network.DriverOpts, network.Labels, ct)
-                    .ConfigureAwait(false);
+                continue;
             }
-            catch (Exception ex)
+
+            if (network.External ||
+                !existing.ErrorText.Contains("WSLC_E_NETWORK_NOT_FOUND", StringComparison.Ordinal))
             {
-                _logger.LogDebug(ex, "Creating network {Network} failed (may already exist).", network.Name);
+                throw new InvalidOperationException($"Network '{network.Name}': {existing.ErrorText}");
+            }
+
+            var labels = new Dictionary<string, string>(network.Labels, StringComparer.Ordinal)
+            {
+                [ComposeProject.ProjectLabel] = project.Name,
+            };
+            var created = await _wslc.CreateNetworkAsync(network.Name, network.Driver, network.DriverOpts, labels,
+                network.Subnet, network.Gateway, network.IpRange, ct)
+                .ConfigureAwait(false);
+            if (!created.Success)
+            {
+                throw new InvalidOperationException($"Create network '{network.Name}': {created.ErrorText}");
             }
         }
 
@@ -229,6 +279,19 @@ public sealed class ComposeProjectSupervisor
     /// </summary>
     public async Task DownAsync(string projectName, bool removeVolumes = false, CancellationToken ct = default)
     {
+        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await DownCoreAsync(projectName, removeVolumes, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    private async Task DownCoreAsync(string projectName, bool removeVolumes, CancellationToken ct)
+    {
         var project = _store.Get(projectName);
         if (project is null)
         {
@@ -251,23 +314,47 @@ public sealed class ComposeProjectSupervisor
                 continue;
             }
 
+            var state = await _networks.InspectAsync(existing.Id, ct).ConfigureAwait(false);
+            if (!state.IsOwnedBy(project, service))
+            {
+                throw new InvalidOperationException($"Container '{name}' is not owned by this project; it was not removed.");
+            }
+
             await _wslc.StopContainerAsync(
                 existing.Id, service.StopGracePeriodSeconds, service.Options.StopSignal, ct)
                 .ConfigureAwait(false);
-            await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
+            var removed = await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
+            if (!removed.Success)
+            {
+                throw new InvalidOperationException($"Remove container '{name}': {removed.ErrorText}");
+            }
         }
 
         // Remove project-created networks (like `docker compose down`). Volumes are preserved
         // unless the caller requested their removal (like `docker compose down --volumes`).
         foreach (var network in project.Networks.Where(n => !n.External && !string.IsNullOrWhiteSpace(n.Name)))
         {
-            try
+            var inspect = await _wslc.InspectNetworkAsync(network.Name, ct).ConfigureAwait(false);
+            if (!inspect.Success)
             {
-                await _wslc.RemoveNetworkAsync(network.Name, ct).ConfigureAwait(false);
+                if (inspect.ErrorText.Contains("WSLC_E_NETWORK_NOT_FOUND", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                throw new InvalidOperationException($"Inspect network '{network.Name}': {inspect.ErrorText}");
             }
-            catch (Exception ex)
+
+            if (!NetworkIsOwned(inspect.StandardOutput, project.Name))
             {
-                _logger.LogDebug(ex, "Removing network {Network} failed (may be in use).", network.Name);
+                _logger.LogWarning("Preserving network {Network}: project ownership could not be verified.", network.Name);
+                continue;
+            }
+
+            var removed = await _wslc.RemoveNetworkAsync(network.Name, ct).ConfigureAwait(false);
+            if (!removed.Success)
+            {
+                throw new InvalidOperationException($"Remove network '{network.Name}': {removed.ErrorText}");
             }
         }
 
@@ -299,8 +386,16 @@ public sealed class ComposeProjectSupervisor
             return new ComposeUpResult();
         }
 
-        await DownAsync(projectName, removeVolumes: false, ct).ConfigureAwait(false);
-        return await UpAsync(project, ct).ConfigureAwait(false);
+        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await DownCoreAsync(projectName, removeVolumes: false, ct).ConfigureAwait(false);
+            return await UpCoreAsync(project, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
     }
 
     /// <summary>
@@ -309,6 +404,8 @@ public sealed class ComposeProjectSupervisor
     /// </summary>
     public async Task ReconcileAsync(CancellationToken ct = default)
     {
+        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        var warnings = new List<string>();
         try
         {
             var projects = _store.GetAll();
@@ -320,18 +417,70 @@ public sealed class ComposeProjectSupervisor
             var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
             foreach (var project in projects)
             {
-                var anyPresent = project.Services.Any(s =>
-                    FindByName(containers, ResolveContainerName(project, s)) is not null);
-                if (anyPresent)
+                RemoveHealthChecks(project);
+                RemoveRestartPolicies(project);
+                var ready = new List<ComposeService>();
+                foreach (var service in project.Services.Where(s => IsServiceActive(project, s)))
                 {
-                    SeedHealthChecks(project);
-                    SeedRestartPolicies(project);
+                    var existing = FindByName(containers, ResolveContainerName(project, service));
+                    if (existing is null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        var state = await _networks.InspectAsync(existing.Id, ct).ConfigureAwait(false);
+                        if (!state.IsOwnedBy(project, service))
+                        {
+                            throw new InvalidOperationException("Container ownership does not match the saved project.");
+                        }
+
+                        var options = service.Options.Clone();
+                        PrepareNetworkOptions(project, service, options);
+                        if (options.GetNetworkAttachments().Count > 1)
+                        {
+                            var capabilities = await _capabilities.GetAsync(ct).ConfigureAwait(false);
+                            ComposeNetworkOrchestrator.SelectNative(options, capabilities, out var warning);
+                            if (warning is not null)
+                            {
+                                warnings.Add($"{project.Name}/{service.Name}: {warning}");
+                            }
+
+                            await _networks.ReconcileAsync(existing.Id, options, capabilities, ct).ConfigureAwait(false);
+                        }
+
+                        ready.Add(service);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        warnings.Add($"{project.Name}/{service.Name}: {ex.Message}");
+                        _logger.LogWarning(ex, "Network reconciliation failed for {Project}/{Service}", project.Name, service.Name);
+                    }
                 }
+
+                var readyProject = ProjectWithServices(project, ready);
+                SeedHealthChecks(readyProject);
+                SeedRestartPolicies(readyProject);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
+            warnings.Add(ex.Message);
             _logger.LogDebug(ex, "Compose reconcile on startup failed.");
+        }
+        finally
+        {
+            ReconciliationWarnings = warnings;
+            _lifecycleGate.Release();
         }
     }
 
@@ -409,23 +558,50 @@ public sealed class ComposeProjectSupervisor
     private async Task<ComposeServiceResult> StartServiceAsync(ComposeProject project, ComposeService service, CancellationToken ct)
     {
         var name = ResolveContainerName(project, service);
+        bool nativeNetworks;
+        string? networkWarning = null;
 
-        // Make (re)creation idempotent: drop any prior container with the same name.
         try
         {
+            var desired = service.Options.Clone();
+            PrepareNetworkOptions(project, service, desired);
+            // Validate and select the backend before touching an existing container.
+            foreach (var endpoint in desired.GetNetworkAttachments())
+            {
+                endpoint.AddEndpointArguments(new List<string>());
+            }
+
+            nativeNetworks = desired.GetNetworkAttachments().Count > 1 &&
+                ComposeNetworkOrchestrator.SelectNative(desired,
+                    await _capabilities.GetAsync(ct).ConfigureAwait(false), out networkWarning);
             var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
             var existing = FindByName(containers, name);
             if (existing is not null)
             {
+                var state = await _networks.InspectAsync(existing.Id, ct).ConfigureAwait(false);
+                if (!state.IsOwnedBy(project, service))
+                {
+                    return new ComposeServiceResult(service.Name, false,
+                        $"Container '{name}' is not owned by this project and will not be replaced.");
+                }
+
                 await _wslc.StopContainerAsync(
                     existing.Id, service.StopGracePeriodSeconds, service.Options.StopSignal, ct)
                     .ConfigureAwait(false);
-                await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
+                var removed = await _wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false);
+                if (!removed.Success)
+                {
+                    return new ComposeServiceResult(service.Name, false, removed.ErrorText);
+                }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Pre-run cleanup for {Name} failed; continuing.", name);
+            return new ComposeServiceResult(service.Name, false, ex.Message);
         }
 
         // A config/secret file bind can silently fail: under wslc session mount pressure runc can't
@@ -464,25 +640,31 @@ public sealed class ComposeProjectSupervisor
 
             try
             {
-                var run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
-
-                // The list-based pre-run cleanup above can miss a container (a racing up, or a
-                // container the list momentarily didn't return), leaving the run to fail with a
-                // name conflict even though the engine is otherwise healthy. Recover by force-
-                // removing the conflicting name and retrying once so `up` stays idempotent.
-                if (!run.Success && IsNameConflict(run))
+                string containerId;
+                if (nativeNetworks)
                 {
-                    await _wslc.RemoveContainerAsync(name, force: true, ct).ConfigureAwait(false);
-                    run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
+                    containerId = await _networks.CreateAndStartAsync(options, ct).ConfigureAwait(false);
                 }
-
-                if (!run.Success)
+                else
                 {
-                    return new ComposeServiceResult(service.Name, false, Summarize(run));
+                    var run = await _wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
+                    if (!run.Success)
+                    {
+                        return new ComposeServiceResult(service.Name, false, Summarize(run), networkWarning);
+                    }
+                    var state = await _networks.InspectAsync(name, ct).ConfigureAwait(false);
+                    if (!state.IsOwnedBy(project, service))
+                    {
+                        throw new InvalidOperationException("Started container ownership could not be verified.");
+                    }
+                    containerId = state.Id;
                 }
 
                 await ApplyExtraHostsAsync(name, service, ct).ConfigureAwait(false);
-                return new ComposeServiceResult(service.Name, true, $"Started as {name}");
+                return new ComposeServiceResult(service.Name, true, $"Started as {name}", networkWarning)
+                {
+                    ContainerId = containerId,
+                };
             }
             catch (OperationCanceledException)
             {
@@ -707,6 +889,8 @@ public sealed class ComposeProjectSupervisor
             MemoryLimit = src.MemoryLimit,
             Network = src.Network,
             Networks = new List<string>(src.Networks),
+            NetworkAttachments = src.NetworkAttachments.Select(n => n.Clone()).ToList(),
+            NetworkMode = src.NetworkMode,
             PortMappings = new List<string>(src.PortMappings),
             EnvironmentVariables = new List<string>(src.EnvironmentVariables),
             Volumes = new List<string>(src.Volumes),
@@ -722,12 +906,7 @@ public sealed class ComposeProjectSupervisor
             Aliases = new List<string>(src.Aliases),
         };
 
-        // Give the container its service name as a network alias so siblings can resolve it by name
-        // (Compose's built-in DNS discovery). Only meaningful when attached to a user network.
-        if (!options.Aliases.Contains(service.Name, StringComparer.Ordinal))
-        {
-            options.Aliases.Add(service.Name);
-        }
+        PrepareNetworkOptions(project, service, options);
 
         // Bind-mount file-backed secrets/configs read-only (wslc has no secret store).
         foreach (var mount in service.Secrets)
@@ -744,6 +923,45 @@ public sealed class ComposeProjectSupervisor
         options.Labels[ComposeProject.ProjectLabel] = project.Name;
         options.Labels[ComposeProject.ServiceLabel] = service.Name;
         return options;
+    }
+
+    private static void PrepareNetworkOptions(ComposeProject project, ComposeService service, RunContainerOptions options)
+    {
+        var mode = options.NetworkMode ?? options.Network;
+        if (mode?.StartsWith("service:", StringComparison.Ordinal) == true)
+        {
+            var referenced = project.Services.FirstOrDefault(s => s.Name == mode["service:".Length..]) ??
+                throw new InvalidOperationException($"Unknown network_mode service '{mode}'.");
+            options.NetworkMode = $"container:{ResolveContainerName(project, referenced)}";
+            options.Network = options.NetworkMode;
+        }
+
+        options.NetworkAttachments = options.GetNetworkAttachments();
+        foreach (var endpoint in options.NetworkAttachments)
+        {
+            if (!endpoint.Aliases.Contains(service.Name, StringComparer.Ordinal))
+            {
+                endpoint.Aliases.Add(service.Name);
+            }
+        }
+    }
+
+    private static ComposeProject ProjectWithServices(ComposeProject project, IEnumerable<ComposeService> services) =>
+        new() { Name = project.Name, ActiveProfiles = project.ActiveProfiles, Services = services.ToList() };
+
+    private static bool NetworkIsOwned(string json, string project)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var root = document.RootElement;
+        if (root.ValueKind == System.Text.Json.JsonValueKind.Array && root.GetArrayLength() == 1)
+        {
+            root = root[0];
+        }
+
+        return root.ValueKind == System.Text.Json.JsonValueKind.Object &&
+            root.TryGetProperty("Labels", out var labels) && labels.ValueKind == System.Text.Json.JsonValueKind.Object &&
+            labels.TryGetProperty(ComposeProject.ProjectLabel, out var owner) &&
+            owner.ValueKind == System.Text.Json.JsonValueKind.String && owner.GetString() == project;
     }
 
     /// <summary>
@@ -1062,18 +1280,6 @@ public sealed class ComposeProjectSupervisor
         }
 
         return string.IsNullOrEmpty(text) ? $"wslc exited with code {result.ExitCode}" : text;
-    }
-
-    /// <summary>
-    /// True when a <c>wslc run</c> failed because the container name is already taken
-    /// (<c>ERROR_ALREADY_EXISTS</c> / "already in use"). Used to force-remove the stale container and
-    /// retry so <c>up</c> is idempotent even if the pre-run cleanup missed it.
-    /// </summary>
-    private static bool IsNameConflict(CommandResult result)
-    {
-        var text = $"{result.StandardError}\n{result.StandardOutput}";
-        return text.Contains("already in use", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("ERROR_ALREADY_EXISTS", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>User-facing message for both the explicit wslc mount-limit error and the silent

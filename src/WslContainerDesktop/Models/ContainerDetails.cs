@@ -93,18 +93,21 @@ public sealed class ContainerDetails
                 ns.TryGetProperty("Networks", out var nets) &&
                 nets.ValueKind == JsonValueKind.Object)
             {
+                var networkNames = new List<string>();
+                var addresses = new List<string>();
                 foreach (var net in nets.EnumerateObject())
                 {
-                    networkMode = net.Name;
+                    networkNames.Add(net.Name);
                     if (net.Value.TryGetProperty("IPAddress", out var ipEl) &&
                         ipEl.ValueKind == JsonValueKind.String &&
                         !string.IsNullOrEmpty(ipEl.GetString()))
                     {
-                        ip = ipEl.GetString()!;
+                        addresses.Add($"{net.Name}: {ipEl.GetString()}");
                     }
-
-                    break;
                 }
+
+                networkMode = networkNames.Count == 0 ? "-" : string.Join(", ", networkNames);
+                ip = addresses.Count == 0 ? "-" : string.Join(", ", addresses);
             }
 
             if (networkMode == "-" &&
