@@ -41,10 +41,122 @@ public sealed class ComposeNetworkSupervisorTests
     {
         var fixture = new Fixture(WslcCapabilitySupport.Unknown);
         fixture.Engine.Add(Options());
+        var health = new HealthCheckConfig { ContainerName = "demo_web", Command = "old-probe" };
+        var restart = new RestartPolicyConfig { ContainerName = "demo_web", Policy = RestartPolicyKind.Always };
+        fixture.HealthChecks.Add(health);
+        fixture.RestartPolicies.Add(restart);
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
         Assert.False(result.AllSucceeded);
         Assert.Contains("fixture diagnostic", result.Services[0].Detail);
         Assert.Empty(fixture.Engine.Mutations);
+        Assert.Same(health, Assert.Single(fixture.HealthChecks));
+        Assert.Same(restart, Assert.Single(fixture.RestartPolicies));
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("discovery-failure")]
+    [InlineData("invalid-ip")]
+    public async Task RestartPreflightsAllServicesBeforeAnyTeardown(string failure)
+    {
+        var fixture = new Fixture();
+        fixture.Engine.Add(Options(), allEndpoints: true);
+        fixture.Project.Networks = [new() { Name = "a" }];
+        fixture.Engine.Networks["a"] = "demo";
+        fixture.RestartPolicies.Add(new() { ContainerName = "demo_web", Policy = RestartPolicyKind.Always });
+        if (failure == "unknown")
+            fixture.Snapshot = Capabilities(WslcCapabilitySupport.Unknown);
+        else if (failure == "discovery-failure")
+            fixture.CapabilityError = new IOException("fixture discovery failed");
+        else
+        {
+            var other = Options("demo_other");
+            other.NetworkAttachments[1].Ipv4Address = "invalid-ip";
+            fixture.Project.Services.Add(new() { Name = "other", Options = other });
+        }
+
+        var result = await fixture.Supervisor.RestartAsync("demo");
+
+        Assert.False(result.AllSucceeded);
+        Assert.Empty(fixture.Engine.Mutations);
+        Assert.Single(fixture.Engine.Containers);
+        Assert.True(fixture.Engine.Networks.ContainsKey("a"));
+        Assert.Single(fixture.RestartPolicies);
+    }
+
+    [Theory]
+    [InlineData(WslcCapabilitySupport.Supported)]
+    [InlineData(WslcCapabilitySupport.Unsupported)]
+    public async Task RestartCarriesPreflightDecisionIntoStartup(WslcCapabilitySupport support)
+    {
+        var fixture = new Fixture(support);
+        fixture.Engine.Add(Options(), allEndpoints: true);
+        fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
+
+        var result = await fixture.Supervisor.RestartAsync("demo");
+
+        Assert.True(result.AllSucceeded);
+        Assert.Equal(1, fixture.CapabilityReads);
+        Assert.Equal(["stop:demo_web", "remove:demo_web"], fixture.Engine.Mutations.Take(2));
+        Assert.Single(fixture.RestartPolicies);
+        if (support == WslcCapabilitySupport.Supported)
+            Assert.Equal(["create:demo_web", "connect:b", "start:demo_web"], fixture.Engine.Mutations.Skip(2));
+        else
+        {
+            Assert.Equal(["run:demo_web"], fixture.Engine.Mutations.Skip(2));
+            Assert.Single(result.Warnings);
+        }
+    }
+
+    [Fact]
+    public async Task ProvisioningFailurePreservesUntouchedSupervision()
+    {
+        var fixture = new Fixture();
+        fixture.Engine.Add(Options(), allEndpoints: true);
+        fixture.Project.Networks = [new() { Name = "missing", External = true }];
+        fixture.HealthChecks.Add(new() { ContainerName = "demo_web", Command = "old-probe" });
+        fixture.RestartPolicies.Add(new() { ContainerName = "demo_web", Policy = RestartPolicyKind.Always });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project));
+
+        Assert.Empty(fixture.Engine.Mutations);
+        Assert.Single(fixture.HealthChecks);
+        Assert.Single(fixture.RestartPolicies);
+    }
+
+    [Fact]
+    public async Task CancellationKeepsCompletedAndUntouchedServicesSupervised()
+    {
+        using var cts = new CancellationTokenSource();
+        var fixture = new Fixture();
+        fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
+        var other = Options("demo_other");
+        other.Labels[ComposeProject.ServiceLabel] = "other";
+        fixture.Project.Services.Add(new() { Name = "other", Options = other });
+        fixture.Engine.Add(other, allEndpoints: true);
+        var previous = new HealthCheckConfig { ContainerName = "demo_other", Command = "old-probe" };
+        fixture.HealthChecks.Add(previous);
+        fixture.Engine.AfterStart = _ => cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Supervisor.UpAsync(fixture.Project, cts.Token));
+
+        Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
+        Assert.Same(previous, Assert.Single(fixture.HealthChecks));
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo_other"));
+    }
+
+    [Fact]
+    public async Task DownInventoryFailureKeepsUntouchedSupervision()
+    {
+        var fixture = new Fixture();
+        fixture.Engine.Add(Options(), allEndpoints: true);
+        fixture.Engine.BeforeList = () => throw new IOException("fixture inventory failed");
+        fixture.RestartPolicies.Add(new() { ContainerName = "demo_web", Policy = RestartPolicyKind.Always });
+
+        await Assert.ThrowsAsync<IOException>(() => fixture.Supervisor.DownAsync("demo"));
+
+        Assert.Empty(fixture.Engine.Mutations);
+        Assert.Single(fixture.RestartPolicies);
     }
 
     [Fact]
@@ -195,15 +307,21 @@ public sealed class ComposeNetworkSupervisorTests
         public List<HealthCheckConfig> HealthChecks { get; private set; } = new();
         public ComposeProjectSupervisor Supervisor { get; }
         public WslcCapabilities Snapshot { get; set; }
+        public Exception? CapabilityError { get; set; }
+        public int CapabilityReads { get; private set; }
 
         public Fixture(WslcCapabilitySupport support = WslcCapabilitySupport.Supported, Engine? engine = null)
         {
             Engine = engine ?? new();
             Snapshot = Capabilities(support);
             var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) =>
-                method.Name == nameof(IWslcCapabilitiesService.GetAsync)
-                    ? Task.FromResult(Snapshot)
-                    : throw new InvalidOperationException(method.Name));
+            {
+                if (method.Name != nameof(IWslcCapabilitiesService.GetAsync))
+                    throw new InvalidOperationException(method.Name);
+                CapabilityReads++;
+                return CapabilityError is null
+                    ? Task.FromResult(Snapshot) : Task.FromException<WslcCapabilities>(CapabilityError);
+            });
             var store = NetworkTestProxy.Create<IComposeProjectStore>((method, _) => method.Name switch
             {
                 nameof(IComposeProjectStore.Save) => null,

@@ -101,7 +101,7 @@ public sealed class ComposeNetworkOrchestratorTests
     }
 
     [Fact]
-    public async Task ReconcileRollsBackOnlyNewEndpointsEvenAfterPartialMutationFailure()
+    public async Task ReconcileRollsBackConfirmedEndpointsAndReportsUnconfirmedMutation()
     {
         var engine = new Engine { FailNetwork = "c", MutateBeforeFailure = true };
         var options = Options();
@@ -110,8 +110,52 @@ public sealed class ComposeNetworkOrchestratorTests
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
             () => engine.Orchestrator.ReconcileAsync("demo_web", options, Capabilities(), default));
         Assert.Contains("'c'", error.Message);
-        Assert.Equal(["connect:b", "connect:c", "disconnect:c", "disconnect:b"], engine.Mutations);
+        Assert.Contains("cleanup ownership is unresolved", error.Message);
+        Assert.Equal(["connect:b", "connect:c", "disconnect:b"], engine.Mutations);
+        Assert.Equal(["a", "c"], engine.Endpoints["demo_web"].Select(e => e.Network));
+    }
+
+    [Fact]
+    public async Task ReconcileRollsBackConfirmedEndpointsAfterNonMutatingFailure()
+    {
+        var engine = new Engine { FailNetwork = "c" };
+        var options = Options();
+        options.Networks.Add("c");
+        engine.Add(options);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => engine.Orchestrator.ReconcileAsync("demo_web", options, Capabilities(), default));
+        Assert.Equal(["connect:b", "connect:c", "disconnect:b"], engine.Mutations);
         Assert.Equal("a", Assert.Single(engine.Endpoints["demo_web"]).Network);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReconcilePreservesRacingExternalEndpointOnFailureOrCancellation(bool cancel)
+    {
+        using var cts = new CancellationTokenSource();
+        var engine = new Engine { FailNetwork = "c" };
+        var options = Options();
+        options.Networks.Add("c");
+        engine.Add(options);
+        engine.BeforeConnect = (network, id) =>
+        {
+            if (network != "c")
+                return;
+            engine.Endpoints[id].Add(new() { Network = network, Aliases = ["external-owner"] });
+            if (cancel)
+                cts.Cancel();
+        };
+
+        Exception error = cancel
+            ? await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => engine.Orchestrator.ReconcileAsync("demo_web", options, Capabilities(), cts.Token))
+            : await Assert.ThrowsAsync<InvalidOperationException>(
+                () => engine.Orchestrator.ReconcileAsync("demo_web", options, Capabilities(), cts.Token));
+
+        Assert.Contains("cleanup ownership is unresolved", error.Message);
+        Assert.Equal(["connect:b", "connect:c", "disconnect:b"], engine.Mutations);
+        Assert.Equal(["external-owner"], engine.Endpoints["demo_web"].Single(e => e.Network == "c").Aliases);
     }
 
     [Fact]
@@ -153,6 +197,8 @@ public sealed class ComposeNetworkOrchestratorTests
         public bool MutateBeforeFailure { get; init; }
         public CancellationTokenSource? CancelOnConnect { get; init; }
         public Func<Task>? BeforeList { get; set; }
+        public Action<string, string>? BeforeConnect { get; set; }
+        public Action<string>? AfterStart { get; set; }
         public IWslcService Service { get; }
         public ComposeNetworkOrchestrator Orchestrator => new(Service, NullLogger.Instance);
 
@@ -204,6 +250,7 @@ public sealed class ComposeNetworkOrchestratorTests
                         var endpoint = (NetworkAttachment)args[0]!;
                         var id = (string)args[1]!;
                         Mutations.Add("connect:" + endpoint.Network);
+                        BeforeConnect?.Invoke(endpoint.Network, id);
                         CancelOnConnect?.Cancel();
                         ct.ThrowIfCancellationRequested();
                         if (endpoint.Network != FailNetwork || MutateBeforeFailure)
@@ -218,6 +265,7 @@ public sealed class ComposeNetworkOrchestratorTests
                         return Result(true);
                     case nameof(IWslcService.StartContainerAsync):
                         Mutations.Add("start:" + args[0]);
+                        AfterStart?.Invoke((string)args[0]!);
                         return Result(true);
                     case nameof(IWslcService.StopContainerAsync):
                         Mutations.Add("stop:" + args[0]);

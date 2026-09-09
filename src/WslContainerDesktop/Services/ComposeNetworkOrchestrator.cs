@@ -156,15 +156,18 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
             state.RequireCompatible(endpoint);
         }
 
-        var attempted = new List<string>();
+        var connected = new List<string>();
+        string? pending = null;
         try
         {
             foreach (var endpoint in desired.Where(n => !state.Networks.ContainsKey(n.Network)))
             {
                 ct.ThrowIfCancellationRequested();
-                attempted.Add(endpoint.Network);
+                pending = endpoint.Network;
                 RequireSuccess(await wslc.ConnectNetworkAsync(endpoint, id, ct).ConfigureAwait(false),
                     $"Connect network '{endpoint.Network}'");
+                connected.Add(endpoint.Network);
+                pending = null;
             }
 
             var actual = await InspectAsync(id, ct).ConfigureAwait(false);
@@ -178,13 +181,23 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
                 actual.RequireCompatible(endpoint);
             }
         }
-        catch (Exception ex) when (rollback && attempted.Count > 0)
+        catch (Exception ex) when (rollback && (connected.Count > 0 || pending is not null))
         {
             using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            string? unresolved = null;
             try
             {
                 var actual = await InspectAsync(id, cleanup.Token).ConfigureAwait(false);
-                foreach (var network in attempted.AsEnumerable().Reverse().Where(actual.Networks.ContainsKey))
+                // A failed connect may race another caller or commit without returning success.
+                // Presence alone cannot establish ownership of that endpoint.
+                if (pending is not null && actual.Networks.ContainsKey(pending))
+                {
+                    unresolved = $"Network '{pending}' was preserved because its connection was not confirmed. " +
+                        "Inspect the endpoint before retrying; cleanup ownership is unresolved.";
+                    logger.LogWarning("{Diagnostic}", unresolved);
+                }
+
+                foreach (var network in connected.AsEnumerable().Reverse().Where(actual.Networks.ContainsKey))
                 {
                     RequireSuccess(await wslc.DisconnectNetworkAsync(network, id, cleanup.Token).ConfigureAwait(false),
                         $"Roll back network '{network}'");
@@ -193,6 +206,16 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
             catch (Exception cleanupError)
             {
                 throw new InvalidOperationException($"{ex.Message} Endpoint rollback failed: {cleanupError.Message}", ex);
+            }
+
+            if (unresolved is not null)
+            {
+                if (ex is OperationCanceledException)
+                {
+                    throw new OperationCanceledException($"{ex.Message} {unresolved}", ex, ct);
+                }
+
+                throw new InvalidOperationException($"{ex.Message} {unresolved}", ex);
             }
 
             throw;

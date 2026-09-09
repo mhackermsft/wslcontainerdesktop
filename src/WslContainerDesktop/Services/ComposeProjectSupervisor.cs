@@ -95,11 +95,29 @@ public sealed class ComposeProjectSupervisor
         }
     }
 
-    private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, CancellationToken ct)
+    private sealed record NetworkStartupPlan(bool Native, string? Warning);
+
+    private async Task<NetworkStartupPlan> PreflightNetworkAsync(
+        ComposeProject project, ComposeService service, CancellationToken ct)
+    {
+        var desired = service.Options.Clone();
+        PrepareNetworkOptions(project, service, desired);
+        var endpoints = desired.GetNetworkAttachments();
+        foreach (var endpoint in endpoints)
+        {
+            endpoint.AddEndpointArguments(new List<string>());
+        }
+
+        string? warning = null;
+        var native = endpoints.Count > 1 && ComposeNetworkOrchestrator.SelectNative(desired,
+            await _capabilities.GetAsync(ct).ConfigureAwait(false), out warning);
+        return new(native, warning);
+    }
+
+    private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, CancellationToken ct,
+        IReadOnlyDictionary<string, NetworkStartupPlan>? networkPlans = null)
     {
         _store.Save(project);
-        RemoveHealthChecks(project);
-        RemoveRestartPolicies(project);
 
         // Provision declared networks/volumes and build any images before starting services.
         await ProvisionResourcesAsync(project, ct).ConfigureAwait(false);
@@ -165,17 +183,18 @@ public sealed class ComposeProjectSupervisor
                 }
             }
 
-            var result = await StartServiceAsync(project, service, ct).ConfigureAwait(false);
+            var result = await StartServiceAsync(project, service, ct,
+                networkPlans is null ? null : networkPlans[service.Name]).ConfigureAwait(false);
             results.Add(result);
             if (result.Success)
             {
                 started.Add(service.Name);
+                var readyProject = ProjectWithServices(project, [service]);
+                SeedHealthChecks(readyProject);
+                SeedRestartPolicies(readyProject);
             }
         }
 
-        var readyProject = ProjectWithServices(project, project.Services.Where(s => started.Contains(s.Name)));
-        SeedHealthChecks(readyProject);
-        SeedRestartPolicies(readyProject);
         return new ComposeUpResult { Services = results };
     }
 
@@ -298,12 +317,6 @@ public sealed class ComposeProjectSupervisor
             return;
         }
 
-        // Unregister health/restart policies FIRST so the in-process watchdogs stop supervising
-        // these containers before we stop/remove them. Otherwise teardown looks like a crash and
-        // fires spurious "health check failed / restarting" toasts.
-        RemoveHealthChecks(project);
-        RemoveRestartPolicies(project);
-
         var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
         foreach (var service in project.Services)
         {
@@ -311,6 +324,8 @@ public sealed class ComposeProjectSupervisor
             var existing = FindByName(containers, name);
             if (existing is null)
             {
+                RemoveHealthChecks(ProjectWithServices(project, [service]));
+                RemoveRestartPolicies(ProjectWithServices(project, [service]));
                 continue;
             }
 
@@ -320,6 +335,10 @@ public sealed class ComposeProjectSupervisor
                 throw new InvalidOperationException($"Container '{name}' is not owned by this project; it was not removed.");
             }
 
+            ct.ThrowIfCancellationRequested();
+            // Deregister only the verified service we are about to stop, not untouched siblings.
+            RemoveHealthChecks(ProjectWithServices(project, [service]));
+            RemoveRestartPolicies(ProjectWithServices(project, [service]));
             await _wslc.StopContainerAsync(
                 existing.Id, service.StopGracePeriodSeconds, service.Options.StopSignal, ct)
                 .ConfigureAwait(false);
@@ -389,8 +408,25 @@ public sealed class ComposeProjectSupervisor
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            var networkPlans = new Dictionary<string, NetworkStartupPlan>(StringComparer.Ordinal);
+            foreach (var service in project.Services.Where(s => IsServiceActive(project, s)))
+            {
+                try
+                {
+                    networkPlans.Add(service.Name, await PreflightNetworkAsync(project, service, ct).ConfigureAwait(false));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    return new ComposeUpResult { Services = [new(service.Name, false, ex.Message)] };
+                }
+            }
+
             await DownCoreAsync(projectName, removeVolumes: false, ct).ConfigureAwait(false);
-            return await UpCoreAsync(project, ct).ConfigureAwait(false);
+            return await UpCoreAsync(project, ct, networkPlans).ConfigureAwait(false);
         }
         finally
         {
@@ -555,7 +591,8 @@ public sealed class ComposeProjectSupervisor
     /// slot, so more retries would work against the very limit they guard.</summary>
     private const int MaxStagedMountAttempts = 2;
 
-    private async Task<ComposeServiceResult> StartServiceAsync(ComposeProject project, ComposeService service, CancellationToken ct)
+    private async Task<ComposeServiceResult> StartServiceAsync(ComposeProject project, ComposeService service,
+        CancellationToken ct, NetworkStartupPlan? networkPlan = null)
     {
         var name = ResolveContainerName(project, service);
         bool nativeNetworks;
@@ -563,17 +600,9 @@ public sealed class ComposeProjectSupervisor
 
         try
         {
-            var desired = service.Options.Clone();
-            PrepareNetworkOptions(project, service, desired);
-            // Validate and select the backend before touching an existing container.
-            foreach (var endpoint in desired.GetNetworkAttachments())
-            {
-                endpoint.AddEndpointArguments(new List<string>());
-            }
-
-            nativeNetworks = desired.GetNetworkAttachments().Count > 1 &&
-                ComposeNetworkOrchestrator.SelectNative(desired,
-                    await _capabilities.GetAsync(ct).ConfigureAwait(false), out networkWarning);
+            networkPlan ??= await PreflightNetworkAsync(project, service, ct).ConfigureAwait(false);
+            nativeNetworks = networkPlan.Native;
+            networkWarning = networkPlan.Warning;
             var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
             var existing = FindByName(containers, name);
             if (existing is not null)
@@ -585,6 +614,9 @@ public sealed class ComposeProjectSupervisor
                         $"Container '{name}' is not owned by this project and will not be replaced.");
                 }
 
+                ct.ThrowIfCancellationRequested();
+                RemoveHealthChecks(ProjectWithServices(project, [service]));
+                RemoveRestartPolicies(ProjectWithServices(project, [service]));
                 await _wslc.StopContainerAsync(
                     existing.Id, service.StopGracePeriodSeconds, service.Options.StopSignal, ct)
                     .ConfigureAwait(false);
@@ -593,6 +625,12 @@ public sealed class ComposeProjectSupervisor
                 {
                     return new ComposeServiceResult(service.Name, false, removed.ErrorText);
                 }
+            }
+            else
+            {
+                ct.ThrowIfCancellationRequested();
+                RemoveHealthChecks(ProjectWithServices(project, [service]));
+                RemoveRestartPolicies(ProjectWithServices(project, [service]));
             }
         }
         catch (OperationCanceledException)
