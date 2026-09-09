@@ -122,6 +122,78 @@ public sealed class WslcFileTransferTests : IDisposable
     }
 
     [Theory]
+    [InlineData(@"C:\")]
+    [InlineData(@"Z:\")]
+    [InlineData(@"C:\unused\..")]
+    [InlineData(@"\\server\share\")]
+    public async Task NativeDownloadRejectsRootBeforeMutation(string destination)
+    {
+        var result = await Create().CopyFromAsync("container-id", "/report.bin", destination, Legacy);
+        Assert.False(result.Success);
+        Assert.Contains("below the drive or share root", result.ErrorText);
+        Assert.Equal(0, _nativeCalls);
+        Assert.Equal(0, _legacyCalls);
+        Assert.False(Directory.Exists(Staging));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NonLinkReparsePointsArchiveContentsWithoutFollowingRealLinks(bool directory)
+    {
+        var source = Path.Combine(_root, "cloud");
+        var file = directory ? Path.Combine(source, "data.bin") : source;
+        var bytes = new byte[] { 0, 255, 13, 10 };
+        if (directory)
+        {
+            Directory.CreateDirectory(Path.Combine(source, "empty"));
+        }
+        await File.WriteAllBytesAsync(file, bytes);
+        File.SetLastWriteTimeUtc(file, new DateTime(2025, 1, 2, 3, 4, 5, DateTimeKind.Utc));
+        if (directory)
+        {
+            File.CreateSymbolicLink(Path.Combine(source, "file-link"), "data.bin");
+            Directory.CreateSymbolicLink(Path.Combine(source, "directory-link"), _root);
+        }
+
+        await using var archive = new MemoryStream();
+        await using (var writer = new TarWriter(archive, TarEntryFormat.Pax, leaveOpen: true))
+        {
+            // Model the attributes of hydrated cloud entries without requiring a sync provider.
+            await WslcFileTransfer.WriteSourceAsync(writer, source, "cloud", CancellationToken.None,
+                path => File.GetAttributes(path) | FileAttributes.ReparsePoint);
+        }
+        archive.Position = 0;
+        using var reader = new TarReader(archive);
+        var entries = new Dictionary<string, TarEntryType>();
+        while (await reader.GetNextEntryAsync() is { } entry)
+        {
+            entries.Add(entry.Name.TrimEnd('/'), entry.EntryType);
+            if (entry.EntryType == TarEntryType.RegularFile)
+            {
+                using var data = new MemoryStream();
+                await entry.DataStream!.CopyToAsync(data);
+                Assert.Equal(bytes, data.ToArray());
+                Assert.Equal(File.GetLastWriteTimeUtc(file), entry.ModificationTime.UtcDateTime);
+            }
+        }
+        if (directory)
+        {
+            Assert.Equal(5, entries.Count);
+            Assert.Equal(TarEntryType.Directory, entries["cloud"]);
+            Assert.Equal(TarEntryType.Directory, entries["cloud/empty"]);
+            Assert.Equal(TarEntryType.RegularFile, entries["cloud/data.bin"]);
+            Assert.Equal(TarEntryType.SymbolicLink, entries["cloud/file-link"]);
+            Assert.Equal(TarEntryType.SymbolicLink, entries["cloud/directory-link"]);
+        }
+        else
+        {
+            Assert.Single(entries);
+            Assert.Equal(TarEntryType.RegularFile, entries["cloud"]);
+        }
+    }
+
+    [Theory]
     [InlineData("/../outside")]
     [InlineData("/safe/../../outside")]
     [InlineData("/safe/./child")]
@@ -254,6 +326,40 @@ public sealed class WslcFileTransferTests : IDisposable
         Assert.Equal(new byte[] { 0, 255 }, await File.ReadAllBytesAsync(target));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DownloadPreparesNonLinkCloudEntriesForOverwrite(bool directory)
+    {
+        var destination = Path.Combine(_root, "cloud");
+        var file = directory ? Path.Combine(destination, "report.bin") : destination;
+        if (directory)
+        {
+            Directory.CreateDirectory(destination);
+        }
+        await File.WriteAllBytesAsync(file, [0, 255]);
+        File.SetAttributes(file, FileAttributes.ReadOnly);
+
+        WslcFileTransfer.PrepareOverwrite(destination, CancellationToken.None,
+            path => File.GetAttributes(path) | FileAttributes.ReparsePoint);
+
+        Assert.False(File.GetAttributes(file).HasFlag(FileAttributes.ReadOnly));
+        Assert.Equal(new byte[] { 0, 255 }, await File.ReadAllBytesAsync(file));
+    }
+
+    [Fact]
+    public void DownloadStillRejectsRealDirectoryLinksWithinCloudDirectories()
+    {
+        var destination = Path.Combine(_root, "cloud");
+        Directory.CreateDirectory(destination);
+        Directory.CreateSymbolicLink(Path.Combine(destination, "directory-link"), _root);
+
+        var error = Assert.Throws<IOException>(() => WslcFileTransfer.PrepareOverwrite(
+            destination, CancellationToken.None, path => File.GetAttributes(path) | FileAttributes.ReparsePoint));
+
+        Assert.Contains("symbolic link", error.Message);
+    }
+
     private Task<CommandResult> Legacy(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -291,7 +397,11 @@ public sealed class WslcFileTransferTests : IDisposable
 
     public void Dispose()
     {
-        foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
+        foreach (var file in Directory.EnumerateFiles(_root, "*", new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+        }))
         {
             File.SetAttributes(file, FileAttributes.Normal);
         }

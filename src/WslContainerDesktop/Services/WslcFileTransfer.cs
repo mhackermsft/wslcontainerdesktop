@@ -44,6 +44,14 @@ internal sealed class WslcFileTransfer(
             }
 
             var destination = Path.GetFullPath(hostDirectory);
+            // WSLC strips trailing separators; a drive root would become drive-relative.
+            if (string.Equals(
+                destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetPathRoot(destination)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Select a destination folder below the drive or share root.");
+            }
             Directory.CreateDirectory(destination);
             if (name.Length > 0)
             {
@@ -174,38 +182,68 @@ internal sealed class WslcFileTransfer(
         }
     }
 
-    private static async Task WriteSourceAsync(TarWriter writer, string source, string member, CancellationToken ct)
+    internal static async Task WriteSourceAsync(
+        TarWriter writer, string source, string member, CancellationToken ct,
+        Func<string, FileAttributes>? readAttributes = null)
     {
         ct.ThrowIfCancellationRequested();
-        await writer.WriteEntryAsync(source, member, ct).ConfigureAwait(false);
-        var attributes = File.GetAttributes(source);
+        var attributes = (readAttributes ?? File.GetAttributes)(source);
+        var isDirectory = (attributes & FileAttributes.Directory) != 0;
+        FileSystemInfo info = isDirectory ? new DirectoryInfo(source) : new FileInfo(source);
+        var isReparsePoint = (attributes & FileAttributes.ReparsePoint) != 0;
+        var isLink = isReparsePoint && info.LinkTarget is not null;
+        if (isReparsePoint && !isLink)
+        {
+            // TarWriter's path overload assumes every Windows reparse point is a link.
+            // Cloud-backed files/directories have no link target; read their normal contents.
+            var entry = new PaxTarEntry(isDirectory ? TarEntryType.Directory : TarEntryType.RegularFile, member)
+            {
+                ModificationTime = info.LastWriteTimeUtc,
+                Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute,
+            };
+            await using var input = isDirectory ? null : new FileStream(
+                source, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.Asynchronous);
+            if (input is not null)
+            {
+                entry.DataStream = input;
+            }
+            await writer.WriteEntryAsync(entry, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await writer.WriteEntryAsync(source, member, ct).ConfigureAwait(false);
+        }
         // Preserve links in the archive, but never enumerate their targets.
-        if ((attributes & FileAttributes.Directory) != 0 && (attributes & FileAttributes.ReparsePoint) == 0)
+        if (isDirectory && !isLink)
         {
             foreach (var child in Directory.EnumerateFileSystemEntries(source))
             {
-                await WriteSourceAsync(writer, child, $"{member}/{Path.GetFileName(child)}", ct).ConfigureAwait(false);
+                await WriteSourceAsync(writer, child, $"{member}/{Path.GetFileName(child)}", ct, readAttributes).ConfigureAwait(false);
             }
         }
     }
 
-    private static void PrepareOverwrite(string path, CancellationToken ct)
+    internal static void PrepareOverwrite(
+        string path, CancellationToken ct, Func<string, FileAttributes>? readAttributes = null)
     {
         ct.ThrowIfCancellationRequested();
         if (!Path.Exists(path))
         {
             return;
         }
-        var attributes = File.GetAttributes(path);
-        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        var attributes = (readAttributes ?? File.GetAttributes)(path);
+        var isDirectory = (attributes & FileAttributes.Directory) != 0;
+        FileSystemInfo info = isDirectory ? new DirectoryInfo(path) : new FileInfo(path);
+        if ((attributes & FileAttributes.ReparsePoint) != 0 && info.LinkTarget is not null)
         {
             throw new IOException("The download would overwrite a host symbolic link. Choose another destination.");
         }
-        if ((attributes & FileAttributes.Directory) != 0)
+        if (isDirectory)
         {
             foreach (var child in Directory.EnumerateFileSystemEntries(path))
             {
-                PrepareOverwrite(child, ct);
+                PrepareOverwrite(child, ct, readAttributes);
             }
         }
         else if ((attributes & FileAttributes.ReadOnly) != 0)
