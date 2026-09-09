@@ -44,6 +44,11 @@ and a one-based instance label. [Local scaling](COMPOSE-SCALING.md) extends this
 name resolver and per-instance plan/observed-ID contract; compatibility and assistant previews
 must consume it rather than implement another planner.
 
+Each selected lifecycle plan is limited to **1,024 total desired, existing and surplus instance
+entries**, counting each instance once. The budget is enforced before desired-count expansion.
+This is an execution-planning limit, not an Int32 parser limit; oversized configurations remain
+visible and editable, and callers can select fewer services to stay within the plan budget.
+
 Runtime fingerprints are versioned SHA-256 digests of normalized effective options. Mapping
 ordering does not create changes; ordered process arguments and meaningful network priority
 remain ordered. Source-owned secret/config references include file-content digests, not transient
