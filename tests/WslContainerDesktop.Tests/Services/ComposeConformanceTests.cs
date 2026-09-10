@@ -178,7 +178,7 @@ public sealed class ComposeConformanceTests
     public void CorpusRetainsRequiredCoverageAndHonestProvenance()
     {
         var cases = Cases().Select(c => (string)c[0]).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(20, cases.Count);
+        Assert.Equal(21, cases.Count);
         foreach (var required in new[]
         {
             "interpolation", "yaml-anchors", "yaml-block", "environment", "override", "include",

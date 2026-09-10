@@ -219,7 +219,7 @@ their existing error boundaries.
    pending reset/override markers before inheritance.
 4. File identities, environments, sources, cycle tracking and bounds are per import, not global
    caches; graph loading must not introduce any engine, UI, activation or persistence dependency.
-5. The corpus stays version 1 with all 20 spec-derived cases. `appError` means rejection, not a
+5. The corpus stays version 1 with all 21 captured cases and explicit observed differences. `appError` means rejection, not a
    successful config snapshot; `forbiddenDiagnostics` checks redaction. Resolved include and
    missing-env-file gaps have no remaining divergence exemption.
 
@@ -265,6 +265,16 @@ An inherited AI provider contract test was adapted to the current `AiChatRequest
 Targeted `ComposeConformanceTests`, `ComposeSemanticsTests` and that three-provider contract test
 passed **106 tests on each target**, zero warnings, using `--no-restore -p:Platform=x64
 -p:CopilotSkipCliDownload=true`. No runtime harness, engine workload or packaged deployment ran.
+
+The #103 publication relay retained the reviewed ordered-file/warnings fix without production
+conflicts. Documentation and the valid `override-unique` volume declarations were combined with
+the predecessor's real evidence. The corpus inventory now asserts 21 cases. Regenerating the
+authorized hash-verified config-only captures refreshed changed include/missing-env expectation
+hashes without changing observed configurations or recorded semantic differences. The targeted
+`FullyQualifiedName~Compose` suite passed 275 portable and 314 Windows tests, zero failures or
+warnings; the one consent-gated Windows runtime test remained skipped. No acquisition, engine
+workload, provider call, deployment or stack-metadata mutation was performed.
+
 ## File-graph validation (#83)
 
 ### Explicit file sets and dev containers
@@ -294,7 +304,7 @@ matched the publication audits. No new dependency versions or network acquisitio
 The new focused graph tests use synthetic filesystem inputs under uniquely owned test-output
 directories inside the checkout, always cleaned up after each case. Sharing violations use
 locked local files; Windows drive/UNC bind tests are lexical only and never probe a live share.
-The 20-case corpus is preserved, with include scoping now expected to succeed and missing
+The original 20 cases plus the captured unused-required case are preserved, with include scoping now expected to succeed and missing
 required env files expected to reject. Resource-merge fixtures declare explicit synthetic
 external secrets/configs instead of relying on invalid empty definitions.
 Additional regressions cover pending tags with inheritance across main/include override layers,
