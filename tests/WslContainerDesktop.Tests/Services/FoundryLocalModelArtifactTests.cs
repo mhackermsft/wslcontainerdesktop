@@ -73,6 +73,20 @@ public sealed class FoundryLocalModelArtifactTests
     }
 
     [Fact]
+    public async Task SetupSurfacesPinnedOriginFailureAsPreparationFailure()
+    {
+        using var fixture = new Fixture();
+        fixture.RegistryResponse = () => Fixture.Json(new { blobSasUri = "https://unapproved.invalid/?sig=secret" });
+        var result = await Setup(fixture).StageModelFilesAsync(new(AiProviderKind.FoundryLocal, "", "unchanged"),
+            (_, _) => Task.FromResult(true), () => true, null, default);
+        Assert.False(result.Success);
+        Assert.Null(result.DirectoryPath);
+        Assert.Contains("outside the exact approved HTTPS origin/container", result.Guidance);
+        Assert.DoesNotContain("secret", result.Guidance);
+        Assert.Single(fixture.Http.Requests);
+    }
+
+    [Fact]
     public async Task ViewModelCancelsPendingModelConsentOnProviderChange()
     {
         using var fixture = new Fixture();

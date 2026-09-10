@@ -79,7 +79,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
             return new(false, "Model-file preparation cancelled. No runtime or settings changed."
                 + (started ? " " + FoundryLocalModelArtifacts.RetentionGuidance : ""));
         }
-        catch (Exception error) when (error is IOException or TimeoutException)
+        catch (Exception error) when (error is IOException or InvalidDataException or TimeoutException)
         {
             // The stager's messages deliberately exclude SAS credentials and private paths.
             return new(false, error.Message + " No runtime or settings changed.");
