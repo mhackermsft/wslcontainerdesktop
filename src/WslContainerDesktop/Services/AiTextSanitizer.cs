@@ -186,6 +186,8 @@ public static partial class AiTextSanitizer
     {
         if (depth > 32)
             return Mask;
+        // Normalize only recognized terminal controls on evidence copies, including decoded JSON strings.
+        text = TerminalControlRegex().Replace(text, string.Empty);
         if (TryReadJson(text, out var document))
         {
             using (document)
@@ -211,6 +213,9 @@ public static partial class AiTextSanitizer
     {
         var result = new StringBuilder();
         var copied = 0;
+        // Failed candidates may overlap. Charge every scanned character against a linear budget,
+        // and omit unexamined evidence rather than letting adversarial prefixes cause quadratic work.
+        var remaining = (long)text.Length * 4;
         for (var start = 0; start < text.Length; start++)
         {
             if (text[start] is not ('{' or '['))
@@ -221,6 +226,8 @@ public static partial class AiTextSanitizer
             var end = start;
             for (; end < text.Length; end++)
             {
+                if (remaining-- == 0)
+                    return result.Append("[structured evidence scan limit; remainder omitted]").ToString();
                 var ch = text[end];
                 if (quoted)
                 {
@@ -233,7 +240,7 @@ public static partial class AiTextSanitizer
                 else if (ch is '}' or ']' && --nesting == 0) break;
             }
             if (end == text.Length)
-                break;
+                continue;
             var candidate = text[start..(end + 1)];
             if (TryReadJson(candidate, out var document))
             {
@@ -241,11 +248,16 @@ public static partial class AiTextSanitizer
                 result.Append(text, copied, start - copied);
                 result.Append(RedactValue(candidate, depth + 1));
                 copied = end + 1;
+                start = end;
             }
-            start = end;
         }
         return copied == 0 ? text : result.Append(text, copied, text.Length - copied).ToString();
     }
+
+    // ECMA-48 CSI (including SGR colors) and OSC terminated by BEL or ST.
+    // Unrecognized/incomplete controls remain text; they must not disable structured scanning.
+    [GeneratedRegex(@"(?:\x1B\[|\u009B)[0-?]*[ -/]*[@-~]|(?:\x1B\]|\u009D)[^\x07\x1B\u009C]*(?:\x07|\x1B\\|\u009C)", RegexOptions.NonBacktracking)]
+    private static partial Regex TerminalControlRegex();
 
     private static bool TryReadJson(string text, out JsonDocument document)
     {

@@ -24,6 +24,24 @@ namespace WslContainerDesktop.Tests.Services;
 
 public sealed class AiProviderContractTests
 {
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task TerminalToolEvidenceCannotLeakThroughRealProviderSerialization(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        handler.Enqueue(Response(kind, null, AiContractHarness.Call("inspect_container")));
+        handler.Enqueue(Response(kind, "Done"));
+        var raw = "\u001b[32m{\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"},\"metadata\":{\"name\":\"ordinary-context\"}}\u001b[0m";
+        await Create(kind, http, h.Settings).RunTurnAsync(History, Tools,
+            (_, _) => Task.FromResult(raw), CancellationToken.None);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.DoesNotContain("synthetic-review-canary", handler.Requests[1].Body);
+        Assert.Contains("ordinary-context", handler.Requests[1].Body);
+        Assert.Contains("synthetic-review-canary", raw);
+    }
+
     public static TheoryData<AiProviderKind> Providers => new()
     {
         AiProviderKind.OpenAi, AiProviderKind.AzureOpenAi, AiProviderKind.Ollama,

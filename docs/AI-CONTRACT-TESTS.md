@@ -144,6 +144,18 @@ boundaries. Ordinary context, IDs, schemas and explicit detection limitations
 are asserted. Source-linked diagnostic preview and error-classification tests
 cover section sanitization before joining/truncation and displayable errors.
 
+Terminal-evidence regressions cover ANSI CSI colors, OSC controls terminated by
+BEL/ST, incomplete OSC, unmatched/invalid bracket and quote prefixes, nested
+JSON, colored YAML and assignments, and truncation boundaries. Recognized
+terminal controls are removed only from evidence copies before parsing, including
+decoded JSON string values; original execution values and protocol IDs remain
+unchanged. Failed embedded-JSON candidates cannot hide later valid structures.
+Overlapping candidate scans have a four-times-input-length character budget;
+exhaustion explicitly omits unexamined evidence rather than allowing quadratic
+scanning or forwarding unexamined secrets. A 100,000-bracket adversarial fixture
+asserts this omission, and all three real HTTP serializers capture sanitized
+colored Secret tool results without the synthetic canary.
+
 Real orchestration captures serialized activity at the persistence boundary,
 provider callback evidence, sanitized approval details, rejection, resolution
 and execution errors, text history, and untrusted instruction-like log content.

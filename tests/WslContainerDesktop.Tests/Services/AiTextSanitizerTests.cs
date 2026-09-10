@@ -25,6 +25,67 @@ namespace WslContainerDesktop.Tests.Services;
 
 public sealed class AiTextSanitizerTests
 {
+    public static TheoryData<string> TerminalEvidence => new()
+    {
+        "\u001b[32m{\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"}}\u001b[0m",
+        "\u001b]0;title\u0007{\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"}}",
+        "\u001b]8;;https://example.invalid\u001b\\{\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"}}\u001b]8;;\u001b\\",
+        "ordinary-context [ unmatched {\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"}}",
+        "ordinary-context [invalid, {\"nested\":{\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"}}}]",
+        "\u001b[32mkind: Secret\u001b[0m\ndata:\n  opaque: synthetic-review-canary\nmetadata:\n  name: ordinary-context",
+        "ordinary-context\nPASS\u001b[32mWORD\u001b[0m=synthetic-review-canary",
+        "\u001b]unterminated title {\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"}}",
+        "ordinary-context [ \"unterminated {\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"}}",
+    };
+
+    [Theory]
+    [MemberData(nameof(TerminalEvidence))]
+    public void TerminalAndUnmatchedPrefixesCannotHideStructuredSecrets(string evidence)
+    {
+        var safe = AiTextSanitizer.Sanitize(evidence);
+        Assert.DoesNotContain("synthetic-review-canary", safe);
+        Assert.Equal(safe, AiTextSanitizer.Sanitize(safe));
+    }
+
+    [Fact]
+    public void AdversarialPrefixWorkIsBoundedAndUnexaminedEvidenceIsOmitted()
+    {
+        var text = "prefix " + new string('[', 100_000) +
+            "{\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"}}";
+        var safe = AiTextSanitizer.Sanitize(text);
+        Assert.DoesNotContain("synthetic-review-canary", safe);
+        Assert.Contains("scan limit; remainder omitted", safe);
+    }
+
+    [Fact]
+    public void TerminalNormalizationPreservesVisibleContextAndOriginalExecutionCopies()
+    {
+        var input = "\u001b[32mordinary-context\u001b[0m [literal] \u001bZ";
+        Assert.Equal("ordinary-context [literal] \u001bZ", AiTextSanitizer.Sanitize(input));
+        var call = new AiToolCall
+        {
+            Id = "\u001b[32mprotocol-id", Name = "run_container",
+            ArgumentsJson = JsonSerializer.Serialize(new { command = input }),
+        };
+        var message = AiTextSanitizer.SanitizeMessage(new AiChatMessage { ToolCalls = [call] });
+        Assert.Equal(call.Id, message.ToolCalls[0].Id);
+        Assert.Equal(input, JsonDocument.Parse(call.ArgumentsJson).RootElement.GetProperty("command").GetString());
+        Assert.Equal("ordinary-context [literal] \u001bZ",
+            JsonDocument.Parse(message.ToolCalls[0].ArgumentsJson).RootElement.GetProperty("command").GetString());
+    }
+
+    [Fact]
+    public void ColoredEvidenceIsRedactedBeforeTruncation()
+    {
+        var text = "\u001b[32mPASSWORD\u001b[0m=\"" + new string('s', 20_000) +
+            "synthetic-review-canary\"\n" + new string('x', 20_000) + "\nordinary-tail";
+        var safe = AiTextSanitizer.Sanitize(text, 400);
+        Assert.DoesNotContain("synthetic-review-canary", safe);
+        Assert.DoesNotContain(new string('s', 20), safe);
+        Assert.Contains("ordinary-tail", safe);
+        Assert.True(safe.Length <= 400);
+    }
+
     public static TheoryData<string> Evidence => new()
     {
         """{"Config":{"Env":["APP_PASSWORD=synthetic-private with spaces","MODE=production"]},"name":"ordinary-context"}""",

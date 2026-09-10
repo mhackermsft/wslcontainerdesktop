@@ -84,6 +84,18 @@ public sealed class AssistantToolsetContractTests
         Assert.All(h.PersistedActivity, json => Assert.DoesNotContain("synthetic-private", json));
     }
 
+    [Fact]
+    public async Task TerminalNormalizationNeverChangesApprovedExecutionValues()
+    {
+        var fixture = new Fixture();
+        const string command = "printf '\u001b[32mordinary-context\u001b[0m'";
+        var plan = await fixture.Resolve("run_container",
+            JsonSerializer.Serialize(new { image = "nginx", command }));
+        Assert.DoesNotContain("\\u001B", plan.Details, StringComparison.OrdinalIgnoreCase);
+        await plan.ExecuteAsync(CancellationToken.None);
+        Assert.Equal(command, fixture.RunOptions!.Command);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
