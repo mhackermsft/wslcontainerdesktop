@@ -153,7 +153,7 @@ public sealed class FoundryLocalCli
         var executable = _findExecutable();
         if (string.IsNullOrEmpty(executable) || !IsLocalAbsolutePath(executable)
             || !Path.GetFileName(executable).Equals("foundry.exe", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Foundry Local CLI was not found on the absolute Windows PATH. No installation or runtime start was attempted. You can still enter an existing runtime URL manually.");
+            throw new InvalidOperationException("Foundry Local CLI was not found on the absolute Windows PATH. No installation or runtime start was attempted. Standalone metadata requires CLI process identity even for a manually entered runtime URL.");
         return executable;
     }
 

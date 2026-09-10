@@ -81,6 +81,59 @@ public sealed class FoundryLocalStandaloneTests
     }
 
     [Fact]
+    public async Task MismatchedEndpointNeverContactsEitherHost()
+    {
+        using var handler = new ModelsHandler();
+        using var http = new FoundryLocalHttpClient(handler);
+        var runtime = new FoundryLocalStandaloneRuntimeService(http, Cli(() => Running));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runtime.ReadInventoryAsync(Configuration with { Endpoint = "http://127.0.0.1:54322" }, default));
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
+    public async Task CancelledObservationNeverExecutesCliOrHttp()
+    {
+        using var handler = new ModelsHandler();
+        using var http = new FoundryLocalHttpClient(handler);
+        var cli = new FoundryLocalCli(() => @"C:\Fixture\foundry.exe",
+            (_, _) => throw new Xunit.Sdk.XunitException("Cancelled observation executed CLI"));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var runtime = new FoundryLocalStandaloneRuntimeService(http, cli);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runtime.ReadInventoryAsync(Configuration, cancellation.Token));
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
+    public async Task UnsupportedVersionNeverIssuesStatusOrHttp()
+    {
+        using var handler = new ModelsHandler();
+        using var http = new FoundryLocalHttpClient(handler);
+        var calls = 0;
+        var cli = new FoundryLocalCli(() => @"C:\Fixture\foundry.exe", (start, _) =>
+        {
+            Assert.Equal(["--version"], start.ArgumentList);
+            calls++;
+            return Task.FromResult(new CommandResult { StandardOutput = "0.10.4" });
+        });
+        var runtime = new FoundryLocalStandaloneRuntimeService(http, cli);
+        await Assert.ThrowsAsync<InvalidDataException>(() => runtime.ReadInventoryAsync(Configuration, default));
+        Assert.Equal(1, calls);
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
+    public async Task MetadataHttpFailureDoesNotFallbackToLegacyRoutes()
+    {
+        using var handler = new ModelsHandler { Status = HttpStatusCode.NotFound };
+        using var http = new FoundryLocalHttpClient(handler);
+        var runtime = new FoundryLocalStandaloneRuntimeService(http, Cli(() => Running));
+        await Assert.ThrowsAsync<AiProviderException>(() => runtime.ReadInventoryAsync(Configuration, default));
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
     public void RuntimeIdentityIgnoresUptimeButChangesWithProcessStart()
     {
         var first = FoundryLocalCli.ParseServerStatus(Running);
@@ -105,12 +158,13 @@ public sealed class FoundryLocalStandaloneTests
     private sealed class ModelsHandler : HttpMessageHandler
     {
         internal int Requests;
+        internal HttpStatusCode Status = HttpStatusCode.OK;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal("/v1/models", request.RequestUri!.AbsolutePath);
             Requests++;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return Task.FromResult(new HttpResponseMessage(Status)
             {
                 Content = new StringContent("""{"object":"list","data":[{"id":"synthetic","object":"model"}]}""", Encoding.UTF8, "application/json"),
             });

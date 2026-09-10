@@ -21,7 +21,8 @@ using Xunit;
 namespace WslContainerDesktop.Tests.Services;
 
 /// <summary>
-/// No discovery of a runtime, PATH execution, load/unload, acquisition, or default destination.
+/// No PATH search, load/unload, acquisition, or default destination. Explicit opt-in
+/// permits version/status execution only at the operator-supplied audited CLI path.
 /// The operator must separately audit/install prerequisites and configure an exact model ID.
 /// These checks do not prove packaged activation, GPU/NPU support, or artifact license compliance.
 /// </summary>
@@ -34,7 +35,7 @@ public sealed class FoundryLocalRuntimeOptInTests
         var configuration = AiConversationContext.Capture(settings, AiProviderKind.FoundryLocal);
         FoundryLocalRuntimeService.Validate(configuration);
         using var http = new FoundryLocalHttpClient();
-        var runtime = new FoundryLocalRuntimeService(http, settings);
+        var runtime = new FoundryLocalStandaloneRuntimeService(http, Cli());
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var result = await runtime.ReadInventoryAsync(configuration, deadline.Token);
         Assert.NotNull(result.Selected);
@@ -48,7 +49,7 @@ public sealed class FoundryLocalRuntimeOptInTests
         var configuration = AiConversationContext.Capture(settings, AiProviderKind.FoundryLocal);
         FoundryLocalRuntimeService.Validate(configuration);
         using var http = new FoundryLocalHttpClient();
-        var runtime = new FoundryLocalRuntimeService(http, settings);
+        var runtime = new FoundryLocalStandaloneRuntimeService(http, Cli());
         var observer = new FoundryLocalCapabilityObserver(runtime, http);
         var capabilities = new AiCapabilityService([observer], new AiContractHarness.Credentials(null));
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(120));
@@ -63,6 +64,11 @@ public sealed class FoundryLocalRuntimeOptInTests
             deadline.Token);
         Assert.False(string.IsNullOrWhiteSpace(diagnosis.Summary));
     }
+
+    private static FoundryLocalCli Cli() => new(
+        () => Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_CLI"),
+        (start, ct) => ProcessExecutor.RunAsync(start, timeout: TimeSpan.FromSeconds(10),
+            launchErrorContext: "Could not launch explicitly selected Foundry CLI.", ct: ct));
 
     private static ISettingsService Settings() => NetworkTestProxy.Create<ISettingsService>((method, _) => method.Name switch
     {
@@ -80,7 +86,8 @@ public sealed class FoundryRuntimeFactAttribute : FactAttribute
     {
         if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable(gate) != "1"
             || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_ENDPOINT"))
-            || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_MODEL")))
-            Skip = $"Requires Windows, {gate}=1, and explicit WSLC_FOUNDRY_LOCAL_ENDPOINT / WSLC_FOUNDRY_LOCAL_MODEL. No runtime is acquired or loaded.";
+            || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_MODEL"))
+            || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_CLI")))
+            Skip = $"Requires Windows, {gate}=1, and explicit WSLC_FOUNDRY_LOCAL_ENDPOINT / WSLC_FOUNDRY_LOCAL_MODEL / WSLC_FOUNDRY_LOCAL_CLI. No runtime is acquired, started or loaded.";
     }
 }

@@ -97,13 +97,16 @@ running REST endpoint, model setup, app deployment or inference compatibility.
 | GPU/NPU/CPU support | Requires actual device, driver, runtime, model variant and execution-provider observations. Model names and catalog target hints are not hardware measurements. |
 | Signed x64 MSIX | Not exercised. A successful source build is not proof of package registration, native dependency loading, redirected cache paths or offline behavior. |
 
-### Opt-in automated HTTP checks
+### Opt-in automated standalone checks
 
 `FoundryLocalRuntimeOptInTests` is excluded by default. It has two independent
-gates, each requiring Windows and nonempty `WSLC_FOUNDRY_LOCAL_ENDPOINT` and
-`WSLC_FOUNDRY_LOCAL_MODEL` environment variables:
+gates, each requiring Windows and nonempty `WSLC_FOUNDRY_LOCAL_ENDPOINT`,
+`WSLC_FOUNDRY_LOCAL_MODEL`, and `WSLC_FOUNDRY_LOCAL_CLI` environment variables.
+The CLI value must be an absolute path to the separately audited `foundry.exe`;
+the tests use the production standalone adapter, not the legacy reference:
 
-- `WSLC_FOUNDRY_LOCAL_METADATA_TESTS=1` permits only metadata reads.
+- `WSLC_FOUNDRY_LOCAL_METADATA_TESTS=1` permits CLI version/status execution and
+  HTTP metadata reads, not start/cache-list/model commands.
 - `WSLC_FOUNDRY_LOCAL_INFERENCE_TESTS=1` permits synthetic capability probes and
   diagnosis against an already cached, loaded model.
 
@@ -112,7 +115,9 @@ the prepared-host prerequisites. The inference gate must not be enabled merely
 to discover a usable endpoint/model. Neither test installs or starts a host,
 loads/unloads models, deploys MSIX, or invokes application tools. Both gates
 were explicitly disabled during deterministic validation for this change.
-These tests are HTTP integration checks, not packaged or hardware acceptance.
+These tests are standalone integration checks, not packaged or hardware acceptance.
+The inference check deliberately fails before generation while load/cache proof
+is unknown; setting its environment gate does not manufacture that evidence.
 
 ```powershell
 dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~FoundryLocalRuntimeOptInTests"
