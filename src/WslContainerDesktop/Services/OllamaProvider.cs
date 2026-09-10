@@ -97,6 +97,9 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
         CancellationToken ct)
     {
         var configuration = request.Configuration;
+        // Select once from this configuration's observed capabilities, never retry a failed stream.
+        var useStreaming = request.Progress != null &&
+            capabilities?.GetCached(configuration).Streaming.Support != AiSupport.Unsupported;
         if (string.IsNullOrWhiteSpace(configuration.Model))
         {
             throw MissingModel("Assistant chat");
@@ -107,6 +110,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
         var model = configuration.Model.Trim();
         var messages = request.History.Select(AiTextSanitizer.SanitizeMessage).ToList();
         var transcript = new List<AiChatMessage>();
+        var seenIds = request.History.SelectMany(m => m.ToolCalls).Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         for (var i = 0; i < 8; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -114,23 +118,27 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
             var payload = new Dictionary<string, object>
             {
                 ["model"] = model,
-                ["stream"] = false,
+                ["stream"] = useStreaming,
                 ["messages"] = messages.Select(ToOllamaMessage).ToList(),
                 ["options"] = new { temperature = 0.2 },
             };
             if (tools.Count > 0) payload["tools"] = tools.Select(ToOllamaTool).ToList();
-            using var response = await http.PostAsJsonAsync(uri, payload, ct).ConfigureAwait(false);
-
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
-            if (!response.IsSuccessStatusCode)
+            AiToolTurn turn;
+            if (request.Progress != null)
             {
-                throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), model, body);
+                using var message = new HttpRequestMessage(HttpMethod.Post, uri) { Content = JsonContent.Create(payload) };
+                turn = await AiHttpStreaming.SendAsync(http, message, request, tools, seenIds, ct, useStreaming).ConfigureAwait(false);
             }
-
-            using var doc = JsonDocument.Parse(body);
-            var messageElement = doc.RootElement.GetProperty("message");
-            var turn = ParseToolTurn(messageElement);
+            else
+            {
+                using var response = await http.PostAsJsonAsync(uri, payload, ct).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                if (!response.IsSuccessStatusCode)
+                    throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), model, body);
+                using var doc = JsonDocument.Parse(body);
+                turn = ParseToolTurn(doc.RootElement.GetProperty("message"));
+            }
             if (turn.ToolCalls.Count == 0)
             {
                 var finalText = string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);

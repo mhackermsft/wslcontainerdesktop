@@ -24,6 +24,9 @@ public interface IContainerAssistant
 
     Task<AssistantTurnResult> SendAsync(string userMessage, CancellationToken ct = default);
 
+    Task<AssistantTurnResult> SendAsync(string userMessage, Action<AiChatProgress> progress, CancellationToken ct = default)
+        => SendAsync(userMessage, ct);
+
     Task<AssistantTurnResult> ApproveAsync(AssistantApprovalRequest approval, CancellationToken ct = default);
 
     Task<AssistantTurnResult> RejectAsync(AssistantApprovalRequest approval, CancellationToken ct = default);

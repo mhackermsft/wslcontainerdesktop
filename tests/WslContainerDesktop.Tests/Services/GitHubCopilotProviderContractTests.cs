@@ -248,4 +248,292 @@ public sealed class GitHubCopilotProviderContractTests
         Assert.Same(expected, actual);
         Assert.Equal(1, executions);
     }
+
+    [Fact]
+    public async Task ProgressPreservesSegmentToolOrderAndNeverPublishesRawDeltaText()
+    {
+        var timeline = new List<string>();
+        var events = new List<AiChatProgress>();
+        var provider = new CopilotChatTurnRunner(async (_, _, _, invoke, report, ct) =>
+        {
+            report(new(AiChatProgressKind.Generating, "password: synthetic-fragment-secret"));
+            report(new(AiChatProgressKind.TextDelta, "Inspecting.\npassword: synthetic-segment-secret"));
+            await invoke(new() { Id = "ordered", Name = "inspect_container" }, ct);
+            report(new(AiChatProgressKind.TextDelta, "Finished."));
+            return "Finished.";
+        });
+        var request = Request() with
+        {
+            Progress = progress =>
+            {
+                events.Add(progress);
+                timeline.Add(progress.Kind.ToString());
+            },
+        };
+        var result = await provider.RunTurnAsync(request, Tools, (_, _) =>
+        {
+            timeline.Add("tool");
+            return Task.FromResult("safe evidence");
+        }, CancellationToken.None);
+
+        Assert.Equal(["Generating", "TextDelta", "tool", "TextDelta"], timeline);
+        Assert.DoesNotContain("synthetic-fragment-secret", JsonSerializer.Serialize(events));
+        Assert.DoesNotContain("synthetic-segment-secret", JsonSerializer.Serialize(events));
+        Assert.Equal(4, result.Messages.Count);
+        Assert.Equal("Finished.", result.Messages[^1].Content);
+    }
+
+    [Fact]
+    public async Task ResetCancellationRejectsOldProgressAndCallbacksWhileNewTurnRemainsIndependent()
+    {
+        using var reset = new CancellationTokenSource();
+        var events = new List<AiChatProgress>();
+        Func<AiToolCall, CancellationToken, Task<string>>? oldInvoke = null;
+        Action<AiChatProgress>? oldReport = null;
+        var provider = new CopilotChatTurnRunner((_, _, _, invoke, report, ct) =>
+        {
+            oldInvoke = invoke;
+            oldReport = report;
+            report(new(AiChatProgressKind.Generating, "Generating"));
+            reset.Cancel();
+            report(new(AiChatProgressKind.TextDelta, "Stale response"));
+            return Task.FromResult("Stale final response");
+        });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.RunTurnAsync(
+            Request() with { Progress = events.Add }, Tools, (_, _) => throw new InvalidOperationException("Must not execute"), reset.Token));
+        Assert.Single(events);
+        Assert.NotNull(oldReport);
+        oldReport(new(AiChatProgressKind.TextDelta, "Late old response"));
+        Assert.NotNull(oldInvoke);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            oldInvoke(new() { Id = "reset-old", Name = "inspect_container" }, CancellationToken.None));
+        var fresh = new CopilotChatTurnRunner((_, _, _, _, _) => Task.FromResult("New response"));
+        var result = await fresh.RunTurnAsync(Request() with { Progress = events.Add }, Tools,
+            (_, _) => throw new InvalidOperationException("Must not execute"), CancellationToken.None);
+        Assert.Equal("New response", result.FinalText);
+        Assert.Equal(2, events.Count);
+        Assert.DoesNotContain(events, progress => progress.Text.Contains("Stale") || progress.Text.Contains("Late old"));
+    }
+
+    [Fact]
+    public async Task SwallowedCallbackCancellationStopsLaterToolsAndProgress()
+    {
+        using var callbackCancellation = new CancellationTokenSource();
+        var executions = 0;
+        var events = new List<AiChatProgress>();
+        var provider = new CopilotChatTurnRunner(async (_, _, _, invoke, report, _) =>
+        {
+            callbackCancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                invoke(new() { Id = "cancelled", Name = "inspect_container" }, callbackCancellation.Token));
+            report(new(AiChatProgressKind.TextDelta, "Misleading success"));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                invoke(new() { Id = "later", Name = "inspect_container" }, CancellationToken.None));
+            return "Misleading success";
+        });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            provider.RunTurnAsync(Request() with { Progress = events.Add }, Tools, (_, _) =>
+            {
+                executions++;
+                return Task.FromResult("Must not execute");
+            }, CancellationToken.None));
+        Assert.Equal(0, executions);
+        Assert.Empty(events);
+    }
+
+    [Fact]
+    public async Task ArbitrarySwallowedCallbackFailureRemainsLatchedBeforeLaterTools()
+    {
+        var expected = new NotSupportedException("Synthetic callback failure");
+        var executions = 0;
+        var provider = new CopilotChatTurnRunner(async (_, _, _, invoke, _) =>
+        {
+            await Assert.ThrowsAsync<NotSupportedException>(() =>
+                invoke(new() { Id = "first", Name = "inspect_container" }, CancellationToken.None));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                invoke(new() { Id = "second", Name = "inspect_container" }, CancellationToken.None));
+            return "Must not finish";
+        });
+        var actual = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            provider.RunTurnAsync(Request(), Tools, (_, _) =>
+            {
+                executions++;
+                throw expected;
+            }, CancellationToken.None));
+        Assert.Same(expected, actual);
+        Assert.Equal(1, executions);
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("null")]
+    [InlineData("{\"id\":\"one\",\"id\":\"two\"}")]
+    [InlineData("{\"nested\":[{\"id\":1,\"id\":2}]}")]
+    [InlineData("{\"id\":")]
+    [InlineData("{} trailing")]
+    public async Task InvalidCompleteToolArgumentsFailClosedEvenWhenSdkSwallowsFailure(string json)
+    {
+        var executions = 0;
+        var provider = new CopilotChatTurnRunner(async (_, _, _, invoke, _) =>
+        {
+            await Assert.ThrowsAnyAsync<Exception>(() =>
+                invoke(new() { Id = "invalid", Name = "inspect_container", ArgumentsJson = json }, CancellationToken.None));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                invoke(new() { Id = "later", Name = "inspect_container" }, CancellationToken.None));
+            return "Must not finish";
+        });
+        await Assert.ThrowsAnyAsync<Exception>(() => provider.RunTurnAsync(Request(), Tools, (_, _) =>
+        {
+            executions++;
+            return Task.FromResult("Must not execute");
+        }, CancellationToken.None));
+        Assert.Equal(0, executions);
+    }
+
+    [Fact]
+    public async Task DuplicateSdkToolIdsAreRejectedBeforeSecondInvocation()
+    {
+        var executions = 0;
+        var provider = new CopilotChatTurnRunner(async (_, _, _, invoke, ct) =>
+        {
+            await invoke(new() { Id = "duplicate", Name = "inspect_container" }, ct);
+            await invoke(new() { Id = "duplicate", Name = "inspect_container" }, ct);
+            return "Must not finish";
+        });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => provider.RunTurnAsync(Request(), Tools, (_, _) =>
+        {
+            executions++;
+            return Task.FromResult("safe result");
+        }, CancellationToken.None));
+        Assert.Equal(1, executions);
+    }
+
+    [Fact]
+    public async Task ApprovalAndExecutionPauseInferenceDeadlineWhichResumesAfterCallback()
+    {
+        var callbackFinished = false;
+        var provider = new CopilotChatTurnRunner(async (_, _, _, invoke, _, ct) =>
+        {
+            await invoke(new() { Id = "slow-approval", Name = "inspect_container" }, ct);
+            callbackFinished = true;
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return "Must time out";
+        }, TimeSpan.FromMilliseconds(300));
+        var turn = provider.RunTurnAsync(Request(), Tools, async (_, ct) =>
+        {
+            await Task.Delay(650, ct);
+            Assert.False(ct.IsCancellationRequested);
+            return "safe result";
+        }, CancellationToken.None);
+        await Assert.ThrowsAsync<TimeoutException>(() => turn.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.True(callbackFinished);
+    }
+
+    [Fact]
+    public async Task SwallowedProgressFailurePreventsLaterToolExecution()
+    {
+        var expected = new NotSupportedException("Synthetic observer failure");
+        var executions = 0;
+        var provider = new CopilotChatTurnRunner(async (_, _, _, invoke, report, _) =>
+        {
+            Assert.Throws<NotSupportedException>(() => report(new(AiChatProgressKind.TextDelta, "Safe text")));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                invoke(new() { Id = "later", Name = "inspect_container" }, CancellationToken.None));
+            return "Must not finish";
+        });
+        var actual = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            provider.RunTurnAsync(Request() with { Progress = _ => throw expected }, Tools, (_, _) =>
+            {
+                executions++;
+                return Task.FromResult("Must not execute");
+            }, CancellationToken.None));
+        Assert.Same(expected, actual);
+        Assert.Equal(0, executions);
+    }
+
+    [Fact]
+    public async Task SdkDeltasPublishRealIncrementalProseButPersistOnlyCompletedMessage()
+    {
+        var events = new List<AiChatProgress>();
+        var provider = new CopilotChatTurnRunner((_, _, _, _, progress, complete, _) =>
+        {
+            var stream = new CopilotChatTurnRunner.MessageStream(progress, complete);
+            stream.Append("message-1", "Inspecting the ");
+            Assert.Empty(events);
+            stream.Append("message-1", "container. ");
+            Assert.Equal("Inspecting the container. ", Assert.Single(events).Text);
+            stream.Append("message-1", "It is healthy.");
+            Assert.Single(events);
+            stream.Complete("message-1", "Inspecting the container. It is healthy.");
+            Assert.False(stream.HasPendingMessage);
+            Assert.Equal(2, events.Count);
+            return Task.FromResult("Inspecting the container. It is healthy.");
+        });
+        var result = await provider.RunTurnAsync(Request() with { Progress = events.Add }, Tools,
+            (_, _) => throw new InvalidOperationException("Must not execute"), CancellationToken.None);
+        Assert.Equal(result.FinalText, string.Concat(events.Select(update => update.Text)));
+        Assert.Equal(result.FinalText, Assert.Single(result.Messages).Content);
+    }
+
+    [Fact]
+    public void SdkStructuredFragmentsAreHeldUntilValidatedCompletionAndSanitized()
+    {
+        var events = new List<AiChatProgress>();
+        var messages = new List<string>();
+        var stream = new CopilotChatTurnRunner.MessageStream(events.Add, messages.Add);
+        stream.Append("message-1", "{\"password\":\"synthetic-");
+        stream.Append("message-1", "sdk-secret\",\"status\":\"ok\"}");
+        Assert.Empty(events);
+        Assert.Empty(messages);
+        stream.Complete("message-1", "{\"password\":\"synthetic-sdk-secret\",\"status\":\"ok\"}");
+        Assert.DoesNotContain("synthetic-sdk-secret", string.Concat(events.Select(update => update.Text)));
+        Assert.Contains("ok", Assert.Single(events).Text);
+        Assert.Single(messages);
+    }
+
+    [Theory]
+    [InlineData("different-message", "The container is healthy.")]
+    [InlineData("message-1", "A rewritten message.")]
+    public void SdkCompletionMustMatchMessageIdentityAndAllReceivedDeltas(string id, string content)
+    {
+        var events = new List<AiChatProgress>();
+        var messages = new List<string>();
+        var stream = new CopilotChatTurnRunner.MessageStream(events.Add, messages.Add);
+        stream.Append("message-1", "The container");
+        Assert.True(stream.HasPendingMessage);
+        Assert.Throws<InvalidOperationException>(() => stream.Complete(id, content));
+        Assert.Empty(events);
+        Assert.Empty(messages);
+    }
+
+    [Fact]
+    public void SdkDuplicateCompletedMessagesAndLateDeltasFailClosed()
+    {
+        var events = new List<AiChatProgress>();
+        var stream = new CopilotChatTurnRunner.MessageStream(events.Add, _ => { });
+        stream.Complete("message-1", "Healthy.");
+        Assert.Throws<InvalidOperationException>(() => stream.Complete("message-1", "Healthy."));
+        Assert.Throws<InvalidOperationException>(() => stream.Append("message-1", "Late text."));
+        Assert.Single(events);
+    }
+
+    [Fact]
+    public async Task ResetSuppressesLaterSafeStreamingSegmentsAndCompleteMessage()
+    {
+        using var reset = new CancellationTokenSource();
+        var events = new List<AiChatProgress>();
+        var provider = new CopilotChatTurnRunner((_, _, _, _, progress, complete, _) =>
+        {
+            var stream = new CopilotChatTurnRunner.MessageStream(progress, complete);
+            stream.Append("message-1", "Inspecting. ");
+            reset.Cancel();
+            stream.Append("message-1", "Old result. ");
+            stream.Complete("message-1", "Inspecting. Old result. ");
+            return Task.FromResult("Inspecting. Old result. ");
+        });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.RunTurnAsync(
+            Request() with { Progress = events.Add }, Tools,
+            (_, _) => throw new InvalidOperationException("Must not execute"), reset.Token));
+        Assert.Equal("Inspecting. ", Assert.Single(events).Text);
+    }
 }
