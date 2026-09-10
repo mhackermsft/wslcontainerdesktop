@@ -48,7 +48,8 @@ internal sealed class AiContractHarness
 
     public AiContractHarness(Func<ISettingsService, IAssistantToolset>? toolsetFactory = null,
         Func<ISettingsService, IEnumerable<IAiChatProvider>>? providerFactory = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IWslcCapabilitiesService? engineCapabilities = null)
     {
         Settings = NetworkTestProxy.Create<ISettingsService>((method, args) =>
         {
@@ -78,7 +79,7 @@ internal sealed class AiContractHarness
             return null;
         });
         Assistant = new(Settings, providerFactory?.Invoke(Settings) ?? [Provider], toolsetFactory?.Invoke(Settings) ?? Tools,
-            new AssistantActionGate(Settings), activity, Capabilities, timeProvider);
+            new AssistantActionGate(Settings), activity, Capabilities, timeProvider, engineCapabilities);
     }
 
     public static AiToolCall Call(string name = "stop_container", string arguments = """{"id":"approved-id"}""") =>

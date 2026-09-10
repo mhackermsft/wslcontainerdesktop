@@ -47,7 +47,7 @@ public sealed class HealthSnapshot
 /// connect) per container and enforces a restart policy. Reuses <see cref="StatusMonitor"/> as
 /// the single container-polling source, so it never polls the engine list independently.
 /// </summary>
-public sealed class HealthWatchdog : IDisposable
+public sealed class HealthWatchdog : IDisposable, IAppHealthObservationSource
 {
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
@@ -71,6 +71,7 @@ public sealed class HealthWatchdog : IDisposable
     public event Action<string, string>? NotificationRequested;
 
     public HealthSnapshot Latest { get; private set; } = new();
+    public IReadOnlyList<ContainerHealthSnapshot> GetObservations() => Latest.Containers;
 
     public HealthWatchdog(IWslcService wslc, StatusMonitor monitor, ISettingsService settings,
         ILogger<HealthWatchdog> logger, RestartPolicyWatchdog restartWatchdog)

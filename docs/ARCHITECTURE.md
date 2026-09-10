@@ -204,8 +204,31 @@ including separate run/create health flags. Executable identity changes invalida
 and concurrent callers share probes. The minimum stays **WSLC 2.9.9.0**: optional integration uses
 native operations only with positive evidence, definite absence selects a documented legacy path,
 and unknown evidence surfaces a diagnostic. Never retry a failed native mutation through a fallback.
-`AiCapabilityGuidance` sends only feature names and detected states to diagnostics, not executable
-paths, raw help, errors or inspect data. Availability is not Docker parity or proof of app integration.
+`AiCapabilityGuidance.GetAsync` shares sanitized feature/state guidance with diagnosis, each chat
+turn and the read-only `engine_capabilities` tool. It excludes executable paths, raw help and probe
+errors, distinguishes partial/unavailable evidence from definitive absence, and does not infer
+optional flags from versions. Availability is not Docker parity or proof of app integration.
+
+`get_health_observations` reads immutable `IHealthObservationSource` snapshots from the existing
+`StatusMonitor`, plus `IAppHealthObservationSource` results from `HealthWatchdog`; neither read
+starts probes or auto-heal. Native evidence has an explicit conservative 15-second display window;
+watchdog rows use their own maximum age and must match the poller's container ID/start generation.
+Stale evidence becomes Unknown, retaining timestamps/age. Engine path changes or unavailable
+inventory suppress prior observations. Native/process/app-supervision states remain separate.
+`get_volume_usage` invokes the existing `VolumeUsageResolver` over an all-container inventory and
+projects its Exact/Partial/Estimated/Unknown/Unused classifications, scan timestamps and diagnostic
+completeness. It is a non-atomic mount scan, not disk consumption or deletion authorization.
+`k8s_status` remains available on failed/unknown discovery; mutation tools require observed
+Running/Stopped cluster state.
+
+Saved-project assistant lifecycle tools accept only an exact `projectName` from saved inventory:
+`start_compose_project` maps to Up, `stop_compose_project` to Stop, `restart_compose_project` to
+Restart, and `down_compose_project` to Down (volumes retained). All use the same private review
+binder as generated/template Compose, with a supervisor token held in a trusted closure, mandatory
+explicit approval, retirement on decline and saved-source revalidation. No provider approval flag,
+service filter or volume-deletion switch is accepted. Shared supervisor ownership, dependency,
+manual-stop suppression and revalidation remain authoritative; results use the common sanitized
+per-instance outcome formatter, never internal execution objects.
 
 `VolumeUsageResolver` builds one bounded inspect snapshot across all containers, including stopped
 containers and volumes shared by several containers. `Exact`, `Partial`, `Unknown`, `Estimated` and

@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- SDK binding tests never launch or acquire a CLI, including ordinary dotnet test builds. -->
+    <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <!-- A test-only entry point imports fixtures in a child with no inherited environment. -->
@@ -18,7 +20,10 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" Condition="'$(TargetFramework)' != 'net10.0-windows10.0.26100.0'" />
+    <!-- Match the already-audited app SDK graph for deterministic app-owned Copilot binding tests. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.7" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
@@ -112,6 +117,8 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessRunner.cs" Link="Services\ProcessRunner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessExecutor.cs" Link="Services\ProcessExecutor.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiCapabilityGuidance.cs" Link="Services\AiCapabilityGuidance.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IHealthObservationSource.cs" Link="Services\IHealthObservationSource.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IAppHealthObservationSource.cs" Link="Services\IAppHealthObservationSource.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NativeHealthOptions.cs" Link="Models\NativeHealthOptions.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NativeHealthObservation.cs" Link="Models\NativeHealthObservation.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\NativeHealthPolicy.cs" Link="Services\NativeHealthPolicy.cs" />
@@ -155,6 +162,8 @@
     <!-- Compile the real resolver without activating the packaged application or its I/O services. -->
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolset.cs" Link="Services\AssistantToolset.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolset.Compose.cs" Link="Services\AssistantToolset.Compose.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolset.Observations.cs" Link="Services\AssistantToolset.Observations.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\GitHubCopilotProvider.cs" Link="Services\GitHubCopilotProvider.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IKubernetesService.cs" Link="Services\IKubernetesService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\TemplateCatalog.cs" Link="Services\TemplateCatalog.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IUserTemplateStore.cs" Link="Services\IUserTemplateStore.cs" />
@@ -174,6 +183,9 @@
     <Compile Remove="ViewModels\ComposeDialogDoubles.cs" />
     <Compile Remove="Services\AssistantToolsetContractTests.cs" />
     <Compile Remove="Services\AssistantComposeContractTests.cs" />
+    <Compile Remove="Services\AssistantObservationContractTests.cs" />
+    <Compile Remove="Services\AssistantCatalogAdapterTests.cs" />
+    <Compile Remove="Services\CopilotSdkBindingTests.cs" />
     <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
     <Compile Remove="Services\ComposeReconciliationSupervisorTests.cs" />
     <Compile Remove="Services\DevContainerLifecycleTests.cs" />

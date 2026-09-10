@@ -65,9 +65,34 @@ public static class AiConversationContext
 
     public static int Measure(
         IReadOnlyList<AiChatMessage> messages, IReadOnlyList<AiToolDefinition> tools) =>
-        checked(JsonSerializer.SerializeToUtf8Bytes(new { messages, tools }).Length
+        checked(JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            messages,
+            // Every adapter sends a schema object, not JSON embedded in an escaped string.
+            // Account for the function envelope too, while retaining the protocol reserves.
+            tools = tools.Select(tool => new
+            {
+                type = "function",
+                function = new { name = tool.Name, description = tool.Description, parameters = ReadSchema(tool) },
+            }),
+        }).Length
             + 2_048 + messages.Count * 128 + tools.Count * 128
             + (messages.Any(m => m.Role == "system" && m.Content == TruncationNotice) ? 0 : 1_024));
+
+    private static JsonElement ReadSchema(AiToolDefinition tool)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(tool.JsonSchemaParameters);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException("Assistant tool schema must be a JSON object.");
+            return document.RootElement.Clone();
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("Assistant tool schema is invalid; no request was sent.", ex);
+        }
+    }
 
     public static IReadOnlyList<AiChatMessage> Prepare(
         IReadOnlyList<AiChatMessage> history,

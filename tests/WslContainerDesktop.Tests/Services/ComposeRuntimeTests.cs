@@ -119,7 +119,9 @@ public sealed class ComposeRuntimeTests
             if (name.EndsWith("_tail", StringComparison.Ordinal))
                 Assert.Contains(lease.RunId + "_client", lease.Started);
         };
-        var up = await supervisor.UpAsync(project, ct);
+        var review = await supervisor.PrepareReviewAsync(project, ct: ct);
+        Assert.True(review.Preview.CanApply);
+        var up = await supervisor.ApplyReviewedAsync(review, confirmed: true, ct: ct);
         Assert.True(up.AllSucceeded, string.Join("; ", up.Services.Select(s => s.Detail)));
         Assert.Equal(new[] { "job", "server", "client", "tail" }.Select(s => lease.RunId + "_" + s), lease.Started);
         lease.Record("dependency-order-verified", new { lease.Started });
@@ -208,31 +210,77 @@ public sealed class ComposeRuntimeTests
         Assert.Throws<InvalidOperationException>(() => ComposeRuntimeLease.RequireOwnership(unknown, "run", null));
     }
 
-    private static IComposeProjectStore CreateStore(ComposeProject project) =>
-        NetworkTestProxy.Create<IComposeProjectStore>((method, args) => method.Name switch
+    private static IComposeProjectStore CreateStore(ComposeProject project)
+    {
+        var allowedName = project.Name;
+        var saved = project;
+        return NetworkTestProxy.Create<IComposeProjectStore>((method, args) =>
         {
-            nameof(IComposeProjectStore.GetAll) => new List<ComposeProject> { project },
-            nameof(IComposeProjectStore.Get) => (string)args[0]! == project.Name ? project : null,
-            nameof(IComposeProjectStore.Save) when ReferenceEquals(args[0], project) => null,
-            _ => throw new InvalidOperationException($"Unapproved runtime store call {method.Name}."),
+            switch (method.Name)
+            {
+                case nameof(IComposeProjectStore.GetAll): return new List<ComposeProject> { saved };
+                case nameof(IComposeProjectStore.Get): return (string)args[0]! == allowedName ? saved : null;
+                // Reviewed apply saves a clone. Identity scopes this in-memory store; the
+                // runtime lease separately enforces immutable workload ownership.
+                case nameof(IComposeProjectStore.Save) when args[0] is ComposeProject snapshot &&
+                    snapshot.Name == allowedName:
+                    saved = snapshot;
+                    return null;
+                default: throw new InvalidOperationException($"Unapproved runtime store call {method.Name}.");
+            }
         });
+    }
 
-    [Fact]
-    public async Task RuntimeStoreAcceptsRealSupervisorSaveWithoutDiskOrEngine()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RuntimeStoreAcceptsRealSupervisorSaveWithoutDiskOrEngine(bool approve)
     {
         var project = new ComposeProject { Name = "synthetic" };
         var store = CreateStore(project);
+        var inventoryReads = 0;
         var service = NetworkTestProxy.Create<IWslcService>((method, _) =>
-            throw new InvalidOperationException($"Unexpected engine access {method.Name}."));
+        {
+            if (method.Name == nameof(IWslcService.ListContainersAsync))
+            {
+                inventoryReads++;
+                return Task.FromResult<IReadOnlyList<ContainerInfo>>([]);
+            }
+            throw new InvalidOperationException($"Unexpected engine access {method.Name}.");
+        });
         var settings = NetworkTestProxy.Create<ISettingsService>((method, _) =>
             throw new InvalidOperationException($"Unexpected settings access {method.Name}."));
-        var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) =>
-            throw new InvalidOperationException($"Unexpected capability access {method.Name}."));
+        var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) => method.Name switch
+        {
+            nameof(IWslcCapabilitiesService.Invalidate) => null,
+            nameof(IWslcCapabilitiesService.GetAsync) => Task.FromResult(
+                new WslcCapabilities("synthetic-engine", null, new Dictionary<WslcFeature, WslcCapability>())),
+            _ => throw new InvalidOperationException($"Unexpected capability access {method.Name}."),
+        });
+        var approvals = 0;
+        var presenter = NetworkTestProxy.Create<IComposeReviewPresenter>((method, args) =>
+        {
+            Assert.Equal(nameof(IComposeReviewPresenter.ConfirmAsync), method.Name);
+            Assert.True(((ComposeCompatibilityPreview)args[0]!).CanApply);
+            Assert.Same(project, store.Get(project.Name));
+            Assert.False(project.AppliedStateKnown);
+            approvals++;
+            return Task.FromResult(approve);
+        });
         var supervisor = new ComposeProjectSupervisor(service, store, settings,
-            NullLogger<ComposeProjectSupervisor>.Instance, capabilities, new HealthWatchdog(), new StatusMonitor());
-        Assert.True((await supervisor.UpAsync(project)).AllSucceeded);
-        Assert.Same(project, store.Get(project.Name));
-        Assert.Throws<InvalidOperationException>(() => store.Save(new ComposeProject { Name = project.Name }));
+            NullLogger<ComposeProjectSupervisor>.Instance, capabilities, new HealthWatchdog(), new StatusMonitor(),
+            reviewPresenter: presenter);
+        Assert.Equal(approve, (await supervisor.UpAsync(project)).AllSucceeded);
+        Assert.Equal(1, approvals);
+        Assert.True(inventoryReads > 0);
+        var saved = store.Get(project.Name)!;
+        Assert.Equal(approve, saved.AppliedStateKnown);
+        Assert.False(project.AppliedStateKnown);
+        if (approve) Assert.NotSame(project, saved);
+        else Assert.Same(project, saved);
+        Assert.Same(saved, Assert.Single(store.GetAll()));
+        Assert.Throws<InvalidOperationException>(() => store.Save(new ComposeProject { Name = "foreign" }));
+        Assert.Same(saved, store.Get(project.Name));
     }
 
     [Theory]

@@ -26,7 +26,8 @@ public sealed class ContainerAssistantService(
     IAssistantActionGate gate,
     IActivityLog activity,
     IAiCapabilityService capabilities,
-    TimeProvider? timeProvider = null) : IContainerAssistant
+    TimeProvider? timeProvider = null,
+    IWslcCapabilitiesService? engineCapabilities = null) : IContainerAssistant
 {
     private readonly List<AiChatMessage> _history = new() { new AiChatMessage { Role = "system", Content = SystemPrompt } };
     private readonly Dictionary<string, PendingApproval> _pending = new(StringComparer.Ordinal);
@@ -92,6 +93,7 @@ public sealed class ContainerAssistantService(
                 throw new InvalidOperationException("Assistant actions require observed chat and tool support. " + observation.NextStep);
             var definitions = (await tools.GetDefinitionsAsync(token).ConfigureAwait(false))
                 .Select(AiTextSanitizer.SanitizeDefinition).ToArray();
+            var engineContext = await AiCapabilityGuidance.GetAsync(engineCapabilities, token).ConfigureAwait(false);
             IReadOnlyList<AiChatMessage> snapshot;
             lock (_stateGate)
             {
@@ -99,6 +101,7 @@ public sealed class ContainerAssistantService(
                 if (!capabilities.GetCached(turn.Configuration).CanUseTools)
                     throw new InvalidOperationException("Tool capability observation changed before the request. Test capabilities again.");
                 turn.Definitions = definitions;
+                _history[0] = new AiChatMessage { Role = "system", Content = SystemPrompt + "\n\n" + engineContext };
                 snapshot = AiConversationContext.Prepare([.. _history, .. turn.Messages], definitions, turn.Configuration);
                 turn.PriorHistory = snapshot.Take(snapshot.Count - 1).ToArray();
             }
@@ -626,7 +629,10 @@ public sealed class ContainerAssistantService(
         Never claim you can access the host OS, host filesystem, credentials, secrets, arbitrary network tools, or arbitrary shell commands.
         Do not ask the user to run commands when an allowlisted tool can do the work.
         For WordPress/blog/database requests, prefer the WordPress compose template when available.
-        For ANY app that needs more than one container (e.g. app + database, app + cache, front end + API), deploy it with deploy_compose (or deploy_template), never as separate run_container calls: only compose gives the services a shared network so they resolve each other by service name over DNS. When writing compose YAML, reference other services by their service name as the host (e.g. WordPress WORDPRESS_DB_HOST=db).
+        For multi-container apps use deploy_compose (or deploy_template), not separate run_container calls. Compose manages shared networks and service DNS; respect its compatibility preview and network restrictions.
+        For saved projects use start_compose_project, stop_compose_project, restart_compose_project or down_compose_project, never independent container lifecycle calls. These always require explicit consequence approval; down retains volumes.
+        Use engine_capabilities for current optional CLI evidence, get_health_observations for cached native/app health (not a new probe), and get_volume_usage for a point-in-time shared mount scan. Unknown, stale, partial or estimated evidence is not proof of health or safe deletion.
+        k8s_status is available even when cluster evidence is unknown or unavailable. Missing mutation tools do not prove the cluster is absent.
         Use run_container only for a single standalone container.
         To answer questions about which image versions/tags exist in a configured remote registry, or what the newest tag is, use list_registry_repositories and list_registry_tags; do not guess tags. These browse configured ACR or private Docker Registry v2 hosts (Docker Hub's global catalog is not browsable).
         For bulk operations, call the bulk tool; the app will resolve the concrete target list and approval.
