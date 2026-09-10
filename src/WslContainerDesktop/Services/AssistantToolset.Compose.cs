@@ -21,6 +21,33 @@ namespace WslContainerDesktop.Services;
 
 public sealed partial class AssistantToolset
 {
+    private async Task<AssistantResolvedToolCall> ResolveComposeLifecycleAsync(
+        AiToolCall call, string projectName, CancellationToken ct)
+    {
+        var matches = composeStore.GetAll().Where(p =>
+            string.Equals(p.Name, projectName, StringComparison.Ordinal)).ToArray();
+        if (matches.Length != 1)
+            return ComposeBlocked(call, "Saved Compose project is missing or ambiguous. Select one exact name from list_compose_projects.");
+        var project = matches[0];
+        var snapshot = JsonSerializer.Serialize(project);
+        var operation = call.Name switch
+        {
+            "start_compose_project" => ComposeLifecycleOperation.Up,
+            "stop_compose_project" => ComposeLifecycleOperation.Stop,
+            "restart_compose_project" => ComposeLifecycleOperation.Restart,
+            "down_compose_project" => ComposeLifecycleOperation.Down,
+            _ => throw new InvalidOperationException("Unsupported project operation."),
+        };
+        var review = await composeSupervisor.PrepareReviewAsync(project,
+            new ComposeOperationRequest { Operation = operation }, ct).ConfigureAwait(false);
+        return await BindComposeReviewAsync(call, review, () =>
+        {
+            var current = composeStore.GetAll().Where(p =>
+                string.Equals(p.Name, projectName, StringComparison.Ordinal)).ToArray();
+            return current.Length == 1 && JsonSerializer.Serialize(current[0]) == snapshot;
+        }, ct).ConfigureAwait(false);
+    }
+
     private Task<AssistantResolvedToolCall> ResolveDeployComposeAsync(
         AiToolCall call, JsonElement args, CancellationToken ct) =>
         PrepareComposeAsync(call, StringArg(args, "yaml"), OptionalStringArg(args, "projectName"), null, ct);
@@ -75,6 +102,14 @@ public sealed partial class AssistantToolset
 
         var sourceSnapshot = JsonSerializer.Serialize(project);
         var review = await composeSupervisor.PrepareReviewAsync(project, ct: ct).ConfigureAwait(false);
+        return await BindComposeReviewAsync(call, review, () =>
+            (sourceUnchanged is null || sourceUnchanged()) &&
+            JsonSerializer.Serialize(ParseComposeInput(yaml, projectName)) == sourceSnapshot, ct).ConfigureAwait(false);
+    }
+
+    private async Task<AssistantResolvedToolCall> BindComposeReviewAsync(
+        AiToolCall call, ComposeReviewToken review, Func<bool> sourceUnchanged, CancellationToken ct)
+    {
         var preview = review.Preview;
         var details = AiTextSanitizer.Redact($"{preview.Summary}\nExpires: {review.ExpiresAt:O}\n" +
             string.Join("\n\n", preview.Settings.Select(row => $"{row.Summary}\n{row.Detail}")));
@@ -97,8 +132,7 @@ public sealed partial class AssistantToolset
                 ComposeReviewOutcomeKind? sourceRefusal = null;
                 try
                 {
-                    if (sourceUnchanged is not null && !sourceUnchanged() ||
-                        JsonSerializer.Serialize(ParseComposeInput(yaml, projectName)) != sourceSnapshot)
+                    if (!sourceUnchanged())
                         sourceRefusal = ComposeReviewOutcomeKind.Stale;
                 }
                 catch (Exception ex) when (IsComposeInputFailure(ex))
@@ -113,7 +147,7 @@ public sealed partial class AssistantToolset
                     return ComposeResult(new()
                     {
                         Kind = kind,
-                        Message = "Compose source, interpolation or template changed or became unavailable. Nothing applied; resolve the input and review again. Technical values withheld.",
+                        Message = "Compose source, saved project, interpolation or template changed or became unavailable. Nothing applied; resolve the input and review again. Technical values withheld.",
                     });
                 }
                 var outcome = await composeSupervisor.ApplyReviewedAsync(review, true, ct: token).ConfigureAwait(false);

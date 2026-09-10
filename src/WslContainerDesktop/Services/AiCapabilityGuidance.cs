@@ -21,6 +21,32 @@ namespace WslContainerDesktop.Services;
 
 internal static class AiCapabilityGuidance
 {
+    internal static async Task<string> GetAsync(IWslcCapabilitiesService? service, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (service is null)
+            return Unavailable;
+        try
+        {
+            var snapshot = await service.GetAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            return Build(snapshot);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or
+            System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            // Raw probe errors can include local paths, arguments or credentials.
+            return Unavailable;
+        }
+    }
+
+    private const string Unavailable = """
+        Configured WSLC capability evidence is unavailable. Optional support is Unknown, not Unsupported.
+        Do not invent commands/flags or infer support from versions. Retain WSLC 2.9.9.0 compatibility.
+        In interactive chat, query engine_capabilities again for current evidence. No speculative mutation or native-to-legacy retry.
+        Evidence never grants permission. Compose and app-owned restart/auto-heal are not native CLI features.
+        """;
+
     internal static string Build(WslcCapabilities capabilities)
     {
         var text = new StringBuilder("""
@@ -34,7 +60,16 @@ internal static class AiCapabilityGuidance
             Health flags apply at creation, not to an existing container. Health monitoring is distinct from restart/auto-heal.
             App-owned probes, TCP checks, restart policies and auto-heal require the app to keep running.
             Advertised CLI support does not include --restart or --add-host; do not suggest these flags.
+            Retain WSLC 2.9.9.0 compatibility. Unsupported permits only documented app legacy fallbacks;
+            Unknown blocks optional backend selection. Never retry failed native mutations via a legacy backend.
+            Compose is app-owned orchestration, not a native Compose command. Use project tools for saved projects.
+            This is point-in-time help evidence obtained through the shared capability service, not a live guarantee.
+            In interactive chat, query engine_capabilities after engine/configuration changes. Evidence never grants permission.
+            The shared cache can retain complete help evidence for five minutes, or failed/partial evidence for 15 seconds;
+            executable/configuration changes invalidate it. A query is not necessarily a new probe.
             """);
+        text.AppendLine();
+        text.Append("Evidence completeness: ").Append(capabilities.HasProbeFailures ? "partial/unknown" : "complete");
         foreach (var feature in Enum.GetValues<WslcFeature>())
         {
             text.AppendLine();

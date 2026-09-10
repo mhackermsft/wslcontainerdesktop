@@ -23,6 +23,38 @@ namespace WslContainerDesktop.Tests.Services;
 public sealed class AiCapabilityGuidanceTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiagnosisUsesSameSafeContextEvenWhenEvidenceIsUnavailable(bool unavailable)
+    {
+        var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((_, _) => unavailable
+            ? Task.FromException<WslcCapabilities>(new IOException("private-probe-path"))
+            : Task.FromResult(new WslcCapabilities("private-path", "private-version",
+                new Dictionary<WslcFeature, WslcCapability>
+                {
+                    [WslcFeature.NetworkConnect] = new(WslcCapabilitySupport.Unsupported),
+                })));
+        var engine = NetworkTestProxy.Create<IWslcService>((_, _) => Task.FromResult(new CommandResult()));
+        var activity = NetworkTestProxy.Create<IActivityLog>((_, _) =>
+            new System.Collections.ObjectModel.ObservableCollection<ActivityEvent>());
+        var service = new AiDiagnosticsService(engine, activity, new AiContractHarness().Settings,
+            capabilities, [], Microsoft.Extensions.Logging.Abstractions.NullLogger<AiDiagnosticsService>.Instance);
+        var preview = await service.BuildPreviewAsync(new ContainerInfo
+            { Name = "fixture", Id = "fixture", StateValue = (int)ContainerState.Stopped });
+        Assert.Contains(await AiCapabilityGuidance.GetAsync(capabilities, default), preview.Request.SystemPrompt);
+        Assert.DoesNotContain("private-", preview.Request.SystemPrompt);
+        Assert.Contains(unavailable ? "unavailable" : "NetworkConnect: Unsupported", preview.Request.SystemPrompt);
+    }
+
+    [Fact]
+    public async Task CancelledCapabilityLookupNeverReturnsUnavailableFallback()
+    {
+        var service = NetworkTestProxy.Create<IWslcCapabilitiesService>((_, _) =>
+            Task.FromException<WslcCapabilities>(new OperationCanceledException()));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AiCapabilityGuidance.GetAsync(service, default));
+    }
+
+    [Theory]
     [InlineData(WslcCapabilitySupport.Supported)]
     [InlineData(WslcCapabilitySupport.Unsupported)]
     [InlineData(WslcCapabilitySupport.Unknown)]

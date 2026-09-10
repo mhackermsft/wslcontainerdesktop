@@ -27,6 +27,132 @@ public sealed class AssistantComposeContractTests
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(15);
     private const string BasicYaml = "services:\n  web:\n    image: fixture\n";
+    [Theory]
+    [InlineData("start_compose_project")]
+    [InlineData("stop_compose_project")]
+    [InlineData("restart_compose_project")]
+    [InlineData("down_compose_project")]
+    public async Task SavedProjectLifecycleRequiresExplicitApprovalAndUsesSharedSupervisor(string name)
+    {
+        var f = new Fixture(presenterAvailable: false);
+        Assert.True((await f.Supervisor.ApplyReviewedAsync(
+            await f.Supervisor.PrepareReviewAsync(f.Project), true)).AllSucceeded);
+        f.Engine.Mutations.Clear();
+        f.SavedSnapshots.Clear();
+        var h = Harness(f);
+        h.AutoApproved.Add(name);
+        string? output = null;
+        h.Provider.Turns.Enqueue(async (invoke, ct) => output =
+            await invoke(AiContractHarness.Call(name, """{"projectName":"demo"}"""), ct));
+        var requested = Approval(h);
+        var turn = h.Assistant.SendAsync("operate on demo");
+        var approval = await requested.Task.WaitAsync(Deadline);
+        Assert.Empty(f.Engine.Mutations);
+        Assert.Empty(f.SavedSnapshots);
+        await h.Assistant.ApproveAsync(approval);
+        await turn.WaitAsync(Deadline);
+        AssertKind(output!, "Applied");
+        Assert.Empty(f.Reviews);
+        Assert.DoesNotContain(f.Engine.Mutations, m => m.StartsWith("volume-remove:", StringComparison.Ordinal));
+        if (name == "stop_compose_project")
+        {
+            Assert.Contains(f.Engine.Mutations, m => m.StartsWith("stop:", StringComparison.Ordinal));
+            Assert.All(f.SavedProject!.AppliedServices.Values, s => Assert.True(s.ManuallyStopped));
+            Assert.Empty(f.RestartPolicies);
+            Assert.Contains("\"stopped\"", output);
+        }
+        if (name == "restart_compose_project")
+        {
+            Assert.Contains(f.Engine.Mutations, m => m.StartsWith("stop:", StringComparison.Ordinal));
+            Assert.Contains(f.Engine.Mutations, m => m.StartsWith("start:", StringComparison.Ordinal));
+        }
+        if (name == "down_compose_project")
+        {
+            Assert.Contains(f.Engine.Mutations, m => m.StartsWith("remove:", StringComparison.Ordinal));
+            Assert.Contains("\"removed\"", output);
+        }
+    }
+
+    [Theory]
+    [InlineData("start_compose_project")]
+    [InlineData("stop_compose_project")]
+    [InlineData("restart_compose_project")]
+    [InlineData("down_compose_project")]
+    public async Task SavedProjectLifecycleRejectsWideningAndChangedSavedTarget(string name)
+    {
+        var f = new Fixture();
+        var tools = Tools(f);
+        foreach (var args in new[] { "{}", """{"projectName":7}""",
+                     """{"projectName":"demo","confirmed":true}""", """{"projectName":"demo","services":["web"]}""",
+                     """{"projectName":"demo","removeVolumes":true}""" })
+            await Assert.ThrowsAsync<InvalidOperationException>(() => tools.ResolveAsync(AiContractHarness.Call(name, args), default));
+        var missing = await tools.ResolveAsync(AiContractHarness.Call(name, """{"projectName":"dem"}"""), default);
+        Assert.NotNull(missing.BlockedResult);
+        var resolved = await tools.ResolveAsync(AiContractHarness.Call(name, """{"projectName":"demo"}"""), default);
+        f.Project.Services[0].Options.Image = "changed";
+        AssertKind(await resolved.ExecuteAsync(default), "Stale");
+        AssertKind(await resolved.ExecuteAsync(default), "AlreadyUsed");
+        Assert.Empty(f.Engine.Mutations);
+    }
+
+    [Theory]
+    [InlineData(WslcCapabilitySupport.Supported)]
+    [InlineData(WslcCapabilitySupport.Unsupported)]
+    [InlineData(WslcCapabilitySupport.Unknown)]
+    public async Task SavedProjectStartPreservesBackendEvidenceAndRefusal(WslcCapabilitySupport support)
+    {
+        var f = new Fixture(support);
+        var resolved = await Tools(f).ResolveAsync(
+            AiContractHarness.Call("start_compose_project", """{"projectName":"demo"}"""), default);
+        if (support == WslcCapabilitySupport.Unknown)
+        {
+            AssertKind(resolved.BlockedResult!, "Blocked");
+            Assert.Empty(f.Engine.Mutations);
+            return;
+        }
+        Assert.Contains(support == WslcCapabilitySupport.Supported ? "NativeCreateConnectStart" : "LegacyRun", resolved.Details);
+        Assert.True(resolved.RequiresExplicitApproval);
+        AssertKind(await resolved.DeclineAsync!(), "Cancelled");
+        AssertKind(await resolved.ExecuteAsync(default), "AlreadyUsed");
+        Assert.Empty(f.Engine.Mutations);
+    }
+
+    [Theory]
+    [InlineData("stop_compose_project", "stop:demo_worker", "stop:demo_web")]
+    [InlineData("down_compose_project", "remove:demo_worker", "remove:demo_web")]
+    [InlineData("restart_compose_project", "start:demo_web", "start:demo_worker")]
+    public async Task SavedProjectLifecycleKeepsDependencyOrderAndUnrelatedContainers(
+        string name, string first, string second)
+    {
+        var f = new Fixture();
+        var worker = Options("demo_worker");
+        worker.Labels[ComposeProject.ServiceLabel] = "worker";
+        f.Project.Services.Add(new() { Name = "worker", Options = worker,
+            DependsOn = [new() { ServiceName = "web" }] });
+        Assert.True((await f.Supervisor.ApplyReviewedAsync(
+            await f.Supervisor.PrepareReviewAsync(f.Project), true)).AllSucceeded);
+        f.Engine.Add(new() { Name = "unrelated", Image = "fixture" });
+        f.Engine.Mutations.Clear();
+        var resolved = await Tools(f).ResolveAsync(AiContractHarness.Call(name, """{"projectName":"demo"}"""), default);
+        AssertKind(await resolved.ExecuteAsync(default), "Applied");
+        Assert.True(f.Engine.Mutations.IndexOf(first) >= 0);
+        Assert.True(f.Engine.Mutations.IndexOf(second) > f.Engine.Mutations.IndexOf(first));
+        Assert.DoesNotContain(f.Engine.Mutations, m => m.Contains("unrelated", StringComparison.Ordinal));
+        Assert.Contains("unrelated", f.Engine.Containers.Keys);
+    }
+
+    [Theory]
+    [InlineData("stop_compose_project")]
+    [InlineData("restart_compose_project")]
+    [InlineData("down_compose_project")]
+    public async Task SavedProjectLifecycleRejectsUnownedMatchingName(string name)
+    {
+        var f = new Fixture();
+        f.Engine.Add(new() { Name = "demo_web", Image = "fixture" });
+        var resolved = await Tools(f).ResolveAsync(AiContractHarness.Call(name, """{"projectName":"demo"}"""), default);
+        AssertKind(resolved.BlockedResult!, "Blocked");
+        Assert.Empty(f.Engine.Mutations);
+    }
     private const string NetworkYaml = """
         services:
           web:
@@ -471,7 +597,9 @@ public sealed class AssistantComposeContractTests
         new(f.Engine.Service,
             NetworkTestProxy.Create<IKubernetesService>((_, _) => Task.FromResult(new ClusterStatus { State = ClusterState.NotInstalled })),
             NetworkTestProxy.Create<ITemplateCatalog>((_, _) => templates ?? Templates(BasicYaml)),
-            NetworkTestProxy.Create<IComposeProjectStore>((_, _) => throw new InvalidOperationException("Assistant must not save before review")),
+            NetworkTestProxy.Create<IComposeProjectStore>((method, _) => method.Name == nameof(IComposeProjectStore.GetAll)
+                ? new List<ComposeProject> { f.SavedProject ?? f.Project }
+                : throw new InvalidOperationException("Assistant must not save before review")),
             f.Supervisor,
             settings ?? NetworkTestProxy.Create<ISettingsService>((_, _) => new List<RegistryEntry>()),
             NetworkTestProxy.Create<IRegistryCatalogService>((_, _) => throw new InvalidOperationException("Unexpected registry access")));

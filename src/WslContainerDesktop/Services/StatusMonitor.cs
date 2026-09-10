@@ -49,7 +49,7 @@ public sealed class K8sStatusSnapshot
 /// on the UI thread. Acts as the single source of truth for container health so the
 /// tray icon and the Containers page do not poll independently.
 /// </summary>
-public sealed class StatusMonitor : IDisposable
+public sealed class StatusMonitor : IDisposable, IHealthObservationSource
 {
     private readonly IWslcService _wslc;
     private readonly IKubernetesService _k8s;
@@ -80,6 +80,8 @@ public sealed class StatusMonitor : IDisposable
     public event EventHandler<K8sStatusSnapshot>? K8sStatusChanged;
 
     public EngineStatusSnapshot? Latest { get; private set; }
+    private HealthObservationSnapshot? _healthObservations;
+    public HealthObservationSnapshot? GetSnapshot() => Volatile.Read(ref _healthObservations);
 
     public K8sStatusSnapshot? LatestK8s { get; private set; }
 
@@ -240,6 +242,8 @@ public sealed class StatusMonitor : IDisposable
         try
         {
         EngineStatusSnapshot snapshot;
+        var executablePath = _settings.WslcPath;
+        var observedAt = DateTimeOffset.UtcNow;
         try
         {
             var engineUp = await _wslc.IsEngineAvailableAsync().ConfigureAwait(false);
@@ -285,6 +289,11 @@ public sealed class StatusMonitor : IDisposable
 
         var previous = Latest;
         Latest = snapshot;
+        Volatile.Write(ref _healthObservations, new HealthObservationSnapshot(executablePath, observedAt,
+            snapshot.Health is EngineHealth.Healthy or EngineHealth.Degraded &&
+                string.Equals(executablePath, _settings.WslcPath, StringComparison.OrdinalIgnoreCase),
+            snapshot.Containers.Select(c => new HealthObservationRow(c.Id, c.Name, c.State,
+                c.NativeHealth.State, c.NativeHealth.ObservedAt, c.StateChangedAt)).ToArray()));
 
         DetectAndNotifyTransitions(previous, snapshot);
 

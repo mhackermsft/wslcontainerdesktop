@@ -27,7 +27,10 @@ public sealed partial class AssistantToolset(
     IComposeProjectStore composeStore,
     ComposeProjectSupervisor composeSupervisor,
     ISettingsService settings,
-    IRegistryCatalogService registryCatalog) : IAssistantToolset
+    IRegistryCatalogService registryCatalog,
+    IWslcCapabilitiesService? engineCapabilities = null,
+    IHealthObservationSource? healthObservations = null,
+    IAppHealthObservationSource? appHealthObservations = null) : IAssistantToolset
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -42,7 +45,15 @@ public sealed partial class AssistantToolset(
             Tool("list_volumes", "List volumes."),
             Tool("list_networks", "List networks."),
             Tool("engine_status", "Check WSL container engine availability and version."),
+            Tool("engine_capabilities", "Read current shared configured-engine capability evidence. Supported, Unsupported and Unknown are distinct; partial/unavailable evidence never authorizes optional flags or speculative mutations. No version inference."),
+            Tool("get_health_observations", "Read cached native health from StatusMonitor and app watchdog observations without polling, probes or auto-heal. Includes timestamps, age and unknown/stale status; native health, app supervision and process state are distinct."),
+            Tool("get_volume_usage", "Read a point-in-time mount usage scan through the shared volume resolver, including stopped containers. Exact, Partial, Estimated, Unknown and Unused are distinct; incomplete evidence never proves safe deletion. Not volume disk consumption."),
+            Tool("k8s_status", "Read cluster evidence, explicitly distinguishing NotInstalled, Unknown and unavailable. Missing tools are not proof of absence."),
             Tool("list_compose_projects", "List saved compose projects."),
+            Tool("start_compose_project", "Review and bring up one exact saved Compose project through its supervisor, including dependencies. Always requires explicit consequence approval; may create or reconcile instances, not merely start containers."),
+            Tool("stop_compose_project", "Review and stop one exact saved Compose project through its supervisor in dependency order, preserving manual-stop suppression. Always requires explicit consequence approval."),
+            Tool("restart_compose_project", "Review and restart one exact saved Compose project through its supervisor, preserving ownership and supervision. Always requires explicit consequence approval."),
+            Tool("down_compose_project", "Review and remove owned containers for one exact saved Compose project through its supervisor. Retains volumes; no volume deletion argument. Always requires explicit consequence approval."),
             Tool("run_container", "Run a container from structured options. Use for simple deployments such as nginx. Set gpus=true for GPU workloads (e.g. Ollama, CUDA)."),
             Tool("pull_image", "Pull a container image reference."),
             Tool("start_container", "Start a container by id or name."),
@@ -72,10 +83,9 @@ public sealed partial class AssistantToolset(
         try
         {
             var status = await kubernetes.GetStatusAsync(ct).ConfigureAwait(false);
-            if (status.State is not ClusterState.NotInstalled)
+            if (status.State is ClusterState.Running or ClusterState.Stopped)
             {
                 definitions.AddRange([
-                    Tool("k8s_status", "Get k3s cluster status."),
                     Tool("list_k8s_resources", "List k3s resources by kind: pods, deployments, services, ingresses, pvc, configmaps, secrets, jobs, cronjobs, namespaces."),
                     Tool("get_k8s_logs", "Get recent logs for a pod."),
                     Tool("apply_yaml", "Apply a Kubernetes YAML manifest."),
@@ -91,9 +101,9 @@ public sealed partial class AssistantToolset(
         {
             throw;
         }
-        catch
+        catch (Exception ex) when (IsEvidenceFailure(ex))
         {
-            // If status probing fails, do not expose k3s tools.
+            // Keep k8s_status available to report unavailable evidence; do not expose speculative actions.
         }
 
         return definitions;
@@ -112,7 +122,12 @@ public sealed partial class AssistantToolset(
             "list_volumes" => Resolved(call, AssistantPermissionCategory.ReadOnly, "List volumes", "", token => ListVolumesAsync(token)),
             "list_networks" => Resolved(call, AssistantPermissionCategory.ReadOnly, "List networks", "", token => ListNetworksAsync(token)),
             "engine_status" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Check engine status", "", token => EngineStatusAsync(token)),
+            "engine_capabilities" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Read engine capabilities", "", token => AiCapabilityGuidance.GetAsync(engineCapabilities, token)),
+            "get_health_observations" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Read cached native health", "", _ => Task.FromResult(GetHealthObservations())),
+            "get_volume_usage" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Read volume usage", "", GetVolumeUsageAsync),
             "list_compose_projects" => Resolved(call, AssistantPermissionCategory.ReadOnly, "List compose projects", "", _ => Task.FromResult(ListComposeProjects())),
+            "start_compose_project" or "stop_compose_project" or "restart_compose_project" or "down_compose_project" =>
+                await ResolveComposeLifecycleAsync(call, StringArg(args, "projectName"), ct).ConfigureAwait(false),
             "run_container" => ResolveRunContainer(call, args),
             "pull_image" => Resolved(call, AssistantPermissionCategory.CreateRun, $"Pull image {StringArg(args, "reference")}", call.ArgumentsJson, token => PullImageAsync(StringArg(args, "reference"), token)),
             "start_container" or "stop_container" or "restart_container" or "remove_container" =>
@@ -357,8 +372,21 @@ public sealed partial class AssistantToolset(
     private static string DisplayName(RegistryEntry entry) =>
         string.IsNullOrWhiteSpace(entry.Name) ? entry.Host : entry.Name;
 
-    public async Task<string> K8sStatusAsync(CancellationToken ct) =>
-        JsonSerializer.Serialize(await kubernetes.GetStatusAsync(ct).ConfigureAwait(false), JsonOptions);
+    public async Task<string> K8sStatusAsync(CancellationToken ct)
+    {
+        try
+        {
+            var status = await kubernetes.GetStatusAsync(ct).ConfigureAwait(false);
+            return JsonSerializer.Serialize(new { state = status.State.ToString(), observedAt = DateTimeOffset.UtcNow,
+                evidence = status.State == ClusterState.Unknown ? "unknown" : "observed",
+                detail = status });
+        }
+        catch (Exception ex) when (IsEvidenceFailure(ex))
+        {
+            return JsonSerializer.Serialize(new { state = "Unknown", evidence = "unavailable",
+                message = "Cluster evidence is unavailable, not proof the cluster is absent. No speculative cluster actions." });
+        }
+    }
 
     public async Task<string> ListK8sResourcesAsync(string kind, string? ns, CancellationToken ct)
     {
@@ -666,6 +694,7 @@ public sealed partial class AssistantToolset(
     private static string ArgumentSchema(string tool) => tool switch
     {
         "list_containers" or "list_images" or "list_volumes" or "list_networks" or "engine_status" or
+            "engine_capabilities" or "get_health_observations" or "get_volume_usage" or
             "list_compose_projects" or "k8s_status" or "cluster_start" or "cluster_stop" =>
             """{"type":"object","properties":{},"additionalProperties":false}""",
         "inspect_container" or "start_container" or "stop_container" or "restart_container" or "remove_container" =>
@@ -673,6 +702,8 @@ public sealed partial class AssistantToolset(
         "get_container_logs" => ObjectSchema(("id", "string", ""), ("tail", "integer", "")),
         "pull_image" => ObjectSchema(("reference", "string", "")),
         "deploy_template" => ObjectSchema(("idOrName", "string", "Existing template ID or name. Compose templates use the same explicit consequence review as deploy_compose; catalog changes invalidate approval.")),
+        "start_compose_project" or "stop_compose_project" or "restart_compose_project" or "down_compose_project" =>
+            ObjectSchema(("projectName", "string", "Exact saved project name from list_compose_projects. No filters, approval flags or scope expansion.")),
         "create_volume" or "remove_volume" or "create_network" or "remove_network" => ObjectSchema(("name", "string", "")),
         "list_registry_repositories" => ObjectSchema(("registry", "string", "")),
         "list_registry_tags" => ObjectSchema(("registry", "string", ""), ("repository", "string", "")),

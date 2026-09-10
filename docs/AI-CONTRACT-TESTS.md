@@ -554,6 +554,43 @@ WSLC inspect variants still require explicitly authorized disposable smoke runs.
   acquisition is implemented by #88. Real-provider/hardware behavior remains
   subject to the explicit opt-in smoke policy below.
 
+## Current engine evidence and saved-project tools (#93)
+
+`AssistantObservationContractTests` uses the real toolset and assistant service with strict
+in-memory engine/capability/health sources. It covers native/legacy/unknown capability states,
+changed evidence within a turn and refreshed next-turn prompts, unavailable capability/cluster
+evidence, positive cluster exposure, native observation age/staleness, changed-engine refusal,
+app observation identity/generation/age checks, and zero probe/inventory calls for health reads.
+The real shared volume resolver covers stopped-container users, complete empty inventory,
+Exact/Partial/Estimated/Unknown/Unused results, failed inventories and engine changes during
+scans. Read-only schemas reject extra fields before I/O. Raw probe errors, commands and local
+paths are withheld.
+
+`AssistantComposeContractTests` additionally exercises all four saved-project tools through
+the real approval gate/supervisor: forced approval despite auto-approval, no pre-approval writes,
+shared Stopped/Removed outcomes, retained volumes, manual-stop suppression, exact-name selection,
+schema rejection of scope/confirmation/deletion flags, changed saved-target refusal, single-use
+tokens, tri-state backend evidence and decline. Generated/template coverage below continues to
+exercise the same extracted review binder and outcome formatter.
+
+The health seam does not test DispatcherQueue scheduling or actual watchdog TCP/command probes.
+Its native display freshness window is conservatively 15 seconds; cached Absent/Disabled
+observations may therefore display stale before the poller's five-minute absence cache expires.
+Volume scans are not atomic and do not close an inspect/delete race. No provider or engine
+response is permission; source evidence and backend revalidation remain independent of the AI
+positive capability gate and journal.
+
+Run the combined offline contracts without deployment:
+
+```powershell
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~Assistant|FullyQualifiedName~Ai|FullyQualifiedName~Compose|FullyQualifiedName~VolumeUsageResolver|FullyQualifiedName~WslcCapabilitiesService"
+```
+
+Remaining #95/#86 integration scope is unchanged: packaged approval/progress/accessibility
+presentation and actual StatusMonitor/watchdog dispatch, live WSLC help/inspect schema variants,
+real provider/SDK behavior, and disposable native/legacy lifecycle/volume runs require separate
+explicit authorization. #92 Foundry remains a separate draft and is not included in this branch.
+
 ## Shared Compose consequence approval (#94)
 
 `AssistantComposeContractTests` runs the real toolset, assistant gate/journal, importer,

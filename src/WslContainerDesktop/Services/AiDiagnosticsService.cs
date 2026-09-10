@@ -79,8 +79,7 @@ public sealed class AiDiagnosticsService(
         Append(evidence, "Recent activity", string.Join('\n', recent));
 
         var payload = AiTextSanitizer.Sanitize(evidence.ToString(), AiTextSanitizer.DiagnosticLimit);
-        var snapshot = await capabilities.GetAsync(ct).ConfigureAwait(false);
-        var systemPrompt = SystemPrompt + "\n\n" + AiCapabilityGuidance.Build(snapshot);
+        var systemPrompt = SystemPrompt + "\n\n" + await AiCapabilityGuidance.GetAsync(capabilities, ct).ConfigureAwait(false);
         return new AiDiagnosticPreview(new AiPromptRequest(systemPrompt, payload), payload);
     }
 
