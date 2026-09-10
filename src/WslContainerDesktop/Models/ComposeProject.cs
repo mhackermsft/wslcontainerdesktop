@@ -56,6 +56,10 @@ public sealed class ComposeDependency
     public string ServiceName { get; set; } = string.Empty;
 
     public DependencyCondition Condition { get; set; } = DependencyCondition.ServiceStarted;
+
+    public bool Required { get; set; } = true;
+
+    public bool Restart { get; set; }
 }
 
 /// <summary>
@@ -82,7 +86,7 @@ public sealed class ComposeBuildConfig
     /// <summary>Build without the layer cache (compose <c>build.no_cache</c>, maps to <c>--no-cache</c>).</summary>
     public bool NoCache { get; set; }
 
-    /// <summary>Always attempt to pull a newer base image (compose <c>build.pull</c> / <c>pull_policy: build</c>, maps to <c>--pull</c>).</summary>
+    /// <summary>Always attempt to pull a newer base image (compose <c>build.pull</c>, maps to <c>--pull</c>).</summary>
     public bool Pull { get; set; }
 
     public bool IsValid => !string.IsNullOrWhiteSpace(Context);
@@ -195,6 +199,8 @@ public sealed class ComposeService
     /// </summary>
     public ComposeBuildConfig? Build { get; set; }
 
+    public ComposeImagePolicy PullPolicy { get; set; } = ComposeImagePolicy.Missing;
+
     /// <summary>Secret references (compose service <c>secrets:</c>), bind-mounted read-only at up.</summary>
     public List<ComposeFileMount> Secrets { get; set; } = new();
 
@@ -227,11 +233,20 @@ public sealed class ComposeProject
     /// <summary>Label key identifying which service within the project a container belongs to.</summary>
     public const string ServiceLabel = "com.wsldesktop.service";
 
+    public const string ConfigHashLabel = "com.wsldesktop.config-hash";
+
+    public const string ImageIdLabel = "com.wsldesktop.image-id";
+
     /// <summary>Project name (compose top-level <c>name:</c> or the imported file/folder name).</summary>
     public string Name { get; set; } = string.Empty;
 
     /// <summary>The services that make up this project.</summary>
     public List<ComposeService> Services { get; set; } = new();
+
+    public Dictionary<string, ComposeAppliedService> AppliedServices { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>True when the applied snapshot is authoritative, including an explicitly empty snapshot.</summary>
+    public bool AppliedStateKnown { get; set; }
 
     /// <summary>
     /// Profiles enabled for this project. Empty means only profile-less services start (the

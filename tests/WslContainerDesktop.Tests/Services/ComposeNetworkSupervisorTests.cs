@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -120,7 +121,7 @@ public sealed class ComposeNetworkSupervisorTests
 
         Assert.True(result.AllSucceeded);
         Assert.True(fixture.Suppression.IsSuppressed("demo_web"));
-        if (support == WslcCapabilitySupport.Unsupported)
+        if (!restart && support == WslcCapabilitySupport.Unsupported)
             Assert.Equal(requestEpoch, fixture.Engine.LastRunMaximumStopVersion);
         else
             Assert.False(fixture.Engine.LastStartWasExplicit);
@@ -200,15 +201,17 @@ public sealed class ComposeNetworkSupervisorTests
         else
         {
             var other = Options("demo_other");
+            other.Labels[ComposeProject.ServiceLabel] = "other";
             other.NetworkAttachments[1].Ipv4Address = "invalid-ip";
             fixture.Project.Services.Add(new() { Name = "other", Options = other });
+            fixture.Engine.Add(other, allEndpoints: true);
         }
 
         var result = await fixture.Supervisor.RestartAsync("demo");
 
         Assert.False(result.AllSucceeded);
         Assert.Empty(fixture.Engine.Mutations);
-        Assert.Single(fixture.Engine.Containers);
+        Assert.Equal(failure == "invalid-ip" ? 2 : 1, fixture.Engine.Containers.Count);
         Assert.True(fixture.Engine.Networks.ContainsKey("a"));
         Assert.Single(fixture.RestartPolicies);
     }
@@ -226,15 +229,10 @@ public sealed class ComposeNetworkSupervisorTests
 
         Assert.True(result.AllSucceeded);
         Assert.Equal(1, fixture.CapabilityReads);
-        Assert.Equal(["stop:demo_web", "remove:demo_web"], fixture.Engine.Mutations.Take(2));
+        Assert.Equal(["stop:demo_web", "start:demo_web"], fixture.Engine.Mutations);
+        Assert.False(fixture.Engine.LastStartWasExplicit);
         Assert.Single(fixture.RestartPolicies);
-        if (support == WslcCapabilitySupport.Supported)
-            Assert.Equal(["create:demo_web", "connect:b", "start:demo_web"], fixture.Engine.Mutations.Skip(2));
-        else
-        {
-            Assert.Equal(["run:demo_web"], fixture.Engine.Mutations.Skip(2));
-            Assert.Single(result.Warnings);
-        }
+        Assert.Equal(2, fixture.Engine.Endpoints["demo_web"].Count);
     }
 
     [Fact]
@@ -243,6 +241,7 @@ public sealed class ComposeNetworkSupervisorTests
         var fixture = new Fixture();
         fixture.Engine.Add(Options(), allEndpoints: true);
         fixture.Project.Networks = [new() { Name = "missing", External = true }];
+        fixture.Project.Services[0].Options.NetworkAttachments.Add(new() { Network = "missing" });
         fixture.HealthChecks.Add(new() { ContainerName = "demo_web", Command = "old-probe" });
         fixture.RestartPolicies.Add(new() { ContainerName = "demo_web", Policy = RestartPolicyKind.Always });
 
@@ -320,7 +319,7 @@ public sealed class ComposeNetworkSupervisorTests
         other.Labels.Clear();
         fixture.Engine.Add(other);
         var up = await fixture.Supervisor.UpAsync(fixture.Project);
-        Assert.Contains("not owned", up.Services[0].Detail);
+        Assert.Contains("ownership", up.Services[0].Detail, StringComparison.OrdinalIgnoreCase);
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.DownAsync("demo"));
         Assert.Empty(fixture.Engine.Mutations);
     }
@@ -338,6 +337,9 @@ public sealed class ComposeNetworkSupervisorTests
         fixture.Engine.Networks["external"] = "demo";
         fixture.Engine.Networks["same-name"] = "another-project";
         fixture.Engine.Networks["ours"] = "demo";
+        fixture.Project.Services[0].Options.Network = "ours";
+        fixture.Project.Services[0].Options.Networks = ["ours", "external", "same-name"];
+        fixture.Project.Services[0].Options.NetworkAttachments.Clear();
         await fixture.Supervisor.DownAsync("demo");
         Assert.Equal(["network-remove:ours"], fixture.Engine.Mutations);
         Assert.True(fixture.Engine.Networks.ContainsKey("external"));
@@ -349,6 +351,7 @@ public sealed class ComposeNetworkSupervisorTests
     {
         var fixture = new Fixture();
         fixture.Project.Networks = [new() { Name = "external", External = true }];
+        fixture.Project.Services[0].Options.NetworkAttachments.Add(new() { Network = "external" });
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project));
         Assert.Contains("external", error.Message);
         Assert.Empty(fixture.Engine.Mutations);
@@ -442,10 +445,20 @@ public sealed class ComposeNetworkSupervisorTests
         public Exception? CapabilityError { get; set; }
         public Func<Task>? BeforeCapabilities { get; set; }
         public int CapabilityReads { get; private set; }
+        public ComposeProject? SavedProject { get; private set; }
+        public List<ComposeProject> SavedSnapshots { get; } = new();
+        public Action<ComposeProject>? BeforeSave { get; set; }
+        public Action? BeforeSettingsSave { get; set; }
 
-        public Fixture(WslcCapabilitySupport support = WslcCapabilitySupport.Supported, Engine? engine = null)
+        public Fixture(WslcCapabilitySupport support = WslcCapabilitySupport.Supported, Engine? engine = null,
+            ComposeProject? persisted = null)
         {
             Engine = engine ?? new();
+            if (persisted is not null)
+            {
+                Project = Clone(persisted);
+                SavedProject = Clone(persisted);
+            }
             Snapshot = Capabilities(support);
             var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) =>
             {
@@ -453,11 +466,11 @@ public sealed class ComposeNetworkSupervisorTests
                     throw new InvalidOperationException(method.Name);
                 return ReadCapabilitiesAsync();
             });
-            var store = NetworkTestProxy.Create<IComposeProjectStore>((method, _) => method.Name switch
+            var store = NetworkTestProxy.Create<IComposeProjectStore>((method, args) => method.Name switch
             {
-                nameof(IComposeProjectStore.Save) => null,
-                nameof(IComposeProjectStore.Get) => Project,
-                nameof(IComposeProjectStore.GetAll) => new List<ComposeProject> { Project },
+                nameof(IComposeProjectStore.Save) => Save((ComposeProject)args[0]!),
+                nameof(IComposeProjectStore.Get) => ReadProject(),
+                nameof(IComposeProjectStore.GetAll) => new List<ComposeProject> { ReadProject() },
                 _ => throw new InvalidOperationException(method.Name),
             });
             var settings = NetworkTestProxy.Create<ISettingsService>((method, args) =>
@@ -468,12 +481,47 @@ public sealed class ComposeNetworkSupervisorTests
                     case "get_RestartPolicies": return RestartPolicies;
                     case "set_HealthChecks": HealthChecks = (List<HealthCheckConfig>)args[0]!; return null;
                     case "set_RestartPolicies": RestartPolicies = (List<RestartPolicyConfig>)args[0]!; return null;
-                    case nameof(ISettingsService.Save): return null;
+                    case nameof(ISettingsService.Save): BeforeSettingsSave?.Invoke(); return null;
                     default: throw new InvalidOperationException(method.Name);
                 }
             });
             Supervisor = new(Engine.Service, store, settings, NullLogger<ComposeProjectSupervisor>.Instance,
                 capabilities, Health, Monitor, Suppression);
+        }
+
+        private object? Save(ComposeProject project)
+        {
+            BeforeSave?.Invoke(project);
+            var snapshot = Clone(project);
+            if (!project.AppliedStateKnown && SavedProject is { } saved)
+            {
+                foreach (var applied in Clone(saved).AppliedServices)
+                    snapshot.AppliedServices.TryAdd(applied.Key, applied.Value);
+            }
+            snapshot.AppliedStateKnown = true;
+            SavedProject = snapshot;
+            SavedSnapshots.Add(Clone(snapshot));
+            return null;
+        }
+
+        public void PersistDesired() => Save(Project);
+
+        private ComposeProject ReadProject()
+        {
+            var desired = Clone(Project);
+            if (SavedProject is { } saved)
+            {
+                desired.AppliedServices = Clone(saved).AppliedServices;
+                desired.AppliedStateKnown = saved.AppliedStateKnown;
+            }
+            return desired;
+        }
+
+        private static ComposeProject Clone(ComposeProject project)
+        {
+            var clone = JsonSerializer.Deserialize<ComposeProject>(JsonSerializer.Serialize(project))!;
+            clone.AppliedStateKnown = project.AppliedStateKnown;
+            return clone;
         }
 
         private async Task<WslcCapabilities> ReadCapabilitiesAsync()

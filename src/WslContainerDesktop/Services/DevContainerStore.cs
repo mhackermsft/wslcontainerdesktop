@@ -34,10 +34,16 @@ public sealed class DevContainerStore : IDevContainerStore
     private readonly ILogger<DevContainerStore> _logger;
     private readonly List<DevContainerConfig> _configs = new();
     private readonly object _gate = new();
+    private readonly string _file;
 
-    public DevContainerStore(ILogger<DevContainerStore> logger)
+    public DevContainerStore(ILogger<DevContainerStore> logger) : this(logger, DevContainersFile)
+    {
+    }
+
+    internal DevContainerStore(ILogger<DevContainerStore> logger, string file)
     {
         _logger = logger;
+        _file = file;
         Load();
     }
 
@@ -71,6 +77,8 @@ public sealed class DevContainerStore : IDevContainerStore
 
         lock (_gate)
         {
+            config.ComposeLifecycleProgress ??= _configs.FirstOrDefault(c =>
+                string.Equals(c.Id, config.Id, StringComparison.OrdinalIgnoreCase))?.ComposeLifecycleProgress;
             _configs.RemoveAll(c => string.Equals(c.Id, config.Id, StringComparison.OrdinalIgnoreCase));
             _configs.Add(config);
             Persist();
@@ -97,12 +105,12 @@ public sealed class DevContainerStore : IDevContainerStore
     {
         try
         {
-            if (!File.Exists(DevContainersFile))
+            if (!File.Exists(_file))
             {
                 return;
             }
 
-            var loaded = JsonSerializer.Deserialize<List<DevContainerConfig>>(File.ReadAllText(DevContainersFile));
+            var loaded = JsonSerializer.Deserialize<List<DevContainerConfig>>(File.ReadAllText(_file));
             if (loaded is null)
             {
                 return;
@@ -122,28 +130,41 @@ public sealed class DevContainerStore : IDevContainerStore
                 config.Lifecycle ??= new DevContainerLifecycle();
                 config.Warnings ??= new List<string>();
                 config.RunOptions ??= new RunContainerOptions();
+                if (config.ComposeLifecycleProgress is { } progress)
+                {
+                    progress.PendingCreate ??= new();
+                    progress.PendingStart ??= new();
+                }
                 _configs.RemoveAll(c => string.Equals(c.Id, config.Id, StringComparison.OrdinalIgnoreCase));
                 _configs.Add(config);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load dev containers from {Path}; starting empty.", DevContainersFile);
+            _logger.LogWarning(ex, "Failed to load dev containers from {Path}; starting empty.", _file);
         }
     }
 
     private void Persist()
     {
+        var temporary = _file + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            Directory.CreateDirectory(SettingsDirectory);
+            Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
             File.WriteAllText(
-                DevContainersFile,
+                temporary,
                 JsonSerializer.Serialize(_configs.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList(), SerializerOptions));
+            File.Move(temporary, _file, overwrite: true);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to save dev containers to {Path}.", DevContainersFile);
+            _logger.LogWarning(ex, "Failed to save dev containers to {Path}.", _file);
+            throw new InvalidOperationException("Dev container lifecycle state could not be saved.", ex);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Could not remove temporary dev container state file."); }
         }
     }
 }

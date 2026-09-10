@@ -375,7 +375,10 @@ public static partial class ComposeImporter
         ApplyResourceLimits(options, svc);
         ApplyRuntimeOptions(options, svc);
 
-        var build = ParseBuild(svc.Child("build"), svc.Scalar("pull_policy"), baseDirectory);
+        var build = ParseBuild(svc.Child("build"), baseDirectory);
+        var pullPolicy = ParsePullPolicy(svc.Scalar("pull_policy"));
+        if (pullPolicy == ComposeImagePolicy.Build && build is null)
+            throw new ComposeConfigurationException("Compose pull_policy build requires a build definition.");
 
         // A service needs either an image to run or a build section to produce one.
         if (string.IsNullOrWhiteSpace(options.Image) && build is null)
@@ -390,6 +393,7 @@ public static partial class ComposeImporter
             Restart = ParseRestart(svc.Scalar("restart")),
             DependsOn = ParseDependsOn(svc.Child("depends_on")),
             Build = build,
+            PullPolicy = pullPolicy,
             Profiles = CollectStrings(svc.Child("profiles")),
             StopGracePeriodSeconds = ParseDurationSeconds(svc.Scalar("stop_grace_period")),
             Secrets = ParseFileMounts(svc.Child("secrets"), "/run/secrets/"),
@@ -402,9 +406,14 @@ public static partial class ComposeImporter
         if (options.NetworkMode?.StartsWith("service:", StringComparison.Ordinal) == true)
         {
             var dependency = options.NetworkMode["service:".Length..];
-            if (!service.DependsOn.Any(d => d.ServiceName == dependency))
+            var declaredDependency = service.DependsOn.FirstOrDefault(d => d.ServiceName == dependency);
+            if (declaredDependency is null)
             {
                 service.DependsOn.Add(new ComposeDependency { ServiceName = dependency });
+            }
+            else
+            {
+                declaredDependency.Required = true;
             }
         }
 
@@ -547,7 +556,7 @@ public static partial class ComposeImporter
     /// is a mapping with <c>context</c>, <c>dockerfile</c>, <c>args</c>, <c>target</c>, and <c>labels</c>.
     /// The context (and a relative dockerfile) resolve against <paramref name="baseDirectory"/>.
     /// </summary>
-    private static ComposeBuildConfig? ParseBuild(Node? node, string? pullPolicy, string? baseDirectory)
+    private static ComposeBuildConfig? ParseBuild(Node? node, string? baseDirectory)
     {
         string? context;
         string? dockerfile = null;
@@ -580,14 +589,6 @@ public static partial class ComposeImporter
         if (string.IsNullOrWhiteSpace(context))
         {
             return null;
-        }
-
-        // pull_policy: always / build forces a fresh base-image pull for the build.
-        var policy = pullPolicy?.Trim();
-        if (string.Equals(policy, "always", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(policy, "build", StringComparison.OrdinalIgnoreCase))
-        {
-            pull = true;
         }
 
         return new ComposeBuildConfig
@@ -1163,21 +1164,24 @@ public static partial class ComposeImporter
                         continue;
                     }
 
-                    var condition = DependencyCondition.ServiceStarted;
-                    if (value is MappingNode cfg)
+                    if (value is not MappingNode cfg)
+                        throw new ComposeConfigurationException("Compose depends_on entries require a mapping.");
+                    if (cfg.Map.Keys.Any(key => key is not ("condition" or "required" or "restart")))
+                        throw new ComposeConfigurationException("Compose depends_on contains an unsupported option.");
+                    var condition = cfg.Child("condition") switch
                     {
-                        var conditionText = cfg.Scalar("condition");
-                        if (string.Equals(conditionText, "service_healthy", StringComparison.OrdinalIgnoreCase))
-                        {
-                            condition = DependencyCondition.ServiceHealthy;
-                        }
-                        else if (string.Equals(conditionText, "service_completed_successfully", StringComparison.OrdinalIgnoreCase))
-                        {
-                            condition = DependencyCondition.ServiceCompletedSuccessfully;
-                        }
-                    }
-
-                    deps.Add(new ComposeDependency { ServiceName = name.Trim(), Condition = condition });
+                        null => DependencyCondition.ServiceStarted,
+                        ScalarNode { Value: "service_started" } => DependencyCondition.ServiceStarted,
+                        ScalarNode { Value: "service_healthy" } => DependencyCondition.ServiceHealthy,
+                        ScalarNode { Value: "service_completed_successfully" } => DependencyCondition.ServiceCompletedSuccessfully,
+                        _ => throw new ComposeConfigurationException("Compose depends_on condition is unsupported."),
+                    };
+                    deps.Add(new ComposeDependency
+                    {
+                        ServiceName = name.Trim(), Condition = condition,
+                        Required = ParseDependencyBoolean(cfg.Child("required"), true),
+                        Restart = ParseDependencyBoolean(cfg.Child("restart"), false),
+                    });
                 }
 
                 break;
@@ -1185,6 +1189,22 @@ public static partial class ComposeImporter
 
         return deps;
     }
+
+    private static bool ParseDependencyBoolean(Node? value, bool fallback) => value switch
+    {
+        null => fallback,
+        ScalarNode scalar when bool.TryParse(scalar.Value, out _) => bool.Parse(scalar.Value),
+        _ => throw new ComposeConfigurationException("Compose depends_on required and restart must be boolean values."),
+    };
+
+    private static ComposeImagePolicy ParsePullPolicy(string? value) => value?.Trim() switch
+    {
+        null or "missing" or "if_not_present" => ComposeImagePolicy.Missing,
+        "always" => ComposeImagePolicy.Always,
+        "never" => ComposeImagePolicy.Never,
+        "build" => ComposeImagePolicy.Build,
+        _ => throw new ComposeConfigurationException("Compose pull_policy is unsupported. Use missing, always, never or build."),
+    };
 
     /// <summary>
     /// Maps a compose <c>healthcheck</c> to the app's <see cref="HealthCheckConfig"/> probe. The

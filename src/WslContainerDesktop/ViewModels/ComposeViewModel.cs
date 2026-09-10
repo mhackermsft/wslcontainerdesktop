@@ -27,12 +27,15 @@ namespace WslContainerDesktop.ViewModels;
 /// <summary>A compose project row shown on the Compose page, with its live running/total counts.</summary>
 public partial class ComposeProjectRow : ObservableObject
 {
-    public ComposeProjectRow(ComposeProject project)
+    public ComposeProjectRow(ComposeProject project, IAsyncRelayCommand<ComposeProjectRow?> manageServicesCommand)
     {
         Project = project;
+        ManageServicesCommand = manageServicesCommand;
     }
 
     public ComposeProject Project { get; }
+
+    public IAsyncRelayCommand<ComposeProjectRow?> ManageServicesCommand { get; }
 
     public string Name => Project.Name;
 
@@ -64,8 +67,10 @@ public partial class ComposeViewModel : ObservableObject
     private readonly ComposeProjectSupervisor _supervisor;
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
+    private int _busyOperations;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ManageServicesCommand), nameof(RefreshCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -88,10 +93,10 @@ public partial class ComposeViewModel : ObservableObject
         _dialogs = dialogs;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanManageServices))]
     public async Task RefreshAsync()
     {
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = "Loading compose projects…";
         try
         {
@@ -109,7 +114,7 @@ public partial class ComposeViewModel : ObservableObject
             Projects.Clear();
             foreach (var project in projects)
             {
-                var row = new ComposeProjectRow(project);
+                var row = new ComposeProjectRow(project, ManageServicesCommand);
                 UpdateStatus(row, containers);
                 Projects.Add(row);
             }
@@ -124,7 +129,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -156,6 +161,11 @@ public partial class ComposeViewModel : ObservableObject
     [RelayCommand]
     private async Task ImportAsync()
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         var dialog = new ImportComposeDialog();
         if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary ||
             string.IsNullOrWhiteSpace(dialog.Yaml))
@@ -311,7 +321,7 @@ public partial class ComposeViewModel : ObservableObject
     private async Task UpAsync(ComposeProjectRow? row)
     {
         row ??= Selected;
-        if (row is null)
+        if (row is null || IsBusy)
         {
             return;
         }
@@ -319,27 +329,103 @@ public partial class ComposeViewModel : ObservableObject
         await BringUpAsync(row.Project);
     }
 
+    private bool CanManageServices() => !IsBusy;
+
+    // Navigation can overlap refreshes on this singleton, including lifecycle-owned refreshes.
+    // All callers resume on the UI context; each operation releases only its own busy ownership.
+    private void BeginBusyOperation()
+    {
+        _busyOperations++;
+        IsBusy = true;
+    }
+
+    private void EndBusyOperation()
+    {
+        _busyOperations--;
+        IsBusy = _busyOperations > 0;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanManageServices))]
+    private async Task ManageServicesAsync(ComposeProjectRow? row)
+    {
+        row ??= Selected;
+        if (row is null || IsBusy)
+        {
+            return;
+        }
+
+        BeginBusyOperation();
+        try
+        {
+            var dialog = new ComposeServicesDialog(row.Project);
+            if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            var request = dialog.Request;
+            // An empty target set means "whole project" to the supervisor. Never let this
+            // targeted UI fall through to that meaning, even if dialog validation changes.
+            if (request.Services.Count == 0)
+            {
+                await _dialogs.ShowMessageAsync("Select services", "Select at least one service. No operation was performed.");
+                return;
+            }
+
+            StatusMessage = $"{dialog.OperationLabel} — \"{row.Name}\"…";
+            var result = request.Operation == ComposeLifecycleOperation.Up
+                ? await _supervisor.UpAsync(row.Project, request)
+                : await _supervisor.OperateAsync(row.Name, request);
+            await RefreshAsync();
+            StatusMessage = result.AllSucceeded
+                ? $"{dialog.OperationLabel} completed for \"{row.Name}\""
+                : $"{dialog.OperationLabel} for \"{row.Name}\" — some services failed";
+            if (request.Operation is ComposeLifecycleOperation.Up or ComposeLifecycleOperation.Restart)
+            {
+                StatusMessage += $" — {result.Started} service(s) started";
+            }
+
+            await ShowServiceOutcomesAsync($"{dialog.OperationLabel}: {row.Name}", result);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = "Service operation failed";
+            await _dialogs.ShowMessageAsync("Service operation failed", ex.Message);
+        }
+        finally
+        {
+            EndBusyOperation();
+        }
+    }
+
+    private Task ShowServiceOutcomesAsync(string title, ComposeUpResult result) =>
+        _dialogs.ShowMessageAsync(title, result.Services.Count == 0
+            ? "No service actions were performed."
+            : string.Join("\n", result.Services.Select(service =>
+            {
+                var reason = result.Plan?.Services.FirstOrDefault(entry =>
+                    string.Equals(entry.Service.Name, service.Service, StringComparison.Ordinal))?.Reason;
+                return $"• {service.Service}: {service.Action}{(service.Success ? "" : " (failed)")} — {service.Detail}" +
+                    (string.IsNullOrWhiteSpace(reason) || reason == service.Detail ? "" : $"\n  Reason: {reason}") +
+                    (string.IsNullOrWhiteSpace(service.Warning) ? "" : $"\n  Warning: {service.Warning}");
+            })));
+
     private async Task BringUpAsync(ComposeProject project)
     {
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = $"Bringing up \"{project.Name}\"…";
         try
         {
             var result = await _supervisor.UpAsync(project);
             await RefreshAsync();
-            if (result.Warnings.Count > 0)
-            {
-                await _dialogs.ShowMessageAsync("Compose network limitations", string.Join("\n", result.Warnings));
-            }
-
             if (result.AllSucceeded)
             {
-                StatusMessage = $"\"{project.Name}\" up — {result.Started} service(s) started";
+                StatusMessage = $"\"{project.Name}\" applied — {result.Started} service(s) started";
             }
             else
             {
                 var failed = result.Services.Where(s => !s.Success).ToList();
-                StatusMessage = $"\"{project.Name}\" partially up ({result.Started}/{result.Services.Count})";
+                StatusMessage = $"\"{project.Name}\" apply incomplete — {result.Started} service(s) started";
 
                 if (failed.Any(f => ComposeProjectSupervisor.IsMountLimitFailure(f.Detail)))
                 {
@@ -357,10 +443,9 @@ public partial class ComposeViewModel : ObservableObject
                     return;
                 }
 
-                await _dialogs.ShowMessageAsync(
-                    "Some services failed to start",
-                    string.Join("\n", failed.Select(f => $"• {f.Service}: {f.Detail}")));
             }
+
+            await ShowServiceOutcomesAsync($"Apply: {project.Name}", result);
         }
         catch (Exception ex)
         {
@@ -369,7 +454,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -377,7 +462,7 @@ public partial class ComposeViewModel : ObservableObject
     private async Task DownAsync(ComposeProjectRow? row)
     {
         row ??= Selected;
-        if (row is null)
+        if (row is null || IsBusy)
         {
             return;
         }
@@ -391,7 +476,7 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = $"Bringing down \"{row.Name}\"…";
         try
         {
@@ -406,7 +491,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -414,46 +499,41 @@ public partial class ComposeViewModel : ObservableObject
     private async Task RestartAsync(ComposeProjectRow? row)
     {
         row ??= Selected;
-        if (row is null)
+        if (row is null || IsBusy)
         {
             return;
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
             "Restart project",
-            $"Restart \"{row.Name}\"? This brings the project down and back up in dependency order.",
+            $"Stop and start the existing containers for \"{row.Name}\" in dependency order?\n\n" +
+            "Restart does not create or recreate containers, build images, or apply configuration changes. " +
+            "Use Up (Apply) to apply changes.",
             "Restart");
         if (!ok)
         {
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = $"Restarting \"{row.Name}\"…";
         try
         {
-            var result = await _supervisor.RestartAsync(row.Name);
-            await RefreshAsync();
-            if (result.Warnings.Count > 0)
+            var result = await _supervisor.OperateAsync(row.Name, new ComposeOperationRequest
             {
-                await _dialogs.ShowMessageAsync("Compose network limitations", string.Join("\n", result.Warnings));
-            }
-
+                Operation = ComposeLifecycleOperation.Restart,
+            });
+            await RefreshAsync();
             if (result.AllSucceeded)
             {
                 StatusMessage = $"\"{row.Name}\" restarted — {result.Started} service(s) started";
             }
             else
             {
-                var failed = result.Services.Where(s => !s.Success).ToList();
-                StatusMessage = $"\"{row.Name}\" partially up ({result.Started}/{result.Services.Count})";
-                if (failed.Count > 0)
-                {
-                    await _dialogs.ShowMessageAsync(
-                        "Some services failed to start",
-                        string.Join("\n", failed.Select(f => $"• {f.Service}: {f.Detail}")));
-                }
+                StatusMessage = $"\"{row.Name}\" restart incomplete — {result.Started} service(s) started";
             }
+
+            await ShowServiceOutcomesAsync($"Restart: {row.Name}", result);
         }
         catch (Exception ex)
         {
@@ -462,7 +542,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -470,7 +550,7 @@ public partial class ComposeViewModel : ObservableObject
     private async Task RemoveAsync(ComposeProjectRow? row)
     {
         row ??= Selected;
-        if (row is null)
+        if (row is null || IsBusy)
         {
             return;
         }
@@ -484,7 +564,7 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         try
         {
             await _supervisor.DownAsync(row.Name, removeVolumes: true);
@@ -499,7 +579,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -511,6 +591,11 @@ public partial class ComposeViewModel : ObservableObject
     [RelayCommand]
     private async Task RestartSessionAsync()
     {
+        if (IsBusy)
+        {
+            return;
+        }
+
         var ok = await _dialogs.ShowConfirmAsync(
             "Restart WSL session",
             "This releases wslc's leaked bind-mount slots (needed when config/secret mounts start "
@@ -527,7 +612,7 @@ public partial class ComposeViewModel : ObservableObject
 
     private async Task RestartSessionCoreAsync()
     {
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = "Restarting WSL session…";
         try
         {
@@ -550,7 +635,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 }

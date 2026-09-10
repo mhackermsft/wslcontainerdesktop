@@ -307,11 +307,12 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 
 ### Docker Compose
 - **Import a `docker-compose.yml`** (file picker) to create a **Compose project** — the app parses a large subset of the Compose spec into a service dependency graph.
-- **Up / Down / Restart the whole stack as a unit** from the Compose page. On **up**, services start in dependency order with `depends_on` health/exit gating; project-scoped networks and named volumes are created (prefixed with the project name, like `docker compose`), and each service gets deterministic naming and Compose-style DNS aliases.
+- **Apply / Down / Restart**, for the whole stack or selected services from **Manage services**. Repeated **up** keeps unchanged running containers and selectively recreates changed configuration/images; **restart** only stop/starts existing containers and does not apply edits. Targeted apply includes required dependencies, with health/exit gating, project-scoped resources and service DNS aliases. Explicit rebuild is available for build-context edits.
 - **Auto-heal while the app runs** — restart policies, app-owned probes and auto-heal need the built-in watchdog. Native health checks are engine-owned and separately observed; health failure thresholds are not restart budgets.
 - **Down** stops and removes the project's containers and networks but preserves volumes; **Remove** additionally deletes the volumes the project created (like `docker compose down --volumes`).
 - Projects are **re-adopted on relaunch**, and the importer **warns about any unsupported keys** before you commit, so you always know what will and won't be honored.
 - See [Docker Compose compatibility](#docker-compose-compatibility) for the full feature matrix.
+- See [reconciliation semantics](docs/COMPOSE-RECONCILIATION.md) for plans, profiles, dependency restart conditions, image policies, preserved storage, and partial-failure behavior.
 
 ### Images
 - List with repository, tag, ID, size, and age.

@@ -31,12 +31,15 @@ public sealed class DevContainerSupervisor(
     ProcessRunner runner,
     ILogger<DevContainerSupervisor> logger) : IDevContainerSupervisor
 {
+    private readonly SemaphoreSlim _upGate = new(1, 1);
+
     public async Task<DevContainerOperationResult> UpAsync(
         DevContainerConfig config,
         bool rebuild = false,
         bool noCache = false,
         CancellationToken ct = default)
     {
+        await _upGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await RunHostLifecycleAsync(config, ct).ConfigureAwait(false);
@@ -52,6 +55,10 @@ public sealed class DevContainerSupervisor(
         {
             logger.LogWarning(ex, "Dev container up failed for {Name}.", config.Name);
             return new DevContainerOperationResult(false, ex.Message);
+        }
+        finally
+        {
+            _upGate.Release();
         }
     }
 
@@ -114,6 +121,7 @@ public sealed class DevContainerSupervisor(
         CancellationToken ct)
     {
         var compose = config.Compose!;
+        config.ComposeLifecycleProgress = store.Get(config.Id)?.ComposeLifecycleProgress ?? config.ComposeLifecycleProgress;
         var primary = compose.Project.Services.FirstOrDefault(s => string.Equals(s.Name, compose.Service, StringComparison.Ordinal));
         if (primary is null)
         {
@@ -127,29 +135,85 @@ public sealed class DevContainerSupervisor(
             return image;
         }
 
-        var result = await composeSupervisor.UpAsync(compose.Project, ct).ConfigureAwait(false);
-        if (!result.AllSucceeded)
+        var result = await composeSupervisor.UpAsync(compose.Project, new(), completed =>
         {
-            store.Save(config);
-            return new DevContainerOperationResult(false, string.Join("\n", result.Services.Where(s => !s.Success).Select(s => $"{s.Service}: {s.Detail}")));
+            if (completed.Service == compose.Service && completed.ContainerId is { Length: > 0 } id)
+                ScheduleComposeLifecycle(id, completed.Action, config);
+        }, ct).ConfigureAwait(false);
+        var failures = result.Services.Where(s => !s.Success).Select(s => $"{s.Service}: {s.Detail}").ToList();
+        var primaryResult = result.Services.SingleOrDefault(s => s.Service == compose.Service);
+        if (primaryResult is { Success: true, ContainerId: { Length: > 0 } containerId })
+        {
+            // A successful primary still needs its hooks when a sibling fails. Otherwise
+            // the retry keeps it and loses the creation event.
+            var lifecycle = await RunComposeLifecycleAsync(containerId, config, ct).ConfigureAwait(false);
+            if (!lifecycle.Success)
+                failures.Add(lifecycle.Detail);
         }
-
-        var container = await FindComposeServiceContainerAsync(config, ct).ConfigureAwait(false);
-        if (container is null)
+        else if (primaryResult is null || primaryResult.Success)
         {
-            store.Save(config);
-            return new DevContainerOperationResult(false, "Compose project started but the dev container service could not be found.");
-        }
-
-        var lifecycle = await RunCreateLifecycleAsync(container.Id, config, ct).ConfigureAwait(false);
-        if (!lifecycle.Success)
-        {
-            store.Save(config);
-            return lifecycle;
+            failures.Add("Compose did not return a successful container identity for the dev container service.");
         }
 
         store.Save(config);
+        if (failures.Count > 0)
+            return new DevContainerOperationResult(false, string.Join("\n", failures));
         return new DevContainerOperationResult(true, $"Started {config.Name} using Compose service {compose.Service}.");
+    }
+
+    private void ScheduleComposeLifecycle(string containerId, ComposeServiceAction action, DevContainerConfig config)
+    {
+        if (action is not (ComposeServiceAction.Create or ComposeServiceAction.Recreate or
+            ComposeServiceAction.Start or ComposeServiceAction.Restart))
+            return;
+
+        var progress = config.ComposeLifecycleProgress;
+        if (progress is null || ContainerIdentity.ResolveId([containerId], progress.ContainerId) != containerId)
+        {
+            progress = new() { ContainerId = containerId };
+            if (action is ComposeServiceAction.Create or ComposeServiceAction.Recreate)
+            {
+                progress.PendingCreate = config.Lifecycle.ContainerCreateSteps()
+                    .SelectMany(step => SnapshotCommands(step.Step, step.Commands)).ToList();
+            }
+            config.ComposeLifecycleProgress = progress;
+        }
+
+        progress.PendingStart = SnapshotCommands("postStartCommand", config.Lifecycle.PostStart).ToList();
+        store.Save(config);
+
+        IEnumerable<DevContainerLifecycleCommand> SnapshotCommands(string step, IEnumerable<string> commands) =>
+            commands.Where(c => !string.IsNullOrWhiteSpace(c)).Select(command => new DevContainerLifecycleCommand
+            {
+                Step = step, Command = BuildRemoteCommand(config, command, allowFailure: false),
+            });
+    }
+
+    private async Task<DevContainerOperationResult> RunComposeLifecycleAsync(
+        string containerId, DevContainerConfig config, CancellationToken ct)
+    {
+        var progress = config.ComposeLifecycleProgress;
+        if (progress is null || ContainerIdentity.ResolveId([containerId], progress.ContainerId) != containerId)
+            return new(true, "Existing container retained; no lifecycle hooks scheduled.");
+
+        // Keep resumes only previously scheduled, unacknowledged work. Commands and
+        // remote context are frozen so config edits cannot replay completed steps.
+        foreach (var pending in new[] { progress.PendingCreate, progress.PendingStart })
+        {
+            while (pending.Count > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                var command = pending[0];
+                var result = await wslc.ExecAsync(containerId, command.Command, ct).ConfigureAwait(false);
+                AppendLog(config, command.Step, result);
+                if (result.Success)
+                    pending.RemoveAt(0);
+                store.Save(config);
+                if (!result.Success)
+                    return new(false, $"{command.Step} failed: {Summarize(result)}");
+            }
+        }
+        return new(true, "Lifecycle complete.");
     }
 
     private async Task<DevContainerOperationResult> PrepareImageAsync(
