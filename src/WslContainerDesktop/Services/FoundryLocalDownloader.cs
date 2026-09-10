@@ -196,7 +196,7 @@ public sealed class FoundryLocalDownloader : IDisposable
 
     private string CachePath(string hash, string extension) => Path.Combine(_cacheRoot, hash.ToUpperInvariant() + extension);
     private static string PartialPath(string target) => target + "." + Guid.NewGuid().ToString("N") + ".partial";
-    private static void RequireNoReparsePoints(string path)
+    internal static void RequireNoReparsePoints(string path)
     {
         for (var item = Path.GetFullPath(path); item is not null; item = Path.GetDirectoryName(item))
             if ((File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0)

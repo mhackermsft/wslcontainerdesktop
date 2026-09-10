@@ -1,0 +1,8 @@
+{
+  "Source": "Actual network-blocked CLI0.10.3 response; only username in path replaced with fixture-user",
+  "PackageSha256": "86A01C52265BD9C9167C1F8A04F34621A2A63EC5C8276166C2EECC8C6A56553F",
+  "Arguments": "cache location --output json",
+  "ExitCode": 0,
+  "Stdout": "{\"path\":\"C:\\\\Users\\\\fixture-user\\\\.foundry\\\\cache\\\\models\",\"userSet\":false}\r\n",
+  "Stderr": ""
+}

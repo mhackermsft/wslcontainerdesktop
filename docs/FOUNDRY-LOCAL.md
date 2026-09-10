@@ -200,6 +200,19 @@ established; neither adapter tests nor a runtime smoke replaces that work.
 The standalone MSIX is per-user; this still installs Foundry on the PC and is
 not itself a blocker merely because it is not an all-users installer.
 
+**Implemented model-file staging:** the Settings action downloads only the
+pinned generic-CPU Qwen v4 nine-file artifact after one explicit confirmation.
+`FoundryLocalModelArtifacts` checks the age gate, exact registry/container origin,
+If-Match ETags, dates, content lengths and bounded streamed bodies. SAS credentials
+remain in memory; redirects/retries/latest-version refresh are disabled.
+Completed files have separate manifest-bound local SHA-256 receipts and are
+rehashed before offline reuse. Partial/unreceipted/corrupt data fails closed with
+retention/recovery guidance. Files are held under the packaged LocalCache
+`FoundryModelStaging` directory, not copied into the external runtime's cache.
+Provider/setting changes cancel the operation; no endpoint/model settings,
+Foundry process or execution provider are changed. Staging success is explicitly
+not cache registration, model load or working one-click initial-model setup.
+
 The documented standalone candidate is **CLI 0.10.3**, package version
 **0.10.3.0**, not SDK 2.0.1. Its release notes say it embeds SDK 1.2.4.
 Read-only research identified:
@@ -336,6 +349,15 @@ uses the exact model ID (including version) and catalog prompt templates.
 That is a concrete cache-layout candidate, **not evidence of binary parity with
 the installed CLI's embedded Core**. A real blocked cache observation must
 establish that contract before enabling direct registration of staged files.
+
+**Observed cache metadata:** `cache location --output json` returned the small
+`{"path":"...","userSet":false}` schema successfully under network blocking.
+The adapter accepts this only on observed CLI 0.10.3, rejects unknown/duplicate
+fields and unsafe paths, and does not change cache configuration. The recorded
+fixture redacts only the Windows username. In contrast, `cache list --output json`
+timed out after 30 seconds under the same isolation; its owned job was terminated
+and rules removed. Setup must not use `cache list` as a guaranteed local-only
+inventory operation or infer an empty cache from that failure.
 
 `foundry server start --port 0`, `foundry model download <model>`, and
 `foundry model load <model>` are mutations, available only after a valid setup

@@ -104,6 +104,13 @@ block setup; newer Microsoft VCLibs are preserved. Cancellation is not rollback.
 No model/EP download, native-initialization claim or automatic runtime start is
 implied by package registration.
 
+`FoundryLocalModelArtifacts` stages one compiled, audited CPU variant through
+exact-origin conditional HTTPS requests, with per-file receipts and offline
+rehash. Settings/setup own explicit consent and cancellation. This preparation
+does not invoke the CLI, modify its cache/configuration, or claim load readiness;
+the model payload remains under packaged LocalCache until an independently
+established registration/load contract is available.
+
 See [Foundry standalone scope and compatibility](FOUNDRY-LOCAL.md) for pinned
 installer research, external-host memory ownership, blocked phase 1 runtime
 exercise, model/EP provenance blockers and signed x64 MSIX/hardware release gates.

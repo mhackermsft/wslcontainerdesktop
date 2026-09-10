@@ -89,6 +89,54 @@ public sealed class FoundryLocalRecordedCliTests
         Assert.All(capture.Values, result => { Assert.True(result.Success); Assert.Empty(result.StandardError); });
     }
 
+    [Fact]
+    public async Task RecordedCacheLocationUsesVersionBoundReadOnlyArgumentList()
+    {
+        var capture = ReadCapture("lifecycle-help.json");
+        using var location = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "Foundry", "0.10.3", "cache-location.json")));
+        var calls = new List<string>();
+        var cli = new FoundryLocalCli(() => @"C:\Fixture\foundry.exe", (start, _) =>
+        {
+            var command = string.Join(" ", start.ArgumentList);
+            calls.Add(command);
+            if (capture.TryGetValue(command, out var result)) return Task.FromResult(result);
+            Assert.Equal("cache location --output json", command);
+            return Task.FromResult(new CommandResult
+            {
+                StandardOutput = location.RootElement.GetProperty("Stdout").GetString()!,
+                ExitCode = location.RootElement.GetProperty("ExitCode").GetInt32(),
+            });
+        });
+        var cache = await cli.ReadCacheLocationAsync(default);
+        Assert.Equal(@"C:\Users\fixture-user\.foundry\cache\models", cache.Path);
+        Assert.False(cache.UserConfigured);
+        Assert.Equal(["--version", "--help", "cache --help", "cache location --output json"], calls);
+    }
+
+    [Theory]
+    [InlineData("""{"path":"C:\\cache","userSet":false,"unexpected":1}""")]
+    [InlineData("""{"path":"C:\\cache","userSet":false,"path":"C:\\elsewhere"}""")]
+    [InlineData("""{"path":"\\\\server\\share","userSet":false}""")]
+    [InlineData("""{"path":"C:\\cache\\..\\elsewhere","userSet":false}""")]
+    [InlineData("""{"path":"C:\\cache:stream","userSet":false}""")]
+    [InlineData("""{"path":"C:\\cache","userSet":"false"}""")]
+    public void UnknownOrUnsafeCacheResponseNeverAuthorizesFileWrites(string json) =>
+        Assert.Throws<InvalidDataException>(() => FoundryLocalCli.ParseCacheLocation(json));
+
+    [Fact]
+    public async Task UnverifiedVersionDoesNotInvokeCacheCommands()
+    {
+        var calls = 0;
+        var cli = new FoundryLocalCli(() => @"C:\Fixture\foundry.exe", (_, _) =>
+        {
+            calls++;
+            return Task.FromResult(new CommandResult { StandardOutput = "0.10.4" });
+        });
+        await Assert.ThrowsAsync<InvalidDataException>(() => cli.ReadCacheLocationAsync(default));
+        Assert.Equal(1, calls);
+    }
+
     [Theory]
     [InlineData("Description:\n  server is documented elsewhere\nOptions:\n  --help")]
     [InlineData("Commands:\n  model Models\nExamples:\n  server status")]

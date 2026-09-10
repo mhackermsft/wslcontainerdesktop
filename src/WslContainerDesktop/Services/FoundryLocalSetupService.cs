@@ -24,7 +24,7 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalRuntimeService runtime,
     FoundryLocalArtifactCatalog? catalog = null, FoundryLocalDownloader? downloader = null,
-    FoundryLocalInstaller? installer = null)
+    FoundryLocalInstaller? installer = null, FoundryLocalModelArtifacts? modelArtifacts = null)
 {
     private readonly FoundryLocalArtifactCatalog _catalog = catalog ?? new();
     private readonly SemaphoreSlim _setupGate = new(1, 1);
@@ -35,13 +35,60 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
         "No in-process SDK, unpinned winget operation, automatic upgrade, server start or model selection is used. " +
         "Package registration is NOT working initial-model setup or proof of initialization/inference compatibility. " +
         FoundryLocalInstaller.InitializationGuidance + " " +
-        "Initial-model download/load remains blocked: CLI model commands can implicitly acquire or update unaudited EPs. " +
+        "Initial-model registration/load remains blocked: CLI model commands can implicitly acquire or update unaudited EPs. Separate confirmed staging can download only the pinned CPU model files without executing Foundry. " +
         "An existing externally prepared server can be discovered and connected without installing, starting, stopping or adopting it.";
 
     public bool CanInstall => downloader is not null && installer is not null
         && _catalog.GetStandalone()?.IsDownloadable(DateTimeOffset.UtcNow) == true;
     public string AvailabilityGuidance => (CanInstall ? "" : "Runtime-only setup unavailable: no eligible complete download manifest/adapters. ") + InstallationGuidance;
     public string CacheLocation => downloader?.CacheLocation ?? "Unavailable";
+    public bool CanStageModelFiles => modelArtifacts is not null;
+    public string ModelCacheLocation => modelArtifacts?.CacheLocation ?? "Unavailable";
+
+    public async Task<FoundryLocalModelPreparationResult> StageModelFilesAsync(AiChatConfiguration original,
+        Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent,
+        IProgress<string>? progress, CancellationToken ct)
+    {
+        var entered = false;
+        var started = false;
+        try
+        {
+            await _setupGate.WaitAsync(ct);
+            entered = true;
+            if (modelArtifacts is null)
+                return new(false, "Model-file staging is unavailable. No network requested.");
+            if (original.Kind != AiProviderKind.FoundryLocal || !isCurrent())
+                return new(false, "Configuration changed. No model files requested.");
+            if (!await confirm(FoundryLocalModelArtifacts.ConsentSummary
+                + "\nYour configured endpoint/model will remain unchanged. This is not working initial-model setup.", ct))
+                return new(false, "Model-file download declined. No network requested.");
+            ct.ThrowIfCancellationRequested();
+            if (!isCurrent()) return new(false, "Approval invalidated. No model files requested.");
+            started = true;
+            var result = await modelArtifacts.StageAsync(progress, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!isCurrent())
+                return new(false, "Configuration changed. Staged files retained; no settings or runtime changed.");
+            return new(true, "Nine pinned CPU model files are staged and reusable offline. "
+                + "They are NOT registered in Foundry or loaded; endpoint/model settings remain unchanged. "
+                + FoundryLocalModelArtifacts.VerificationNotice, result.DirectoryPath);
+        }
+
+        catch (OperationCanceledException)
+        {
+            return new(false, "Model-file preparation cancelled. No runtime or settings changed."
+                + (started ? " " + FoundryLocalModelArtifacts.RetentionGuidance : ""));
+        }
+        catch (Exception error) when (error is IOException or TimeoutException)
+        {
+            // The stager's messages deliberately exclude SAS credentials and private paths.
+            return new(false, error.Message + " No runtime or settings changed.");
+        }
+        finally
+        {
+            if (entered) _setupGate.Release();
+        }
+    }
 
     public async Task<FoundryLocalInstallResult> InstallRuntimeAsync(AiChatConfiguration original,
         Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent,
@@ -153,6 +200,8 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
 }
 
 /// <summary>Observation bound to the original settings, never an acquisition approval.</summary>
+public sealed record FoundryLocalModelPreparationResult(bool Success, string Guidance, string? DirectoryPath = null);
+
 public sealed record FoundryLocalConnectionPlan(AiChatConfiguration Original,
     FoundryLocalDiscovery Discovery, FoundryLocalInventory Inventory)
 {

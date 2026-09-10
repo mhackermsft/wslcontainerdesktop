@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using WslContainerDesktop.Models;
 
@@ -45,10 +46,7 @@ public sealed class FoundryLocalCli
     public async Task<FoundryLocalDiscovery> DiscoverAsync(IProgress<string>? progress, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var executable = _findExecutable();
-        if (string.IsNullOrEmpty(executable) || !IsLocalAbsolutePath(executable)
-            || !Path.GetFileName(executable).Equals("foundry.exe", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Foundry Local CLI was not found on the absolute Windows PATH. No installation or runtime start was attempted. You can still enter an existing runtime URL manually.");
+        var executable = RequireExecutable();
         progress?.Report("Reading standalone CLI version and help; no model or EP downloads requested…");
         var version = await RunAsync(executable, ["--version"], ct).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(version) || version.Length > 256)
@@ -66,6 +64,49 @@ public sealed class FoundryLocalCli
         progress?.Report("Reading the external server's actual endpoint; not starting or adopting it…");
         var status = await RunAsync(executable, [group, "status"], ct).ConfigureAwait(false);
         return new(AiTextSanitizer.Sanitize(version.Trim(), 256), ParseEndpoint(status));
+    }
+
+    public async Task<FoundryLocalCacheLocation> ReadCacheLocationAsync(CancellationToken ct)
+    {
+        var executable = RequireExecutable();
+        var version = await RunAsync(executable, ["--version"], ct).ConfigureAwait(false);
+        if (version.Trim() != "0.10.3")
+            throw new InvalidDataException("Cache-location schema is verified only for CLI 0.10.3. No cache or model mutation attempted.");
+        var help = await RunAsync(executable, ["--help"], ct).ConfigureAwait(false);
+        if (!AdvertisesCommand(help, "cache"))
+            throw new InvalidDataException("This CLI does not advertise cache commands; no fallback attempted.");
+        var cacheHelp = await RunAsync(executable, ["cache", "--help"], ct).ConfigureAwait(false);
+        if (!AdvertisesCommand(cacheHelp, "location"))
+            throw new InvalidDataException("This CLI does not advertise cache location; no fallback attempted.");
+        // The real isolated capture establishes this small response. Do not substitute
+        // cache list: it timed out under outbound isolation and is not a safe inventory probe.
+        return ParseCacheLocation(await RunAsync(executable, ["cache", "location", "--output", "json"], ct).ConfigureAwait(false));
+    }
+
+    internal static FoundryLocalCacheLocation ParseCacheLocation(string output)
+    {
+        using var json = JsonDocument.Parse(output, new JsonDocumentOptions { MaxDepth = 8 });
+        var root = json.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 2
+            || !root.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String
+            || !root.TryGetProperty("userSet", out var userSet)
+            || userSet.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            throw new InvalidDataException("Unknown Foundry cache-location schema. No cache or settings changed.");
+        var value = path.GetString()!;
+        if (value.Length > 2048 || value.Any(char.IsControl) || value != value.Trim()
+            || !IsLocalAbsolutePath(value) || value.Split('\\').Any(segment => segment is "." or "..")
+            || value.IndexOf(':', 2) >= 0)
+            throw new InvalidDataException("Foundry reported an unsafe cache location. No files written.");
+        return new(Path.GetFullPath(value), userSet.GetBoolean());
+    }
+
+    private string RequireExecutable()
+    {
+        var executable = _findExecutable();
+        if (string.IsNullOrEmpty(executable) || !IsLocalAbsolutePath(executable)
+            || !Path.GetFileName(executable).Equals("foundry.exe", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Foundry Local CLI was not found on the absolute Windows PATH. No installation or runtime start was attempted. You can still enter an existing runtime URL manually.");
+        return executable;
     }
 
     internal static bool AdvertisesCommand(string help, string command)
@@ -135,3 +176,4 @@ public sealed class FoundryLocalCli
 }
 
 public sealed record FoundryLocalDiscovery(string CliVersion, string Endpoint);
+public sealed record FoundryLocalCacheLocation(string Path, bool UserConfigured);

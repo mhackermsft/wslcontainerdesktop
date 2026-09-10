@@ -44,13 +44,23 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     [ObservableProperty] private bool _canUseDiscoveredEndpoint;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanInstallRuntime))]
+    [NotifyPropertyChangedFor(nameof(CanStageModelFiles))]
+    [NotifyPropertyChangedFor(nameof(IsPreparingAnything))]
     private bool _isInstallingRuntime;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanInstallRuntime))]
+    [NotifyPropertyChangedFor(nameof(CanStageModelFiles))]
+    [NotifyPropertyChangedFor(nameof(IsPreparingAnything))]
+    private bool _isPreparingModelFiles;
 
     public string AcquisitionGuidance => FoundryLocalRuntimeService.AcquisitionGuidance;
     public string MemoryPolicy => FoundryLocalRuntimeService.MemoryPolicy;
     public string InstallationGuidance => _setup.AvailabilityGuidance;
-    public bool CanInstallRuntime => _setup.CanInstall && !IsInstallingRuntime;
+    public bool IsPreparingAnything => IsInstallingRuntime || IsPreparingModelFiles;
+    public bool CanInstallRuntime => _setup.CanInstall && !IsPreparingAnything;
+    public bool CanStageModelFiles => _setup.CanStageModelFiles && !IsPreparingAnything;
     public string SetupCacheLocation => "Setup cache: " + _setup.CacheLocation;
+    public string ModelStagingLocation => "Model-file staging (not the Foundry runtime cache): " + _setup.ModelCacheLocation;
 
     public FoundryLocalSettingsViewModel(ISettingsService settings,
         IFoundryLocalRuntimeService runtime, IAiCapabilityService capabilities,
@@ -103,20 +113,26 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         DiscoverCommand.Cancel();
         _connectionPlan = null;
         CanUseDiscoveredEndpoint = false;
-        SetupStatus = IsInstallingRuntime
+        SetupStatus = IsPreparingModelFiles
+            ? "Configuration changed; model-file preparation cancelled. Completed and partial staging data are retained."
+            : IsInstallingRuntime
             ? "Configuration changed; runtime setup cancelled. Windows deployment may still complete. Inspect installed packages before retrying."
             : "Configuration changed. Discover again before connecting; no runtime operation requested for these settings.";
     }
 
-    public async Task InstallRuntimeAsync(Func<string, CancellationToken, Task<bool>> confirm)
+    public Task InstallRuntimeAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunSetupAsync(false, confirm);
+    public Task StageModelFilesAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunSetupAsync(true, confirm);
+
+    private async Task RunSetupAsync(bool modelFiles, Func<string, CancellationToken, Task<bool>> confirm)
     {
-        if (!CanInstallRuntime || DiscoverCommand.IsRunning || _confirmingConnection) return;
+        if (!(modelFiles ? CanStageModelFiles : CanInstallRuntime) || DiscoverCommand.IsRunning || _confirmingConnection) return;
         var original = AiConversationContext.Capture(_settings, AiProviderKind.FoundryLocal);
         var revision = _configurationRevision;
         if (!IsCurrent(original)) return;
         using var cancellation = new CancellationTokenSource();
         _runtimeSetupCancellation = cancellation;
-        IsInstallingRuntime = true;
+        IsInstallingRuntime = !modelFiles;
+        IsPreparingModelFiles = modelFiles;
         _connectionPlan = null;
         CanUseDiscoveredEndpoint = false;
         var inFlight = true;
@@ -128,22 +144,35 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
                 if (inFlight && Current() && !cancellation.IsCancellationRequested)
                     SetupStatus = text;
             });
-            SetupStatus = "Preparing runtime-only installation; no downloads or registration until you confirm…";
-            var result = await _setup.InstallRuntimeAsync(original, confirm, Current, progress, cancellation.Token);
+            SetupStatus = modelFiles
+                ? "Preparing pinned model-file download; no network until you confirm…"
+                : "Preparing runtime-only installation; no downloads or registration until you confirm…";
+            string guidance;
+            if (modelFiles)
+            {
+                var result = await _setup.StageModelFilesAsync(original, confirm, Current, progress, cancellation.Token);
+                guidance = result.Guidance;
+            }
+            else
+            {
+                var result = await _setup.InstallRuntimeAsync(original, confirm, Current, progress, cancellation.Token);
+                guidance = result.Guidance;
+            }
             inFlight = false;
-            if (Current()) SetupStatus = result.Guidance;
+            if (Current()) SetupStatus = guidance;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected Foundry runtime-only setup failure.");
+            _logger.LogError(ex, "Unexpected Foundry preparation failure.");
             if (Current())
-                SetupStatus = "Unexpected runtime setup failure. No automatic retry or uninstall. Inspect Windows packages and retained setup cache before retrying.";
+                SetupStatus = "Unexpected preparation failure. No automatic retry or cleanup. Inspect retained setup cache and any requested Windows registration before retrying.";
         }
         finally
         {
             inFlight = false;
             _runtimeSetupCancellation = null;
             IsInstallingRuntime = false;
+            IsPreparingModelFiles = false;
         }
     }
 
@@ -153,7 +182,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task DiscoverAsync(CancellationToken ct)
     {
-        if (IsInstallingRuntime) return;
+        if (IsPreparingAnything) return;
         var original = AiConversationContext.Capture(_settings, AiProviderKind.FoundryLocal);
         var revision = _configurationRevision;
         var reading = true;

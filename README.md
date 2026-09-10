@@ -380,7 +380,7 @@ AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, 
 settings for an explicitly prepared local host; inference does not require an
 Ollama container or the WSLC engine. Supply the host's actual loopback URL and
 exact model ID, not a sample port or guessed model. Catalog metadata does not
-prove tool support, hardware acceleration or offline readiness. Model/EP downloads,
+prove tool support, hardware acceleration or offline readiness. Runtime-driven model/EP downloads,
 in-app model loading and complete initial-model setup are not enabled: exact model/runtime/execution-provider
 versions, publication dates and licenses must be audited before acquisition.
 The setup direction is a separately installed Microsoft Foundry Local runtime,
@@ -391,6 +391,10 @@ then offers explicit confirmation before saving the discovered endpoint.
 Microsoft CLI 0.10.3 MSIX and, if needed, its audited prerequisite. It verifies
 sizes/hashes, reuses verified setup cache, and preserves existing Foundry
 installations. Registration does not start Foundry or set up an initial model.
+**Download pinned CPU model files only** separately stages the audited nine-file
+Qwen v4 artifact with explicit license/network consent, conditional downloads,
+progress/cancellation and rehashed offline reuse. It does **not** import or load
+the model, and does not change the configured endpoint/model.
 Use an already-loaded host; explicit selected-model unload is available without
 forcing the host's memory policy. There is no cloud fallback, and assistant actions still require the existing
 capability and approval gates. **Live Foundry compatibility, signed x64 MSIX and

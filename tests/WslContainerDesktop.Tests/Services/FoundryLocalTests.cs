@@ -114,9 +114,9 @@ public sealed class FoundryLocalTests
     [Fact]
     public void LoadGuidanceDoesNotConfuseCachedDataWithAuditedEpPreparation()
     {
-        Assert.Contains("Model load and model/EP acquisition are blocked", FoundryLocalRuntimeService.AcquisitionGuidance);
-        Assert.Contains("Runtime-only package setup is separate", FoundryLocalRuntimeService.AcquisitionGuidance);
-        Assert.Contains("no authoritative verification", FoundryLocalRuntimeService.AcquisitionGuidance);
+        Assert.Contains("Model loading and runtime-driven model/EP acquisition are blocked", FoundryLocalRuntimeService.AcquisitionGuidance);
+        Assert.Contains("Runtime-only package registration also does not establish model readiness", FoundryLocalRuntimeService.AcquisitionGuidance);
+        Assert.Contains("does not register or load the model", FoundryLocalRuntimeService.AcquisitionGuidance);
         Assert.Contains("user attestation are not substitutes", FoundryLocalRuntimeService.AcquisitionGuidance);
         Assert.Contains("not hardware compatibility measurements", FoundryLocalRuntimeService.AcquisitionGuidance);
         Assert.Contains("preview Foundry Local CLI REST API", FoundryLocalRuntimeService.MemoryPolicy);

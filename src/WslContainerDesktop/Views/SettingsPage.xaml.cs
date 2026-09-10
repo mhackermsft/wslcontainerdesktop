@@ -80,19 +80,26 @@ public sealed partial class SettingsPage : Page
         }));
 
     private void InstallFoundryRuntime_Click(object sender, RoutedEventArgs e) =>
-        UiSafe.Run(() => ViewModel.FoundryLocal.InstallRuntimeAsync(async (message, ct) =>
-        {
+        UiSafe.Run(() => ViewModel.FoundryLocal.InstallRuntimeAsync((message, ct) =>
+            ConfirmFoundryPreparationAsync(message, ct, "Runtime only — model setup remains blocked", "Accept terms and install runtime")));
+
+    private void StageFoundryModelFiles_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(() => ViewModel.FoundryLocal.StageModelFilesAsync((message, ct) =>
+            ConfirmFoundryPreparationAsync(message, ct, "Model files only — no import or loading", "Accept license and download files")));
+
+    private async Task<bool> ConfirmFoundryPreparationAsync(string message, CancellationToken ct, string title, string action)
+    {
             ct.ThrowIfCancellationRequested();
             var dialog = new ContentDialog
             {
                 XamlRoot = XamlRoot,
-                Title = "Runtime only — model setup remains blocked",
+                Title = title,
                 Content = new ScrollViewer
                 {
                     Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true },
                     MaxHeight = 450,
                 },
-                PrimaryButtonText = "Accept terms and install runtime",
+                PrimaryButtonText = action,
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Close,
             };
@@ -100,5 +107,5 @@ public sealed partial class SettingsPage : Page
             var result = await dialog.ShowAsync();
             ct.ThrowIfCancellationRequested();
             return result == ContentDialogResult.Primary;
-        }));
+    }
 }

@@ -409,6 +409,8 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton(_ => new FoundryLocalDownloader(
             Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "FoundryRuntimeSetup")));
         services.AddSingleton<FoundryLocalInstaller>();
+        services.AddSingleton(_ => new FoundryLocalModelArtifacts(
+            Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "FoundryModelStaging")));
         services.AddSingleton<FoundryLocalSetupService>();
         services.AddSingleton<IAiCapabilityService>(sp =>
         {

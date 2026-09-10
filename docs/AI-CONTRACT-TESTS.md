@@ -583,6 +583,16 @@ or model execution. Parser regressions reject command mentions in prose and
 examples. Model help explicitly does not establish pinned acquisition/offline
 loading. The older synthetic cases remain separate negative/adapter tests.
 
+`FoundryLocalModelArtifactTests` covers the complete pinned nine-file metadata
+graph, strict conditional responses, origin/redirect/credential protection,
+bounded streaming, interruption retention, receipt corruption and verified
+offline reuse. Real setup/VM tests enforce consent before any network, stale
+approval/provider cancellation, no duplicate confirmation and no runtime/CLI
+calls. Their payloads are synthetic and small; they never download the model.
+Recorded cache-location tests separately establish the observed 0.10.3 JSON
+schema and reject unknown versions/fields/unsafe paths. Cache-list timeout is
+not interpreted as empty inventory.
+
 `FoundryLocalInstallerTests` exercises prepared-file size/hash checks, locked
 files during approval, fixed PowerShell script/environment arguments, one
 runtime-only consent, stale approval, failure/cancellation retention guidance,
