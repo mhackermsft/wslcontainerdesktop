@@ -99,7 +99,6 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeReconciliationPlan.cs" Link="Models\ComposeReconciliationPlan.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeCompatibilityPreview.cs" Link="Models\ComposeCompatibilityPreview.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposePreviewProjection.cs" Link="Services\ComposePreviewProjection.cs" />
-    <Compile Include="..\..\src\WslContainerDesktop\Services\AiTextSanitizer.cs" Link="Services\AiTextSanitizer.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeReviewPresenter.cs" Link="Services\IComposeReviewPresenter.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ComposePreviewViewModel.cs" Link="ViewModels\ComposePreviewViewModel.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.Review.cs" Link="Services\ComposeProjectSupervisor.Review.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
