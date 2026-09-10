@@ -124,6 +124,8 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\DevContainerImporter.cs" Link="Services\DevContainerImporter.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IDevContainerImporter.cs" Link="Services\IDevContainerImporter.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\DevContainerConfig.cs" Link="Models\DevContainerConfig.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\DevContainerComposeLifecycleProgress.cs" Link="Models\DevContainerComposeLifecycleProgress.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\DevContainerLifecycleCommand.cs" Link="Models\DevContainerLifecycleCommand.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeImporter.Yaml.cs" Link="Services\ComposeImporter.Yaml.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeImporter.Merge.cs" Link="Services\ComposeImporter.Merge.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeImporter.Files.cs" Link="Services\ComposeImporter.Files.cs" />
@@ -138,6 +140,12 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'">
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcService.cs" Link="Services\WslcService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslRootShell.cs" Link="Services\WslRootShell.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ComposeViewModel.cs" Link="ViewModels\ComposeViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\DevContainerSupervisor.cs" Link="Services\DevContainerSupervisor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\DevContainerStore.cs" Link="Services\DevContainerStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IDevContainerSupervisor.cs" Link="Services\IDevContainerSupervisor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IDevContainerFeatureResolver.cs" Link="Services\IDevContainerFeatureResolver.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IDevContainerStore.cs" Link="Services\IDevContainerStore.cs" />
     <!-- Compile the real resolver without activating the packaged application or its I/O services. -->
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolset.cs" Link="Services\AssistantToolset.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IKubernetesService.cs" Link="Services\IKubernetesService.cs" />
@@ -155,9 +163,12 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <Compile Remove="Services\ComposeRuntime*.cs" />
+    <Compile Remove="ViewModels\ComposeViewModelBusyTests.cs" />
+    <Compile Remove="ViewModels\ComposeDialogDoubles.cs" />
     <Compile Remove="Services\AssistantToolsetContractTests.cs" />
     <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
     <Compile Remove="Services\ComposeReconciliationSupervisorTests.cs" />
+    <Compile Remove="Services\DevContainerLifecycleTests.cs" />
     <Compile Remove="Services\SupervisorMonitorDoubles.cs" />
   </ItemGroup>
   <ItemGroup>

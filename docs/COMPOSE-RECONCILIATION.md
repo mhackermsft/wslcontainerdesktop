@@ -125,6 +125,29 @@ clear all project policies before inspecting individual instances, replace conta
 intent, or apply edited service options. Multi-network repair retains its existing compatibility
 and rollback checks. App-owned restart/health enforcement still requires the desktop to be running.
 
+## Dev Container lifecycle integration
+
+Compose-backed Dev Containers dispatch container hooks from the primary service's successful
+action and returned container ID, not from project-wide success or a reusable name. Create and
+recreate schedule `onCreateCommand`, `updateContentCommand`, `postCreateCommand`, and
+`postStartCommand`; start/restart schedule only `postStartCommand`. An ordinary unchanged keep
+does not run any of these hooks. A successful primary is initialized even if a sibling fails,
+and the overall failure is still reported.
+
+Pending commands (including their remote working directory/environment) are snapshotted in the
+existing `devcontainers.json` record by container identity immediately after the primary's
+successful action, before a later sibling can interrupt the apply. Each acknowledged command is removed
+and saved before the next command runs. Reimport retains this progress. An explicit retry on a
+kept container resumes only previously scheduled failed/unattempted commands; it does not replay
+completed creation commands or schedule edited hooks. A new container identity starts a fresh
+creation sequence. Host `initializeCommand`, terminal `postAttachCommand`, and the non-Compose
+single-container replacement path keep their existing behavior.
+
+State writes are atomic and failures are surfaced. This is not a transaction with arbitrary shell
+side effects: a command that fails/cancels after making changes, or succeeds just before a crash
+or failed checkpoint write, may need to run again. Such commands should be retry-safe; their errors
+are not hidden. Cancellation between acknowledged hook commands preserves the saved remainder.
+
 ## Intentional limits
 
 This is detached desktop orchestration, not the Docker Compose daemon/CLI. It does not implement

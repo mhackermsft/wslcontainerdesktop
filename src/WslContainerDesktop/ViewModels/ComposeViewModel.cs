@@ -67,6 +67,7 @@ public partial class ComposeViewModel : ObservableObject
     private readonly ComposeProjectSupervisor _supervisor;
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
+    private int _busyOperations;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ManageServicesCommand), nameof(RefreshCommand))]
@@ -95,8 +96,7 @@ public partial class ComposeViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanManageServices))]
     public async Task RefreshAsync()
     {
-        var wasBusy = IsBusy;
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = "Loading compose projects…";
         try
         {
@@ -129,7 +129,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = wasBusy;
+            EndBusyOperation();
         }
     }
 
@@ -331,6 +331,20 @@ public partial class ComposeViewModel : ObservableObject
 
     private bool CanManageServices() => !IsBusy;
 
+    // Navigation can overlap refreshes on this singleton, including lifecycle-owned refreshes.
+    // All callers resume on the UI context; each operation releases only its own busy ownership.
+    private void BeginBusyOperation()
+    {
+        _busyOperations++;
+        IsBusy = true;
+    }
+
+    private void EndBusyOperation()
+    {
+        _busyOperations--;
+        IsBusy = _busyOperations > 0;
+    }
+
     [RelayCommand(CanExecute = nameof(CanManageServices))]
     private async Task ManageServicesAsync(ComposeProjectRow? row)
     {
@@ -340,7 +354,7 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         try
         {
             var dialog = new ComposeServicesDialog(row.Project);
@@ -380,7 +394,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -398,7 +412,7 @@ public partial class ComposeViewModel : ObservableObject
 
     private async Task BringUpAsync(ComposeProject project)
     {
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = $"Bringing up \"{project.Name}\"…";
         try
         {
@@ -440,7 +454,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -462,7 +476,7 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = $"Bringing down \"{row.Name}\"…";
         try
         {
@@ -477,7 +491,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -501,7 +515,7 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = $"Restarting \"{row.Name}\"…";
         try
         {
@@ -528,7 +542,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -550,7 +564,7 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         try
         {
             await _supervisor.DownAsync(row.Name, removeVolumes: true);
@@ -565,7 +579,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -598,7 +612,7 @@ public partial class ComposeViewModel : ObservableObject
 
     private async Task RestartSessionCoreAsync()
     {
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = "Restarting WSL session…";
         try
         {
@@ -621,7 +635,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 }

@@ -96,8 +96,13 @@ public sealed partial class ComposeProjectSupervisor
     public Task<ComposeUpResult> UpAsync(ComposeProject project, CancellationToken ct = default) =>
         UpAsync(project, new ComposeOperationRequest(), ct);
 
-    public async Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
-        CancellationToken ct = default)
+    public Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
+        CancellationToken ct = default) => UpAsync(project, request, null, ct);
+
+    /// <summary>Checkpoints successful service actions before later services can fail or cancel.
+    /// The observer must not re-enter lifecycle operations; errors abort the remaining apply.</summary>
+    internal async Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
+        Action<ComposeServiceResult>? onServiceSucceeded, CancellationToken ct)
     {
         if (request.Operation != ComposeLifecycleOperation.Up)
             throw new ArgumentException("Up requires an Up operation.", nameof(request));
@@ -108,7 +113,7 @@ public sealed partial class ComposeProjectSupervisor
         {
             desired.AppliedServices = _store.Get(project.Name)?.AppliedServices ?? desired.AppliedServices;
             desired.AppliedStateKnown = true;
-            return await UpCoreAsync(desired, maximumStopVersion, ct, request).ConfigureAwait(false);
+            return await UpCoreAsync(desired, maximumStopVersion, ct, request, onServiceSucceeded).ConfigureAwait(false);
         }
         finally
         {
@@ -142,7 +147,7 @@ public sealed partial class ComposeProjectSupervisor
     }
 
     private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, long maximumStopVersion, CancellationToken ct,
-        ComposeOperationRequest request)
+        ComposeOperationRequest request, Action<ComposeServiceResult>? onServiceSucceeded)
     {
         var plan = await ReadPlanAsync(project, request, ct).ConfigureAwait(false);
         if (!plan.CanApply)
@@ -259,6 +264,7 @@ public sealed partial class ComposeProjectSupervisor
                 SeedRestartPolicies(readyProject);
                 RecordApplied(project, entry, result.ContainerId!);
                 _monitor.RequestRefresh();
+                onServiceSucceeded?.Invoke(result);
             }
         }
 

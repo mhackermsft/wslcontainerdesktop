@@ -47,6 +47,7 @@ public sealed class DevContainerConfig
     public List<string> Warnings { get; set; } = new();
     public RunContainerOptions RunOptions { get; set; } = new();
     public string LifecycleLog { get; set; } = string.Empty;
+    public DevContainerComposeLifecycleProgress? ComposeLifecycleProgress { get; set; }
 
     public bool UsesCompose => Compose is not null;
     public string EffectiveImage => !string.IsNullOrWhiteSpace(Image) ? Image! : DevContainerImageTag(Id);
