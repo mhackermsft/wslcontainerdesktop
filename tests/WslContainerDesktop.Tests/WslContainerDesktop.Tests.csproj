@@ -119,8 +119,12 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerStats.cs" Link="Models\ContainerStats.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerFsChange.cs" Link="Models\ContainerFsChange.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeImporter.cs" Link="Services\ComposeImporter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\DevContainerImporter.cs" Link="Services\DevContainerImporter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IDevContainerImporter.cs" Link="Services\IDevContainerImporter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\DevContainerConfig.cs" Link="Models\DevContainerConfig.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeImporter.Yaml.cs" Link="Services\ComposeImporter.Yaml.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeImporter.Merge.cs" Link="Services\ComposeImporter.Merge.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeImporter.Files.cs" Link="Services\ComposeImporter.Files.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeInterpolation.cs" Link="Services\ComposeInterpolation.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeConfigurationException.cs" Link="Services\ComposeConfigurationException.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeNetworkOrchestrator.cs" Link="Services\ComposeNetworkOrchestrator.cs" />

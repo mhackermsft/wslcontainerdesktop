@@ -294,6 +294,7 @@ public sealed class ComposeSemanticsTests
               web:
                 image: fixture
                 {{kind}}: [{{source}}]
+            {{kind}}: { {{source}}: {external: true}, replacement: {external: true} }
             """, $$"""
             services:
               web:
@@ -403,6 +404,7 @@ public sealed class ComposeSemanticsTests
                 ports: [{target: 80, published: 8080, mode: host}]
                 volumes: [{source: data, target: /data, volume: {nocopy: true}}]
                 secrets: [{source: token, target: token, uid: "1000"}]
+            secrets: {token: {external: true}}
             """);
         Assert.Equal([
             "Service 'web': 'ports.mode' is not supported and was ignored.",

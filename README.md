@@ -417,8 +417,8 @@ WSL Container Desktop can import a `docker-compose.yml` and run the whole stack,
 
 The [versioned configuration corpus](docs/COMPOSE-CONFORMANCE.md) records tested subsets and known
 differences. Empty environment values, later `env_file` precedence, sequence/resource overrides and
-required-variable errors now have spec-expected regressions; included-file paths and required-file
-handling remain partial. Its 21 cases have **captured Docker Compose v2.39.4 config output**
+required-variable errors now have spec-expected regressions. Strict local include/extends graphs
+and required-file failures have focused offline coverage. Its 21 cases have **captured Docker Compose v2.39.4 config output**
 compared with spec-derived expectations. The separate opt-in WSLC runtime harness is not run by
 normal tests; configuration comparisons are not runtime certification.
 Captured differences remain explicit: unused nested required expressions, duplicate DNS entries,
@@ -441,7 +441,7 @@ A large subset of the Compose spec is honored on **up**:
 
 - **Services** — `image`, `build` (context/dockerfile/args/target/labels/pull), `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `labels`.
 - **Networking & storage** — `ports` (short and long form), `volumes` (short and long form), top-level `networks:` / `volumes:` creation, service DNS aliases, `secrets:` / `configs:` (file-backed, best-effort), `extra_hosts` (best-effort), `tmpfs`, `dns*`. With detected native network support, multi-network services are created, connected to every required network, then started; per-network aliases and static IPv4 settings are retained (one IPAM subnet configuration).
-- **Config** — `environment`, `env_file`, nested Compose interpolation (default/required/alternative operators, unset versus empty and `$$`), YAML quoting/anchors/aliases/`<<` merge keys, folded/literal block scalars and chomping, and sibling override merging with `!reset` / `!override`. `include:` / `extends:` remain partial.
+- **Config** — `environment`, `env_file`, nested Compose interpolation (default/required/alternative operators, unset versus empty and `$$`), YAML quoting/anchors/aliases/`<<` merge keys, folded/literal block scalars and chomping, sibling override merging with `!reset` / `!override`, and strict local `include:` / `extends:` graphs within the subset below.
 - **Resources** — `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`.
 - **Lifecycle** — `depends_on` (including `condition: service_healthy` / `service_completed_successfully`), `healthcheck`, `restart:` (`no`/`always`/`on-failure`/`unless-stopped`), `profiles:`, and project `up` / `down` / `restart` with re-adoption on relaunch.
 
@@ -458,14 +458,27 @@ Some of these are **best-effort** — e.g. `secrets`/`configs` are bind-mounted 
   values (not mapping keys), once per file **before** merging. Service `env_file` values do not
   feed interpolation; later files win for container variables, with inline `environment` winning last.
   An unset optional substitution becomes empty with a value-free warning.
+- **File graphs:** includes are independent projects, not override layers; conflicting services,
+  networks, volumes, secrets or configs reject instead of merging. Identical duplicate definitions
+  are accepted once, including shared leaves in diamond-shaped includes. Short paths and long-form
+  `path` lists, `project_directory` and include `env_file` are supported for local inputs.
+  Included paths use their project directory; child `.env` supplies defaults below the parent's
+  interpolation environment and cannot leak to siblings. Only an explicit include path list
+  loads child override layers. Extends has its own merge rules, detects cycles/missing services,
+  rebases inherited paths to their source file, and does not import that file's top-level resources.
 - **Fail closed:** malformed YAML, invalid supported-field shapes, unknown/recursive aliases,
   unsupported tags and malformed/unsatisfied required expressions stop import before saving a
   project or deploying. Errors identify the variable/location without echoing values or custom
   required-error text. Tags on sequence items/document roots and multiple YAML documents are
-  explicitly unsupported.
+  explicitly unsupported. Required includes, extends files, env files and file-backed
+  secrets/configs must be readable. `env_file.required: false` permits absence only; existing
+  unreadable/malformed files still reject. File errors use logical source/key breadcrumbs, not
+  user-controlled paths or contents. Binary secret/config files are accepted without text parsing.
 - **Partial:** this is not a complete Compose schema validator or CLI. `.env` / `env_file` parsing
-  still supports simple line-based assignments, not all dotenv quoting/interpolation forms.
-  Include/extends file/project semantics and required-file handling remain incomplete. The saved
+  supports simple line-based assignments with outer-quote removal, not full dotenv multiline,
+  escape, inline-comment or interpolation semantics; malformed assignments reject.
+  Remote required inputs, unsupported include/extends forms and env-file `format` options reject.
+  There is no CLI `--env-file`/PWD selection emulation. The saved
   command representation distinguishes null/empty, but clearing image defaults at engine runtime
   is not certified. See [parser limits, audit and contracts](docs/COMPOSE-PARSER.md).
 

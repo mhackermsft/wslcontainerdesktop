@@ -3,18 +3,19 @@
 ## Scope and evidence
 
 `tests/WslContainerDesktop.Tests/Fixtures/Compose/v1` is a synthetic, offline configuration corpus
-for issue #86, extended by issue #82. It uses the existing xUnit runner and links the real
+for issue #86, extended by issues #82 and #83. It uses the existing xUnit runner and links the real
 `ComposeImporter`, including its audited YamlDotNet dependency. No Docker Desktop, daemon, image
-pulls, WSL installation or package activation are needed. #82 changes parsing, not orchestration.
+pulls, WSL installation or package activation are needed. These layers change parsing, not orchestration.
 
 **All 21 cases now have actual `config --format json` reference captures** from the
 official Windows x64 standalone Compose v2.39.4 binary. Initial expectations were hand-authored
 spec projections; those projections are now compared with the captured output. Capture ran on
 2026-09-10 in an isolated synthetic directory/environment, with no engine/workloads. The runtime
 harness remains unexecuted and there is no real-engine runtime certification. Required-variable
-cases now assert fail-closed, secret-safe errors; the missing-file case still characterizes an
-unsafe diagnostic gap for #83. Resolved #82 differences no longer have divergence exemptions;
+and missing-required-file cases assert fail-closed, secret-safe errors. Included env files now
+resolve against the included project. Resolved #82/#83 differences no longer have divergence exemptions;
 newly observed CLI differences are recorded explicitly rather than hidden by the projection.
+File-graph matrices live in a separate focused test class, not fabricated CLI captures.
 
 The reference is pinned in `reference-provenance.json`:
 
@@ -96,7 +97,7 @@ retain `referenceError` for future CLI capture; rejecting configuration is not a
 | `yaml-anchors`, `yaml-block` | Anchor merge, quoted string scalars/comments, literal block with strip chomping; these examples agree |
 | `environment` | Process > `.env`, inline > env files, explicit empty values and later env-file precedence |
 | `override` | Map merge, command replacement, unique ports and appended DNS |
-| `include` | Imported service retained; its env file uses the wrong base directory and is skipped (#83) |
+| `include` | Imported service retained; its env file resolves against the included project's directory |
 | `extends` | Cross-file inheritance with child environment override agrees for this example |
 | `profiles` | Profile metadata retained; no claim about activation or explicit-service selection |
 | `mounts-ports` | Short/long named read-only mounts and TCP/UDP ports agree for these examples |
@@ -104,7 +105,7 @@ retain `referenceError` for future CLI capture; rejecting configuration is not a
 | `health-dependencies` | Health test argv/timing/retries and all three dependency conditions retained; not proof of startup behavior |
 | `unsupported` | Exact ignored-privileged/scaling diagnostics; not a safe-to-launch assertion |
 | `required-variable`, `required-override` | Required variables reject without leaking custom error text, even if the override would replace the invalid base value |
-| `missing-env-file` | Reference should reject; current importer still returns a service without a diagnostic (#83) |
+| `missing-env-file` | Required missing env file rejects with source/key context and no user-controlled path; failure envelope has no services |
 | `interpolation-nested` | Nested/alternative/required operators, empty/process/`.env` precedence, escaped dollars, literal mapping keys and structure-safe substituted values |
 | `unset-warning` | Unset direct substitution warns without exposing values; empty variables/defaults/unused branches do not warn |
 | `override-unique` | Mixed map/list environment/labels; port IP/protocol identity; target-key mounts/secrets/configs; command/entrypoint/health-test replacement. Explicit captured divergences: CLI removes duplicate DNS but retains equivalent short/numeric-long port bindings; the importer retains DNS duplicates and normalizes port tuple identity |
@@ -116,8 +117,24 @@ retain `referenceError` for future CLI capture; rejecting configuration is not a
 rejections, alias/depth/size bounds, all six folding/chomping variants, explicit indentation, bare-CR
 input, canonical ranges/IPv6, mixed build args/resource labels, unsupported-resource warnings,
 bad override rejection, one-pass interpolation and saved-schema/argv round trips.
-Additional cases needed in later layers include recursive include/extends conflicts, full dotenv
-syntax, required-file semantics, profile dependency validation, optional dependencies and lifecycle drift.
+`ComposeFileGraphTests` exercises independent resource conflicts, identical duplicates and
+diamond-include idempotency, nested includes, explicit
+include override layers (including repeated files), source-prefixed included-option warnings,
+project-directory/env-file scoping, child `.env` isolation, inherited
+source paths, local/external/mixed cycles and lexical aliases, missing inherited services,
+non-import of external resources, inheritance versus override merging, retained DNS/env-file
+duplicates, required/optional missing/unreadable inputs, invalid UTF-8/YAML/dotenv, binary file
+resources, remote/unsupported forms, source-free relative paths, Windows drive/UNC lexical binds,
+graph bounds and parser-before-save preservation with the existing store double.
+Host-file lexical canonicalization, unchanged Linux bind/build paths, and per-resource-kind
+diagnostic ordinals have separate assertions.
+Pending reset/override markers are checked across override layers before inheritance; malformed
+included resource lists and unsupported bare dotenv keys must reject with redacted ordinal context.
+All actual file IO uses synthetic files in owned checkout directories. Locked local files exercise
+sharing failures; UNC bind cases only normalize strings and never access live shares. The store
+test mirrors inspected `ComposeViewModel` ordering; it is not a WinUI integration/deployment test.
+Additional cases needed in later layers include full dotenv syntax, profile dependency validation,
+optional dependencies and lifecycle drift.
 This inventory supports the qualified compatibility matrix in README/architecture, not a blanket
 Compose conformance claim.
 

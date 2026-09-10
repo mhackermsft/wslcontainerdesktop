@@ -178,11 +178,14 @@ public sealed class ComposeConformanceTests
     public void CorpusRetainsRequiredCoverageAndHonestProvenance()
     {
         var cases = Cases().Select(c => (string)c[0]).ToHashSet(StringComparer.Ordinal);
+        Assert.Equal(21, cases.Count);
         foreach (var required in new[]
         {
             "interpolation", "yaml-anchors", "yaml-block", "environment", "override", "include",
             "extends", "profiles", "mounts-ports", "networks", "health-dependencies", "unsupported",
             "required-variable", "missing-env-file",
+            "interpolation-nested", "unset-warning", "override-unique", "override-tags",
+            "required-override", "yaml-multiline",
         })
             Assert.Contains(required, cases);
         var provenance = JsonNode.Parse(File.ReadAllText(Path.Combine(Corpus, "reference-provenance.json")))!;

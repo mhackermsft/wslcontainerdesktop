@@ -38,6 +38,7 @@ public static partial class ComposeImporter
     private abstract class Node
     {
         public string? Tag { get; set; }
+        public string Source { get; set; } = "Compose input";
     }
 
     private sealed class NullNode : Node;
@@ -57,6 +58,8 @@ public static partial class ComposeImporter
     private sealed class MappingNode(Dictionary<string, Node> map) : Node
     {
         public Dictionary<string, Node> Map { get; } = map;
+        // Defer this default so an args-only override cannot erase an inherited build context.
+        public string? DefaultBuildContext { get; set; }
 
         public Node? Child(string key) => Map.TryGetValue(key, out var n) ? n : null;
 
@@ -110,25 +113,36 @@ public static partial class ComposeImporter
     {
         var effectiveEnv = BuildInterpolationEnvironment(environment, baseDirectory);
         var interpolationWarnings = new List<string>();
-        var root = ReadComposeYaml(yaml, effectiveEnv, interpolationWarnings);
+        var graph = new FileGraph(interpolationWarnings);
+        var root = graph.LoadMain(yaml, baseDirectory, effectiveEnv);
+        return ProjectRoot(root, baseDirectory, effectiveEnv, interpolationWarnings);
+    }
 
-        // Merge any top-level `include:` files first (the including file wins), then a sibling override.
-        root = ApplyIncludes(root, baseDirectory, effectiveEnv, interpolationWarnings);
-        root = ApplyOverrideFile(root, baseDirectory, effectiveEnv, interpolationWarnings);
-        if (root.Child("services") is MappingNode unresolvedServices && unresolvedServices.Tag != "!reset")
-        {
-            var resolvedServices = new Dictionary<string, Node>(StringComparer.Ordinal);
-            foreach (var (name, node) in unresolvedServices.Map)
-            {
-                resolvedServices[name] = node is MappingNode svc && svc.Tag != "!reset"
-                    ? ResolveExtends(svc, unresolvedServices, baseDirectory, effectiveEnv,
-                        new HashSet<string>(StringComparer.Ordinal), interpolationWarnings)
-                    : node;
-            }
-            root.Map["services"] = new MappingNode(resolvedServices);
-        }
-        root = (MappingNode)ApplyTags(root);
+    /// <summary>
+    /// Loads an explicit ordered Compose file set as one project. All override paths use the
+    /// first file's directory; no implicit sibling override is discovered.
+    /// </summary>
+    public static ComposeProject ParseProjectFiles(
+        IReadOnlyList<string> files,
+        IReadOnlyDictionary<string, string>? environment = null)
+    {
+        if (files.Count == 0)
+            throw FileError("Compose files", "expected a nonempty ordered file list");
+        var paths = files.Select((file, index) =>
+            RequiredPath(RequiredScalar(new ScalarNode(file), $"Compose files[{index + 1}]"),
+                null, $"Compose files[{index + 1}]")).ToList();
+        var directory = Path.GetDirectoryName(paths[0]);
+        var effectiveEnv = BuildInterpolationEnvironment(environment, directory);
+        var warnings = new List<string>();
+        var root = new FileGraph(warnings).LoadFiles(paths, directory, effectiveEnv);
+        return ProjectRoot(root, directory, effectiveEnv, warnings);
+    }
+
+    private static ComposeProject ProjectRoot(MappingNode root, string? baseDirectory,
+        IReadOnlyDictionary<string, string> effectiveEnv, List<string> interpolationWarnings)
+    {
         ValidateServices(root);
+        ValidateFileResources(root);
 
         var project = new ComposeProject
         {
@@ -284,78 +298,6 @@ public static partial class ComposeImporter
     };
 
     /// <summary>
-    /// Deep-merges the first present sibling <c>*.override.*</c> compose file over <paramref name="root"/>
-    /// (override wins), mirroring <c>docker compose</c>'s automatic override behavior. Returns
-    /// <paramref name="root"/> unchanged when there is no base directory or no override file.
-    /// </summary>
-    private static MappingNode ApplyOverrideFile(
-        MappingNode root,
-        string? baseDirectory,
-        IReadOnlyDictionary<string, string>? env,
-        List<string> warnings)
-    {
-        if (string.IsNullOrWhiteSpace(baseDirectory))
-        {
-            return root;
-        }
-
-        foreach (var candidate in OverrideFileNames)
-        {
-            var path = Path.Combine(baseDirectory, candidate);
-            var overrideRoot = LoadComposeRoot(path, env, warnings);
-            if (overrideRoot is not null)
-            {
-                return MergeMappings(root, overrideRoot);
-            }
-        }
-
-        return root;
-    }
-
-    /// <summary>
-    /// Merges top-level <c>include:</c> files under <paramref name="root"/> (the including file wins),
-    /// using the existing partial include implementation. Accepts the short list form
-    /// (<c>- other.yml</c>) and the long form (<c>- path: other.yml</c>). Missing includes are
-    /// currently skipped; present unreadable or malformed files fail configuration parsing.
-    /// </summary>
-    private static MappingNode ApplyIncludes(
-        MappingNode root,
-        string? baseDirectory,
-        IReadOnlyDictionary<string, string>? env,
-        List<string> warnings)
-    {
-        if (string.IsNullOrWhiteSpace(baseDirectory) || root.Child("include") is not SequenceNode includes)
-        {
-            return root;
-        }
-
-        var merged = new MappingNode(new Dictionary<string, Node>(StringComparer.Ordinal));
-        foreach (var item in includes.Items)
-        {
-            var relative = item switch
-            {
-                ScalarNode s => s.Value,
-                MappingNode m => m.Scalar("path"),
-                _ => null,
-            };
-
-            if (string.IsNullOrWhiteSpace(relative))
-            {
-                continue;
-            }
-
-            var included = LoadComposeRoot(ResolvePath(relative, baseDirectory), env, warnings);
-            if (included is not null)
-            {
-                // Later includes win over earlier ones; the main file wins over all includes.
-                merged = MergeMappings(merged, included);
-            }
-        }
-
-        return MergeMappings(merged, StripKey(root, "include"));
-    }
-
-    /// <summary>
     /// Reads the active compose profiles from the <c>COMPOSE_PROFILES</c> environment variable (the
     /// same mechanism <c>docker compose</c> uses), split on commas.
     /// </summary>
@@ -370,107 +312,26 @@ public static partial class ComposeImporter
             .ToList();
     }
 
-    /// <summary>
-    /// Resolves a service's <c>extends:</c> chain by deep-merging the base service (from this file or
-    /// an external file) under the extending service, with the child winning. Guards against cycles.
-    /// </summary>
-    private static MappingNode ResolveExtends(
-        MappingNode svc,
-        MappingNode localServices,
-        string? baseDirectory,
-        IReadOnlyDictionary<string, string>? env,
-        HashSet<string> visiting,
-        List<string> warnings)
-    {
-        var ext = svc.Child("extends");
-        string? baseFile = null;
-        string? baseService = null;
-
-        switch (ext)
-        {
-            case ScalarNode s when !string.IsNullOrWhiteSpace(s.Value):
-                baseService = s.Value.Trim();
-                break;
-            case MappingNode m:
-                baseService = m.Scalar("service")?.Trim();
-                baseFile = m.Scalar("file")?.Trim();
-                break;
-        }
-
-        if (string.IsNullOrWhiteSpace(baseService))
-        {
-            return StripKey(svc, "extends");
-        }
-
-        MappingNode? baseServices = localServices;
-        var baseDirForBase = baseDirectory;
-        if (!string.IsNullOrWhiteSpace(baseFile))
-        {
-            var resolvedFile = ResolvePath(baseFile, baseDirectory);
-            baseServices = LoadComposeRoot(resolvedFile, env, warnings)?.Child("services") as MappingNode;
-            baseDirForBase = Path.GetDirectoryName(resolvedFile) ?? baseDirectory;
-        }
-
-        if (baseServices?.Child(baseService) is not MappingNode baseSvc)
-        {
-            return StripKey(svc, "extends");
-        }
-
-        var key = (baseFile ?? string.Empty) + "|" + baseService;
-        if (!visiting.Add(key))
-        {
-            return StripKey(svc, "extends"); // cycle — stop resolving.
-        }
-
-        var resolvedBase = ResolveExtends(baseSvc, baseServices, baseDirForBase, env, visiting, warnings);
-        visiting.Remove(key);
-
-        return MergeMappings(resolvedBase, StripKey(svc, "extends"), "service");
-    }
-
-    /// <summary>Missing optional files return null; present malformed files must not be ignored.</summary>
-    private static MappingNode? LoadComposeRoot(string path, IReadOnlyDictionary<string, string>? env, List<string> warnings)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            {
-                return null;
-            }
-
-            var text = File.ReadAllText(path);
-            return ReadComposeYaml(text, env, warnings);
-        }
-        catch (ComposeConfigurationException ex)
-        {
-            throw new ComposeConfigurationException("Referenced Compose file: " + ex.Message);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            throw new ComposeConfigurationException("Cannot read a referenced Compose file. Check its path and permissions.");
-        }
-    }
-
     /// <summary>Returns a copy of <paramref name="map"/> with <paramref name="key"/> removed.</summary>
     private static MappingNode StripKey(MappingNode map, string key)
     {
         var copy = new Dictionary<string, Node>(map.Map, StringComparer.Ordinal);
         copy.Remove(key);
-        return new MappingNode(copy) { Tag = map.Tag };
+        return new MappingNode(copy) { Tag = map.Tag, Source = map.Source, DefaultBuildContext = map.DefaultBuildContext };
     }
 
     /// <summary>
     /// Merges an explicit interpolation environment with a sibling <c>.env</c> file (when a base
     /// directory is given). Explicitly-provided variables win over <c>.env</c> entries.
     /// </summary>
-    private static IReadOnlyDictionary<string, string>? BuildInterpolationEnvironment(
+    private static IReadOnlyDictionary<string, string> BuildInterpolationEnvironment(
         IReadOnlyDictionary<string, string>? environment,
         string? baseDirectory)
     {
         var merged = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!string.IsNullOrWhiteSpace(baseDirectory))
         {
-            foreach (var (key, value) in ReadEnvFile(Path.Combine(baseDirectory, ".env")))
+            foreach (var (key, value) in ReadEnvFile(Path.Combine(baseDirectory, ".env"), false, "Compose input .env"))
             {
                 merged[key] = value;
             }
@@ -519,7 +380,7 @@ public static partial class ComposeImporter
         // A service needs either an image to run or a build section to produce one.
         if (string.IsNullOrWhiteSpace(options.Image) && build is null)
         {
-            throw new ComposeConfigurationException("A Compose service has neither image nor build. Supply one before importing.");
+            throw new ComposeConfigurationException($"{svc.Source}: a Compose service has neither image nor build. Supply one before importing.");
         }
 
         var service = new ComposeService
@@ -1057,17 +918,17 @@ public static partial class ComposeImporter
     /// </summary>
     private static void MergeEnvFiles(RunContainerOptions options, Node? node, string? baseDirectory)
     {
-        var paths = CollectEnvFilePaths(node);
-        if (paths.Count == 0)
-        {
-            return;
-        }
-
+        if (node is null or NullNode) return;
+        if (node is not SequenceNode files) throw ShapeError("env_file", "a path or list of paths");
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var path in paths)
+        for (var i = 0; i < files.Items.Count; i++)
         {
+            var item = files.Items[i];
+            var context = $"{item.Source} env_file[{i + 1}]";
+            var required = item is not MappingNode map || ValidateEnvFile(map, context);
+            var path = RequiredScalar(item is MappingNode fileOptions ? fileOptions.Child("path") : item, context);
             var resolved = ResolvePath(path, baseDirectory);
-            foreach (var (key, value) in ReadEnvFile(resolved))
+            foreach (var (key, value) in ReadEnvFile(resolved, required, context))
             {
                 values[key] = $"{key}={value}";
             }
@@ -1077,53 +938,31 @@ public static partial class ComposeImporter
         options.EnvironmentVariables = values.Values.ToList();
     }
 
-    /// <summary>
-    /// Reads compose <c>env_file:</c> paths, accepting the scalar form (<c>./a.env</c>), the list of
-    /// scalars, and the long list-of-mappings form (<c>- path: ./a.env  required: false</c>).
-    /// </summary>
-    private static List<string> CollectEnvFilePaths(Node? node)
-    {
-        // Long form: a sequence whose items are mappings with a `path:` key.
-        if (node is SequenceNode seq && seq.Items.Any(i => i is MappingNode))
-        {
-            var paths = new List<string>();
-            foreach (var item in seq.Items)
-            {
-                var path = item switch
-                {
-                    ScalarNode s => s.Value,
-                    MappingNode m => m.Scalar("path"),
-                    _ => null,
-                };
-
-                if (!string.IsNullOrWhiteSpace(path))
-                {
-                    paths.Add(path.Trim());
-                }
-            }
-
-            return paths;
-        }
-
-        return CollectStrings(node);
-    }
-
     /// <summary>Resolves a possibly-relative path against the compose file's directory when known.</summary>
     private static string ResolvePath(string path, string? baseDirectory)
     {
         var p = path.Trim();
-        if (string.IsNullOrEmpty(p) || string.IsNullOrWhiteSpace(baseDirectory) || Path.IsPathRooted(p))
+        if (p.Contains('\0') || (p.Length >= 2 && p[1] == ':' && !IsAbsolutePath(p)) ||
+            (p.StartsWith('\\') && !p.StartsWith(@"\\", StringComparison.Ordinal)))
+            throw FileError("Compose path", "invalid or drive-relative path");
+        // Preserve engine/Linux paths and remote build contexts. Required local inputs reject URLs.
+        if (p.StartsWith('/') || p.Contains("://", StringComparison.Ordinal) || p.StartsWith("git@", StringComparison.Ordinal))
+            return p;
+        if (string.IsNullOrEmpty(p))
         {
             return p;
         }
 
         try
         {
-            return Path.GetFullPath(Path.Combine(baseDirectory, p));
+            if (!OperatingSystem.IsWindows() && IsAbsolutePath(p)) return p;
+            if (IsAbsolutePath(p)) return Path.GetFullPath(p);
+            if (string.IsNullOrWhiteSpace(baseDirectory)) return p;
+            return Path.GetFullPath(p, baseDirectory);
         }
-        catch
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
         {
-            return p;
+            throw FileError("Compose path", "invalid path");
         }
     }
 
@@ -1212,26 +1051,15 @@ public static partial class ComposeImporter
         return (source, rest[..modeColon], rest[(modeColon + 1)..]);
     }
 
-    /// <summary>Reads a <c>.env</c>-style file into KEY/VALUE pairs. Returns empty when unreadable.</summary>
-    private static IEnumerable<KeyValuePair<string, string>> ReadEnvFile(string path)
+    /// <summary>Reads the supported dotenv subset; only an explicitly optional absent file is skipped.</summary>
+    private static IEnumerable<KeyValuePair<string, string>> ReadEnvFile(string path, bool required, string context)
     {
-        string[] lines;
-        try
+        var text = ReadInput(path, required, context);
+        if (text is null) yield break;
+        var lineNumber = 0;
+        foreach (var raw in text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n'))
         {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            {
-                yield break;
-            }
-
-            lines = File.ReadAllLines(path);
-        }
-        catch
-        {
-            yield break;
-        }
-
-        foreach (var raw in lines)
-        {
+            lineNumber++;
             var line = raw.Trim();
             if (line.Length == 0 || line[0] == '#')
             {
@@ -1241,10 +1069,16 @@ public static partial class ComposeImporter
             var eq = line.IndexOf('=');
             if (eq <= 0)
             {
-                continue;
+                throw FileError($"{context} line {lineNumber}", "malformed or unsupported dotenv entry; expected KEY=VALUE");
             }
 
             var key = line[..eq].Trim();
+            if (key.Any(char.IsWhiteSpace) || key.Contains('\0'))
+                throw FileError($"{context} line {lineNumber}", "malformed dotenv key");
+            var rawValue = line[(eq + 1)..].Trim();
+            if (rawValue.Length > 0 && rawValue[0] is '\'' or '"' &&
+                (rawValue.Length < 2 || rawValue[^1] != rawValue[0]))
+                throw FileError($"{context} line {lineNumber}", "malformed or unsupported multiline dotenv value");
             var value = Unquote(line[(eq + 1)..].Trim());
             if (!string.IsNullOrEmpty(key))
             {
