@@ -161,6 +161,7 @@ public sealed class ContainerAssistantService(
 
     private async Task<string> ExecuteToolAsync(AssistantResolvedToolCall tool, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         Audit(ActivityKind.AssistantToolInvoked, $"Invoked: {tool.Call.Name}", tool.Details);
         var output = await tool.ExecuteAsync(ct).ConfigureAwait(false);
         return string.IsNullOrWhiteSpace(output) ? "Succeeded." : output;
@@ -201,7 +202,7 @@ public sealed class ContainerAssistantService(
         Use run_container only for a single standalone container.
         To answer questions about which image versions/tags exist in a configured remote registry, or what the newest tag is, use list_registry_repositories and list_registry_tags; do not guess tags. These browse configured ACR or private Docker Registry v2 hosts (Docker Hub's global catalog is not browsable).
         For bulk operations, call the bulk tool; the app will resolve the concrete target list and approval.
-        When the user targets a subset of containers by name (e.g. "starting with wordpress_", "the nginx ones"), set the bulk tool's namePrefix or nameContains filter accordingly. Only omit both filters when the user clearly means every container.
+        When the user targets a subset of containers by name (e.g. "starting with wordpress_", "the nginx ones"), set the bulk tool's namePrefix or nameContains filter accordingly. When the user clearly means every container, explicitly set scope="all" without filters. Omitted scope and filters are invalid.
         Explain results concisely after tool calls complete.
         """;
 }
