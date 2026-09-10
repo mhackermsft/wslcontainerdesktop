@@ -92,7 +92,7 @@ public sealed record AiCapabilitySnapshot(AiChatConfiguration Configuration)
             : "Save valid credentials or sign in, then test again."
         : Model == AiModelState.Missing
         ? Configuration.Kind == AiProviderKind.FoundryLocal
-            ? "Choose the exact cached ONNX catalog model ID on an externally prepared, already-loaded Foundry Local host. In-app model load, downloads and native acquisition are blocked."
+            ? "Choose the exact cached ONNX catalog model ID on an externally prepared, already-loaded Foundry Local host. In-app model load and model/EP downloads are blocked; runtime-only package registration does not make a model ready."
             : "Choose an installed/served model. Downloading a model is a separate, explicit operation."
         : Download == AiDownloadState.Downloading
         ? "Wait for the separately started model download to finish, then test capabilities."
@@ -103,7 +103,7 @@ public sealed record AiCapabilitySnapshot(AiChatConfiguration Configuration)
         : Runtime == AiRuntimeState.Unavailable
         ? "Start or repair the configured runtime. For Copilot, check CLI installation, sign-in and entitlement, then test again."
         : Configuration.Kind == AiProviderKind.FoundryLocal && Load == AiLoadState.Unloaded
-        ? "Use an externally prepared, already-loaded Foundry Local host, then refresh metadata and test capabilities. In-app load and acquisition are blocked because authoritative EP preparation cannot be verified."
+        ? "Use an externally prepared, already-loaded Foundry Local host, then refresh metadata and test capabilities. In-app model load and model/EP acquisition are blocked because authoritative EP preparation cannot be verified; runtime-only package registration is separate."
         : !CanUseTools
         ? "Use Test capabilities in Settings to verify support. Unknown or unsupported tools cannot enable assistant actions; chat-only diagnosis remains separate. Generation checks are cached for up to 10 minutes (1 minute when chat is not ready)."
         : "Tool support observed. Every action still passes through the app's approval gate. Generation checks are cached for up to 10 minutes.";

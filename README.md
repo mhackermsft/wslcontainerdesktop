@@ -376,19 +376,21 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 ### AI features *(optional — off by default)*
 AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, until you turn it on in **Settings → AI diagnostics** and pick a provider.
 
-**Foundry Local (experimental REST integration)** has separate endpoint/model
+**Foundry Local (experimental)** has separate endpoint/model
 settings for an explicitly prepared local host; inference does not require an
 Ollama container or the WSLC engine. Supply the host's actual loopback URL and
 exact model ID, not a sample port or guessed model. Catalog metadata does not
-prove tool support, hardware acceleration or offline readiness. Downloads,
+prove tool support, hardware acceleration or offline readiness. Model/EP downloads,
 in-app model loading and complete initial-model setup are not enabled: exact model/runtime/execution-provider
 versions, publication dates and licenses must be audited before acquisition.
 The setup direction is a separately installed Microsoft Foundry Local runtime,
 not a bundled SDK or inference broker.
 **Discover existing server** uses installed CLI help/status and REST metadata,
 then offers explicit confirmation before saving the discovered endpoint.
-The prepared-installer adapter remains disabled pending its complete artifact
-audit; there is no working one-click installer/model download yet.
+**Install runtime only** offers one confirmation before downloading the pinned
+Microsoft CLI 0.10.3 MSIX and, if needed, its audited prerequisite. It verifies
+sizes/hashes, reuses verified setup cache, and preserves existing Foundry
+installations. Registration does not start Foundry or set up an initial model.
 Use an already-loaded host; explicit selected-model unload is available without
 forcing the host's memory policy. There is no cloud fallback, and assistant actions still require the existing
 capability and approval gates. **Live Foundry compatibility, signed x64 MSIX and

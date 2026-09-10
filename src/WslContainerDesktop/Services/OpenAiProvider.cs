@@ -104,7 +104,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         AiHttpClient http, AiChatRequest request, IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         IAiCapabilityService? capabilities, string? key, CancellationToken ct,
-        Func<CancellationToken, Task>? guard = null)
+        Func<CancellationToken, Task>? guard = null, Action? beforeSend = null)
     {
         var configuration = request.Configuration;
         var isFoundry = configuration.Kind == AiProviderKind.FoundryLocal;
@@ -149,10 +149,12 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
             AiToolTurn turn;
             if (request.Progress != null || isFoundry)
             {
-                turn = await AiHttpStreaming.SendAsync(http, message, request, tools, seenIds, ct, useStreaming).ConfigureAwait(false);
+                turn = await AiHttpStreaming.SendAsync(http, message, request, tools, seenIds, ct, useStreaming,
+                    beforeSend).ConfigureAwait(false);
             }
             else
             {
+                beforeSend?.Invoke();
                 using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
                 var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 ct.ThrowIfCancellationRequested();

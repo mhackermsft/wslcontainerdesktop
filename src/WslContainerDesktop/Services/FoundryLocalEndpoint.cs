@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Net;
+using System.Net.Sockets;
 using System.Text.RegularExpressions;
 
 namespace WslContainerDesktop.Services;
@@ -38,10 +39,10 @@ public static class FoundryLocalEndpoint
     public static Uri BuildUri(string endpoint, string route)
     {
         var uri = Validate(endpoint);
-        // Do not resolve even localhost through DNS/hosts. Other accepted hosts are IP literals.
+        // Preserve localhost for HTTP authority and TLS certificate-name validation.
+        // The dedicated socket callback pins the destination without DNS/hosts resolution.
         var builder = new UriBuilder(uri)
         {
-            Host = uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ? "127.0.0.1" : uri.Host,
             Path = "/" + route,
             Query = "",
             Fragment = "",
@@ -56,12 +57,40 @@ public sealed class FoundryLocalHttpClient : IDisposable
     internal AiHttpClient Transport { get; }
     public FoundryLocalHttpClient() : this(CreateHandler()) { }
     internal FoundryLocalHttpClient(HttpMessageHandler handler) => Transport = new AiHttpClient(handler);
-    internal static HttpClientHandler CreateHandler() => new()
+    internal static SocketsHttpHandler CreateHandler() => new()
     {
         AllowAutoRedirect = false,
         UseProxy = false,
         UseCookies = false,
-        UseDefaultCredentials = false,
+        Credentials = null,
+        ConnectCallback = ConnectLoopbackAsync,
     };
+
+    internal static IPEndPoint SocketEndpoint(DnsEndPoint endpoint)
+    {
+        var address = endpoint.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            ? IPAddress.Loopback
+            : IPAddress.TryParse(endpoint.Host.Trim('[', ']'), out var literal) && IPAddress.IsLoopback(literal)
+                ? literal : throw new ArgumentException("Foundry Local socket destinations must be loopback.");
+        if (endpoint.Port <= 0) throw new ArgumentException("An explicit Foundry Local socket port is required.");
+        return new(address, endpoint.Port);
+    }
+
+    private static async ValueTask<Stream> ConnectLoopbackAsync(SocketsHttpConnectionContext context, CancellationToken ct)
+    {
+        var endpoint = SocketEndpoint(context.DnsEndPoint);
+        var socket = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            await socket.ConnectAsync(endpoint, ct).ConfigureAwait(false);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            // Transfer ownership only after connection succeeds.
+            socket.Dispose();
+            throw;
+        }
+    }
     public void Dispose() => Transport.Dispose();
 }

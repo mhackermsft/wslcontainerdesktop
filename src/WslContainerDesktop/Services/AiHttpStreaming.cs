@@ -34,7 +34,8 @@ internal static class AiHttpStreaming
 
     internal static async Task<AiToolTurn> SendAsync(
         AiHttpClient http, HttpRequestMessage message, AiChatRequest request,
-        IReadOnlyList<AiToolDefinition> tools, HashSet<string> seenIds, CancellationToken ct, bool streamResponse = true)
+        IReadOnlyList<AiToolDefinition> tools, HashSet<string> seenIds, CancellationToken ct,
+        bool streamResponse = true, Action? beforeSend = null)
     {
         // This deadline ends before returning to approval/tool execution. HttpClient's own
         // timeout covers headers only with ResponseHeadersRead, not subsequent body reads.
@@ -42,6 +43,8 @@ internal static class AiHttpStreaming
         generation.CancelAfter(TimeSpan.FromMinutes(5));
         var token = generation.Token;
         request.Progress?.Invoke(new(AiChatProgressKind.Generating, "Generating response…"));
+        token.ThrowIfCancellationRequested();
+        beforeSend?.Invoke();
         try
         {
             using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);

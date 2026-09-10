@@ -174,7 +174,7 @@ public sealed class FoundryLocalSetupTests
         Assert.Contains("http://127.0.0.1:54321", fixture.ViewModel.SetupStatus);
         Assert.Contains("not an artifact audit", fixture.ViewModel.SetupStatus);
         Assert.False(fixture.Setup.CanInstall);
-        Assert.Contains("no eligible independently audited", fixture.ViewModel.InstallationGuidance);
+        Assert.Contains("no eligible complete", fixture.ViewModel.InstallationGuidance);
         Assert.Contains("user-entered audit claims", fixture.ViewModel.InstallationGuidance);
     }
 

@@ -34,6 +34,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     private FoundryLocalConnectionPlan? _connectionPlan;
     private int _configurationRevision;
     private bool _confirmingConnection;
+    private CancellationTokenSource? _runtimeSetupCancellation;
 
     [ObservableProperty] private string _endpoint;
     [ObservableProperty] private string _model;
@@ -41,10 +42,15 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     [ObservableProperty] private string _status = "No runtime operation requested.";
     [ObservableProperty] private string _setupStatus = "Discovery is read-only and runs only when requested.";
     [ObservableProperty] private bool _canUseDiscoveredEndpoint;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanInstallRuntime))]
+    private bool _isInstallingRuntime;
 
     public string AcquisitionGuidance => FoundryLocalRuntimeService.AcquisitionGuidance;
     public string MemoryPolicy => FoundryLocalRuntimeService.MemoryPolicy;
-    public string InstallationGuidance => FoundryLocalSetupService.InstallationGuidance;
+    public string InstallationGuidance => _setup.AvailabilityGuidance;
+    public bool CanInstallRuntime => _setup.CanInstall && !IsInstallingRuntime;
+    public string SetupCacheLocation => "Setup cache: " + _setup.CacheLocation;
 
     public FoundryLocalSettingsViewModel(ISettingsService settings,
         IFoundryLocalRuntimeService runtime, IAiCapabilityService capabilities,
@@ -93,15 +99,61 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     private void InvalidateDiscovery()
     {
         _configurationRevision++;
+        _runtimeSetupCancellation?.Cancel();
         DiscoverCommand.Cancel();
         _connectionPlan = null;
         CanUseDiscoveredEndpoint = false;
-        SetupStatus = "Configuration changed. Discover again before connecting; no runtime was changed.";
+        SetupStatus = IsInstallingRuntime
+            ? "Configuration changed; runtime setup cancelled. Windows deployment may still complete. Inspect installed packages before retrying."
+            : "Configuration changed. Discover again before connecting; no runtime operation requested for these settings.";
     }
+
+    public async Task InstallRuntimeAsync(Func<string, CancellationToken, Task<bool>> confirm)
+    {
+        if (!CanInstallRuntime || DiscoverCommand.IsRunning || _confirmingConnection) return;
+        var original = AiConversationContext.Capture(_settings, AiProviderKind.FoundryLocal);
+        var revision = _configurationRevision;
+        if (!IsCurrent(original)) return;
+        using var cancellation = new CancellationTokenSource();
+        _runtimeSetupCancellation = cancellation;
+        IsInstallingRuntime = true;
+        _connectionPlan = null;
+        CanUseDiscoveredEndpoint = false;
+        var inFlight = true;
+        bool Current() => revision == _configurationRevision && IsCurrent(original);
+        try
+        {
+            var progress = new Progress<string>(text =>
+            {
+                if (inFlight && Current() && !cancellation.IsCancellationRequested)
+                    SetupStatus = text;
+            });
+            SetupStatus = "Preparing runtime-only installation; no downloads or registration until you confirm…";
+            var result = await _setup.InstallRuntimeAsync(original, confirm, Current, progress, cancellation.Token);
+            inFlight = false;
+            if (Current()) SetupStatus = result.Guidance;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected Foundry runtime-only setup failure.");
+            if (Current())
+                SetupStatus = "Unexpected runtime setup failure. No automatic retry or uninstall. Inspect Windows packages and retained setup cache before retrying.";
+        }
+        finally
+        {
+            inFlight = false;
+            _runtimeSetupCancellation = null;
+            IsInstallingRuntime = false;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelRuntimeSetup() => _runtimeSetupCancellation?.Cancel();
 
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task DiscoverAsync(CancellationToken ct)
     {
+        if (IsInstallingRuntime) return;
         var original = AiConversationContext.Capture(_settings, AiProviderKind.FoundryLocal);
         var revision = _configurationRevision;
         var reading = true;

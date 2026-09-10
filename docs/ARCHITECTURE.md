@@ -93,6 +93,17 @@ routes use GET but are mutations. Catalog device/provider fields are target
 hints, not observed hardware support. Acquisition is not enabled without
 authoritative version, publication-date and license evidence.
 
+`FoundryLocalSetupService` now exposes separately confirmed **runtime-only**
+registration. A compiled package allowlist pins the inspected Microsoft MSIX and
+prerequisite archive; `FoundryLocalDownloader` streams bounded, hash-verified
+payloads into `ApplicationData.Current.LocalCacheFolder.Path`, extracts only the
+exact prerequisite APPX, and rehashes retained cache before offline reuse.
+`FoundryLocalInstaller` runs fixed read-only preflight and deployment scripts
+through `ProcessExecutor` without starting Foundry. Existing Foundry installations
+block setup; newer Microsoft VCLibs are preserved. Cancellation is not rollback.
+No model/EP download, native-initialization claim or automatic runtime start is
+implied by package registration.
+
 See [Foundry standalone scope and compatibility](FOUNDRY-LOCAL.md) for pinned
 installer research, external-host memory ownership, blocked phase 1 runtime
 exercise, model/EP provenance blockers and signed x64 MSIX/hardware release gates.

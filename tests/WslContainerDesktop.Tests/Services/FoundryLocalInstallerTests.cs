@@ -27,9 +27,9 @@ namespace WslContainerDesktop.Tests.Services;
 public sealed class FoundryLocalInstallerTests
 {
     [Fact]
-    public async Task ProductionCatalogHasNoApprovalAndNeverReadsPathsOrAsksForConsent()
+    public async Task EmptyCatalogNeverReadsPathsOrAsksForConsent()
     {
-        var catalog = new FoundryLocalArtifactCatalog();
+        var catalog = new FoundryLocalArtifactCatalog(Array.Empty<FoundryLocalAuditedPackageSet>());
         Assert.False(catalog.HasEligibleRuntime);
         var installer = new FoundryLocalInstaller(catalog, (_, _) => throw new Xunit.Sdk.XunitException("No execution"),
             () => throw new Xunit.Sdk.XunitException("No mutation invalidation"));
@@ -113,7 +113,10 @@ public sealed class FoundryLocalInstallerTests
         Assert.DoesNotContain("Invoke-Expression", script);
         Assert.DoesNotContain("winget", script);
         Assert.Contains("Get-Command foundry", script);
-        Assert.Contains("Exact dependency not confirmed", script);
+        Assert.Contains("Prerequisite registration not confirmed", script);
+        Assert.DoesNotContain("$installed.Dependencies", script);
+        Assert.Contains("$_.Version -ge [version]$env:WSLCD_FOUNDRY_VCLIBS_VERSION", script);
+        Assert.Contains("Add-AppxPackage -Path $env:WSLCD_FOUNDRY_VCLIBS", script);
     }
 
     [Theory]

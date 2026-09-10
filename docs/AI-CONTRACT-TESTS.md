@@ -579,9 +579,24 @@ proof of CLI 0.10.3 command or output compatibility.
 `FoundryLocalInstallerTests` exercises prepared-file size/hash checks, locked
 files during approval, fixed PowerShell script/environment arguments, one
 runtime-only consent, stale approval, failure/cancellation retention guidance,
-capability invalidation before/finally, and the empty production approval
-catalog. Synthetic bytes and a captured executor never install a package.
+capability invalidation before/finally, and rejection of unknown or unaudited
+package sets. Synthetic bytes and a captured executor never install a package.
 No download, initial-model setup or hardware behavior is implied.
+
+`FoundryLocalDownloadTests` and `FoundryLocalRuntimeSetupTests` cover the populated
+production registration manifest, bounded streaming/redirects, exact size/hash
+verification before ZIP parsing, exact-entry-only extraction, corrupted-cache
+rejection, verified offline reuse, retained partial files, consent before network,
+original-configuration cancellation, existing-runtime rejection, preservation of
+newer prerequisites and Windows registration failure. HTTP/process execution is
+captured; test payloads are synthetic, not the downloaded inspection archives.
+
+Independent-review regressions bind capability evidence across inventory awaits
+and recheck after generating-progress callbacks (zero POST after AI disable or
+cache invalidation). An ephemeral certificate with only a `localhost` DNS SAN
+verifies preserved URI hostname matching; socket-destination tests prove the
+chosen endpoint is loopback without weakening TLS validation. No TLS server,
+certificate-store changes or installed Foundry runtime is used.
 
 Coverage includes explicit loopback-only endpoint/port validation; no defaults,
 redirects, proxies or credentials; metadata-only status/catalog/cached/loaded

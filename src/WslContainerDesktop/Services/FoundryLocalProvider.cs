@@ -30,7 +30,8 @@ public sealed class FoundryLocalProvider(
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
         var configuration = AiConversationContext.Capture(settings, Kind);
-        await GuardAsync(configuration, false, ct).ConfigureAwait(false);
+        var proof = RequireLiveProof(configuration, false);
+        await GuardAsync(configuration, false, proof, ct).ConfigureAwait(false);
         var payload = new Dictionary<string, object>
         {
             ["model"] = configuration.Model,
@@ -42,13 +43,14 @@ public sealed class FoundryLocalProvider(
                 new { role = "user", content = AiTextSanitizer.Sanitize(request.UserPrompt, AiTextSanitizer.DiagnosticLimit) },
             },
         };
-        if (capabilities.GetCached(configuration).StructuredJson.Support == AiSupport.Supported)
+        if (proof.StructuredJson.Support == AiSupport.Supported)
             payload["response_format"] = new { type = "json_object" };
         using var message = new HttpRequestMessage(HttpMethod.Post,
             FoundryLocalEndpoint.BuildUri(configuration.Endpoint, "v1/chat/completions"))
         { Content = JsonContent.Create(payload) };
         var turn = await AiHttpStreaming.SendAsync(http.Transport, message,
-            new AiChatRequest(configuration, []), [], new(StringComparer.Ordinal), ct, false).ConfigureAwait(false);
+            new AiChatRequest(configuration, []), [], new(StringComparer.Ordinal), ct, false,
+            () => RequireLiveProof(configuration, false, proof)).ConfigureAwait(false);
         RequireCurrent(configuration);
         return AiProviderJson.ParseDiagnosis(turn.AssistantText ?? "");
     }
@@ -73,30 +75,44 @@ public sealed class FoundryLocalProvider(
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync, CancellationToken ct)
     {
         RequireCurrent(request.Configuration);
+        var proof = RequireLiveProof(request.Configuration, tools.Count > 0);
         var result = await OpenAiProvider.RunTurnCoreAsync(http.Transport, request, tools, invokeToolAsync,
-            capabilities, null, ct, token => GuardAsync(request.Configuration, tools.Count > 0, token)).ConfigureAwait(false);
+            capabilities, null, ct, token => GuardAsync(request.Configuration, tools.Count > 0, proof, token),
+            () => RequireLiveProof(request.Configuration, tools.Count > 0, proof)).ConfigureAwait(false);
         RequireCurrent(request.Configuration);
         return result;
     }
 
-    private async Task GuardAsync(AiChatConfiguration configuration, bool hasTools, CancellationToken ct)
+    private AiCapabilitySnapshot RequireLiveProof(AiChatConfiguration configuration, bool hasTools,
+        AiCapabilitySnapshot? expected = null)
     {
-        ct.ThrowIfCancellationRequested();
         RequireCurrent(configuration);
         var proof = capabilities.GetCached(configuration);
-        if (proof.Configuration != configuration || !proof.CanChat || hasTools && !proof.CanUseTools)
+        if (proof.Configuration != configuration || !proof.CanChat || hasTools && !proof.CanUseTools
+            || expected is not null && !ReferenceEquals(expected, proof))
             throw new AiProviderException(Kind, "Foundry Local inference",
-                "Test capabilities for this exact Foundry Local configuration first. Unknown features do not enable assistant tools.",
+                "Capability evidence is missing or changed. Test capabilities for this exact Foundry Local configuration before starting a new turn.",
                 AiFailureKind.Configuration);
+        return proof;
+    }
+
+    private async Task GuardAsync(AiChatConfiguration configuration, bool hasTools,
+        AiCapabilitySnapshot proof, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        RequireLiveProof(configuration, hasTools, proof);
         var inventory = await runtime.ReadInventoryAsync(configuration, ct).ConfigureAwait(false);
-        RequireCurrent(configuration);
+        ct.ThrowIfCancellationRequested();
+        // The same immutable observation must remain live across the asynchronous inventory
+        // read. Equal endpoint/model strings cannot resurrect an invalidated capability proof.
+        RequireLiveProof(configuration, hasTools, proof);
         var identity = FoundryLocalCapabilityObserver.ModelIdentity(inventory);
         if (!inventory.IsCached || !inventory.IsLoaded || inventory.Selected is not { ModelType: "ONNX" }
             || inventory.RuntimeIdentity != proof.RuntimeIdentity || identity != proof.ModelIdentity)
         {
             capabilities.Invalidate();
             throw new AiProviderException(Kind, "Foundry Local inference",
-                "The runtime/model state changed or the exact cached model is not loaded. Use an externally prepared, already-loaded host, refresh metadata and test capabilities. In-app load and acquisition are blocked.",
+                "The runtime/model state changed or the exact cached model is not loaded. Use an externally prepared, already-loaded host, refresh metadata and test capabilities. In-app model load and model/EP acquisition are blocked; runtime-only package registration is separate.",
                 AiFailureKind.Configuration);
         }
     }
@@ -104,7 +120,8 @@ public sealed class FoundryLocalProvider(
     private void RequireCurrent(AiChatConfiguration configuration)
     {
         FoundryLocalRuntimeService.Validate(configuration);
-        if (settings.AiProvider != Kind || configuration != AiConversationContext.Capture(settings, Kind))
-            throw new OperationCanceledException("Foundry Local configuration changed; this conversation cannot be sent to another provider or model.");
+        if (!settings.AiFeaturesEnabled || settings.AiProvider != Kind
+            || configuration != AiConversationContext.Capture(settings, Kind))
+            throw new OperationCanceledException("AI was disabled or the Foundry Local configuration changed; this turn cannot be sent.");
     }
 }

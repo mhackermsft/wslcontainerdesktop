@@ -15,6 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Net;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -28,7 +30,7 @@ namespace WslContainerDesktop.Tests.Services;
 public sealed class FoundryLocalTests
 {
     [Theory]
-    [InlineData("http://localhost:43210", "127.0.0.1")]
+    [InlineData("http://localhost:43210", "localhost")]
     [InlineData("http://127.0.0.1:43210/v1", "127.0.0.1")]
     [InlineData("http://127.12.34.56:43210/", "127.12.34.56")]
     [InlineData("https://[::1]:43210/v1/", "[::1]")]
@@ -71,14 +73,49 @@ public sealed class FoundryLocalTests
         Assert.False(handler.AllowAutoRedirect);
         Assert.False(handler.UseProxy);
         Assert.False(handler.UseCookies);
-        Assert.False(handler.UseDefaultCredentials);
         Assert.Null(handler.Credentials);
+        Assert.NotNull(handler.ConnectCallback);
+        Assert.Null(handler.SslOptions.RemoteCertificateValidationCallback);
+    }
+
+    [Fact]
+    public void HttpsLocalhostRetainsCertificateAuthorityWhileSocketIsPinnedWithoutDns()
+    {
+        var uri = FoundryLocalEndpoint.BuildUri("https://localhost:43210/v1", "v1/chat/completions");
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256);
+        var san = new SubjectAlternativeNameBuilder();
+        san.AddDnsName("localhost");
+        request.CertificateExtensions.Add(san.Build());
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        Assert.True(certificate.MatchesHostname(uri.IdnHost, allowCommonName: false));
+        Assert.False(certificate.MatchesHostname("127.0.0.1", allowCommonName: false));
+        Assert.Equal(new IPEndPoint(IPAddress.Loopback, 43210),
+            FoundryLocalHttpClient.SocketEndpoint(new(uri.IdnHost, uri.Port)));
+    }
+
+    [Theory]
+    [InlineData("localhost.example")]
+    [InlineData("192.168.0.1")]
+    [InlineData("0.0.0.0")]
+    [InlineData("::")]
+    public void SocketPinningRejectsNonloopbackEvenOutsideUriBuilder(string host) =>
+        Assert.Throws<ArgumentException>(() => FoundryLocalHttpClient.SocketEndpoint(new(host, 43210)));
+
+    [Theory]
+    [InlineData("127.12.34.56")]
+    [InlineData("::1")]
+    public void SocketPinningPreservesExplicitLoopbackLiteral(string host)
+    {
+        Assert.Equal(new IPEndPoint(IPAddress.Parse(host), 43210),
+            FoundryLocalHttpClient.SocketEndpoint(new(host, 43210)));
     }
 
     [Fact]
     public void LoadGuidanceDoesNotConfuseCachedDataWithAuditedEpPreparation()
     {
-        Assert.Contains("Model load, native management and acquisition are blocked", FoundryLocalRuntimeService.AcquisitionGuidance);
+        Assert.Contains("Model load and model/EP acquisition are blocked", FoundryLocalRuntimeService.AcquisitionGuidance);
+        Assert.Contains("Runtime-only package setup is separate", FoundryLocalRuntimeService.AcquisitionGuidance);
         Assert.Contains("no authoritative verification", FoundryLocalRuntimeService.AcquisitionGuidance);
         Assert.Contains("user attestation are not substitutes", FoundryLocalRuntimeService.AcquisitionGuidance);
         Assert.Contains("not hardware compatibility measurements", FoundryLocalRuntimeService.AcquisitionGuidance);
@@ -320,6 +357,55 @@ public sealed class FoundryLocalTests
         await Assert.ThrowsAsync<AiProviderException>(() => f.Provider.RunTurnAsync(f.Request, [], NoTool, default));
         Assert.Null(f.Capabilities.Snapshot);
         Assert.DoesNotContain(f.Handler.Requests, r => r.Method == HttpMethod.Post);
+    }
+
+    [Theory]
+    [InlineData(false, "disabled")]
+    [InlineData(false, "invalidated")]
+    [InlineData(false, "replacement")]
+    [InlineData(true, "disabled")]
+    [InlineData(true, "invalidated")]
+    [InlineData(true, "replacement")]
+    public async Task InFlightInventoryCannotResurrectWithdrawnCapabilityProof(bool chat, string change)
+    {
+        using var f = new Fixture();
+        await f.ProveAsync();
+        f.Handler.Requests.Clear();
+        f.Handler.BeforeSend = async (request, _) =>
+        {
+            if (request.RequestUri!.AbsolutePath != "/openai/loadedmodels") return;
+            await Task.Yield();
+            if (change == "disabled") f.Values[nameof(ISettingsService.AiFeaturesEnabled)] = false;
+            else if (change == "replacement") f.Capabilities.Snapshot = f.Capabilities.Snapshot! with { };
+            else f.Capabilities.Invalidate();
+        };
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            if (chat) await f.Provider.RunTurnAsync(f.Request, [], NoTool, default);
+            else await f.Provider.CompleteAsync(new("Return JSON", "Synthetic question"), default);
+        });
+        Assert.DoesNotContain(f.Handler.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GeneratingCallbackCannotSendAfterAiDisableOrProofInvalidation(bool disable)
+    {
+        using var f = new Fixture();
+        await f.ProveAsync();
+        f.Handler.Requests.Clear();
+        var request = f.Request with
+        {
+            Progress = progress =>
+            {
+                if (progress.Kind != AiChatProgressKind.Generating) return;
+                if (disable) f.Values[nameof(ISettingsService.AiFeaturesEnabled)] = false;
+                else f.Capabilities.Invalidate();
+            },
+        };
+        await Assert.ThrowsAnyAsync<Exception>(() => f.Provider.RunTurnAsync(request, [], NoTool, default));
+        Assert.DoesNotContain(f.Handler.Requests, sent => sent.Method == HttpMethod.Post);
     }
 
     [Fact]
@@ -797,7 +883,7 @@ public sealed class FoundryLocalTests
         f.Handler.IsLoaded = false;
         var snapshot = await f.Observer.ReadMetadataAsync(f.Configuration, default);
         Assert.Contains("externally prepared, already-loaded", snapshot.NextStep);
-        Assert.Contains("In-app load and acquisition are blocked", snapshot.NextStep);
+        Assert.Contains("In-app model load and model/EP acquisition are blocked", snapshot.NextStep);
         Assert.DoesNotContain("load the selected cached model in Foundry Local Settings", snapshot.NextStep);
     }
 
