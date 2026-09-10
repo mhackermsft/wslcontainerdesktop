@@ -25,6 +25,71 @@ namespace WslContainerDesktop.Tests.Services;
 public sealed class DevContainerLifecycleTests
 {
     [Fact]
+    public async Task ScalingRetainedPrimaryDoesNotScheduleHooksForAdditionalReplicas()
+    {
+        var fixture = new Fixture();
+        Assert.True((await fixture.Up()).Success);
+        fixture.Commands.Clear();
+        fixture.ExecIds.Clear();
+        fixture.Config.Compose!.Project.Services[0].Replicas = 3;
+
+        Assert.True((await fixture.Up()).Success);
+
+        Assert.Empty(fixture.Commands);
+        Assert.Equal("instance-1", fixture.Config.ComposeLifecycleProgress!.ContainerId);
+        fixture.Config.Compose.Project.Services[0].Options.EnvironmentVariables.Add("UPDATED=yes");
+        Assert.True((await fixture.Up()).Success);
+        Assert.Equal(["create", "content", "created", "started"], fixture.Commands);
+        Assert.All(fixture.ExecIds, id => Assert.Equal(fixture.Compose.Engine.ContainerIds["demo_web"], id));
+    }
+
+    [Fact]
+    public async Task SuccessfulSecondaryCannotScheduleHooksWhenPrimaryCreationFailed()
+    {
+        var fixture = new Fixture();
+        fixture.Config.Compose!.Project.Services[0].Replicas = 2;
+        fixture.Compose.Engine.AfterRun = name =>
+        {
+            fixture.Compose.Engine.ContainerIds[name] = name;
+            fixture.Compose.Engine.FailRunAfterCreate = name == "demo_web";
+        };
+
+        var result = await fixture.Up();
+
+        Assert.False(result.Success);
+        Assert.Empty(fixture.Commands);
+        Assert.Null(fixture.Config.ComposeLifecycleProgress);
+        Assert.Contains("demo_web_2", fixture.Compose.Engine.Containers.Keys);
+    }
+
+    [Fact]
+    public async Task CancellationAfterPrimaryCreationKeepsOnlyItsDurableQueue()
+    {
+        var fixture = new Fixture();
+        fixture.Config.Compose!.Project.Services[0].Replicas = 3;
+        using var cancellation = new CancellationTokenSource();
+        fixture.Compose.Engine.AfterRun = name =>
+        {
+            fixture.Compose.Engine.ContainerIds[name] = name;
+            if (name == "demo_web_2") cancellation.Cancel();
+        };
+
+        var result = await fixture.Up(cancellation.Token);
+
+        Assert.False(result.Success);
+        Assert.Contains("cancelled", result.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(fixture.Commands);
+        fixture.Reload();
+        Assert.Equal("demo_web", fixture.Config.ComposeLifecycleProgress!.ContainerId);
+        Assert.Equal(3, fixture.Config.ComposeLifecycleProgress.PendingCreate.Count);
+        Assert.Single(fixture.Config.ComposeLifecycleProgress.PendingStart);
+        fixture.Compose.Engine.AfterRun = null;
+        Assert.True((await fixture.Up()).Success);
+        Assert.Equal(["create", "content", "created", "started"], fixture.Commands);
+        Assert.All(fixture.ExecIds, id => Assert.Equal("demo_web", id));
+    }
+
+    [Fact]
     public async Task CreateThenKeepDoesNotExecuteAnyContainerHookAgain()
     {
         var fixture = new Fixture();
@@ -187,7 +252,9 @@ public sealed class DevContainerLifecycleTests
             if (name == "demo_other") cancellation.Cancel();
         };
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Up(cancellation.Token));
+        var cancelled = await fixture.Up(cancellation.Token);
+        Assert.False(cancelled.Success);
+        Assert.Contains("cancelled", cancelled.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(fixture.Commands);
         fixture.Reload();
         fixture.Compose.Engine.AfterRun = null;
@@ -267,6 +334,7 @@ public sealed class DevContainerLifecycleTests
     public async Task CheckpointAndSupervisionFailuresAreBothReportedWithoutStartingMoreServices()
     {
         var fixture = new Fixture { FailSave = true };
+        fixture.Config.Compose!.Project.Services[0].Replicas = 2;
         fixture.Config.Compose!.Project.Services[0].Restart = RestartPolicyKind.Always;
         fixture.Config.Compose.Project.Services.Add(new() { Name = "other", Options = new() { Image = "fixture" } });
         var settingsAttempts = 0;
@@ -289,6 +357,7 @@ public sealed class DevContainerLifecycleTests
         Assert.True(refreshed);
         Assert.Empty(fixture.Commands);
         Assert.DoesNotContain("run:demo_other", fixture.Compose.Engine.Mutations);
+        Assert.DoesNotContain("run:demo_web_2", fixture.Compose.Engine.Mutations);
     }
 
     [Theory]
@@ -298,6 +367,7 @@ public sealed class DevContainerLifecycleTests
     public async Task PostStartCompletionFailureKeepsCreationHooksForReloadAndRetry(string failure)
     {
         var fixture = new Fixture();
+        fixture.Config.Compose!.Project.Services[0].Replicas = 2;
         fixture.Config.Compose!.Project.Services.Add(new() { Name = "other", Options = new() { Image = "fixture" } });
         fixture.Persist();
         fixture.Compose.BeforeSave = project =>
@@ -321,6 +391,7 @@ public sealed class DevContainerLifecycleTests
         Assert.Contains($"fixture {failure} failure", result.Detail);
         Assert.Empty(fixture.Commands);
         Assert.DoesNotContain("run:demo_other", fixture.Compose.Engine.Mutations);
+        Assert.DoesNotContain("run:demo_web_2", fixture.Compose.Engine.Mutations);
         Assert.Equal(ContainerState.Running, fixture.Compose.Engine.States["demo_web"]);
         fixture.Reload();
         fixture.Compose.BeforeSave = null;

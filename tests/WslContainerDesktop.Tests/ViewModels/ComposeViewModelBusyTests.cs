@@ -25,6 +25,41 @@ namespace WslContainerDesktop.Tests.ViewModels;
 
 public sealed class ComposeViewModelBusyTests
 {
+    [Fact]
+    public async Task ScalingAndNavigationRefreshRetainIndependentBusyOwnership()
+    {
+        var fixture = new Fixture();
+        fixture.Compose.Project.Services[0].Options.Name = null;
+        fixture.Compose.Project.Services[0].Options.NetworkAttachments.ForEach(endpoint => endpoint.Ipv4Address = null);
+        fixture.Dialogs.OnShowDialog = dialog =>
+        {
+            var services = Assert.IsType<WslContainerDesktop.Dialogs.ComposeServicesDialog>(dialog);
+            services.Request = new()
+            {
+                Services = ["web"], Replicas = new Dictionary<string, int> { ["web"] = 2 },
+            };
+            return Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary;
+        };
+        var nestedInventory = fixture.AddInventory();
+        var navigationInventory = fixture.AddInventory();
+        var row = new ComposeProjectRow(fixture.Compose.Project, fixture.ViewModel.ManageServicesCommand);
+
+        var scaling = fixture.ViewModel.ManageServicesCommand.ExecuteAsync(row);
+        var navigation = fixture.ViewModel.RefreshAsync();
+        AssertBusy(fixture.ViewModel, true);
+        nestedInventory.SetResult([]);
+        await fixture.Dialogs.MessageShown.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        AssertBusy(fixture.ViewModel, true);
+        Assert.Equal(2, fixture.Compose.Engine.Containers.Count);
+        fixture.Dialogs.DismissMessage.SetResult();
+        await scaling;
+        AssertBusy(fixture.ViewModel, true);
+        navigationInventory.SetResult([]);
+        await navigation;
+        AssertBusy(fixture.ViewModel, false);
+        Assert.Equal(new[] { true, false }, fixture.BusyChanges);
+    }
+
     [Theory]
     [InlineData(new[] { 0, 1 })]
     [InlineData(new[] { 1, 0 })]
@@ -162,6 +197,7 @@ public sealed class ComposeViewModelBusyTests
         private readonly Queue<TaskCompletionSource<IReadOnlyList<ContainerInfo>>> _inventories = new();
         public ComposeViewModel ViewModel { get; }
         public DialogService Dialogs { get; } = new();
+        public ComposeNetworkSupervisorTests.Fixture Compose { get; } = new();
         public Exception? StoreError { get; set; }
         public List<bool> BusyChanges { get; } = [];
         public List<bool> RefreshAvailability { get; } = [];
@@ -182,8 +218,7 @@ public sealed class ComposeViewModelBusyTests
                     ? throw error : Array.Empty<ComposeProject>(),
                 _ => throw new NotSupportedException(method.Name),
             });
-            var supervisor = new ComposeNetworkSupervisorTests.Fixture().Supervisor;
-            ViewModel = new ComposeViewModel(store, supervisor, wslc, Dialogs);
+            ViewModel = new ComposeViewModel(store, Compose.Supervisor, wslc, Dialogs);
             ViewModel.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(ComposeViewModel.IsBusy))

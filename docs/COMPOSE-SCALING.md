@@ -119,3 +119,11 @@ the computed applied `InstanceKey` is not. Internal `ComposeService.RuntimeInsta
 nonserialized trusted expansion metadata. Imported instance labels cannot select an ordinal.
 Read-only status counting does not expand desired counts or authorize mutation, so an oversized
 configuration remains visible and editable even when lifecycle planning rejects its size.
+
+Compose-backed dev-container lifecycle hooks target only successful instance-one outcomes.
+The synchronous checkpoint observer runs before independent health/restart enrollment,
+applied-state saving and refresh. Completion failures preserve a single original error or
+aggregate multiple errors, and abort later instances. Hooks execute only after leaving the
+Compose lifecycle lock; structured cancellation retains the identity-bound pending queue for
+retry rather than executing it or treating an unattempted planned action as completed.
+Scaling dialogs and overlapping refreshes retain the shared counted busy-ownership behavior.
