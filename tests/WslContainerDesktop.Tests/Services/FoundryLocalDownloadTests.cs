@@ -50,7 +50,7 @@ public sealed class FoundryLocalDownloadTests
         Assert.Equal(50182148, package.VcLibsArchive!.Bytes);
         Assert.Equal(6757465, package.VcLibs.Bytes);
         Assert.Equal("077A3D1A5D0622BD3004DCA85F5E192D6E98EC79B83D4AA06766759EA6C09C3D", package.VcLibs.Sha256);
-        Assert.Contains("download/load BLOCKED", package.Confirmation("unchanged-model"));
+        Assert.Contains("Model/EP acquisition is not approved", package.Confirmation("unchanged-model"));
     }
 
     [Fact]

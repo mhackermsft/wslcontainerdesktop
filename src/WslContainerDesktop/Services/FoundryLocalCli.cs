@@ -24,7 +24,8 @@ namespace WslContainerDesktop.Services;
 /// <summary>
 /// Read-only standalone CLI adapter. Source:
 /// https://learn.microsoft.com/azure/foundry-local/reference/reference-cli
-/// Never calls model list (which can download EPs), start, restart, or config.
+/// Never calls model list (which can download EPs), restart, or config.
+/// Mutations are separate explicit lifecycle operations; metadata never invokes them.
 /// CLI 0.10.3 help is covered by recorded fixtures; status output remains a separate contract.
 /// Status requires positive installed-help evidence, never a command mentioned in prose.
 /// </summary>
@@ -34,7 +35,11 @@ public sealed class FoundryLocalCli
     private readonly Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> _run;
 
     public FoundryLocalCli() : this(FindExecutable, (start, ct) => ProcessExecutor.RunAsync(start,
-        timeout: TimeSpan.FromSeconds(10), launchErrorContext: "Could not launch Foundry Local CLI.", ct: ct)) { }
+        timeout: start.ArgumentList.Contains("load") || start.ArgumentList.Contains("start")
+            ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(10),
+        launchErrorContext: "Could not launch Foundry Local CLI.", ct: ct)) { }
+
+    public bool IsInstalled => _findExecutable() is not null;
 
     internal FoundryLocalCli(Func<string?> findExecutable,
         Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> run)
@@ -81,6 +86,59 @@ public sealed class FoundryLocalCli
         if ((await RunAsync(executable, ["--version"], ct).ConfigureAwait(false)).Trim() != "0.10.3")
             throw new InvalidDataException("Standalone server status is supported only for observed CLI 0.10.3.");
         return ParseServerStatus(await RunAsync(executable, ["server", "status", "--output", "json"], ct).ConfigureAwait(false));
+    }
+
+    public async Task StartServerAsync(CancellationToken ct)
+    {
+        var executable = await RequireObservedVersionAsync(ct).ConfigureAwait(false);
+        using var json = JsonDocument.Parse(await RunAsync(executable,
+            ["server", "start", "--port", "0", "--idle-timeout", "5", "--output", "json"], ct).ConfigureAwait(false));
+        var root = json.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("running", out var running)
+            || running.ValueKind != JsonValueKind.True || !root.TryGetProperty("webUrls", out var urls)
+            || urls.ValueKind != JsonValueKind.Array || urls.GetArrayLength() == 0
+            || root.EnumerateObject().GroupBy(p => p.Name, StringComparer.Ordinal).Any(g => g.Count() != 1))
+            throw new InvalidDataException("Unknown start acknowledgement. The daemon may be running; inspect status. No automatic retry or stop.");
+        foreach (var url in urls.EnumerateArray())
+        {
+            if (url.ValueKind != JsonValueKind.String) throw new InvalidDataException("Invalid start URL.");
+            FoundryLocalEndpoint.Validate(url.GetString()!);
+        }
+    }
+
+    public Task LoadModelAsync(string model, CancellationToken ct) => ModelMutationAsync("load", model, ct);
+    public Task UnloadModelAsync(string model, CancellationToken ct) => ModelMutationAsync("unload", model, ct);
+
+    private async Task ModelMutationAsync(string operation, string model, CancellationToken ct)
+    {
+        if (model != FoundryLocalModelArtifacts.ModelId)
+            throw new InvalidOperationException("Only the exact audited CPU model version can be managed. No alias or catalog-selected variant is permitted.");
+        var executable = await RequireObservedVersionAsync(ct).ConfigureAwait(false);
+        RequireSuccessfulMutation(await RunAsync(executable, ["model", operation, model, "--output", "json"], ct).ConfigureAwait(false));
+    }
+
+    public async Task StopServerAsync(CancellationToken ct)
+    {
+        var executable = await RequireObservedVersionAsync(ct).ConfigureAwait(false);
+        RequireSuccessfulMutation(await RunAsync(executable, ["server", "stop", "--output", "json"], ct).ConfigureAwait(false));
+    }
+
+    private async Task<string> RequireObservedVersionAsync(CancellationToken ct)
+    {
+        var executable = RequireExecutable();
+        if ((await RunAsync(executable, ["--version"], ct).ConfigureAwait(false)).Trim() != "0.10.3")
+            throw new InvalidDataException("Lifecycle operations require the verified standalone CLI 0.10.3 contract.");
+        return executable;
+    }
+
+    internal static void RequireSuccessfulMutation(string output)
+    {
+        using var json = JsonDocument.Parse(output);
+        var root = json.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("success", out var success)
+            || success.ValueKind != JsonValueKind.True
+            || root.EnumerateObject().GroupBy(p => p.Name, StringComparer.Ordinal).Any(g => g.Count() != 1))
+            throw new InvalidDataException("Foundry did not confirm the requested mutation. Outcome is uncertain; inspect status. No automatic retry.");
     }
 
     internal static FoundryLocalServerStatus ParseServerStatus(string output)

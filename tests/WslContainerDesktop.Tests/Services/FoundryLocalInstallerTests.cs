@@ -83,7 +83,7 @@ public sealed class FoundryLocalInstallerTests
         {
             confirmations++;
             Assert.Contains("runtime-only installation", message);
-            Assert.Contains("Model/EP version, size and license: unaudited", message);
+            Assert.Contains("Model/EP acquisition is not approved by this runtime-only confirmation", message);
             Assert.Contains("synthetic-exact-model", message);
             Assert.Contains("synthetic-license", message);
             Assert.Contains(fixture.Package.Runtime.Sha256, message);

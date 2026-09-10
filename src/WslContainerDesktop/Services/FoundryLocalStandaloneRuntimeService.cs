@@ -26,8 +26,17 @@ namespace WslContainerDesktop.Services;
 public sealed class FoundryLocalStandaloneRuntimeService(
     FoundryLocalHttpClient http, FoundryLocalCli cli) : IFoundryLocalRuntimeService
 {
-    public const string MemoryPolicy = "Standalone 0.10.3 metadata uses CLI process status and /v1/models. Model listing does not prove cached or loaded state. Model mutations and inference stay blocked until positive load/acquisition-safe evidence is available; no legacy management route or automatic fallback is used.";
+    public const string MemoryPolicy = "The external daemon owns memory and idle policy. Setup loads only the pinned CPU model; it never evicts other models or stops a pre-existing server automatically. Load proof is bound to a verified CLI load, synthetic completion and process/start identity, not model listing. Refresh after external lifecycle changes. Cancellation is not rollback.";
+    public const string AcquisitionGuidance = "Setup audits and pins the runtime and model files it downloads. Starting Microsoft Foundry Local may cause Windows to install execution-provider packages selected by Microsoft, using the network. This app neither selects, pins nor audits those vendor-managed versions. The 0.10.3 model-list endpoint requires online catalog access, even with cached model files; inference runs locally.";
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private string? _loadedIdentity;
     public event Action? StateChanged;
+
+    internal void InvalidateLoadProof()
+    {
+        Volatile.Write(ref _loadedIdentity, null);
+        StateChanged?.Invoke();
+    }
 
     public async Task<FoundryLocalInventory> ReadInventoryAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
@@ -41,7 +50,7 @@ public sealed class FoundryLocalStandaloneRuntimeService(
             FoundryLocalEndpoint.BuildUri(configuration.Endpoint, "v1/models"));
         using var response = await http.Transport.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            throw AiProviderException.FromHttpFailure(AiProviderKind.FoundryLocal, "Foundry Local v1 metadata",
+            throw AiProviderException.FromHttpFailure(AiProviderKind.FoundryLocal, "Foundry Local v1 metadata (0.10.3 catalog requires network access)",
                 response.StatusCode, configuration.Endpoint, configuration.Model, "");
         await response.Content.LoadIntoBufferAsync(2 * 1024 * 1024, token).ConfigureAwait(false);
         using var models = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token).ConfigureAwait(false));
@@ -54,10 +63,18 @@ public sealed class FoundryLocalStandaloneRuntimeService(
             StateChanged?.Invoke();
             throw new InvalidOperationException("Foundry Local restarted during metadata observation. Refresh before inference.");
         }
-        var catalog = ids.Select(id => new FoundryLocalModel(id, "", "", "", "", "", null, "", "", null)).ToArray();
+        var catalog = ids.Select(id => id is FoundryLocalModelArtifacts.CatalogId or FoundryLocalModelArtifacts.ModelId
+            ? new FoundryLocalModel(FoundryLocalModelArtifacts.ModelId, "4", "chat", "ONNX", "CPU",
+                "CPUExecutionProvider", FoundryLocalModelArtifacts.TotalBytes / 1_000_000d,
+                FoundryLocalModelArtifacts.License, FoundryLocalModelArtifacts.LicenseUrl, null)
+            : new FoundryLocalModel(id, "", "", "", "", "", null, "", "", null)).DistinctBy(m => m.Id).ToArray();
         // /v1/models enumerates advertised IDs. Cache/load evidence must come from
         // independently established runtime fields or a verified owned transition.
-        return new(configuration, catalog, [], [], identity, CacheStateKnown: false, LoadStateKnown: false);
+        var loaded = Volatile.Read(ref _loadedIdentity) == identity;
+        return new(configuration, catalog,
+            loaded ? [FoundryLocalModelArtifacts.ModelId] : [],
+            loaded ? [FoundryLocalModelArtifacts.ModelId] : [], identity,
+            CacheStateKnown: loaded, LoadStateKnown: loaded);
     }
 
     internal static string[] ParseModelIds(JsonElement root)
@@ -95,17 +112,98 @@ public sealed class FoundryLocalStandaloneRuntimeService(
 
     private static string Authority(string endpoint) => FoundryLocalEndpoint.Validate(endpoint).GetLeftPart(UriPartial.Authority);
 
-    public Task<FoundryLocalMutationResult> LoadAsync(AiChatConfiguration configuration, CancellationToken ct) =>
-        BlockedMutation(configuration, ct);
-
-    public Task<FoundryLocalMutationResult> UnloadAsync(AiChatConfiguration configuration, CancellationToken ct) =>
-        BlockedMutation(configuration, ct);
-
-    private static Task<FoundryLocalMutationResult> BlockedMutation(AiChatConfiguration configuration, CancellationToken ct)
+    public Task<FoundryLocalMutationResult> LoadAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         FoundryLocalRuntimeService.Validate(configuration);
         return Task.FromResult(new FoundryLocalMutationResult(false, LocalRuntimeResourceState.Unknown,
-            LocalRuntimeResourceState.Unknown, "Standalone model mutation is not yet established by an observed lifecycle contract. No legacy endpoint, CLI mutation or acquisition was attempted."));
+            LocalRuntimeResourceState.Unknown, "Use initial-model setup to verify and register the pinned files before loading. No implicit model download."));
+    }
+
+    internal async Task<FoundryLocalMutationResult> LoadRegisteredAsync(AiChatConfiguration configuration,
+        IProgress<string>? progress, CancellationToken ct, Func<bool>? isCurrent = null,
+        string? expectedRuntimeIdentity = null)
+    {
+        void Check()
+        {
+            ct.ThrowIfCancellationRequested();
+            if (isCurrent?.Invoke() == false)
+                throw new InvalidOperationException("Setup approval was invalidated. No further load or inference requested.");
+        }
+        Check();
+        FoundryLocalRuntimeService.Validate(configuration);
+        if (configuration.Model != FoundryLocalModelArtifacts.ModelId)
+            throw new InvalidOperationException("Load requires the exact registered CPU model version.");
+        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            Volatile.Write(ref _loadedIdentity, null);
+            StateChanged?.Invoke();
+            var before = await cli.ReadServerStatusAsync(ct).ConfigureAwait(false);
+            RequireMatchingHost(before, configuration.Endpoint);
+            var identity = RuntimeIdentity(before, configuration.Endpoint);
+            if (expectedRuntimeIdentity is not null && identity != expectedRuntimeIdentity)
+                throw new InvalidOperationException("The prepared server was replaced before model loading. No replacement server was adopted.");
+            progress?.Report("Loading the registered CPU model; no CLI model-download command is used...");
+            Check();
+            await cli.LoadModelAsync(configuration.Model, ct).ConfigureAwait(false);
+            var afterLoad = await cli.ReadServerStatusAsync(ct).ConfigureAwait(false);
+            RequireMatchingHost(afterLoad, configuration.Endpoint);
+            if (identity != RuntimeIdentity(afterLoad, configuration.Endpoint))
+                throw new InvalidOperationException("Foundry restarted during model loading. Readiness was not accepted.");
+            progress?.Report("Verifying local readiness with one synthetic 'Reply OK only' completion...");
+            Check();
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                FoundryLocalEndpoint.BuildUri(configuration.Endpoint, "v1/chat/completions"))
+            {
+                Content = System.Net.Http.Json.JsonContent.Create(new
+                {
+                    model = configuration.Model, stream = false, max_tokens = 8,
+                    messages = new[] { new { role = "user", content = "Reply OK only." } },
+                }),
+            };
+            var result = await AiHttpStreaming.SendAsync(http.Transport, request,
+                new AiChatRequest(configuration, []), [], new(StringComparer.Ordinal), ct, false).ConfigureAwait(false);
+            if (result.AssistantText?.Trim() != "OK")
+                throw new InvalidDataException("The loaded model did not return the expected synthetic readiness response.");
+            var after = await cli.ReadServerStatusAsync(ct).ConfigureAwait(false);
+            RequireMatchingHost(after, configuration.Endpoint);
+            if (identity != RuntimeIdentity(after, configuration.Endpoint))
+                throw new InvalidOperationException("Foundry restarted during readiness verification.");
+            Check();
+            Volatile.Write(ref _loadedIdentity, identity);
+            return new(true, LocalRuntimeResourceState.Retained, LocalRuntimeResourceState.Retained,
+                "Pinned CPU model loaded and synthetic local response verified. Assistant tool/JSON/stream support still requires independent capability checks.");
+        }
+        finally
+        {
+            StateChanged?.Invoke();
+            _lifecycleGate.Release();
+        }
+    }
+
+    public async Task<FoundryLocalMutationResult> UnloadAsync(AiChatConfiguration configuration, CancellationToken ct)
+    {
+        FoundryLocalRuntimeService.Validate(configuration);
+        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var before = await cli.ReadServerStatusAsync(ct).ConfigureAwait(false);
+            RequireMatchingHost(before, configuration.Endpoint);
+            if (configuration.Model != FoundryLocalModelArtifacts.ModelId
+                || Volatile.Read(ref _loadedIdentity) != RuntimeIdentity(before, configuration.Endpoint))
+                return new(false, LocalRuntimeResourceState.Unknown, LocalRuntimeResourceState.Retained,
+                    "No current app-verified load of this model on this process. No other user's model was unloaded.");
+            Volatile.Write(ref _loadedIdentity, null);
+            StateChanged?.Invoke();
+            await cli.UnloadModelAsync(configuration.Model, ct).ConfigureAwait(false);
+            return new(true, LocalRuntimeResourceState.Removed, LocalRuntimeResourceState.Retained,
+                "Foundry acknowledged unloading the selected model. Files retained; this does not measure GPU/RAM release.");
+        }
+        finally
+        {
+            StateChanged?.Invoke();
+            _lifecycleGate.Release();
+        }
     }
 }

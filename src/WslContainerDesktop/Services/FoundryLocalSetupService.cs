@@ -35,7 +35,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
         "No in-process SDK, unpinned winget operation, automatic upgrade, server start or model selection is used. " +
         "Package registration is NOT working initial-model setup or proof of initialization/inference compatibility. " +
         FoundryLocalInstaller.InitializationGuidance + " " +
-        "Initial-model registration/load remains blocked: CLI model commands can implicitly acquire or update unaudited EPs. Separate confirmed staging can download only the pinned CPU model files without executing Foundry. " +
+        "Use initial-model setup for the separate confirmed registration/load workflow. File-only staging does not execute Foundry. " +
         "An existing externally prepared server can be discovered and connected without installing, starting, stopping or adopting it.";
 
     public bool CanInstall => downloader is not null && installer is not null
@@ -92,7 +92,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
 
     public async Task<FoundryLocalInstallResult> InstallRuntimeAsync(AiChatConfiguration original,
         Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent,
-        IProgress<string>? progress, CancellationToken ct)
+        IProgress<string>? progress, CancellationToken ct, bool initialModelSetup = false)
     {
         var entered = false;
         var stagingRequested = false;
@@ -118,7 +118,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
             if (!isCurrent()) return new(FoundryLocalInstallState.Cancelled, "Configuration changed; no downloads or installation requested.");
             // This immutable package reference and original settings are the only consent
             // scope. The later install callback verifies it; it never opens a second dialog.
-            if (!await confirm(DownloadConfirmation(package, preflight, original.Model), token))
+            if (!await confirm(DownloadConfirmation(package, preflight, original.Model, initialModelSetup), token))
                 return new(FoundryLocalInstallState.Declined, "Runtime-only setup declined; nothing downloaded or installed.");
             token.ThrowIfCancellationRequested();
             bool ApprovalStillCurrent() => isCurrent()
@@ -157,7 +157,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
     }
 
     internal static string DownloadConfirmation(FoundryLocalAuditedPackageSet package,
-        FoundryLocalInstallPreflight preflight, string model)
+        FoundryLocalInstallPreflight preflight, string model, bool initialModelSetup = false)
     {
         var archive = package.VcLibsArchive!;
         var total = package.Runtime.Bytes + (preflight.NeedsVcLibs ? archive.Bytes : 0);
@@ -172,12 +172,15 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
                 : $"Existing Microsoft x64 VCLibs {preflight.ExistingVcLibsVersion} is preserved; no prerequisite download, replacement or downgrade. Existing presence is not an artifact audit or inference compatibility test.\n") +
             $"Prerequisite target: {package.VcLibs.Version}; terms: {package.VcLibs.License}\n{package.VcLibs.LicenseEvidence}\n" +
             $"Publication evidence: {package.Runtime.PublicationEvidence}\n{archive.PublicationEvidence}\n" +
-            $"Selected model (unchanged): {model}. Model/EP versions, sizes and licenses: unaudited; acquisition/load BLOCKED.\n" +
-            "You approve these runtime/prerequisite terms and this runtime-only download/registration, NOT initial-model setup. " +
+            (initialModelSetup ? "Initial-model setup is described separately below. " :
+                $"Selected model (unchanged): {model}. This runtime-only action does not acquire or load any model.\n") +
+            (initialModelSetup ? "You approve these runtime/prerequisite terms and the initial-model preparation described below. " :
+                "You approve these runtime/prerequisite terms and this runtime-only download/registration, NOT initial-model setup. ") +
             "Network: approved Microsoft GitHub releases and their HTTPS release-asset hosts; no credentials or source-agreement acceptance. Windows may use network for signature trust checks. " +
-            "No Foundry runtime is started, stopped, upgraded, adopted or uninstalled. No inference, model or EP download is requested. " +
+            (initialModelSetup ? "No existing runtime is upgraded, adopted or uninstalled. " :
+                "No Foundry runtime is started, stopped, upgraded, adopted or uninstalled. No inference, model or EP download is requested. ") +
             "A missing/older prerequisite may be registered; a newer prerequisite is preserved. Registration is not proof of initialization/inference compatibility. " +
-            FoundryLocalInstaller.InitializationGuidance + " " +
+            (initialModelSetup ? "" : FoundryLocalInstaller.InitializationGuidance + " ") +
             "Cancellation is not rollback; Windows deployment may complete after cancellation. " +
             FoundryLocalDownloader.RetentionGuidance;
         if (text.Length > AiTextSanitizer.DiagnosticLimit)

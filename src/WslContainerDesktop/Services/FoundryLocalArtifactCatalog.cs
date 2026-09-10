@@ -95,7 +95,7 @@ internal sealed record FoundryLocalAuditedPackageSet(string Id, FoundryLocalAudi
         $"VCLibs dependency: {VcLibs.Version}; {VcLibs.Bytes} bytes; SHA256 {VcLibs.Sha256}; published {VcLibs.PublishedAt:O}.\n" +
         $"License: {VcLibs.License} ({VcLibs.LicenseEvidence}). Evidence: {VcLibs.PublicationEvidence}.\n" +
         $"Bundled dependency audit: {CompleteBundledDependencyAudit}.\n" +
-        $"Selected model (unchanged): {model}. Model/EP version, size and license: unaudited; download/load BLOCKED.\n" +
+        $"Selected model (unchanged): {model}. Model/EP acquisition is not approved by this runtime-only confirmation.\n" +
         "This is runtime-only installation, NOT working initial-model setup. You accept the listed runtime/dependency terms only. " +
         "Prepared local files only; no package/model/EP downloads are requested. Windows may use network access for signature trust checks. " +
         "No existing Foundry installation will knowingly be upgraded/adopted; no server start, stop, uninstall or forced application shutdown. " +

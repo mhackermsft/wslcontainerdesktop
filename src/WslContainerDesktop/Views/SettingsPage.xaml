@@ -532,6 +532,10 @@
                                 </Grid>
                             </StackPanel>
                             <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.ShowFoundryLocalSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <Button AutomationProperties.AutomationId="FoundryLocalInitialSetupButton"
+                                    Content="Set up Foundry Local and initial CPU model…"
+                                    IsEnabled="{x:Bind ViewModel.FoundryLocal.CanPrepareInitialModel, Mode=OneWay}"
+                                    Click="PrepareFoundryInitialModel_Click" />
                                 <TextBlock Text="{x:Bind ViewModel.FoundryLocal.InstallationGuidance}" TextWrapping="Wrap" />
                                 <TextBlock Text="{x:Bind ViewModel.FoundryLocal.SetupCacheLocation}" TextWrapping="Wrap"
                                     IsTextSelectionEnabled="True" />
@@ -570,19 +574,24 @@
                                     Text="{x:Bind ViewModel.FoundryLocal.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <InfoBar AutomationProperties.AutomationId="FoundryLocalAcquisitionInfoBar"
                                     IsOpen="True" IsClosable="False" Severity="Warning"
-                                    Title="Initial-model setup remains blocked — runtime registration is separate"
+                                    Title="Local inference — setup and catalog access use the network"
                                     Message="{x:Bind ViewModel.FoundryLocal.AcquisitionGuidance}" />
                                 <TextBlock Text="{x:Bind ViewModel.FoundryLocal.MemoryPolicy}" TextWrapping="Wrap" />
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <Button AutomationProperties.AutomationId="FoundryLocalRefreshButton"
                                         Content="Refresh metadata" Command="{x:Bind ViewModel.FoundryLocal.RunOperationCommand}" CommandParameter="refresh" />
                                     <Button AutomationProperties.AutomationId="FoundryLocalLoadButton"
-                                        Content="Load unavailable" IsEnabled="False"
-                                        ToolTipService.ToolTip="Loading may acquire unaudited execution providers. Use an externally prepared, already-loaded host; this app cannot verify EP preparation." />
+                                        Content="Prepare / reload CPU model…"
+                                        IsEnabled="{x:Bind ViewModel.FoundryLocal.CanPrepareInitialModel, Mode=OneWay}"
+                                        Click="PrepareFoundryInitialModel_Click" />
                                     <Button AutomationProperties.AutomationId="FoundryLocalUnloadButton"
                                         Content="Unload model" Command="{x:Bind ViewModel.FoundryLocal.RunOperationCommand}" CommandParameter="unload" />
                                     <Button AutomationProperties.AutomationId="FoundryLocalCancelButton"
                                         Content="Cancel request" Command="{x:Bind ViewModel.FoundryLocal.RunOperationCancelCommand}" />
+                                    <Button AutomationProperties.AutomationId="FoundryLocalStopServerButton"
+                                        Content="Stop shared server…"
+                                        IsEnabled="{x:Bind ViewModel.FoundryLocal.CanPrepareInitialModel, Mode=OneWay}"
+                                        Click="StopFoundryServer_Click" />
                                 </StackPanel>
                                 <TextBlock AutomationProperties.AutomationId="FoundryLocalStatusText"
                                     Text="{x:Bind ViewModel.FoundryLocal.Status, Mode=OneWay}" TextWrapping="Wrap" />

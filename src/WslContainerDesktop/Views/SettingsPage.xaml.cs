@@ -81,7 +81,15 @@ public sealed partial class SettingsPage : Page
 
     private void InstallFoundryRuntime_Click(object sender, RoutedEventArgs e) =>
         UiSafe.Run(() => ViewModel.FoundryLocal.InstallRuntimeAsync((message, ct) =>
-            ConfirmFoundryPreparationAsync(message, ct, "Runtime only — model setup remains blocked", "Accept terms and install runtime")));
+            ConfirmFoundryPreparationAsync(message, ct, "Install runtime only", "Accept terms and install runtime")));
+
+    private void PrepareFoundryInitialModel_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(() => ViewModel.FoundryLocal.PrepareInitialModelAsync((message, ct) =>
+            ConfirmFoundryPreparationAsync(message, ct, "Set up Foundry Local and CPU model", "Accept terms and prepare")));
+
+    private void StopFoundryServer_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(() => ViewModel.FoundryLocal.StopServerAsync((message, ct) =>
+            ConfirmFoundryPreparationAsync(message, ct, "Stop shared Foundry server", "Stop this server")));
 
     private void StageFoundryModelFiles_Click(object sender, RoutedEventArgs e) =>
         UiSafe.Run(() => ViewModel.FoundryLocal.StageModelFilesAsync((message, ct) =>

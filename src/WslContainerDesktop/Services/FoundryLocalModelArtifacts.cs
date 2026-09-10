@@ -31,6 +31,8 @@ namespace WslContainerDesktop.Services;
 public sealed class FoundryLocalModelArtifacts : IDisposable
 {
     public const string DisplayName = "Qwen2.5-0.5B-Instruct (generic CPU), version 4";
+    public const string ModelId = "qwen2.5-0.5b-instruct-generic-cpu:4";
+    public const string CatalogId = "qwen2.5-0.5b-instruct-generic-cpu";
     public const string AssetId = "azureml://registries/azureml/models/qwen2.5-0.5b-instruct-generic-cpu/versions/4";
     public const string VersionId = "qwen2.5-0.5b-instruct-generic-cpu-v4";
     public const long TotalBytes = 877988985;
@@ -40,12 +42,15 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
     public const string RetentionGuidance = "Interrupted .partial files are retained and never resumed. Repeated staging rehashes completed files; corrupt or unreceipted cache requires manual recovery before retrying.";
     public static string ConsentSummary =>
         $"Download model files only: {DisplayName}\n"
-        + $"Identity: {AssetId}\n"
+        + AcquisitionTerms
+        + "This operation does not import into the Foundry cache, register, load or execute a model or acquire execution providers.\n"
+        + VerificationNotice + "\n" + RetentionGuidance;
+    public static string AcquisitionTerms =>
+        $"Identity: {AssetId}\n"
         + $"Exact download: {TotalBytes.ToString(CultureInfo.InvariantCulture)} bytes across nine files.\n"
         + $"License: {License} — {LicenseUrl}\n"
         + "Pinned model and all nine files were published November 14, 2025; the seven-day age policy is enforced before acquisition.\n"
-        + "This operation contacts the official Azure model registry and pinned Azure Blob container only when completed files are missing. It does not import into the Foundry cache, register, load or execute a model or acquire execution providers.\n"
-        + VerificationNotice + "\n" + RetentionGuidance;
+        + "Model staging contacts the official Azure model registry and pinned Azure Blob container only when completed files are missing. Official-origin ETags/dates/sizes are pinned. Local SHA256 receipts provide subsequent cache integrity, not independent publisher verification.\n";
     internal const string BlobContainer = "https://amlwlrt4usc01.blob.core.windows.net/azureml-ab8fb672-187c-5c05-b028-d5004b5d5ae3";
     internal static readonly Uri RegistryUri = new("https://centralus.api.azureml.ms/modelregistry/v1.0/registry/models/nonazureaccount?assetId=" + Uri.EscapeDataString(AssetId));
     private static readonly DateTimeOffset Created = new DateTimeOffset(2025, 11, 14, 7, 39, 18, TimeSpan.Zero).AddTicks(7283746);

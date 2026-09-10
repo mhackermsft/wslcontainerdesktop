@@ -54,8 +54,8 @@ public sealed class FoundryLocalRuntimeSetupTests
         Assert.Contains(package.Runtime.LicenseEvidence.ToString(), message);
         Assert.Contains(package.VcLibs.LicenseEvidence.ToString(), message);
         Assert.Contains(new string('m', 512), message);
-        Assert.Contains("BLOCKED", message);
-        Assert.Contains("Microsoft.Internal.FrameworkUdk.dll", message);
+        Assert.Contains("does not acquire or load any model", message);
+        Assert.Contains("signed-package deployment", message);
         Assert.Contains("No inference, model or EP download", message);
         Assert.EndsWith(FoundryLocalDownloader.RetentionGuidance, message);
     }
@@ -94,14 +94,14 @@ public sealed class FoundryLocalRuntimeSetupTests
             Assert.False(Directory.Exists(fixture.CacheRoot));
             Assert.Contains("Maximum download:", message);
             Assert.Contains("synthetic-model-selection", message);
-            Assert.Contains("BLOCKED", message);
+            Assert.Contains("does not acquire or load any model", message);
             Assert.Contains(fixture.Package.Runtime.Sha256, message);
             Assert.Contains(fixture.Package.VcLibsArchive!.Sha256, message);
             Assert.Contains(fixture.Package.VcLibs.Sha256, message);
             Assert.Contains("synthetic-license", message);
             Assert.Contains("Network:", message);
             Assert.Contains("not rollback", message);
-            Assert.Contains("Microsoft.Internal.FrameworkUdk.dll", message);
+            Assert.Contains("signed-package deployment", message);
             Assert.Contains("does not start Foundry or fetch missing DLLs", message);
             return Task.FromResult(true);
         }, () => true, null, default);
@@ -110,9 +110,9 @@ public sealed class FoundryLocalRuntimeSetupTests
         Assert.Equal(2, fixture.Http.Requests.Count);
         Assert.Equal(2, fixture.ProcessCalls.Count);
         Assert.Equal(2, fixture.Invalidations);
-        Assert.Contains("Initial-model acquisition/load remains blocked", result.Guidance);
+        Assert.Contains("Registration alone is not model readiness", result.Guidance);
         Assert.Contains("not proof", result.Guidance);
-        Assert.Contains("Native initialization is unverified", result.Guidance);
+        Assert.Contains("CPU initialization was exercised separately", result.Guidance);
         Assert.DoesNotContain(fixture.ProcessCalls, process => process.FileName.EndsWith("foundry.exe", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -276,7 +276,7 @@ public sealed class FoundryLocalRuntimeSetupTests
         Assert.Equal("unchanged-ollama", values["AiOllamaModel"]);
         Assert.Equal(0, saves());
         Assert.Contains("registered for this user", vm.SetupStatus);
-        Assert.Contains("blocked", vm.SetupStatus);
+        Assert.Contains("not model readiness", vm.SetupStatus);
     }
 
     [Fact]

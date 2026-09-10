@@ -380,9 +380,7 @@ AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, 
 settings for an explicitly prepared local host; inference does not require an
 Ollama container or the WSLC engine. Supply the host's actual loopback URL and
 exact model ID, not a sample port or guessed model. Catalog metadata does not
-prove tool support, hardware acceleration or offline readiness. Runtime-driven model/EP downloads,
-in-app model loading and complete initial-model setup are not enabled: exact model/runtime/execution-provider
-versions, publication dates and licenses must be audited before acquisition.
+prove tool support, hardware acceleration or offline readiness.
 The setup direction is a separately installed Microsoft Foundry Local runtime,
 not a bundled SDK or inference broker.
 **Discover existing server** uses installed CLI help/status and REST metadata,
@@ -395,12 +393,24 @@ installations. Registration does not start Foundry or set up an initial model.
 Qwen v4 artifact with explicit license/network consent, conditional downloads,
 progress/cancellation and rehashed offline reuse. It does **not** import or load
 the model, and does not change the configured endpoint/model.
+**Set up Foundry Local and initial CPU model** combines those stages with one
+confirmation, ownership-safe cache registration, daemon discovery/start, exact
+Qwen CPU v4 loading and one synthetic local readiness response. It updates only
+Foundry endpoint/model settings after success. Existing runtime installations and
+other models are preserved; cancellation retains partial work rather than
+promising rollback. Reload uses the same verified cache path. Unload targets the
+app-verified model; stopping the shared server requires separate confirmation.
 The selected 0.10.3 runtime uses CLI status and `/v1/models`, not the legacy
 management routes (which returned 404 in the actual exercise). Cache/load state
-is unknown until independently established; model mutations and inference stay
-blocked rather than infer readiness from model listing. There is no cloud fallback, and assistant actions still require the existing
-capability and approval gates. **Live Foundry compatibility, signed x64 MSIX and
-hardware/offline acceptance remain unverified**; see the
+is unknown until a verified load/completion establishes it. The model-list ID
+omits `:4`; only the audited CPU model's observed mapping is normalized.
+**Network is required for the 0.10.3 catalog endpoint even with cached files.**
+Starting Foundry may also cause Windows to install Microsoft-selected execution
+providers; this app does not choose, pin or audit those vendor-managed versions.
+Inference runs locally with no cloud fallback. Assistant tools still require
+positive capability observations and original approval.
+The real standalone CPU load/completion/unload/stop sequence was exercised;
+**signed app-MSIX and representative GPU/NPU acceptance remain unverified**. See the
 [integration scope and prerequisites](docs/FOUNDRY-LOCAL.md).
 
 - **Choose your provider** — **GitHub Copilot** (uses your Copilot CLI sign-in), **Azure OpenAI**, any **OpenAI-compatible** endpoint, or **Ollama** for fully local inference. API keys are stored in **Windows Credential Manager**, never in plain text.

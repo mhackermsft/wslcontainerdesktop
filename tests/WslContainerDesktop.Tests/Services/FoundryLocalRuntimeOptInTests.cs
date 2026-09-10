@@ -21,8 +21,9 @@ using Xunit;
 namespace WslContainerDesktop.Tests.Services;
 
 /// <summary>
-/// No PATH search, load/unload, acquisition, or default destination. Explicit opt-in
-/// permits version/status execution only at the operator-supplied audited CLI path.
+/// No PATH search or default destination. Metadata opt-in permits version/status only.
+/// Initial-setup opt-in separately permits pinned file preparation, registration, start/load
+/// and synthetic inference using an existing audited CLI, never package installation.
 /// The operator must separately audit/install prerequisites and configure an exact model ID.
 /// These checks do not prove packaged activation, GPU/NPU support, or artifact license compliance.
 /// </summary>
@@ -42,14 +43,26 @@ public sealed class FoundryLocalRuntimeOptInTests
         Assert.Equal(configuration, result.Configuration);
     }
 
-    [FoundryRuntimeFact("WSLC_FOUNDRY_LOCAL_INFERENCE_TESTS")]
-    public async Task ExplicitOptIn_AlreadyLoadedModel_SyntheticProbesAndDiagnosisOnly()
+    [FoundryRuntimeFact("WSLC_FOUNDRY_LOCAL_INITIAL_SETUP_TESTS")]
+    public async Task ExplicitOptIn_InitialModelSetupAndSyntheticDiagnosis()
     {
         var settings = Settings();
         var configuration = AiConversationContext.Capture(settings, AiProviderKind.FoundryLocal);
         FoundryLocalRuntimeService.Validate(configuration);
         using var http = new FoundryLocalHttpClient();
-        var runtime = new FoundryLocalStandaloneRuntimeService(http, Cli());
+        var cli = Cli();
+        var runtime = new FoundryLocalStandaloneRuntimeService(http, cli);
+        using var artifacts = new FoundryLocalModelArtifacts(
+            Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_MODEL_STAGING")!);
+        var setup = new FoundryLocalInitialSetupService(cli, runtime, new(cli, runtime),
+            artifacts, new FoundryLocalModelRegistration());
+        using var preparation = new CancellationTokenSource(TimeSpan.FromMinutes(50));
+        var ready = await setup.PrepareAsync(configuration, (_, _) => Task.FromResult(true),
+            () => true, null, preparation.Token);
+        Assert.True(ready.Success, ready.Guidance);
+        Assert.NotNull(ready.Configuration);
+        configuration = ready.Configuration;
+        settings = Settings(configuration);
         var observer = new FoundryLocalCapabilityObserver(runtime, http);
         var capabilities = new AiCapabilityService([observer], new AiContractHarness.Credentials(null));
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(120));
@@ -67,15 +80,16 @@ public sealed class FoundryLocalRuntimeOptInTests
 
     private static FoundryLocalCli Cli() => new(
         () => Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_CLI"),
-        (start, ct) => ProcessExecutor.RunAsync(start, timeout: TimeSpan.FromSeconds(10),
+        (start, ct) => ProcessExecutor.RunAsync(start, timeout: start.ArgumentList.Contains("start")
+                || start.ArgumentList.Contains("load") ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(10),
             launchErrorContext: "Could not launch explicitly selected Foundry CLI.", ct: ct));
 
-    private static ISettingsService Settings() => NetworkTestProxy.Create<ISettingsService>((method, _) => method.Name switch
+    private static ISettingsService Settings(AiChatConfiguration? observed = null) => NetworkTestProxy.Create<ISettingsService>((method, _) => method.Name switch
     {
         "get_AiProvider" => AiProviderKind.FoundryLocal,
         "get_AiFeaturesEnabled" => true,
-        "get_AiFoundryLocalEndpoint" => Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_ENDPOINT") ?? "",
-        "get_AiFoundryLocalModel" => Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_MODEL") ?? "",
+        "get_AiFoundryLocalEndpoint" => observed?.Endpoint ?? Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_ENDPOINT") ?? "",
+        "get_AiFoundryLocalModel" => observed?.Model ?? Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_MODEL") ?? "",
         _ => throw new InvalidOperationException("Unexpected runtime-test dependency."),
     });
 }
@@ -87,7 +101,9 @@ public sealed class FoundryRuntimeFactAttribute : FactAttribute
         if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable(gate) != "1"
             || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_ENDPOINT"))
             || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_MODEL"))
-            || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_CLI")))
-            Skip = $"Requires Windows, {gate}=1, and explicit WSLC_FOUNDRY_LOCAL_ENDPOINT / WSLC_FOUNDRY_LOCAL_MODEL / WSLC_FOUNDRY_LOCAL_CLI. No runtime is acquired, started or loaded.";
+            || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_CLI"))
+            || (gate == "WSLC_FOUNDRY_LOCAL_INITIAL_SETUP_TESTS"
+                && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WSLC_FOUNDRY_LOCAL_MODEL_STAGING"))))
+            Skip = $"Requires Windows, {gate}=1, and explicit endpoint/model/CLI; initial setup additionally requires an approved model staging path. Disabled by default.";
     }
 }

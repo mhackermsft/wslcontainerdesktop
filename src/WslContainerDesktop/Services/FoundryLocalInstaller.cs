@@ -29,7 +29,7 @@ namespace WslContainerDesktop.Services;
 public sealed class FoundryLocalInstaller
 {
     public const string InitializationGuidance =
-        "Native initialization is unverified: the delayed Microsoft.Internal.FrameworkUdk.dll path and deferred execution-provider acquisition remain unresolved. " +
+        "Standalone 0.10.3 CPU initialization was exercised separately; that is not proof of this app's signed-package deployment or every hardware configuration. " +
         "Setup registers packages only; it does not start Foundry or fetch missing DLLs, execution providers or models.";
 
     internal const string PreflightScript = """
@@ -137,7 +137,7 @@ public sealed class FoundryLocalInstaller
                 : await OpenVerifiedAsync(dependencyPath, package.VcLibs, ".appx", ct);
             ct.ThrowIfCancellationRequested();
             if (!isCurrent()) return new(FoundryLocalInstallState.Cancelled, "Original configuration changed; nothing installed.");
-            progress?.Report("Checking explicit runtime-only installation consent; initial-model setup remains blocked…");
+            progress?.Report("Checking explicit runtime-only installation consent...");
             if (!await confirm(package.Confirmation(original.Model) + "\n" + InitializationGuidance, ct))
                 return new(FoundryLocalInstallState.Declined, "Runtime-only installation declined; nothing installed.");
             ct.ThrowIfCancellationRequested();
@@ -152,8 +152,8 @@ public sealed class FoundryLocalInstaller
             if (!isCurrent())
                 return new(FoundryLocalInstallState.Cancelled, "Configuration changed during Windows deployment; the runtime may be installed. Settings were not changed. Inspect packages before retrying.");
             if (!result.Success || !result.StandardOutput.Split('\n').Any(line => line.Trim() == "@@WSLCD_FOUNDRY_INSTALLED"))
-                return new(FoundryLocalInstallState.Failed, "Windows deployment did not confirm the exact runtime version. No retry or uninstall attempted; inspect packages. Initial-model setup remains blocked.");
-            return new(FoundryLocalInstallState.Installed, "Exact runtime package registered for this user; Microsoft x64 VCLibs prerequisite observed (existing newer versions preserved). No server started or settings changed. Registration is not proof of initialization/inference compatibility. Initial-model acquisition/load remains blocked. " + InitializationGuidance);
+                return new(FoundryLocalInstallState.Failed, "Windows deployment did not confirm the exact runtime version. No retry or uninstall attempted; inspect packages.");
+            return new(FoundryLocalInstallState.Installed, "Exact runtime package registered for this user; Microsoft x64 VCLibs prerequisite observed (existing newer versions preserved). No server started or settings changed by this runtime-only step. Registration alone is not model readiness. " + InitializationGuidance);
         }
         catch (OperationCanceledException)
         {

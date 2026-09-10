@@ -87,9 +87,9 @@ Positive capability observations remain required for tool-enabled chat.
 The revised product direction uses an external REST host and app-guided,
 explicitly confirmed standalone installation/initial-model setup. It does not
 introduce a Foundry native SDK into the WinUI process or an app-owned inference
-broker. Read-only metadata is distinct from
-inference, download and load/unload; notably, the documented load/unload REST
-routes use GET but are mutations. Catalog device/provider fields are target
+broker. Read-only CLI status and `/v1/models` are distinct from
+inference and explicit CLI load/unload. Legacy GET mutation routes are not used
+by the selected 0.10.3 adapter. Catalog device/provider fields are target
 hints, not observed hardware support. Acquisition is not enabled without
 authoritative version, publication-date and license evidence.
 
@@ -100,21 +100,32 @@ payloads into `ApplicationData.Current.LocalCacheFolder.Path`, extracts only the
 exact prerequisite APPX, and rehashes retained cache before offline reuse.
 `FoundryLocalInstaller` runs fixed read-only preflight and deployment scripts
 through `ProcessExecutor` without starting Foundry. Existing Foundry installations
-block setup; newer Microsoft VCLibs are preserved. Cancellation is not rollback.
+block replacement; newer Microsoft VCLibs are preserved. Cancellation is not rollback.
 No model/EP download, native-initialization claim or automatic runtime start is
 implied by package registration.
 
 `FoundryLocalModelArtifacts` stages one compiled, audited CPU variant through
 exact-origin conditional HTTPS requests, with per-file receipts and offline
 rehash. Settings/setup own explicit consent and cancellation. This preparation
-does not invoke the CLI, modify its cache/configuration, or claim load readiness;
-the model payload remains under packaged LocalCache until an independently
-established registration/load contract is available.
+does not itself invoke the CLI or claim load readiness.
+`FoundryLocalInitialSetupService` composes this with `FoundryLocalModelRegistration`
+using the real scanner layout, an owned cache leaf and a `download.tmp` sentinel.
+One original approval covers runtime installation if missing, model terms,
+registration, conditional daemon start and exact CLI load plus synthetic readiness.
+Only successful preparation updates Foundry-specific settings. Failures retain
+partial resources; no shared server is automatically stopped or adopted.
+`FoundryLocalStandaloneRuntimeService` binds loaded-model evidence to the CLI
+load/completion and process/start identity, not identical pre/post model lists.
+The observed unversioned catalog ID maps only to the pinned canonical CPU v4 ID.
+
+Foundry 0.10.3 catalog listing requires network even with cached files. Daemon
+startup may acquire Microsoft-selected EPs through Windows; these vendor-managed
+components are disclosed, not chosen/pinned/audited by this app. The app's audit
+gates remain on the runtime/prerequisite/model payloads it selects and downloads.
 
 See [Foundry standalone scope and compatibility](FOUNDRY-LOCAL.md) for pinned
-installer research, external-host memory ownership, blocked phase 1 runtime
-exercise, model/EP provenance blockers and signed x64 MSIX/hardware release gates.
-Deterministic adapter coverage does not complete issue #92.
+installer research, external-host memory ownership, the real standalone CPU
+exercise and the remaining signed app-MSIX/hardware evidence gaps.
 
 ### Owned local AI runtime (`LocalAiSetupService`)
 

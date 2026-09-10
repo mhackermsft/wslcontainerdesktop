@@ -877,18 +877,18 @@ public sealed class FoundryLocalTests
     }
 
     [Fact]
-    public async Task UnloadedCapabilityGuidanceNeverOffersInAppLoad()
+    public async Task UnloadedCapabilityGuidanceRequiresExplicitPreparation()
     {
         using var f = new Fixture();
         f.Handler.IsLoaded = false;
         var snapshot = await f.Observer.ReadMetadataAsync(f.Configuration, default);
-        Assert.Contains("externally prepared, already-loaded", snapshot.NextStep);
-        Assert.Contains("In-app model load and model/EP acquisition are blocked", snapshot.NextStep);
+        Assert.Contains("current load evidence", snapshot.NextStep);
+        Assert.Contains("initial-model setup", snapshot.NextStep);
         Assert.DoesNotContain("load the selected cached model in Foundry Local Settings", snapshot.NextStep);
     }
 
     [Fact]
-    public void SourceContractsKeepExactGplHeadersDisabledLoadAndCredentialClearingOrder()
+    public void SourceContractsKeepExactGplHeadersConsentedLoadAndCredentialClearingOrder()
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "WslContainerDesktop.slnx")))
@@ -919,7 +919,8 @@ public sealed class FoundryLocalTests
         var page = System.Xml.Linq.XDocument.Load(Path.Combine(source, "Views", "SettingsPage.xaml"));
         var load = Assert.Single(page.Descendants(), e => e.Name.LocalName == "Button" &&
             e.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId" && a.Value == "FoundryLocalLoadButton"));
-        Assert.Equal("False", load.Attribute("IsEnabled")?.Value);
+        Assert.Contains("CanPrepareInitialModel", load.Attribute("IsEnabled")?.Value);
+        Assert.Equal("PrepareFoundryInitialModel_Click", load.Attribute("Click")?.Value);
         Assert.Null(load.Attribute("Command"));
     }
 

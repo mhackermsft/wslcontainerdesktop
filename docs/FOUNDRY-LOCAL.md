@@ -6,9 +6,9 @@ of the standalone runtime and an initial model. This supersedes the earlier
 in-process WinML/native-broker proposal. The app will not bundle a Foundry SDK,
 host native inference itself, or treat a new broker as an acceptance requirement.
 
-Issue #92 is **not complete** until usable provenance-gated setup and the
-runtime/signed-package acceptance checks below have been delivered. Working
-model setup is a product requirement, not something a smoke test can replace.
+The implemented initial-model flow is separate from the remaining signed-app
+and representative-hardware acceptance evidence. Working model setup is a
+product requirement, not something a smoke test can replace.
 Deterministic HTTP fixtures establish adapter
 behavior, not compatibility with a particular installed Foundry release, model,
 execution provider or device.
@@ -31,9 +31,11 @@ CLI `server status --output json` process/start identity around standard
 `/v1/models` reads. A stopped status can retain stale URLs/PID/start time; those
 fields are discarded when `running` is false. PID/start/endpoint identity, not
 changing uptime/log text, binds the observation. Metadata never starts the daemon.
-The v1 listing alone does not establish cached/loaded state, model format or
-tool support: these remain **unknown**, preventing generation/probes rather than
-converting missing evidence into readiness. The legacy reference adapter and its
+The v1 listing alone does not establish cached/loaded state or tool support:
+these remain **unknown** until explicit preparation verifies a CLI load and
+synthetic completion on the same process. The exact audited CPU model metadata
+establishes its format/size/license; no arbitrary model-name inference is used.
+The legacy reference adapter and its
 synthetic route tests remain in source but are not selected by application DI.
 
 Diagnosis and assistant turns require an exact cached, loaded ONNX catalog model.
@@ -47,15 +49,17 @@ callbacks. Responses must identify the requested model.
 History, bounded stream parsing, original action approval, cancellation and
 redaction use the shared assistant contracts.
 
-**In-app model loading is blocked**, even for cached data: loading can cause an
-external runtime to acquire an execution provider, and this integration cannot
-authoritatively verify that preparation. Prepare and load assets externally only
-under an independently audited, authorized procedure. A warning or checkbox
-cannot waive the acquisition policy.
+**Initial-model setup** uses one confirmation for installation if absent, pinned
+model staging, owned cache registration, start if stopped, exact CLI load and
+one synthetic local completion. A CPU variant is deliberately selected rather
+than guessing a GPU/NPU model or depending on optional hardware. Source/staged
+receipts and `download.tmp` protect partial preparation; foreign cache entries
+are not adopted or overwritten. Completed packages/files remain after failure.
 
-**Unload model** is also blocked for standalone 0.10.3 until its actual lifecycle
-contract is established. The legacy adapter's tested non-forced unload route is
-not compatibility evidence for this release and is not retried after a failure.
+**Unload model** only targets an app-verified model on its observed process.
+**Stop shared server** requires a separate confirmation naming the current
+process/start/endpoint and warning that every client's models are affected.
+Neither is automatic on cancellation or app exit; neither deletes cached files.
 
 **Memory ownership policy:** the external host owns its idle TTL and allocation
 policy. The app never keeps a model alive, automatically unloads models on exit,
@@ -63,7 +67,46 @@ or promises an immediate release following cancellation. The standalone
 runtime owns its model TTL; setup does not grant ownership of pre-existing
 processes or permission to stop/uninstall them.
 
-## Investigation record (2026-09-09)
+## Verified standalone lifecycle (2026-09-10)
+
+The coordinator's `networked-model-check-0.10.3.json` reported `Error: null` and
+`ModelReady: true`. Nine approved files (877,988,985 bytes) under
+`<cacheRoot>\WslContainerDesktop-qwen-cpu-v4\v4` plus the exact
+`inference_model.json` template were discovered by the shipped scanner. CLI
+`model load qwen2.5-0.5b-instruct-generic-cpu:4 --output json` succeeded without
+another model cache entry. The reported cache delta was 282,895 bytes of
+metadata/index, not a repeat model download; no new EP packages were registered
+by that load. The synthetic completion returned `OK` and the canonical `:4`
+model ID. Unload and server stop both returned success; stopped state was observed.
+Secret-free response bodies are recorded in `networked-lifecycle.json`.
+
+The model-list body has ID `qwen2.5-0.5b-instruct-generic-cpu`, both before and
+after load. This is **not load proof**. Only its observed mapping to the pinned
+version is normalized; version stripping is not a general alias policy.
+The completion contains both `delta` and `message` with empty `tool_calls`;
+non-stream parsing uses the complete message and does not duplicate the text.
+
+**Online limitation:** blocked-network `/v1/models` returned HTTP 500 because
+catalog requests failed across regions. File reuse is offline, and inference
+executes locally, but the current metadata/capability path is not fully offline.
+
+**Vendor-managed EPs:** daemon startup invokes Windows deployment and installed
+Microsoft Intel OpenVINO / NVIDIA TRT-RTX packages in the observed exercise.
+Executable-level firewall rules did not prevent delegated acquisition.
+Setup discloses that Microsoft/Windows select these versions and may use the
+network. The app neither chooses, pins nor audits them. The dependency-age audit
+applies to the runtime/prerequisite/model artifacts the app selects and stages,
+not to vendor/OS-managed runtime servicing. No alternative runtime is substituted.
+
+Signed WSL Container Desktop MSIX deployment, UI automation and representative
+GPU/NPU coverage have not been performed. The real standalone CPU exercise is
+not a claim that those separate acceptance surfaces passed.
+
+## Historical investigation record (superseded by the lifecycle result above)
+
+The sections below preserve earlier findings, blocked milestones and research
+tradeoffs as an audit trail. Earlier statements that model setup or EP policy was
+unresolved are historical, not current product gates.
 
 No explicit Foundry endpoint or loaded model ID was supplied for this worktree.
 Read-only discovery found no `foundry` executable on PATH, no matching Foundry
@@ -107,17 +150,23 @@ the tests use the production standalone adapter, not the legacy reference:
 
 - `WSLC_FOUNDRY_LOCAL_METADATA_TESTS=1` permits CLI version/status execution and
   HTTP metadata reads, not start/cache-list/model commands.
-- `WSLC_FOUNDRY_LOCAL_INFERENCE_TESTS=1` permits synthetic capability probes and
-  diagnosis against an already cached, loaded model.
+- `WSLC_FOUNDRY_LOCAL_INITIAL_SETUP_TESTS=1`, together with an explicit
+  `WSLC_FOUNDRY_LOCAL_MODEL_STAGING` local directory, permits the real initial
+  setup flow against an already installed audited CLI, then synthetic capability
+  probes/diagnosis. This includes missing pinned-file downloads, owned cache
+  registration and daemon start/load. Windows may acquire vendor-selected EPs.
+  It does not install runtime packages, automatically stop the daemon or clean
+  up retained files. This broader gate must be separately authorized; it is not
+  implied by the old inference-only gate.
 
 Set a gate only after obtaining permission for its operations and satisfying
-the prepared-host prerequisites. The inference gate must not be enabled merely
-to discover a usable endpoint/model. Neither test installs or starts a host,
-loads/unloads models, deploys MSIX, or invokes application tools. Both gates
+the prepared-host prerequisites. The initial-setup gate must not be enabled merely
+to discover a usable endpoint/model. Neither test installs runtime packages,
+deploys the app MSIX, or invokes application tools. Both gates
 were explicitly disabled during deterministic validation for this change.
 These tests are standalone integration checks, not packaged or hardware acceptance.
-The inference check deliberately fails before generation while load/cache proof
-is unknown; setting its environment gate does not manufacture that evidence.
+The initial-setup check obtains load proof through the same registered-file
+load/completion path used by the product; it does not manufacture cached evidence.
 
 ```powershell
 dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~FoundryLocalRuntimeOptInTests"

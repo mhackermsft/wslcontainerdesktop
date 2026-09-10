@@ -633,11 +633,15 @@ history; changed configuration/runtime identity; cancellation; iteration limits;
 and no retry after failures or completed actions. Older provider enum values and
 persisted endpoint/model settings remain independent.
 
-Model loading is deliberately blocked because cached model data does not prove
-that execution-provider preparation is complete or age-audited. Unload remains a
-selected-model, non-forced request with pre/post capability invalidation and
-observed outcomes. There is no automatic load, acquisition, unload-all, runtime
-startup, EP selection, or container dependency.
+`FoundryLocalLifecycleTests` uses recorded successful CLI load/unload/start/stop
+and real v1 model/completion bodies. It verifies canonical `:4` identity despite
+an unversioned catalog ID, complete-message parsing when `delta` is also present,
+no load proof from listing alone, restart rejection before synthetic inference,
+and unload refusal without app-observed load evidence. Initial-model preparation
+has explicit original consent; normal metadata never starts or loads anything.
+There is no unload-all, automatic shared-server cleanup, app-selected EP or
+container dependency. Vendor-managed Windows EP acquisition is disclosed; app
+downloads retain their compiled artifact-audit gates.
 
 ```powershell
 # Deterministic only: explicitly keep both real-runtime gates off.
@@ -778,7 +782,7 @@ the sanitized `IActivityLog.Record` input boundary, not packaged on-disk storage
 | #88 live compatibility | Deterministic observation/consumer contracts are covered above. Actual provider metadata conventions, SDK transport/entitlement failures and hardware cold starts still require explicitly authorized smoke runs; unknown metadata is not filled with guesses. |
 | #89 streaming | Covered: fragmented SSE/NDJSON/UTF-8, complete validation before action, safe progress ordering, disconnect failure without retry, inference versus approval timeouts, cancellation/reset generations and partial outcomes. Actual provider/SDK event delivery remains a separately authorized smoke observation. |
 | #90 runtime ownership | Deterministic real-lifecycle/fake-engine coverage is described above. Automatic model-volume deletion is deliberately unavailable without atomic immutable targeting. Real-engine/GPU compatibility remains unverified; no workload is manipulated by the suite. |
-| #92 Foundry Local | See [Foundry scope and compatibility](FOUNDRY-LOCAL.md). Revised scope is external REST plus explicitly confirmed standalone installation/initial-model setup, not an embedded SDK or broker. Provenance-gated model/EP setup remains a product blocker; real endpoint/model compatibility, signed x64 MSIX, offline assets and representative hardware acceptance are separate evidence gaps. No Foundry dependency or model is acquired by the deterministic suite. |
+| #92 Foundry Local | See [Foundry scope and compatibility](FOUNDRY-LOCAL.md). Standalone installation, pinned staging, owned registration and explicit load/verification are implemented. The actual CPU lifecycle was exercised; signed app-MSIX and representative GPU/NPU coverage remain evidence gaps. Catalog access requires network on 0.10.3. No Foundry dependency or model is acquired by the deterministic suite. |
 | #94 Compose live integration | Deterministic shared-plan/approval/outcome coverage is complete above. Real provider/tool rendering, actual engine resource retention and packaged UI review remain unverified until separately authorized smoke runs. |
 | #93 full catalog | Covered: real 40-tool catalog, bundled templates, browsable registry, installed k3s states, actual concrete-adapter schemas/routes/budgets, read-only and approved project action plus paired follow-up evidence. UI rendering/poller dispatch remain separate observations. |
 | Copilot SDK adapter | Covered: production runner history/budget/cancellation/failure plus app-owned SessionConfig, SDK AIFunction binding, permission mapping and sanitized prompt serialization. SDK RPC transport, actual model events, sign-in and opaque runtime overhead still require an explicitly authorized live smoke run. |

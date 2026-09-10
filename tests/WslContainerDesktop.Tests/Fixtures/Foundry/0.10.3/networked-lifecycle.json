@@ -1,0 +1,9 @@
+{
+  "provenance": "Coordinator networked-model-check-0.10.3.json, 2026-09-10T19:10:27Z through 19:11:45Z, standalone Microsoft.FoundryLocal 0.10.3.0 x64. Successful real staged-cache load and synthetic completion. No paths, process IDs or credentials retained.",
+  "start": "{\"running\":true,\"webUrls\":[\"http://127.0.0.1:63150\"],\"port\":63150,\"idleTimeoutMinutes\":5}",
+  "load": "{\"success\":true,\"message\":\"Loaded 'qwen2.5-0.5b' (CPU variant 'qwen2.5-0.5b-instruct-generic-cpu:4') into memory.\"}",
+  "unload": "{\"success\":true,\"message\":\"Unloaded 'qwen2.5-0.5b-instruct-generic-cpu:4' from memory.\"}",
+  "stop": "{\"success\":true,\"message\":\"Server stopped.\"}",
+  "models": "{\"data\":[{\"id\":\"qwen2.5-0.5b-instruct-generic-cpu\",\"owned_by\":\"Microsoft\",\"permission\":[],\"created\":1763105845,\"CreatedTime\":\"2025-11-14T07:37:25+00:00\",\"parent\":\"qwen2.5-0.5b\",\"IsDelta\":false,\"Successful\":true,\"HttpStatusCode\":0,\"object\":\"model\"}],\"IsDelta\":false,\"Successful\":true,\"HttpStatusCode\":0,\"object\":\"list\"}",
+  "completion": "{\"model\":\"qwen2.5-0.5b-instruct-generic-cpu:4\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"OK\",\"tool_calls\":[]},\"message\":{\"role\":\"assistant\",\"content\":\"OK\",\"tool_calls\":[]},\"index\":0,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":36,\"completion_tokens\":1,\"total_tokens\":37},\"created\":1789067504,\"CreatedAt\":\"2026-09-10T19:11:44+00:00\",\"id\":\"chat.id.1\",\"IsDelta\":false,\"Successful\":true,\"HttpStatusCode\":0,\"object\":\"chat.completion\"}"
+}

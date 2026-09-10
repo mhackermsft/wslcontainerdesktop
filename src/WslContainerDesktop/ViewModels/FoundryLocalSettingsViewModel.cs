@@ -31,9 +31,11 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     private readonly IAiCapabilityService _capabilities;
     private readonly ILogger _logger;
     private readonly FoundryLocalSetupService _setup;
+    private readonly FoundryLocalInitialSetupService? _initialSetup;
     private FoundryLocalConnectionPlan? _connectionPlan;
     private int _configurationRevision;
     private bool _confirmingConnection;
+    private bool _applyingReadyConfiguration;
     private CancellationTokenSource? _runtimeSetupCancellation;
 
     [ObservableProperty] private string _endpoint;
@@ -45,32 +47,43 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanInstallRuntime))]
     [NotifyPropertyChangedFor(nameof(CanStageModelFiles))]
+    [NotifyPropertyChangedFor(nameof(CanPrepareInitialModel))]
     [NotifyPropertyChangedFor(nameof(IsPreparingAnything))]
     private bool _isInstallingRuntime;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanInstallRuntime))]
     [NotifyPropertyChangedFor(nameof(CanStageModelFiles))]
+    [NotifyPropertyChangedFor(nameof(CanPrepareInitialModel))]
     [NotifyPropertyChangedFor(nameof(IsPreparingAnything))]
     private bool _isPreparingModelFiles;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanInstallRuntime))]
+    [NotifyPropertyChangedFor(nameof(CanStageModelFiles))]
+    [NotifyPropertyChangedFor(nameof(CanPrepareInitialModel))]
+    [NotifyPropertyChangedFor(nameof(IsPreparingAnything))]
+    private bool _isPreparingInitialModel;
 
-    public string AcquisitionGuidance => FoundryLocalRuntimeService.AcquisitionGuidance;
+    public string AcquisitionGuidance => FoundryLocalStandaloneRuntimeService.AcquisitionGuidance;
     public string MemoryPolicy => FoundryLocalStandaloneRuntimeService.MemoryPolicy;
     public string InstallationGuidance => _setup.AvailabilityGuidance;
-    public bool IsPreparingAnything => IsInstallingRuntime || IsPreparingModelFiles;
+    public bool IsPreparingAnything => IsInstallingRuntime || IsPreparingModelFiles || IsPreparingInitialModel;
     public bool CanInstallRuntime => _setup.CanInstall && !IsPreparingAnything;
     public bool CanStageModelFiles => _setup.CanStageModelFiles && !IsPreparingAnything;
+    public bool CanPrepareInitialModel => _initialSetup is not null && !IsPreparingAnything;
     public string SetupCacheLocation => "Setup cache: " + _setup.CacheLocation;
     public string ModelStagingLocation => "Model-file staging (not the Foundry runtime cache): " + _setup.ModelCacheLocation;
 
     public FoundryLocalSettingsViewModel(ISettingsService settings,
         IFoundryLocalRuntimeService runtime, IAiCapabilityService capabilities,
-        ILogger<FoundryLocalSettingsViewModel> logger, FoundryLocalSetupService? setup = null)
+        ILogger<FoundryLocalSettingsViewModel> logger, FoundryLocalSetupService? setup = null,
+        FoundryLocalInitialSetupService? initialSetup = null)
     {
         _settings = settings;
         _runtime = runtime;
         _capabilities = capabilities;
         _logger = AiTextSanitizer.WrapLogger(logger);
         _setup = setup ?? new(new FoundryLocalCli(), runtime);
+        _initialSetup = initialSetup;
         _endpoint = settings.AiFoundryLocalEndpoint;
         _model = settings.AiFoundryLocalModel;
     }
@@ -78,13 +91,13 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     partial void OnEndpointChanged(string value)
     {
         _settings.AiFoundryLocalEndpoint = value;
-        ConfigurationChanged();
+        if (!_applyingReadyConfiguration) ConfigurationChanged();
     }
 
     partial void OnModelChanged(string value)
     {
         _settings.AiFoundryLocalModel = value;
-        ConfigurationChanged();
+        if (!_applyingReadyConfiguration) ConfigurationChanged();
     }
 
     private void ConfigurationChanged()
@@ -122,6 +135,70 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
 
     public Task InstallRuntimeAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunSetupAsync(false, confirm);
     public Task StageModelFilesAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunSetupAsync(true, confirm);
+    public Task PrepareInitialModelAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunInitialAsync(false, confirm);
+    public Task StopServerAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunInitialAsync(true, confirm);
+
+    private async Task RunInitialAsync(bool stop, Func<string, CancellationToken, Task<bool>> confirm)
+    {
+        if (!CanPrepareInitialModel || _initialSetup is null || DiscoverCommand.IsRunning
+            || RunOperationCommand.IsRunning || _confirmingConnection) return;
+        var original = AiConversationContext.Capture(_settings, AiProviderKind.FoundryLocal);
+        var revision = _configurationRevision;
+        bool Current() => revision == _configurationRevision && IsCurrent(original)
+            && (stop || _settings.AiFeaturesEnabled);
+        if (!Current()) return;
+        using var cancellation = new CancellationTokenSource();
+        _runtimeSetupCancellation = cancellation;
+        IsPreparingInitialModel = true;
+        _capabilities.Invalidate();
+        var inFlight = true;
+        try
+        {
+            var progress = new Progress<string>(text =>
+            {
+                if (inFlight && Current() && !cancellation.IsCancellationRequested) SetupStatus = text;
+            });
+            var result = stop
+                ? await _initialSetup.StopAsync(original, confirm, Current, cancellation.Token)
+                : await _initialSetup.PrepareAsync(original, confirm, Current, progress, cancellation.Token);
+            inFlight = false;
+            if (!Current()) return;
+            if (result.Success && result.Configuration is { } ready)
+            {
+                _settings.AiFoundryLocalEndpoint = ready.Endpoint;
+                _settings.AiFoundryLocalModel = ready.Model;
+                _applyingReadyConfiguration = true;
+                try
+                {
+                    Endpoint = ready.Endpoint;
+                    Model = ready.Model;
+                }
+                finally { _applyingReadyConfiguration = false; }
+                InvalidateDiscovery();
+                _settings.Save();
+                InventoryText = "Initial CPU model is loaded; run independent capability checks before assistant use.";
+            }
+            SetupStatus = result.Guidance;
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogDebug(ex, "Foundry initial-model operation cancelled.");
+            if (Current()) SetupStatus = "Cancelled. Runtime/model state may have changed; files and packages retained.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Foundry initial-model operation failed.");
+            if (Current()) SetupStatus = "Preparation failed: " + AiTextSanitizer.Sanitize(ex.Message)
+                + " No automatic rollback or retry.";
+        }
+        finally
+        {
+            inFlight = false;
+            _runtimeSetupCancellation = null;
+            IsPreparingInitialModel = false;
+            _capabilities.Invalidate();
+        }
+    }
 
     private async Task RunSetupAsync(bool modelFiles, Func<string, CancellationToken, Task<bool>> confirm)
     {
