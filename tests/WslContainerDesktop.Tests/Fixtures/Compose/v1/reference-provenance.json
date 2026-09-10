@@ -1,12 +1,22 @@
 {
   "schemaVersion": 1,
   "expectationOrigin": "hand-authored-spec-projection",
-  "captureStatus": "pending-no-reference-cli-installed",
+  "captureStatus": "captured-windows-x86_64",
+  "capturedCases": [
+    "environment", "extends", "health-dependencies", "include", "interpolation",
+    "missing-env-file", "mounts-ports", "networks", "override", "profiles",
+    "required-variable", "unsupported", "yaml-anchors", "yaml-block"
+  ],
   "composeCli": "2.39.4",
   "composeReleasePublishedAt": "2025-09-19T08:49:23Z",
   "composeReleaseUrl": "https://github.com/docker/compose/releases/tag/v2.39.4",
+  "binaryAsset": "docker-compose-windows-x86_64.exe",
+  "binarySize": 77505536,
+  "binarySha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "binaryLicense": "Apache-2.0",
+  "binaryLicenseUrl": "https://github.com/docker/compose/blob/v2.39.4/LICENSE",
   "specCommit": "c0c3dba71a73260cf9649e05370dcad6fe29e11c",
   "specUrl": "https://github.com/compose-spec/compose-spec/tree/c0c3dba71a73260cf9649e05370dcad6fe29e11c",
   "runtimeCertification": "none",
-  "notes": "No reference.json files have been captured. Expectations are projections derived from the specification, not claimed output of docker compose config. Per-case captured files take precedence as evidence of capture."
+  "notes": "Expectations were originally hand-authored spec projections. All 14 original cases now have actual config-only CLI captures; each records observed version, checksum, arguments, timestamp, normalized input hashes, exit code and diagnostics. Runtime harness is opt-in and unexecuted; no runtime certification."
 }

@@ -1,0 +1,82 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T14:13:55.4761204+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.yaml": "0f824256d1e4065f11aabadc2f37b2d20298d007db6b8cddeda60027ca791d13",
+    "expectations.json": "688e5170430dfa19aa6179d466482b20910c43b164190fb8e8ce23e318d7c5cd"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 0,
+  "stderr": "",
+  "config": {
+    "name": "wcd-conformance",
+    "networks": {
+      "default": {
+        "name": "wcd-conformance_default",
+        "ipam": {}
+      }
+    },
+    "services": {
+      "web": {
+        "command": null,
+        "entrypoint": null,
+        "image": "example.invalid/conformance:1",
+        "networks": {
+          "default": null
+        },
+        "ports": [
+          {
+            "mode": "ingress",
+            "target": 80,
+            "published": "8080",
+            "protocol": "tcp"
+          },
+          {
+            "mode": "ingress",
+            "target": 53,
+            "published": "5353",
+            "protocol": "udp"
+          }
+        ],
+        "volumes": [
+          {
+            "type": "volume",
+            "source": "data",
+            "target": "/data",
+            "read_only": true,
+            "volume": {}
+          },
+          {
+            "type": "volume",
+            "source": "cache",
+            "target": "/cache",
+            "read_only": true
+          }
+        ]
+      }
+    },
+    "volumes": {
+      "cache": {
+        "name": "wcd-conformance_cache"
+      },
+      "data": {
+        "name": "wcd-conformance_data"
+      }
+    }
+  }
+}

@@ -33,6 +33,9 @@ if ((Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash -ne $Approved
 }
 $corpus = (Resolve-Path (Join-Path $PSScriptRoot '..\..\tests\WslContainerDesktop.Tests\Fixtures\Compose\v1')).Path
 $provenance = Get-Content (Join-Path $corpus 'reference-provenance.json') -Raw | ConvertFrom-Json
+if ($ApprovedSha256 -ne $provenance.binarySha256) {
+    throw 'Approved checksum does not match the pinned reference asset in provenance.'
+}
 if ([DateTimeOffset]::Parse($provenance.composeReleasePublishedAt) -gt [DateTimeOffset]::UtcNow.AddDays(-7)) {
     throw 'Pinned Compose release is less than seven days old.'
 }
@@ -96,7 +99,11 @@ try {
             $destination = Join-Path $directory $relative
             [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination)) | Out-Null
             Copy-Item -LiteralPath $file.FullName -Destination $destination
-            $hashes[$relative.Replace('\', '/')] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            # All corpus inputs are UTF-8 text. Git's Windows checkout line endings must
+            # not invalidate the same synthetic input on a Linux test runner.
+            $text = [IO.File]::ReadAllText($file.FullName).Replace("`r`n", "`n")
+            $hashes[$relative.Replace('\', '/')] = [Convert]::ToHexString(
+                [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text))).ToLowerInvariant()
         }
         $arguments = @('--project-directory', $directory, '-p', 'wcd-conformance', '--profile', '*', '-f', 'compose.yaml')
         if (Test-Path -LiteralPath (Join-Path $directory 'compose.override.yaml')) {
@@ -120,6 +127,7 @@ try {
             executableSha256 = $ApprovedSha256.ToLowerInvariant()
             capturedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
             origin = 'standalone-compose-config'
+            inputHashAlgorithm = 'sha256-utf8-lf'
             inputHashes = $hashes
             arguments = @($arguments | ForEach-Object { $_.Replace($directory, '$FIXTURE') })
             exitCode = $capture.exitCode

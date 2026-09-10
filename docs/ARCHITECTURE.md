@@ -365,9 +365,10 @@ Dependency readiness and watchdog enrollment include only successfully ready ser
 
 These are implementation capabilities, not full specification conformance claims. The
 [versioned conformance corpus](COMPOSE-CONFORMANCE.md) distinguishes passing configuration subsets,
-known differences, actionable warnings, and missing fail-closed diagnostics. Initial expectations
-are hand-authored spec projections; pinned CLI capture and real-engine runtime certification are
-pending. The corpus does not change parser or supervisor semantics.
+known differences, actionable warnings, and missing fail-closed diagnostics. The original 14
+spec-derived projections now have actual pinned CLI config captures. A separate opt-in real-WSLC
+harness covers owned lifecycle scenarios; it has not been executed or runtime-certified. The
+corpus does not change parser or supervisor semantics.
 
 | Feature | Support |
 |---|---|

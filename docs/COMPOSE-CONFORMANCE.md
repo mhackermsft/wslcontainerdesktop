@@ -7,9 +7,11 @@ for issue #86. It uses the existing xUnit runner and links the real `ComposeImpo
 dependencies, Docker Desktop, daemon, image pulls, WSL installation, or package activation are needed.
 It deliberately changes no production parsing or orchestration behavior.
 
-**Current evidence is characterization against hand-authored spec projections, not verified output
-of `docker compose config`.** No reference CLI was available when v1 was authored. There are no
-captured `reference.json` files, and no real-engine runtime certification. Required-variable and
+**All 14 original cases now have actual `config --format json` reference captures** from the
+official Windows x64 standalone Compose v2.39.4 binary. Initial expectations were hand-authored
+spec projections; those projections are now compared with the captured output. Capture ran on
+2026-09-10 in an isolated synthetic directory/environment, with no engine/workloads. The runtime
+harness remains unexecuted and there is no real-engine runtime certification. Required-variable and
 missing-file cases explicitly characterize unsafe diagnostic gaps instead of asserting successful
 conformance. Later stack layers should fix these and remove the matching divergence entries.
 
@@ -20,7 +22,9 @@ The reference is pinned in `reference-provenance.json`:
 | Compose specification | Commit [`c0c3dba71a73260cf9649e05370dcad6fe29e11c`](https://github.com/compose-spec/compose-spec/tree/c0c3dba71a73260cf9649e05370dcad6fe29e11c), not an invented numbered spec release |
 | Reference CLI | Standalone Docker Compose **v2.39.4**, equivalent to the Compose plugin's `docker compose config` command |
 | CLI publication | [GitHub release](https://github.com/docker/compose/releases/tag/v2.39.4), `published_at` **2025-09-19T08:49:23Z**; audited via GitHub release API |
-| Fixture origin | Original synthetic YAML and hand-authored projected expectations; not copied runtime output |
+| Binary integrity | `docker-compose-windows-x86_64.exe`, 77,505,536 bytes, SHA-256 `6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955`; checked against current authoritative GitHub release asset metadata before execution |
+| Binary license | [Apache-2.0](https://github.com/docker/compose/blob/v2.39.4/LICENSE); binary cached only in session artifact tools, not committed or installed on PATH |
+| Fixture origin | Original synthetic YAML and spec-derived projected expectations; `reference.json` files are actual config-only CLI output with per-case provenance |
 | Runtime / legacy status | None; legacy help fixtures elsewhere in the suite are not certification on WSLC 2.9.9.0 |
 
 Semantic sources are the pinned spec's [interpolation](https://github.com/compose-spec/compose-spec/blob/c0c3dba71a73260cf9649e05370dcad6fe29e11c/12-interpolation.md),
@@ -63,7 +67,7 @@ Exact warning lists are checked independently of config values.
 | Representation | Normalization / scope |
 |---|---|
 | Services | Dictionary by name; `serviceNames` sorted ordinally; runtime IDs, timestamps, default project names and generated labels excluded |
-| Environment | App `KEY=VALUE` list becomes a map; bare `KEY` remains null, distinct from `KEY=`; actual ambient values are never resolved by the projection |
+| Environment | App `KEY=VALUE` list becomes a map; bare `KEY` remains null, distinct from `KEY=`; config JSON's `$$` serialization escape becomes literal `$`, without resolving `$VAR`; actual ambient values are never resolved by the projection |
 | Ports | Canonical config port objects become app-style `host_ip:published:target/protocol`; default TCP omitted; list order retained |
 | Mounts | Canonical config mount objects become `source:target[:ro]`; tests cover named-volume short/long forms, not every bind/driver option |
 | Commands | Config argv is joined with whitespace-bearing tokens quoted, matching the app representation for the covered simple examples; not an argv-fidelity certification |
@@ -130,40 +134,85 @@ fixed project name, all profiles, and explicit base/override file list. It captu
 JSON or expected diagnostic failures. Owned absolute directory prefixes become `$FIXTURE`. The
 resulting `reference.json` includes arguments, capture time, version, binary SHA-256, input hashes,
 exit code, stderr and config. No arbitrary caller files or host `.env` files are captured.
+Input hashes use `sha256-utf8-lf`: decode UTF-8, normalize CRLF to LF, and hash UTF-8 bytes, so Git
+checkout line endings do not invalidate identical text on Windows versus Linux.
 
 Review each diff and run the fixture suite before committing captures. Once present, captures are
 always compared to the selected intended reference values (not the divergent app baseline).
 Input hashes invalidate stale captures, including changed environments/expectations. If the real
 reference disagrees with a hand-authored value, inspect the semantic source and fix the expectation
 or projection transparently; never relabel unexecuted expectations as captured CLI output. Keep
-the initial provenance note as historical context; per-case capture records establish actual evidence.
-The initial script has only syntax/fail-closed guard validation, not a successful real-CLI capture.
+the original spec-derived expectation origin as historical context; per-case capture records establish
+actual evidence. `capturedCases` in the manifest makes deletion of established captures fail the suite.
+Actual v2.39.4 capture revealed that environment dollar literals are re-escaped as `$$` in config
+JSON; the projection now explicitly decodes that serialization layer, rather than declaring an
+app semantic divergence or modifying captured output.
 
 ## Runtime boundary and opt-in protocol
 
-**No real-engine runtime tests are implemented or enabled by this foundation.** Existing
+**`ComposeRuntimeTests` is implemented but has not been executed against a real engine.** Existing
 `ComposeNetworkOrchestratorTests`, `ComposeNetworkSupervisorTests`, and `NativeHealthTests` use test
 doubles for mutation ordering, capability decisions, failure cleanup and supervision. In particular,
 `LegacyFallbackIsExplicitAndUnknownDoesNotDowngrade` checks a documented fallback versus unknown
 capability rejection; creation/connect failures check that start is not attempted and only owned
 objects are removed. These are not evidence from an installed legacy engine.
 
-Future runtime certification must be a separate, explicit opt-in harness, not a default xUnit side
-effect. Obtain permission before app registration/deployment on a shared Windows machine. Require
-an operator-selected disposable engine/distro, already-approved local images (no implicit pulls),
-recorded actual WSLC version/capability diagnostics, and a run-unique project name plus ownership
-label (for example `wcd-conformance-<guid>`). Refuse name collisions and preserve a before-inventory.
-Track exact returned resource IDs; on cancellation/failure clean only those still carrying the
-run's ownership label. Never use global prune, wildcard deletion, or remove external volumes/networks.
+The opt-in test uses the real `WslcService`, `ComposeProjectSupervisor`, and
+`ComposeNetworkOrchestrator` behind a deny-by-default test lease. It requires an explicitly approved
+absolute WSLC executable plus matching SHA-256, an **already loaded immutable 64-hex image ID**,
+and an existing absolute evidence directory. The image must provide BusyBox-compatible `sh`,
+`sleep`, `touch`, `test`, `rm`, and `nslookup`; supply no credentials or untrusted fixture images.
+The host/Windows account's selected WSLC session must be disposable and have no containers.
+WSLC has no per-test distro selector here: do not point this at a shared production session.
+
+An explicit consent string is required even to probe the engine. Without it, the runtime fact is
+reported skipped. With consent, missing configuration, mismatched binary/image identity, nonempty
+container inventory, or unsupported/unknown network connect/disconnect capability fails before
+mutation with a diagnostic. The harness never calls pull/build/registry/prune/session-terminate,
+publishes ports, binds host paths, changes GPU/special network mode, or deploys/registers the app.
+
+```powershell
+# ONLY after obtaining additional runtime permission on a disposable WSLC session:
+$env:WCD_COMPOSE_RUNTIME = 'I-authorize-disposable-WSLC-resources'
+$env:WCD_RUNTIME_WSLC = 'C:\approved-tools\wslc.exe'
+$env:WCD_RUNTIME_WSLC_SHA256 = '<approved-wslc-binary-sha256>'
+$env:WCD_RUNTIME_IMAGE_ID = '<already-loaded-64-hex-image-id>'
+$env:WCD_RUNTIME_EVIDENCE = 'C:\existing-runtime-evidence'
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj `
+  -c Debug -p:Platform=x64 -f net10.0-windows10.0.26100.0 --no-restore `
+  --filter Category=ComposeRuntime --logger 'trx;LogFileName=compose-runtime.trx'
+Remove-Item Env:\WCD_COMPOSE_RUNTIME
+```
+
+One run owns a GUID project prefix and `com.wsldesktop.conformance-run` label. The lease rejects
+name collisions and unapproved calls, enrolls attempted creations for partial-failure recovery,
+and checks both exact inspected ID and ownership label before mutation/deletion. Cleanup is
+independent of scenario cancellation, bounded per resource, container-first then network, and
+never globally prunes. Unknown/changed ownership is preserved and reported as failure, not
+silently deleted. Baseline network identities and volume names must remain unchanged and the
+post-run container inventory must be empty; concurrent foreign changes fail verification rather
+than being cleaned up. A run-specific JSON event/evidence file records version, binary/image
+identity, capabilities, selected observations and cleanup diagnostics; raw credentials/configuration
+are not captured.
 
 | Runtime scenario | Required evidence before claiming it passes |
 |---|---|
-| Startup ordering | Timestamped start/health/exit observations proving all three dependency conditions, timeout and cancellation behavior |
-| Network aliases | Actual DNS checks from owned peers on each network, native success and diagnosed unsupported/unknown behavior |
-| Recreation | No-op retains IDs; material change replaces only the intended service; drift/failure never deletes unrelated objects |
-| Supervision | Recorded health and restart decisions, manual-stop suppression, bounded retries and app-lifetime limitations |
-| Cleanup | Before/after inventory proves unrelated resources untouched and owned partial creations cleaned on success/failure/cancel |
+| Startup ordering | Real supervisor on reversed service order, all three dependency conditions; actual exit-code check before dependent start and actual exec-health observation after supervisor startup timestamp |
+| Network aliases | Actual `nslookup` calls from an owned peer for aliases on both owned networks; unsupported/unknown native capability fails preflight, not downgraded silently |
+| Recreation | Native no-op reconciliation retains ID, explicit owned remove/create changes only server ID and preserves client ID; this is not automatic drift-detection certification |
+| Supervision | Actual readiness-marker success/failure probes; real service non-explicit start preserves manual-stop suppression and explicit start clears it |
+| Cleanup | Cancellation immediately before start exercises real orchestrator rollback; finally cleanup verifies exact IDs/labels and baseline inventories |
 
-Pinned real CLI capture, strict unsupported-input rejection, and real-engine runtime evidence remain
-unmet portions of #86; they are explicitly deferred rather than fabricated or represented by
-permanently failing tests.
+The health/status monitor ports are test adapters fed **real CLI observations** synchronously after
+the supervisor requests refresh; this does not run the WinUI background poller or application
+restart/auto-heal watchdog loops. Full packaged watchdog retries/backoff, automatic drift recreation,
+app-close behavior, and per-version runtime certification still require additional permission and
+evidence. The integrated scenario has a three-minute cancellation budget and each mutation/cleanup
+has a separate bound. Normal offline tests check creation/ownership policy and compile the runtime
+suite but must not be described as a runtime pass.
+
+Strict unsupported-input rejection remains a production change for later layers, not a test-harness
+fix. The captured negative cases and existing capability-double tests preserve the distinction
+between diagnosed safe failure and the importer's documented current gaps. Remaining requirements
+are actual authorized hardware/runtime evidence and subsequent production semantic fixes, not
+missing config-reference files.

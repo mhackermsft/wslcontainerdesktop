@@ -16,6 +16,7 @@
 
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
 using Xunit;
 
@@ -118,7 +119,10 @@ public sealed class ComposeConformanceTests
                 var capture = JsonNode.Parse(await File.ReadAllTextAsync(capturePath))!;
                 Assert.Equal("2.39.4", capture["cliVersion"]!.GetValue<string>());
                 Assert.Equal("standalone-compose-config", capture["origin"]!.GetValue<string>());
+                Assert.Equal("sha256-utf8-lf", capture["inputHashAlgorithm"]!.GetValue<string>());
                 Assert.Matches("^[a-f0-9]{64}$", capture["executableSha256"]!.GetValue<string>());
+                var provenance = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(Corpus, "reference-provenance.json")))!;
+                Assert.Equal(provenance["binarySha256"]!.GetValue<string>(), capture["executableSha256"]!.GetValue<string>());
                 var hashes = capture["inputHashes"]!.AsObject();
                 var inputs = Directory.GetFiles(source, "*", SearchOption.AllDirectories)
                     .Where(f => Path.GetFileName(f) != "reference.json").ToArray();
@@ -126,7 +130,7 @@ public sealed class ComposeConformanceTests
                 foreach (var input in inputs)
                 {
                     var relative = Path.GetRelativePath(source, input).Replace('\\', '/');
-                    var digest = Convert.ToHexStringLower(SHA256.HashData(await File.ReadAllBytesAsync(input)));
+                    var digest = InputHash(await File.ReadAllTextAsync(input));
                     Assert.True(hashes[relative]?.GetValue<string>() == digest,
                         $"{id}/{relative}: reference capture is stale; explicitly regenerate after reviewing input changes.");
                 }
@@ -141,7 +145,8 @@ public sealed class ComposeConformanceTests
                     var reference = ComposeConformanceProjection.FromReference(capture["config"]!.AsObject());
                     foreach (var (pointer, value) in checks)
                         Assert.True(JsonNode.DeepEquals(value, ComposeConformanceProjection.At(reference, pointer)),
-                            $"{id}/compose.yaml {pointer}: captured Compose output differs from spec-derived expectation.");
+                            $"{id}/compose.yaml {pointer}: captured value " +
+                            $"{ComposeConformanceProjection.At(reference, pointer)} differs from expected {value}.");
                 }
             }
         }
@@ -174,6 +179,9 @@ public sealed class ComposeConformanceTests
         Assert.Equal(1, provenance["schemaVersion"]!.GetValue<int>());
         Assert.Equal("hand-authored-spec-projection", provenance["expectationOrigin"]!.GetValue<string>());
         Assert.Equal("none", provenance["runtimeCertification"]!.GetValue<string>());
+        foreach (var capturedCase in provenance["capturedCases"]!.AsArray())
+            Assert.True(File.Exists(Path.Combine(Corpus, capturedCase!.GetValue<string>(), "reference.json")),
+                $"{capturedCase}: committed reference evidence must not silently disappear.");
         foreach (var id in cases)
         {
             var expectations = JsonNode.Parse(File.ReadAllText(Path.Combine(Corpus, id, "expectations.json")))!;
@@ -181,18 +189,31 @@ public sealed class ComposeConformanceTests
                 Assert.False(string.IsNullOrWhiteSpace(expectations["diagnosticLimitation"]?.GetValue<string>()),
                     $"{id}: a reference rejection must document the app's diagnostic gap.");
         }
+
+    }
+
+    internal static string InputHash(string text) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.Replace("\r\n", "\n", StringComparison.Ordinal))));
+
+    [Fact]
+    public void InputHashesIgnoreCheckoutLineEndingsButNotContentChanges()
+    {
+        Assert.Equal(InputHash("a\nb\n"), InputHash("a\r\nb\r\n"));
+        Assert.NotEqual(InputHash("a\nb\n"), InputHash("a\nc\n"));
     }
 
     [Fact]
     public void ReferenceProjectionNormalizesOnlyDocumentedRepresentations()
     {
         var config = JsonNode.Parse("""
-            {"services":{"web":{"image":"fixture:1","command":["echo","two words"],
+            {"services":{"web":{"image":"fixture:1","command":["echo","two words"],"environment":{"LITERAL":"$$VAR","BARE":"$VAR"},
             "ports":[{"host_ip":"127.0.0.1","published":"8080","target":80,"protocol":"tcp"}],
             "volumes":[{"type":"volume","source":"data","target":"/data","read_only":true}],
             "depends_on":{"db":{"condition":"service_healthy","required":true}}}}}
             """)!.AsObject();
         var projection = ComposeConformanceProjection.FromReference(config);
+        Assert.Equal("$VAR", projection["services"]!["web"]!["environment"]!["LITERAL"]!.GetValue<string>());
+        Assert.Equal("$VAR", projection["services"]!["web"]!["environment"]!["BARE"]!.GetValue<string>());
         Assert.Equal("127.0.0.1:8080:80", projection["services"]!["web"]!["ports"]![0]!.GetValue<string>());
         Assert.Equal("data:/data:ro", projection["services"]!["web"]!["volumes"]![0]!.GetValue<string>());
         Assert.Equal("echo \"two words\"", projection["services"]!["web"]!["command"]!.GetValue<string>());
