@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
@@ -99,8 +100,8 @@ public sealed partial class ComposeProjectSupervisor
     public Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
         CancellationToken ct = default) => UpAsync(project, request, null, ct);
 
-    /// <summary>Checkpoints successful service actions before later services can fail or cancel.
-    /// The observer must not re-enter lifecycle operations; errors abort the remaining apply.</summary>
+    /// <summary>Checkpoints successful actions before fallible local completion or later services.
+    /// The observer must not re-enter lifecycle operations; errors abort after local completion.</summary>
     internal async Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
         Action<ComposeServiceResult>? onServiceSucceeded, CancellationToken ct)
     {
@@ -256,15 +257,28 @@ public sealed partial class ComposeProjectSupervisor
             results.Add(result);
             if (result.Success)
             {
+                var completionErrors = new List<Exception>();
+                Complete(() => onServiceSucceeded?.Invoke(result));
                 started.Add(service.Name);
                 startedContainers[service.Name] = (result.ContainerId,
                     entry.Action == ComposeServiceAction.Keep ? DateTimeOffset.MinValue : DateTimeOffset.UtcNow);
                 var readyProject = ProjectWithServices(project, [service]);
-                SeedHealthChecks(readyProject);
-                SeedRestartPolicies(readyProject);
-                RecordApplied(project, entry, result.ContainerId!);
-                _monitor.RequestRefresh();
-                onServiceSucceeded?.Invoke(result);
+                Complete(() => SeedHealthChecks(readyProject));
+                Complete(() => SeedRestartPolicies(readyProject));
+                Complete(() => RecordApplied(project, entry, result.ContainerId!));
+                Complete(() => _monitor.RequestRefresh());
+                if (completionErrors.Count == 1)
+                    ExceptionDispatchInfo.Capture(completionErrors[0]).Throw();
+                if (completionErrors.Count > 1)
+                    throw new AggregateException($"Could not finalize service '{service.Name}'.", completionErrors);
+
+                // The container already exists. Attempt every independent local completion
+                // even if checkpointing fails, then surface all errors before another service.
+                void Complete(Action action)
+                {
+                    try { action(); }
+                    catch (Exception ex) { completionErrors.Add(ex); }
+                }
             }
         }
 

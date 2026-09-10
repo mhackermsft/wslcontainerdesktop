@@ -136,7 +136,11 @@ and the overall failure is still reported.
 
 Pending commands (including their remote working directory/environment) are snapshotted in the
 existing `devcontainers.json` record by container identity immediately after the primary's
-successful action, before a later sibling can interrupt the apply. Each acknowledged command is removed
+successful action, before fallible supervision/applied-state updates or a later sibling can interrupt
+the apply. Checkpoint failures still allow independent local supervision, applied-state persistence,
+and refresh attempts for the already-running container. All completion errors are surfaced and stop
+the operation before another service starts; remote hooks remain outside the Compose lock.
+Each acknowledged command is removed
 and saved before the next command runs. Reimport retains this progress. An explicit retry on a
 kept container resumes only previously scheduled failed/unattempted commands; it does not replay
 completed creation commands or schedule edited hooks. A new container identity starts a fresh

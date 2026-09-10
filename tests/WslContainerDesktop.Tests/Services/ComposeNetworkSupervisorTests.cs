@@ -447,6 +447,8 @@ public sealed class ComposeNetworkSupervisorTests
         public int CapabilityReads { get; private set; }
         public ComposeProject? SavedProject { get; private set; }
         public List<ComposeProject> SavedSnapshots { get; } = new();
+        public Action<ComposeProject>? BeforeSave { get; set; }
+        public Action? BeforeSettingsSave { get; set; }
 
         public Fixture(WslcCapabilitySupport support = WslcCapabilitySupport.Supported, Engine? engine = null,
             ComposeProject? persisted = null)
@@ -479,7 +481,7 @@ public sealed class ComposeNetworkSupervisorTests
                     case "get_RestartPolicies": return RestartPolicies;
                     case "set_HealthChecks": HealthChecks = (List<HealthCheckConfig>)args[0]!; return null;
                     case "set_RestartPolicies": RestartPolicies = (List<RestartPolicyConfig>)args[0]!; return null;
-                    case nameof(ISettingsService.Save): return null;
+                    case nameof(ISettingsService.Save): BeforeSettingsSave?.Invoke(); return null;
                     default: throw new InvalidOperationException(method.Name);
                 }
             });
@@ -489,6 +491,7 @@ public sealed class ComposeNetworkSupervisorTests
 
         private object? Save(ComposeProject project)
         {
+            BeforeSave?.Invoke(project);
             var snapshot = Clone(project);
             if (!project.AppliedStateKnown && SavedProject is { } saved)
             {

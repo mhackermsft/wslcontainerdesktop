@@ -264,6 +264,79 @@ public sealed class DevContainerLifecycleTests
     }
 
     [Fact]
+    public async Task CheckpointAndSupervisionFailuresAreBothReportedWithoutStartingMoreServices()
+    {
+        var fixture = new Fixture { FailSave = true };
+        fixture.Config.Compose!.Project.Services[0].Restart = RestartPolicyKind.Always;
+        fixture.Config.Compose.Project.Services.Add(new() { Name = "other", Options = new() { Image = "fixture" } });
+        var settingsAttempts = 0;
+        fixture.Compose.BeforeSettingsSave = () =>
+        {
+            if (fixture.Compose.Engine.Containers.ContainsKey("demo_web") && ++settingsAttempts == 1)
+                throw new InvalidOperationException("fixture supervision failure");
+        };
+        var refreshed = false;
+        fixture.Compose.Monitor.RefreshRequested = () => refreshed = true;
+
+        var result = await fixture.Up();
+
+        Assert.False(result.Success);
+        Assert.Contains("fixture save failure", result.Detail);
+        Assert.Contains("fixture supervision failure", result.Detail);
+        Assert.Equal(2, settingsAttempts);
+        Assert.Equal("instance-1", fixture.Compose.SavedProject!.AppliedServices["web"].ContainerId);
+        Assert.Equal("demo_web", Assert.Single(fixture.Compose.RestartPolicies).ContainerName);
+        Assert.True(refreshed);
+        Assert.Empty(fixture.Commands);
+        Assert.DoesNotContain("run:demo_other", fixture.Compose.Engine.Mutations);
+    }
+
+    [Theory]
+    [InlineData("applied-save")]
+    [InlineData("supervision")]
+    [InlineData("refresh")]
+    public async Task PostStartCompletionFailureKeepsCreationHooksForReloadAndRetry(string failure)
+    {
+        var fixture = new Fixture();
+        fixture.Config.Compose!.Project.Services.Add(new() { Name = "other", Options = new() { Image = "fixture" } });
+        fixture.Persist();
+        fixture.Compose.BeforeSave = project =>
+        {
+            if (failure == "applied-save" && project.AppliedServices.ContainsKey("web"))
+                throw new InvalidOperationException("fixture applied-save failure");
+        };
+        fixture.Compose.BeforeSettingsSave = () =>
+        {
+            if (failure == "supervision" && fixture.Compose.Engine.Containers.ContainsKey("demo_web"))
+                throw new InvalidOperationException("fixture supervision failure");
+        };
+        fixture.Compose.Monitor.RefreshRequested = () =>
+        {
+            if (failure == "refresh") throw new InvalidOperationException("fixture refresh failure");
+        };
+
+        var result = await fixture.Up();
+
+        Assert.False(result.Success);
+        Assert.Contains($"fixture {failure} failure", result.Detail);
+        Assert.Empty(fixture.Commands);
+        Assert.DoesNotContain("run:demo_other", fixture.Compose.Engine.Mutations);
+        Assert.Equal(ContainerState.Running, fixture.Compose.Engine.States["demo_web"]);
+        fixture.Reload();
+        fixture.Compose.BeforeSave = null;
+        fixture.Compose.BeforeSettingsSave = null;
+        fixture.Compose.Monitor.RefreshRequested = null;
+
+        Assert.True((await fixture.Up()).Success);
+        Assert.Equal(["create", "content", "created", "started"], fixture.Commands);
+        Assert.Equal(1, fixture.Compose.Engine.Mutations.Count(m => m == "run:demo_web"));
+        Assert.All(fixture.ExecIds, id => Assert.Equal("instance-1", id));
+        fixture.Commands.Clear();
+        Assert.True((await fixture.Up()).Success);
+        Assert.Empty(fixture.Commands);
+    }
+
+    [Fact]
     public async Task SingleContainerUpStillReplacesContainerAndRunsAllHooks()
     {
         var fixture = new Fixture();
