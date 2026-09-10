@@ -63,8 +63,32 @@ public static partial class AiTextSanitizer
             !root.TryGetProperty("outcomes", out var outcomes) || outcomes.ValueKind != JsonValueKind.Array)
             return false;
 
+        var bounded = new Dictionary<string, object?>
+        {
+            ["status"] = status.GetString(),
+            ["truncated"] = true,
+        };
+        // Keep the shared Compose outcome discriminator and success flag when evidence is bounded.
+        // Losing them would make a partial/blocked result look like an ordinary excerpt.
+        foreach (var name in new[] { "kind", "allSucceeded", "message", "retentionNotice" })
+            if (root.TryGetProperty(name, out var value) && value.GetRawText().Length <= 1024)
+                bounded[name] = value.Clone();
+        if (root.TryGetProperty("retainedResources", out var resources) && resources.ValueKind == JsonValueKind.Array)
+        {
+            var retained = new List<JsonElement>();
+            var resourceBudget = limit / 4;
+            foreach (var resource in resources.EnumerateArray())
+            {
+                var size = resource.GetRawText().Length + 1;
+                if (size > resourceBudget) continue;
+                retained.Add(resource.Clone());
+                resourceBudget -= size;
+            }
+            bounded["retainedResources"] = retained;
+            bounded["omittedResources"] = resources.GetArrayLength() - retained.Count;
+        }
         var kept = new List<Dictionary<string, object?>>();
-        var budget = limit - 128;
+        var budget = limit - JsonSerializer.Serialize(bounded).Length - 128;
         foreach (var outcome in outcomes.EnumerateArray())
         {
             if (outcome.ValueKind != JsonValueKind.Object)
@@ -81,13 +105,9 @@ public static partial class AiTextSanitizer
             kept.Add(item);
             budget -= size;
         }
-        result = JsonSerializer.Serialize(new
-        {
-            status = status.GetString(),
-            outcomes = kept,
-            truncated = true,
-            omittedOutcomes = outcomes.GetArrayLength() - kept.Count,
-        });
+        bounded["outcomes"] = kept;
+        bounded["omittedOutcomes"] = outcomes.GetArrayLength() - kept.Count;
+        result = JsonSerializer.Serialize(bounded);
         return result.Length <= limit;
     }
 
@@ -102,7 +122,11 @@ public static partial class AiTextSanitizer
         {
             Id = call.Id,
             Name = call.Name,
-            ArgumentsJson = Sanitize(call.ArgumentsJson),
+            // Compose can hide credentials under arbitrary environment/build keys or aliases.
+            // Preserve protocol identity, but never echo executable YAML to history/providers.
+            ArgumentsJson = call.Name == "deploy_compose"
+                ? """{"yaml":"<Compose input withheld; use the reviewed consequences and outcomes>"}"""
+                : Sanitize(call.ArgumentsJson),
         }).ToArray(),
     };
 

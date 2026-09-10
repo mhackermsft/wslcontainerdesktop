@@ -23,4 +23,9 @@ public sealed record AssistantResolvedToolCall(
     AssistantPermissionCategory Category,
     string Summary,
     string Details,
-    Func<CancellationToken, Task<string>> ExecuteAsync);
+    Func<CancellationToken, Task<string>> ExecuteAsync)
+{
+    public bool RequiresExplicitApproval { get; init; }
+    public string? BlockedResult { get; init; }
+    public Func<Task<string>>? DeclineAsync { get; init; }
+}

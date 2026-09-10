@@ -316,8 +316,14 @@ edits, rebuilding images or removing resources. See [the reconciliation contract
 `PrepareReviewAsync` resolves the same planner under the lifecycle gate and produces an opaque,
 single-use ten-minute `ComposeReviewToken`. `ComposePreviewProjection` exposes redacted,
 display-only compatibility rows; `ComposePreviewViewModel` and `ComposePreviewDialog` are immutable.
-The DI `IComposeReviewPresenter` marshals service/template/dev-container/assistant Up callers to
-that dialog and fails closed without a UI. `ApplyReviewedAsync` refreshes capability and inventory
+The DI `IComposeReviewPresenter` marshals service/template/dev-container Up callers to
+that dialog and fails closed without a UI. Assistant-generated YAML and Compose templates
+instead capture the same token in a trusted resolver closure and require one explicit assistant
+approval, overriding saved auto-approve preferences. They do not call `UpAsync` or show a second
+dialog. Rejection/reset/cancellation retire the token; template catalog changes invalidate it.
+Blocked or oversized previews cannot be approved. Only safe structured per-instance outcomes
+and retained-resource candidates enter provider results/history; raw Compose YAML is withheld
+from echoed tool arguments by the central sanitizer. `ApplyReviewedAsync` refreshes capability and inventory
 evidence before authorizing the captured request. It rejects blockers, expiry and drift without
 workload/settings mutations. Unsupported settings and unresolved-input diagnostics survive
 project persistence. See [compatibility review and the #94 integration contract](COMPOSE-COMPATIBILITY.md).

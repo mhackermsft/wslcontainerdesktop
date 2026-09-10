@@ -25,7 +25,9 @@ public sealed record AssistantToolGroup(string Header, IReadOnlyList<AssistantTo
 /// <summary>
 /// The catalog of assistant tools that can change state and therefore support a per-tool
 /// auto-approve toggle. Read-only tools are intentionally omitted (they always run without
-/// approval). This is the single source of truth for the permission settings UI; keep it in
+/// approval). Compose deployment always requires an explicit consequence review, so it is
+/// omitted here; template auto-approval applies only to single-container templates.
+/// This is the single source of truth for the permission settings UI; keep it in
 /// sync with the tools registered in <see cref="AssistantToolset"/>.
 /// </summary>
 public static class AssistantToolCatalog
@@ -56,10 +58,9 @@ public static class AssistantToolCatalog
             new("create_network", "Create a network"),
             new("remove_network", "Remove a network (destructive)"),
         ]),
-        new("Compose & templates",
+        new("Templates",
         [
-            new("deploy_compose", "Deploy a compose project"),
-            new("deploy_template", "Deploy an app template"),
+            new("deploy_template", "Deploy a single-container template (Compose always requires review)"),
         ]),
         new("Kubernetes (k3s)",
         [

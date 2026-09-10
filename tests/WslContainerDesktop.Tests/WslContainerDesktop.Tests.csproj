@@ -154,6 +154,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\IDevContainerStore.cs" Link="Services\IDevContainerStore.cs" />
     <!-- Compile the real resolver without activating the packaged application or its I/O services. -->
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolset.cs" Link="Services\AssistantToolset.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolset.Compose.cs" Link="Services\AssistantToolset.Compose.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IKubernetesService.cs" Link="Services\IKubernetesService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\TemplateCatalog.cs" Link="Services\TemplateCatalog.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IUserTemplateStore.cs" Link="Services\IUserTemplateStore.cs" />
@@ -172,6 +173,7 @@
     <Compile Remove="ViewModels\ComposeViewModelBusyTests.cs" />
     <Compile Remove="ViewModels\ComposeDialogDoubles.cs" />
     <Compile Remove="Services\AssistantToolsetContractTests.cs" />
+    <Compile Remove="Services\AssistantComposeContractTests.cs" />
     <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
     <Compile Remove="Services\ComposeReconciliationSupervisorTests.cs" />
     <Compile Remove="Services\DevContainerLifecycleTests.cs" />

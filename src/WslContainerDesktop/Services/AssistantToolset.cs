@@ -20,7 +20,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class AssistantToolset(
+public sealed partial class AssistantToolset(
     IWslcService wslc,
     IKubernetesService kubernetes,
     ITemplateCatalog templates,
@@ -51,8 +51,8 @@ public sealed class AssistantToolset(
             Tool("remove_container", "Remove a container by id or name."),
             Tool("stop_all_containers", "Stop running containers. Set namePrefix or nameContains to restrict matching names, or explicitly set scope=\"all\" without filters for every running container."),
             Tool("remove_all_containers", "Remove containers after the app resolves exact targets. Set namePrefix or nameContains to restrict matching names, or explicitly set scope=\"all\" without filters. onlyRunning defaults to true."),
-            Tool("deploy_template", "Deploy an app template by id or name. Available templates include: " + TemplateList()),
-            Tool("deploy_compose", "Deploy a multi-container application from a docker-compose YAML as a single project. ALWAYS use this (or deploy_template) for apps with more than one container (e.g. app + database, app + cache) so services share a network and can resolve each other by service name over DNS. Do NOT wire multiple run_container calls together."),
+            Tool("deploy_template", "Review and deploy an app template by id or name. Compose templates require explicit approval of the shared resolved consequences, then inventory/capability revalidation. Blocked, stale, cancelled or partial outcomes are not success; never retry automatically. Available templates include: " + TemplateList()),
+            Tool("deploy_compose", "Review and deploy a multi-container application from Compose YAML as a single project with shared network and DNS. ALWAYS use this (or deploy_template) for multi-container apps, not multiple run_container calls. The app previews active instances, ports, mounts, warnings, ownership, replacements and native/legacy choices and requires explicit approval. Blockers cannot be ignored. Approval expires and inventory/capabilities are revalidated before mutation. Read structured per-instance outcomes; partial, blocked, stale or cancelled is not success. Never retry automatically. No approval token or confirmation argument is accepted."),
             Tool("create_volume", "Create a named volume."),
             Tool("remove_volume", "Remove a named volume."),
             Tool("create_network", "Create a named network."),
@@ -119,8 +119,8 @@ public sealed class AssistantToolset(
                 await ResolveContainerAsync(call, StringArg(args, "id"), ct).ConfigureAwait(false),
             "stop_all_containers" => await ResolveStopAllAsync(call, OptionalStringArg(args, "namePrefix"), OptionalStringArg(args, "nameContains"), ct).ConfigureAwait(false),
             "remove_all_containers" => await ResolveRemoveAllAsync(call, BoolArg(args, "onlyRunning", true), OptionalStringArg(args, "namePrefix"), OptionalStringArg(args, "nameContains"), ct).ConfigureAwait(false),
-            "deploy_template" => Resolved(call, AssistantPermissionCategory.ComposeTemplate, $"Deploy template {StringArg(args, "idOrName")}", call.ArgumentsJson, token => DeployTemplateAsync(StringArg(args, "idOrName"), token)),
-            "deploy_compose" => ResolveDeployCompose(call, args),
+            "deploy_template" => await ResolveDeployTemplateAsync(call, StringArg(args, "idOrName"), ct).ConfigureAwait(false),
+            "deploy_compose" => await ResolveDeployComposeAsync(call, args, ct).ConfigureAwait(false),
             "create_volume" => Resolved(call, AssistantPermissionCategory.CreateRun, $"Create volume {StringArg(args, "name")}", call.ArgumentsJson, token => CreateVolumeAsync(StringArg(args, "name"), token)),
             "remove_volume" => Resolved(call, AssistantPermissionCategory.Destructive, $"Remove volume {StringArg(args, "name")}", call.ArgumentsJson, token => RemoveVolumeAsync(StringArg(args, "name"), token)),
             "create_network" => Resolved(call, AssistantPermissionCategory.CreateRun, $"Create network {StringArg(args, "name")}", call.ArgumentsJson, token => CreateNetworkAsync(StringArg(args, "name"), token)),
@@ -232,83 +232,6 @@ public sealed class AssistantToolset(
         }
 
         return true;
-    }
-
-    [Description("State-changing: deploy a built-in or user template by id/name.")]
-    public async Task<string> DeployTemplateAsync(string idOrName, CancellationToken ct)
-    {
-        var key = RequireValue(idOrName, "template");
-        var template = templates.Templates.FirstOrDefault(t =>
-            string.Equals(t.Id, key, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(t.Name, key, StringComparison.OrdinalIgnoreCase));
-        if (template is null)
-        {
-            return $"Template '{key}' was not found.";
-        }
-
-        if (template.Kind == StackTemplateKind.Compose)
-        {
-            var yaml = template.ComposeYaml;
-            if (string.IsNullOrWhiteSpace(yaml))
-            {
-                return $"Template '{template.Name}' has no compose YAML.";
-            }
-
-            var project = ComposeImporter.ParseProject(yaml);
-            project.Name = string.IsNullOrWhiteSpace(template.ComposeProjectName)
-                ? template.Id
-                : template.ComposeProjectName;
-            project.ApplyProjectNamespacing();
-            var up = await composeSupervisor.UpAsync(project, ct).ConfigureAwait(false);
-            return SummarizeCompose($"template '{template.Name}'", up, project);
-        }
-
-        if (template.RunOptions is null)
-        {
-            return $"Template '{template.Name}' has no run options.";
-        }
-
-        return Summarize(await wslc.RunContainerAsync(template.RunOptions.Clone(), ct).ConfigureAwait(false));
-    }
-
-    [Description("State-changing: deploy a multi-container app from a docker-compose YAML as a single project (shared network + DNS).")]
-    public async Task<string> DeployComposeAsync(string yaml, string? projectName, CancellationToken ct)
-    {
-        var text = RequireValue(yaml, "compose YAML");
-        var project = ComposeImporter.ParseProject(text);
-        if (project.Services.Count == 0)
-        {
-            return "The compose YAML defines no services.";
-        }
-
-        project.Name = ResolveComposeProjectName(projectName, project.Name);
-        project.ApplyProjectNamespacing();
-        var up = await composeSupervisor.UpAsync(project, ct).ConfigureAwait(false);
-        return SummarizeCompose($"project '{project.Name}'", up, project);
-    }
-
-    private static string SummarizeCompose(string target, ComposeUpResult result, ComposeProject project)
-    {
-        var status = result.IsCancelled ? "Cancelled" : result.AllSucceeded ? "Applied" : "Partially applied or failed";
-        var outcomes = string.Join("\n", result.Services.Select(service =>
-            $"{service.InstanceKey}: {service.Action} - {(service.Success ? "succeeded" : "not completed")}" +
-            (service.Warning is null ? "" : " (execution warning; refresh actual state)")));
-        return new ComposePreviewProjection(project).Redact(
-            $"{status} compose {target}. Started {result.Started} instances. Per-instance outcomes:\n{outcomes}");
-    }
-
-    private AssistantResolvedToolCall ResolveDeployCompose(AiToolCall call, JsonElement args)
-    {
-        var yaml = StringArg(args, "yaml");
-        var projectName = OptionalStringArg(args, "projectName");
-        var preview = ComposeImporter.ParseProject(yaml);
-        if (preview.Services.Count == 0)
-            throw new InvalidOperationException("Invalid tool arguments: compose YAML defines no services.");
-        var name = ResolveComposeProjectName(projectName, preview.Name);
-        var summary = $"Deploy compose project '{name}'";
-        var details = "Services:\n" + string.Join(Environment.NewLine, preview.Services.Select(s => $"- {s.Name} ({s.Options.Image})"));
-
-        return Resolved(call, AssistantPermissionCategory.ComposeTemplate, summary, details, token => DeployComposeAsync(yaml, projectName, token));
     }
 
     private static string ResolveComposeProjectName(string? requested, string? parsed)
@@ -511,7 +434,7 @@ public sealed class AssistantToolset(
 
     private static string DeployComposeSchema() =>
         "{\"type\":\"object\",\"properties\":{" +
-        "\"yaml\":{\"type\":\"string\",\"description\":\"A complete docker-compose YAML defining all services (e.g. wordpress + db). Services resolve each other by service name over DNS.\"}," +
+        "\"yaml\":{\"type\":\"string\",\"description\":\"Complete Compose YAML for shared-plan review, not shell commands. Active services resolve each other by service name over DNS. The app requires explicit approval of resolved consequences; blocked settings cannot be ignored. Raw YAML is withheld from echoed history.\"}," +
         "\"projectName\":{\"type\":\"string\",\"description\":\"Optional project name; defaults to the compose 'name' or 'ai-compose'.\"}" +
         "},\"required\":[\"yaml\"],\"additionalProperties\":false}";
 
@@ -749,7 +672,7 @@ public sealed class AssistantToolset(
             ObjectSchema(("id", "string", "")),
         "get_container_logs" => ObjectSchema(("id", "string", ""), ("tail", "integer", "")),
         "pull_image" => ObjectSchema(("reference", "string", "")),
-        "deploy_template" => ObjectSchema(("idOrName", "string", "")),
+        "deploy_template" => ObjectSchema(("idOrName", "string", "Existing template ID or name. Compose templates use the same explicit consequence review as deploy_compose; catalog changes invalidate approval.")),
         "create_volume" or "remove_volume" or "create_network" or "remove_network" => ObjectSchema(("name", "string", "")),
         "list_registry_repositories" => ObjectSchema(("registry", "string", "")),
         "list_registry_tags" => ObjectSchema(("registry", "string", ""), ("repository", "string", "")),
