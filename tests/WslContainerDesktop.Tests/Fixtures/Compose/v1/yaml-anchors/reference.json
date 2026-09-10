@@ -1,0 +1,61 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T14:13:56.5496526+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.yaml": "c831b35db5c31bf66c61db272f939a80ca0471203234561651f26ccd0e2b1a2b",
+    "expectations.json": "6919aac2aa5011936ad1149fa93199dd86c1284a310bdf8ec3892e7ffc1b93dc"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 0,
+  "stderr": "",
+  "config": {
+    "name": "wcd-conformance",
+    "networks": {
+      "default": {
+        "name": "wcd-conformance_default",
+        "ipam": {}
+      }
+    },
+    "services": {
+      "web": {
+        "command": null,
+        "entrypoint": null,
+        "environment": {
+          "COMMENT": "value # not a comment",
+          "COUNT": "007",
+          "ENABLED": "false"
+        },
+        "image": "example.invalid/conformance:1",
+        "labels": {
+          "fixture.owner": "synthetic"
+        },
+        "networks": {
+          "default": null
+        }
+      }
+    },
+    "x-base": {
+      "environment": {
+        "COMMENT": "value # not a comment",
+        "COUNT": "007",
+        "ENABLED": "false"
+      },
+      "image": "example.invalid/conformance:1"
+    }
+  }
+}

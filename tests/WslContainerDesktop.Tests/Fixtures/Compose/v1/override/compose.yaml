@@ -1,0 +1,12 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:1
+    command: ["echo", "base"]
+    environment:
+      KEEP: base
+      WINNER: base
+    ports:
+      - "8080:80"
+    dns:
+      - 192.0.2.1

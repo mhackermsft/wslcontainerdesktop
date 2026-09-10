@@ -1,0 +1,6 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:1
+    environment:
+      REQUIRED: "${WCD_REQUIRED:?synthetic required value missing}"

@@ -1,0 +1,73 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T14:13:55.8588837+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.override.yaml": "a21db7e619b190339978d6664b52116e8b8cd6801028b3d2052401d0b586a781",
+    "compose.yaml": "fc10522d8bf367c5d9de061498a823b861cf2eb8e52cc5755be54509e8949c1d",
+    "expectations.json": "2ff881b74e92be0c7d5e1d4bc6b2452742c2b5bf29444ce9e3e5839341c32106"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "-f",
+    "compose.override.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 0,
+  "stderr": "",
+  "config": {
+    "name": "wcd-conformance",
+    "networks": {
+      "default": {
+        "name": "wcd-conformance_default",
+        "ipam": {}
+      }
+    },
+    "services": {
+      "web": {
+        "command": [
+          "echo",
+          "override"
+        ],
+        "dns": [
+          "192.0.2.1",
+          "192.0.2.2"
+        ],
+        "entrypoint": null,
+        "environment": {
+          "KEEP": "base",
+          "WINNER": "override"
+        },
+        "image": "example.invalid/conformance:1",
+        "networks": {
+          "default": null
+        },
+        "ports": [
+          {
+            "mode": "ingress",
+            "target": 80,
+            "published": "8080",
+            "protocol": "tcp"
+          },
+          {
+            "mode": "ingress",
+            "target": 443,
+            "published": "8443",
+            "protocol": "tcp"
+          }
+        ]
+      }
+    }
+  }
+}

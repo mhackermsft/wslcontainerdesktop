@@ -1,0 +1,24 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  db:
+    image: example.invalid/conformance:1
+    healthcheck:
+      test: ["CMD", "check", "two words"]
+      interval: 10s
+      timeout: 2s
+      start_period: 5s
+      start_interval: 1s
+      retries: 3
+  init:
+    image: example.invalid/conformance:1
+  cache:
+    image: example.invalid/conformance:1
+  web:
+    image: example.invalid/conformance:1
+    depends_on:
+      db:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+      cache:
+        condition: service_started

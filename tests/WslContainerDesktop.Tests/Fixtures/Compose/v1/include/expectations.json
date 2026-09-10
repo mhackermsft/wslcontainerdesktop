@@ -1,0 +1,15 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["web", "worker"],
+    "/services/worker/environment": { "ORIGIN": "synthetic-child" }
+  },
+  "divergences": {
+    "/services/worker/environment": {
+      "app": {},
+      "reason": "Included env_file resolves against the main directory instead of the included project's directory; missing file is silently skipped.",
+      "issue": 83
+    }
+  },
+  "warnings": []
+}

@@ -363,23 +363,30 @@ Dependency readiness and watchdog enrollment include only successfully ready ser
 
 #### Compose feature support
 
+These are implementation capabilities, not full specification conformance claims. The
+[versioned conformance corpus](COMPOSE-CONFORMANCE.md) distinguishes passing configuration subsets,
+known differences, actionable warnings, and missing fail-closed diagnostics. The original 14
+spec-derived projections now have actual pinned CLI config captures. A separate opt-in real-WSLC
+harness covers owned lifecycle scenarios; it has not been executed or runtime-certified. The
+corpus does not change parser or supervisor semantics.
+
 | Feature | Support |
 |---|---|
 | `image`, `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `domainname`, `labels` | **Supported** |
 | `build:` (short + long form: `context`, `dockerfile`, `args`, `target`, `labels`, `no_cache`, `pull`, `pull_policy`) | **Supported** — built and tagged `project_service` on up; `context` resolves against the compose folder; `pull_policy: always/build` maps to `--pull` |
 | `ports` (short `"h:c"` and long `target/published/protocol`) | **Supported** |
 | `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported** |
-| `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Supported** — relative `env_file` paths resolve against the compose file's folder; a sibling `.env` seeds interpolation |
+| `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Partial** — `.env` seeds interpolation; explicit empty values, later-file precedence, and required-file failure diagnostics have recorded divergences |
 | Top-level `networks:` / `volumes:` **creation** (driver, `driver_opts`, labels; `external` skipped) | **Supported** — created on up via `wslc network/volume create`; networks removed on down |
 | `networks` / `network_mode` per service, service-name DNS aliases | **Capability-gated** — create/connect/start for multiple native endpoints; legacy first-network fallback with warning. Special host/none/container/service modes remain distinct. |
 | `secrets:` / `configs:` (file-backed) | **Supported (best-effort)** — source file bind-mounted read-only (`/run/secrets/<name>` or the config target); no in-engine secret store |
 | `tmpfs`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`, `dns`/`dns_search`/`dns_opt` | **Supported** — mapped to the matching `wslc run`/`wslc stop` flags |
 | `profiles:` | **Supported** — services with a profile start only when one of their profiles is in the project's active set (from `COMPOSE_PROFILES` in the environment / `.env`); unprofiled services always start |
 | `extends:` (same-file and cross-file `file:`/`service:`) | **Supported** — resolved and merged before parsing (child wins; `environment`/`labels` merge by key) |
-| `include:` (top-level) | **Supported** — included files are merged under the main file (the main file wins), short `- file.yml` and long `- path:` forms |
+| `include:` (top-level) | **Partial** — short `- file.yml` and long `- path:` forms; files are merged under the main file, unlike Compose's independent project/conflict rules; included `env_file` paths currently resolve against the main directory |
 | `extra_hosts:` | **Supported (best-effort)** — appended to the container's `/etc/hosts` via `exec` after start (no `--add-host` flag); `host-gateway` resolves to the container's default gateway |
-| `docker-compose.override.yml` | **Supported** — a sibling override file is deep-merged over the base compose file |
-| `${VAR}` / `${VAR:-default}` interpolation, anchors/aliases, `<<` merge, `\|`/`>` block scalars | **Supported** (block scalars are best-effort: blank lines not preserved) |
+| `docker-compose.override.yml` | **Partial** — maps merge and commands replace; port/ordinary sequence merging has recorded divergences |
+| `${VAR}` / `${VAR:-default}` interpolation, anchors/aliases, `<<` merge, `\|`/`>` block scalars | **Partial** — basic substitutions, anchors, and block scalars covered; empty-vs-unset `-` behavior and required-variable errors diverge (block scalar blank lines are best-effort) |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
 | `healthcheck` | **Capability-gated** — native shell checks when required run/create flags are supported; complete app backend for `CMD` argv or unsupported flags; unknown support is surfaced |
 | `depends_on` incl. `condition: service_healthy` / `service_completed_successfully` | **Supported** — start ordering + health/exit gating |

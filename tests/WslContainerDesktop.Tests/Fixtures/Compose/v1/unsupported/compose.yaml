@@ -1,0 +1,7 @@
+# Synthetic GPL-3.0-or-later fixture. Parse only; never run privileged workloads.
+services:
+  web:
+    image: example.invalid/conformance:1
+    privileged: true
+    deploy:
+      replicas: 3

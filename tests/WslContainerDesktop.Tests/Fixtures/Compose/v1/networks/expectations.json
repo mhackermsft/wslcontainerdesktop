@@ -1,0 +1,11 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/networks/public/aliases": ["frontend"],
+    "/services/web/networks/private/aliases": ["backend"],
+    "/services/web/networks/private/ipv4_address": "192.0.2.10"
+  },
+  "divergences": {},
+  "warnings": ["Service 'web': multiple networks require WSLC network connect support. Older engines attach only the first network; all desired endpoint settings are retained."]
+}

@@ -1,0 +1,11 @@
+# Synthetic GPL-3.0-or-later fixture; never pull or run this image.
+services:
+  web:
+    image: example.invalid/conformance:${WCD_TAG:-stable}
+    environment:
+      DIRECT: "${WCD_SET}"
+      BARE: "$WCD_SET"
+      DEFAULT: "${WCD_UNSET:-fallback}"
+      EMPTY_COLON: "${WCD_EMPTY:-fallback}"
+      EMPTY_DASH: "${WCD_EMPTY-fallback}"
+      DOLLAR: "$$WCD_SET"

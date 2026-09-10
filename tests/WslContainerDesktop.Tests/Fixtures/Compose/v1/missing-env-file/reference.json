@@ -1,0 +1,27 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T14:13:55.3116456+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.yaml": "7eaff0b26c327b50e92e80ce4d92009a31509033b0fb4c834588a11b26c4bdd0",
+    "expectations.json": "67a490981745c76055cb7d01c3b2275593e7ff88fb2db53500eca2a2a796265e"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 1,
+  "stderr": "env file $FIXTURE\\absent.env not found: CreateFile $FIXTURE\\absent.env: The system cannot find the file specified.\n",
+  "config": null
+}

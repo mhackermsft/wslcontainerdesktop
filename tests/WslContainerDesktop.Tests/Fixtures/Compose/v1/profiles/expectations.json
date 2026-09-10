@@ -1,0 +1,9 @@
+{
+  "environment": { "COMPOSE_PROFILES": "debug" },
+  "checks": {
+    "/serviceNames": ["debug", "web"],
+    "/services/debug/profiles": ["debug"]
+  },
+  "divergences": {},
+  "warnings": []
+}

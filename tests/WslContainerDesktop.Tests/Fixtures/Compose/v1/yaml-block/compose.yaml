@@ -1,0 +1,8 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:1
+    environment:
+      MESSAGE: |-
+        first
+        second
