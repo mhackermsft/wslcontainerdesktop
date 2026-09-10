@@ -332,7 +332,7 @@ public sealed class AssistantToolset(
     {
         var text = result.Success ? result.StandardOutput : result.ErrorText;
         text = string.IsNullOrWhiteSpace(text) ? (result.Success ? "Succeeded." : "Failed.") : text.Trim();
-        return text.Length <= 4000 ? text : text[..4000] + "…";
+        return AiTextSanitizer.Sanitize(text, 4000);
     }
 
     public async Task<string> CreateVolumeAsync(string name, CancellationToken ct) =>
@@ -698,7 +698,7 @@ public sealed class AssistantToolset(
         var status = cancelled ? "cancelled" : outcomes.Count == 0 ? "no_targets" :
             outcomes.All(o => o.Status == "succeeded") ? "succeeded" :
             outcomes.Any(o => o.Status == "succeeded") ? "partial" : "failed";
-        return JsonSerializer.Serialize(new { status, outcomes }, JsonOptions);
+        return AiTextSanitizer.Sanitize(JsonSerializer.Serialize(new { status, outcomes }, JsonOptions));
     }
 
     private static string DescribeBulkScope(string verb, string scope, string? namePrefix, string? nameContains)
@@ -728,7 +728,8 @@ public sealed class AssistantToolset(
         string summary,
         string details,
         Func<CancellationToken, Task<string>> execute) =>
-        new(call, category, summary, details, execute);
+        new(call, category, AiTextSanitizer.Sanitize(summary), AiTextSanitizer.Sanitize(details),
+            async token => AiTextSanitizer.Sanitize(await execute(token).ConfigureAwait(false)));
 
     private static string ArgumentSchema(string tool) => tool switch
     {

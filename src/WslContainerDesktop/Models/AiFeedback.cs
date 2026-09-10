@@ -48,8 +48,8 @@ public sealed class AiFeedback
     public string Message { get; init; } = string.Empty;
 
     /// <summary>Bounded, redacted diagnostic detail (provider, operation, endpoint, status, response
-    /// snippet). Never contains API keys, tokens, or Authorization headers. Null when there is
-    /// nothing beyond the friendly message worth showing.</summary>
+    /// snippet). Recognized secret fields and credential shapes are masked, not arbitrary secrets.
+    /// Null when there is nothing beyond the friendly message worth showing.</summary>
     public string? TechnicalDetails { get; init; }
 
     /// <summary>True once there is something to show; XAML binds a container's visibility to this

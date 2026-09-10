@@ -30,6 +30,133 @@ public sealed class AssistantToolsetContractTests
         ["ports", "environment", "volumes", "labels", "networks", "aliases", "dns",
             "dnsSearch", "dnsOptions", "tmpfs", "ulimits"];
 
+    [Theory]
+    [InlineData("inspect_container", false)]
+    [InlineData("inspect_container", true)]
+    [InlineData("get_container_logs", false)]
+    [InlineData("get_container_logs", true)]
+    public async Task RealReadToolsSanitizeSuccessAndFailureBeforeProviderCallback(string tool, bool failed)
+    {
+        var fixture = new Fixture
+        {
+            ReadResult = new CommandResult
+            {
+                ExitCode = failed ? 1 : 0,
+                StandardOutput = """{"Config":{"Env":["PASSWORD=synthetic-private"]},"name":"ordinary-context"}""",
+                StandardError = "ordinary-context password=\"synthetic-private\"",
+            },
+        };
+        var h = new AiContractHarness(fixture.CreateTools);
+        h.SettingsValues[nameof(ISettingsService.Registries)] = new List<RegistryEntry>();
+        h.Provider.Turns.Enqueue(async (invoke, ct) =>
+        {
+            var evidence = await invoke(AiContractHarness.Call(tool, """{"id":"app-one"}"""), ct);
+            Assert.DoesNotContain("synthetic-private", evidence);
+            Assert.Contains("ordinary-context", evidence);
+            return evidence;
+        });
+        await h.Assistant.SendAsync("read the app").WaitAsync(Deadline);
+        Assert.All(h.PersistedActivity, json => Assert.DoesNotContain("synthetic-private", json));
+    }
+
+    [Fact]
+    public async Task RealRunApprovalAndAuditRedactEnvironmentButOriginalOptionsExecute()
+    {
+        var fixture = new Fixture();
+        var h = new AiContractHarness(fixture.CreateTools);
+        h.SettingsValues[nameof(ISettingsService.Registries)] = new List<RegistryEntry>();
+        var call = AiContractHarness.Call("run_container",
+            """{"image":"nginx","environment":["PASSWORD=synthetic-private with spaces","MODE=production"]}""");
+        h.Provider.Turns.Enqueue((invoke, ct) => invoke(call, ct));
+        var requested = AiContractHarness.Signal<AssistantApprovalRequest>();
+        h.Assistant.ApprovalChanged += (_, approval) =>
+        {
+            if (approval is not null) requested.TrySetResult(approval);
+        };
+        var turn = h.Assistant.SendAsync("run nginx");
+        var approval = await requested.Task.WaitAsync(Deadline);
+        Assert.Null(fixture.RunOptions);
+        Assert.DoesNotContain("synthetic-private", approval.Details);
+        Assert.Contains("MODE=production", approval.Details);
+        await h.Assistant.ApproveAsync(approval);
+        await turn.WaitAsync(Deadline);
+        Assert.Contains("PASSWORD=synthetic-private with spaces", fixture.RunOptions!.EnvironmentVariables);
+        Assert.All(h.PersistedActivity, json => Assert.DoesNotContain("synthetic-private", json));
+    }
+
+    [Fact]
+    public async Task TerminalNormalizationNeverChangesApprovedExecutionValues()
+    {
+        var fixture = new Fixture();
+        const string command = "printf '\u001b[32mordinary-context\u001b[0m'";
+        var plan = await fixture.Resolve("run_container",
+            JsonSerializer.Serialize(new { image = "nginx", command }));
+        Assert.DoesNotContain("\\u001B", plan.Details, StringComparison.OrdinalIgnoreCase);
+        await plan.ExecuteAsync(CancellationToken.None);
+        Assert.Equal(command, fixture.RunOptions!.Command);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredPartialOutcomesRedactCommandAndExceptionDetails(bool throws)
+    {
+        var fixture = new Fixture
+        {
+            Inventory = [Container("one", "app-one"), Container("two", "app-two"), Container("three", "app-three")],
+            Mutate = (id, _) => id == "one" ? Task.FromResult(new CommandResult())
+                : throws ? Task.FromException<CommandResult>(new IOException("password=synthetic-private"))
+                : Task.FromResult(new CommandResult { ExitCode = 1, StandardError = """{"password":"synthetic-private","reason":"ordinary-context"}""" }),
+        };
+        var plan = await fixture.Resolve("stop_all_containers", """{"scope":"all"}""");
+        var result = await plan.ExecuteAsync(CancellationToken.None);
+        AssertStatus(result, "partial");
+        Assert.DoesNotContain("synthetic-private", result);
+        Assert.Contains("app-one", result);
+        Assert.Contains(throws ? "unknown" : "failed", result);
+        Assert.Contains(throws ? "not_run" : "ordinary-context", result);
+    }
+
+    [Fact]
+    public void CommandSummaryRedactsBeforeFormerFourThousandCharacterCut()
+    {
+        var result = AssistantToolset.Summarize(new CommandResult
+        {
+            StandardOutput = "ordinary-context\nPASSWORD=\"" + new string('s', 5000) + "synthetic-private\"\n" + new string('x', 5000),
+        });
+        Assert.DoesNotContain("synthetic-private", result);
+        Assert.DoesNotContain(new string('s', 20), result);
+        Assert.Contains("ordinary-context", result);
+        Assert.True(result.Length <= 4000);
+    }
+
+    [Fact]
+    public async Task OversizedPartialResultPreservesTargetIdentityAndStatusWhileBoundingDetails()
+    {
+        var fixture = new Fixture
+        {
+            Inventory = Enumerable.Range(1, 4).Select(i => Container($"id-{i}", $"app-{i}")).ToArray(),
+            Mutate = (id, _) => Task.FromResult(new CommandResult
+            {
+                ExitCode = id == "id-4" ? 1 : 0,
+                StandardOutput = new string('x', 5000),
+                StandardError = "password=synthetic-private\n" + new string('x', 5000),
+            }),
+        };
+        var plan = await fixture.Resolve("stop_all_containers", """{"scope":"all"}""");
+        var result = await plan.ExecuteAsync(CancellationToken.None);
+        Assert.True(result.Length <= AiTextSanitizer.EvidenceLimit);
+        AssertStatus(result, "partial");
+        using var document = JsonDocument.Parse(result);
+        var outcomes = document.RootElement.GetProperty("outcomes");
+        Assert.Equal(4, outcomes.GetArrayLength());
+        Assert.Equal("id-4", outcomes[3].GetProperty("Id").GetString());
+        Assert.Equal("failed", outcomes[3].GetProperty("Status").GetString());
+        Assert.True(document.RootElement.GetProperty("truncated").GetBoolean());
+        Assert.Equal(0, document.RootElement.GetProperty("omittedOutcomes").GetInt32());
+        Assert.DoesNotContain("synthetic-private", result);
+    }
+
     public static IEnumerable<object[]> InvalidArguments()
     {
         foreach (var tool in LifecycleTools.Concat(["stop_all_containers", "remove_all_containers", "run_container"]))
@@ -630,6 +757,7 @@ public sealed class AssistantToolsetContractTests
         public Func<CancellationToken, Task<ClusterStatus>> GetStatus { get; set; } =
             _ => Task.FromResult(new ClusterStatus { State = ClusterState.NotInstalled });
         public RunContainerOptions? RunOptions { get; private set; }
+        public CommandResult ReadResult { get; set; } = new();
         private int listCount;
         private AssistantToolset? tools;
 
@@ -653,6 +781,11 @@ public sealed class AssistantToolsetContractTests
                     Calls.Add("run_container");
                     RunOptions = (RunContainerOptions)args[0]!;
                     return Task.FromResult(new CommandResult());
+                }
+                if (method.Name is nameof(IWslcService.InspectContainerAsync) or nameof(IWslcService.GetLogsAsync))
+                {
+                    Calls.Add(method.Name);
+                    return Task.FromResult(ReadResult);
                 }
                 var tool = method.Name switch
                 {

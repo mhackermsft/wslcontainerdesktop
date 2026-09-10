@@ -318,7 +318,7 @@
                             <TextBlock
                                 FontSize="12"
                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="Off by default. A redacted preview is shown before anything leaves this machine."
+                                Text="Off by default. Diagnosis offers a reviewable preview; assistant chat sends sanitized text and tool evidence during each turn."
                                 TextWrapping="Wrap" />
                         </StackPanel>
                         <ToggleSwitch
@@ -403,7 +403,7 @@
                         IsOpen="True"
                         Severity="Informational"
                         Title="Data sharing notice"
-                        Message="Container logs, inspect JSON, filesystem diff entries, and recent activity are redacted and truncated before sending to the selected provider. Suggested fixes are copy-only and never run automatically."
+                        Message="Recognized sensitive fields and credential patterns are masked before AI evidence and assistant audit details are shortened. Detection is not perfect: unlabelled or encoded secrets may remain. Review diagnosis previews and do not paste secrets into chat. The selected provider receives chat and tool evidence; local inference requires a local endpoint. Diagnosis fixes are copy-only; assistant mutations follow the app's approval settings."
                         Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                     <Expander
                         HorizontalAlignment="Stretch"

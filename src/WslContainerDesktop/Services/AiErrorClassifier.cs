@@ -43,7 +43,7 @@ public sealed record AiErrorContext(
 /// title and message for the primary UI, plus optional sanitized technical details for an
 /// expandable/copyable section. This is the single place that turns "raw exception" into
 /// "professional inline feedback" — callers should not hand-roll <c>ex.Message</c> into user-facing
-/// text. Never surfaces secrets; see <see cref="AiTextSanitizer"/>.
+/// text. Masks recognized secret shapes; see <see cref="AiTextSanitizer"/> for limitations.
 /// </summary>
 public static class AiErrorClassifier
 {
@@ -53,6 +53,13 @@ public static class AiErrorClassifier
     public static AiFeedback Classify(Exception ex, AiErrorContext context, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(ex);
+        context = context with
+        {
+            ProviderDisplayName = AiTextSanitizer.Sanitize(context.ProviderDisplayName),
+            Operation = AiTextSanitizer.Sanitize(context.Operation),
+            Endpoint = context.Endpoint is null ? null : AiTextSanitizer.Sanitize(context.Endpoint),
+            ModelOrDeployment = context.ModelOrDeployment is null ? null : AiTextSanitizer.Sanitize(context.ModelOrDeployment),
+        };
 
         switch (ex)
         {
@@ -72,10 +79,7 @@ public static class AiErrorClassifier
                     BuildTechnicalDetails(ex, context, null, null));
 
             case InvalidOperationException:
-                // Our own pre-flight validation messages (missing model/key/endpoint, bad base
-                // URL) are already specific and safe to show directly — no secrets, no raw HTTP
-                // bodies, just "here is exactly what to fix in Settings".
-                return AiFeedback.Warning("Configuration needed", ex.Message);
+                return AiFeedback.Warning("Configuration needed", AiTextSanitizer.Sanitize(ex.Message));
 
             default:
                 return AiFeedback.Error(
@@ -204,7 +208,7 @@ public static class AiErrorClassifier
             lines.Add($"Response: {responseDetail}");
         }
 
-        lines.Add($"Exception: {ex.GetType().Name}: {AiTextSanitizer.Truncate(AiTextSanitizer.Redact(ex.Message), 400)}");
-        return string.Join(Environment.NewLine, lines);
+        lines.Add($"Exception: {ex.GetType().Name}: {AiTextSanitizer.Sanitize(ex.Message, 400)}");
+        return AiTextSanitizer.Sanitize(string.Join(Environment.NewLine, lines));
     }
 }

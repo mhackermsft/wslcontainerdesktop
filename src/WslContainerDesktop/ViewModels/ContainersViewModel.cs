@@ -1815,7 +1815,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AI diagnosis preview failed.");
+            _logger.LogWarning("AI diagnosis preview failed: {Detail}", AiTextSanitizer.Sanitize(ex.Message));
             DiagnosisFeedback = AiErrorClassifier.Classify(ex, DiagnosisContext("Build diagnosis preview"));
         }
         finally
@@ -1870,7 +1870,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AI diagnosis failed.");
+            _logger.LogWarning("AI diagnosis failed: {Detail}", AiTextSanitizer.Sanitize(ex.Message));
             DiagnosisFeedback = AiErrorClassifier.Classify(ex, DiagnosisContext("Send diagnosis"));
         }
         finally

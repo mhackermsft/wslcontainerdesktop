@@ -62,7 +62,7 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
             messages = new[]
             {
                 new { role = "system", content = request.SystemPrompt },
-                new { role = "user", content = request.UserPrompt },
+                new { role = "user", content = AiTextSanitizer.Sanitize(request.UserPrompt, AiTextSanitizer.DiagnosticLimit) },
             },
         });
 
@@ -94,7 +94,7 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
         }
 
         var uri = CompletionUri();
-        var messages = history.ToList();
+        var messages = history.Select(AiTextSanitizer.SanitizeMessage).ToList();
         for (var i = 0; i < 8; i++)
         {
             using var message = new HttpRequestMessage(HttpMethod.Post, uri);
@@ -118,10 +118,11 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
             var turn = OpenAiProvider.ParseToolTurn(doc.RootElement.GetProperty("choices")[0].GetProperty("message"));
             if (turn.ToolCalls.Count == 0)
             {
-                return string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : turn.AssistantText!;
+                return string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);
             }
 
-            messages.Add(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls });
+            // The execution calls stay original; only redacted copies enter conversation history.
+            messages.Add(AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls }));
             foreach (var call in turn.ToolCalls)
             {
                 var toolResult = await invokeToolAsync(call, ct).ConfigureAwait(false);
@@ -130,7 +131,7 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
                     Role = "tool",
                     ToolCallId = call.Id,
                     ToolName = call.Name,
-                    Content = toolResult,
+                    Content = AiTextSanitizer.Sanitize(toolResult),
                 });
             }
         }
