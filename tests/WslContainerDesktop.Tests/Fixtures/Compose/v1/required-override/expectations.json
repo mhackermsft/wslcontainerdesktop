@@ -1,0 +1,9 @@
+{
+  "environment": {},
+  "checks": {"/serviceNames":[]},
+  "referenceError": "synthetic-secret",
+  "appError": ["Required variable 'WCD_MISSING'","line","Set it"],
+  "forbiddenDiagnostics": ["synthetic-secret","would-hide-the-error"],
+  "divergences": {},
+  "warnings": []
+}

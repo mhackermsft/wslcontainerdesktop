@@ -416,10 +416,13 @@ Raw approved values are retained in execution memory and may be passed to worklo
 WSL Container Desktop can import a `docker-compose.yml` and run the whole stack, but it is **not** a drop-in replacement for the `docker compose` CLI. Understanding the model below will tell you what to expect.
 
 The [versioned configuration corpus](docs/COMPOSE-CONFORMANCE.md) records tested subsets and known
-differences, including empty environment values, `env_file` precedence, sequence overrides, and
-included-file paths. Its original 14 cases have **captured Docker Compose v2.39.4 config output**
-and explicit app divergences. The separate opt-in WSLC runtime harness is not run by normal tests;
-configuration comparisons are not runtime certification.
+differences. Empty environment values, later `env_file` precedence, sequence/resource overrides and
+required-variable errors now have spec-expected regressions; included-file paths and required-file
+handling remain partial. Its 21 cases have **captured Docker Compose v2.39.4 config output**
+compared with spec-derived expectations. The separate opt-in WSLC runtime harness is not run by
+normal tests; configuration comparisons are not runtime certification.
+Captured differences remain explicit: unused nested required expressions, duplicate DNS entries,
+and equivalent mixed short/long port bindings do not exactly match the pinned CLI.
 
 ### Purpose & model — "desktop-as-daemon"
 
@@ -438,15 +441,38 @@ A large subset of the Compose spec is honored on **up**:
 
 - **Services** — `image`, `build` (context/dockerfile/args/target/labels/pull), `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `labels`.
 - **Networking & storage** — `ports` (short and long form), `volumes` (short and long form), top-level `networks:` / `volumes:` creation, service DNS aliases, `secrets:` / `configs:` (file-backed, best-effort), `extra_hosts` (best-effort), `tmpfs`, `dns*`. With detected native network support, multi-network services are created, connected to every required network, then started; per-network aliases and static IPv4 settings are retained (one IPAM subnet configuration).
-- **Config** — `environment`, `env_file`, `${VAR}` / `${VAR:-default}` interpolation, YAML anchors/aliases, `<<` merge keys, block scalars, `extends:`, `include:`, and a sibling `docker-compose.override.yml` (deep-merged).
+- **Config** — `environment`, `env_file`, nested Compose interpolation (default/required/alternative operators, unset versus empty and `$$`), YAML quoting/anchors/aliases/`<<` merge keys, folded/literal block scalars and chomping, and sibling override merging with `!reset` / `!override`. `include:` / `extends:` remain partial.
 - **Resources** — `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`.
 - **Lifecycle** — `depends_on` (including `condition: service_healthy` / `service_completed_successfully`), `healthcheck`, `restart:` (`no`/`always`/`on-failure`/`unless-stopped`), `profiles:`, and project `up` / `down` / `restart` with re-adoption on relaunch.
 
 Some of these are **best-effort** — e.g. `secrets`/`configs` are bind-mounted rather than stored in an engine secret store, `extra_hosts` is applied via `exec` after start, and `restart` backoff timing is not byte-for-byte identical to Docker.
 
+### Configuration semantics
+
+- **Exact within the documented subset:** mappings merge recursively; ordinary sequences append;
+  ports merge by host IP/target/published/protocol, mounts and secret/config references by target.
+  `command`, `entrypoint`, and `healthcheck.test` replace rather than append. Mixed list/map
+  environment and label forms merge by key. `!reset` removes an attribute; `!override` replaces it.
+- **Interpolation precedence:** explicit importer environment entries > process environment >
+  the selected file's sibling `.env`; an empty value still wins. Substitution applies to YAML
+  values (not mapping keys), once per file **before** merging. Service `env_file` values do not
+  feed interpolation; later files win for container variables, with inline `environment` winning last.
+  An unset optional substitution becomes empty with a value-free warning.
+- **Fail closed:** malformed YAML, invalid supported-field shapes, unknown/recursive aliases,
+  unsupported tags and malformed/unsatisfied required expressions stop import before saving a
+  project or deploying. Errors identify the variable/location without echoing values or custom
+  required-error text. Tags on sequence items/document roots and multiple YAML documents are
+  explicitly unsupported.
+- **Partial:** this is not a complete Compose schema validator or CLI. `.env` / `env_file` parsing
+  still supports simple line-based assignments, not all dotenv quoting/interpolation forms.
+  Include/extends file/project semantics and required-file handling remain incomplete. The saved
+  command representation distinguishes null/empty, but clearing image defaults at engine runtime
+  is not certified. See [parser limits, audit and contracts](docs/COMPOSE-PARSER.md).
+
 ### What is *not* supported
 
-Unimplemented Compose options are **skipped** with import warnings. CLI limitations below describe
+Unimplemented Compose options are **skipped** with import warnings; invalid configuration and
+unsupported YAML syntax are **rejected**, not treated as a runnable partial project. CLI limitations below describe
 advertised help, not proof that hidden functionality is impossible:
 
 - **Legacy multi-network limitation** — engines without native connect retain the first-network behavior and warn without discarding desired settings. Unknown capability evidence fails the affected service rather than guessing. Failed native attachment is not retried as a partial legacy deployment.

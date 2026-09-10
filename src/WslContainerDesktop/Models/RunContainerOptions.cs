@@ -389,6 +389,7 @@ public sealed class RunContainerOptions
         var result = new List<string>();
         var sb = new StringBuilder();
         var inQuotes = false;
+        var tokenStarted = false;
         char quoteChar = '"';
 
         foreach (var c in command)
@@ -408,22 +409,25 @@ public sealed class RunContainerOptions
             {
                 inQuotes = true;
                 quoteChar = c;
+                tokenStarted = true;
             }
             else if (char.IsWhiteSpace(c))
             {
-                if (sb.Length > 0)
+                if (tokenStarted)
                 {
                     result.Add(sb.ToString());
                     sb.Clear();
+                    tokenStarted = false;
                 }
             }
             else
             {
                 sb.Append(c);
+                tokenStarted = true;
             }
         }
 
-        if (sb.Length > 0)
+        if (tokenStarted)
         {
             result.Add(sb.ToString());
         }

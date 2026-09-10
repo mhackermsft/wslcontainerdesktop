@@ -1,0 +1,51 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T16:57:05.4413618+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.yaml": "ddf05ecdda7ce54b877e64372f7bc26be7943c03b3f0db14a4b9996f3cf89767",
+    "expectations.json": "8faccd94605302a99bd3ab3c0347140b2c14c165820ec579d71e45fc2aeed792"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 0,
+  "stderr": "time=\"2026-09-10T12:57:05-04:00\" level=warning msg=\"The \\\"WCD_MISSING\\\" variable is not set. Defaulting to a blank string.\"\ntime=\"2026-09-10T12:57:05-04:00\" level=warning msg=\"The \\\"WCD_UNSET_BRANCH\\\" variable is not set. Defaulting to a blank string.\"\n",
+  "config": {
+    "name": "wcd-conformance",
+    "networks": {
+      "default": {
+        "name": "wcd-conformance_default",
+        "ipam": {}
+      }
+    },
+    "services": {
+      "web": {
+        "command": null,
+        "entrypoint": null,
+        "environment": {
+          "DEFAULT": "fallback",
+          "EMPTY": "",
+          "OPTIONAL": "",
+          "UNUSED": "present"
+        },
+        "image": "example.invalid/conformance:1",
+        "networks": {
+          "default": null
+        }
+      }
+    }
+  }
+}

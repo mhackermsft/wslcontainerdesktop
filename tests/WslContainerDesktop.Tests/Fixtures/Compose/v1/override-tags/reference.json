@@ -1,0 +1,70 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T16:57:04.7617623+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.override.yaml": "7a514474752e573acf30ca75200405f3fa6404a64a09048b88b9106e32b06fd2",
+    "compose.yaml": "5fe1642c2c64274a3071e4bdf1070ec7205e46407449725a9b9b1b9c701a57f5",
+    "expectations.json": "8563af3e0d71afc83e4b401660dc4f020ff5e6d0aa815a4cf91cf71f0529338b"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "-f",
+    "compose.override.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 0,
+  "stderr": "",
+  "config": {
+    "name": "wcd-conformance",
+    "networks": {
+      "default": {
+        "name": "wcd-conformance_default",
+        "ipam": {}
+      }
+    },
+    "services": {
+      "web": {
+        "command": [],
+        "entrypoint": null,
+        "environment": {
+          "EMPTY": "",
+          "KEEP": "base"
+        },
+        "healthcheck": {
+          "test": [
+            "CMD",
+            "new"
+          ],
+          "interval": "30s"
+        },
+        "image": "example.invalid/conformance:1",
+        "labels": {
+          "new": "new"
+        },
+        "networks": {
+          "default": null
+        },
+        "ports": [
+          {
+            "mode": "ingress",
+            "target": 443,
+            "published": "8443",
+            "protocol": "tcp"
+          }
+        ]
+      }
+    }
+  }
+}

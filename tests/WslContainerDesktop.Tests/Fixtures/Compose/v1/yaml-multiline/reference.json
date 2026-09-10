@@ -1,0 +1,69 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T16:57:06.0021182+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.yaml": "1001b458e3937ff08de4326df4d8e39c5f9b6ed074acb7a1ceec3a14444f9d85",
+    "expectations.json": "fecd612cb3f487e9f5e811aac1ed5765e6bb61305ecf3a87058028edce58decf"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 0,
+  "stderr": "",
+  "config": {
+    "name": "wcd-conformance",
+    "networks": {
+      "default": {
+        "name": "wcd-conformance_default",
+        "ipam": {}
+      }
+    },
+    "services": {
+      "web": {
+        "command": [
+          "echo",
+          "two words"
+        ],
+        "entrypoint": null,
+        "environment": {
+          "DOUBLE": "quote=\" slash=\\ unicode=☺",
+          "FOLDED": "first continued\nparagraph\n  indented\nend",
+          "KEEP": "one",
+          "LITERAL": "first\n\nsecond\n\n",
+          "OTHER": "two",
+          "SINGLE": "it's # literal",
+          "WINNER": "explicit"
+        },
+        "image": "example.invalid/conformance:1",
+        "networks": {
+          "default": null
+        }
+      }
+    },
+    "x-args": [
+      "echo",
+      "two words"
+    ],
+    "x-first": {
+      "KEEP": "one",
+      "WINNER": "first"
+    },
+    "x-second": {
+      "OTHER": "two",
+      "WINNER": "second"
+    }
+  }
+}

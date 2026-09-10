@@ -1,0 +1,14 @@
+{
+  "environment": {"WCD_SET":"process","WCD_EMPTY":"","WCD_STRUCTURAL":"private: [not yaml] # data"},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/environment": {
+      "NESTED":"nested","ALTERNATIVE":"default","ESCAPED":"${WCD_SET}",
+      "EMPTY":"","EMPTY_PLUS":"yes","EMPTY_COLON_PLUS":"","FROM_DOTENV":"dotenv",
+      "FROM_PROCESS":"process","STRUCTURAL":"private: [not yaml] # data","${WCD_SET}":"literal-key"
+    },
+    "/services/web/labels": {"process":"expanded-key"}
+  },
+  "divergences": {},
+  "warnings": []
+}

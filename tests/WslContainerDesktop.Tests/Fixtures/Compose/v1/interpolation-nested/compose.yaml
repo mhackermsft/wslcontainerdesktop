@@ -1,0 +1,17 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:1
+    environment:
+      NESTED: "${WCD_MISSING:-${WCD_EMPTY:-${WCD_SET:+nested}}}"
+      ALTERNATIVE: "${WCD_SET+${WCD_FALLBACK-default}}"
+      ESCAPED: "$${WCD_SET}"
+      EMPTY: "${WCD_EMPTY?only unset is an error}"
+      EMPTY_PLUS: "${WCD_EMPTY+yes}"
+      EMPTY_COLON_PLUS: "${WCD_EMPTY:+no}"
+      FROM_DOTENV: "${WCD_DOTENV}"
+      FROM_PROCESS: "${WCD_SET}"
+      STRUCTURAL: "${WCD_STRUCTURAL}"
+      "${WCD_SET}": literal-key
+    labels:
+      - "${WCD_SET}=expanded-key"

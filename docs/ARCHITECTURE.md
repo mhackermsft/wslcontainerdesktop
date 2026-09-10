@@ -287,13 +287,18 @@ per service), `user`, `working_dir`, `hostname`, `domainname`, `labels`,
 `dns`/`dns_search`/`dns_opt`, `secrets`/`configs` refs, `restart`, `stop_grace_period`, `profiles`,
 `extra_hosts`, `depends_on` (list and `condition:` form, including `service_completed_successfully`),
 and `healthcheck`. Top-level `networks:`, `volumes:`, `secrets:` and
-`configs:` blocks are parsed too. Values support `${VAR}` / `${VAR:-default}`
-interpolation, and the reader resolves YAML anchors/aliases (`&`/`*`), `<<` merge keys, and `|`/`>`
-block scalars. Top-level `include:` files are merged in (the main file wins), a service's `extends:`
-(same-file or cross-file `file:`/`service:`) is resolved before parsing, and a sibling
-`docker-compose.override.yml` is deep-merged over the base file (`environment`/`labels` merge by key;
-other scalars/sequences are overridden). Active `profiles:` come from `COMPOSE_PROFILES` in the
-environment / `.env`. Projects persist to `compose-projects.json`.
+`configs:` blocks are parsed too. YamlDotNet 16.3.0 reads syntax into a bounded private value tree;
+`ComposeImporter.Yaml` handles aliases/merge keys and value-only interpolation, and
+`ComposeImporter.Merge` handles Compose normalization/merging independently of YAML parsing.
+Nested default/required/alternative expressions distinguish unset/empty and preserve `$$`.
+Mappings merge, ordinary sequences append, resource sequences merge by their spec keys, and
+command/entrypoint/health-test values replace. `!reset` and `!override` work on mapping values.
+Block scalar blank lines, indentation, folding and chomping are preserved.
+Top-level `include:` remains a best-effort merge (main file wins), not the spec's independent
+project mechanism; `extends:` resolves local/external bases but still has file-resolution gaps.
+The first present sibling override is merged over the base. Active `profiles:` come from
+`COMPOSE_PROFILES`. The persisted `compose-projects.json` schema is unchanged.
+See [the parser decision, publication audit, boundaries and #83 contracts](COMPOSE-PARSER.md).
 
 `ComposeProjectSupervisor` brings a project **up / down / restart as a unit**: on `up` it first
 **provisions** declared (non-external) `networks:`/`volumes:` via `wslc network/volume create`, then
@@ -350,6 +355,14 @@ not honor (e.g. `privileged`, `cap_add`, `logging`, unknown top-level keys) plus
 features (`deploy.replicas` scaling); these are shown in a confirmation dialog
 so the user can cancel or import anyway before the project is saved. `x-` extension keys and
 recognized-but-cosmetic keys (`version`) are never flagged.
+Interpolation precedence is explicit importer entries > process environment > sibling `.env`;
+empty values override lower sources. Service `env_file` never seeds YAML interpolation; later
+env files override earlier files, and inline environment overrides all of them. Dotenv parsing
+remains a simple assignment reader. Invalid YAML/shapes and required/malformed interpolation throw
+`ComposeConfigurationException` with value-free diagnostics, before any project persistence or
+engine call. Template configuration is now saved only after import validation succeeds, and
+parse failures no longer produce a misleading "launched" status. Framework browse/navigation work
+uses `UiSafe.Run`.
 
 **Multi-network lifecycle.** `ComposeNetworkOrchestrator` chooses a backend from detected support.
 Native multi-network services use create -> connect -> start, so required attachments precede workload
@@ -365,28 +378,30 @@ Dependency readiness and watchdog enrollment include only successfully ready ser
 
 These are implementation capabilities, not full specification conformance claims. The
 [versioned conformance corpus](COMPOSE-CONFORMANCE.md) distinguishes passing configuration subsets,
-known differences, actionable warnings, and missing fail-closed diagnostics. The original 14
+known differences, actionable warnings, and missing fail-closed diagnostics. All 21
 spec-derived projections now have actual pinned CLI config captures. A separate opt-in real-WSLC
 harness covers owned lifecycle scenarios; it has not been executed or runtime-certified. The
-corpus does not change parser or supervisor semantics.
+issue #82 layer updates the parser and its assertions; no supervisor or capability policy changes.
 
 | Feature | Support |
 |---|---|
-| `image`, `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `domainname`, `labels` | **Supported** |
+| `image`, `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `domainname`, `labels` | **Supported** — command argv preserves quoted/empty tokens; empty command/entrypoint clearing of image defaults at runtime is not certified |
 | `build:` (short + long form: `context`, `dockerfile`, `args`, `target`, `labels`, `no_cache`, `pull`, `pull_policy`) | **Supported** — built and tagged `project_service` on up; `context` resolves against the compose folder; `pull_policy: always/build` maps to `--pull` |
-| `ports` (short `"h:c"` and long `target/published/protocol`) | **Supported** |
-| `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported** |
-| `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Partial** — `.env` seeds interpolation; explicit empty values, later-file precedence, and required-file failure diagnostics have recorded divergences |
+| `ports` (short `"h:c"` and long `host_ip/target/published/protocol`) | **Supported subset** — normalized uniqueness, IPv6 host bindings and bounded ranges; other long-form fields warn |
+| `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported subset** — target-key merging; unsupported long mount types/modes reject and unsupported nested options warn |
+| `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Partial** — exact empty/null distinction and last-file/inline precedence for simple assignments; dotenv syntax and required-file failure handling remain incomplete (#83) |
 | Top-level `networks:` / `volumes:` **creation** (driver, `driver_opts`, labels; `external` skipped) | **Supported** — created on up via `wslc network/volume create`; networks removed on down |
 | `networks` / `network_mode` per service, service-name DNS aliases | **Capability-gated** — create/connect/start for multiple native endpoints; legacy first-network fallback with warning. Special host/none/container/service modes remain distinct. |
 | `secrets:` / `configs:` (file-backed) | **Supported (best-effort)** — source file bind-mounted read-only (`/run/secrets/<name>` or the config target); no in-engine secret store |
 | `tmpfs`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`, `dns`/`dns_search`/`dns_opt` | **Supported** — mapped to the matching `wslc run`/`wslc stop` flags |
 | `profiles:` | **Supported** — services with a profile start only when one of their profiles is in the project's active set (from `COMPOSE_PROFILES` in the environment / `.env`); unprofiled services always start |
-| `extends:` (same-file and cross-file `file:`/`service:`) | **Supported** — resolved and merged before parsing (child wins; `environment`/`labels` merge by key) |
+| `extends:` (same-file and cross-file `file:`/`service:`) | **Partial** — resolved before model projection using shared merging; missing references, cycles, path ownership and extends-specific sequence deduplication remain #83 work |
 | `include:` (top-level) | **Partial** — short `- file.yml` and long `- path:` forms; files are merged under the main file, unlike Compose's independent project/conflict rules; included `env_file` paths currently resolve against the main directory |
 | `extra_hosts:` | **Supported (best-effort)** — appended to the container's `/etc/hosts` via `exec` after start (no `--add-host` flag); `host-gateway` resolves to the container's default gateway |
-| `docker-compose.override.yml` | **Partial** — maps merge and commands replace; port/ordinary sequence merging has recorded divergences |
-| `${VAR}` / `${VAR:-default}` interpolation, anchors/aliases, `<<` merge, `\|`/`>` block scalars | **Partial** — basic substitutions, anchors, and block scalars covered; empty-vs-unset `-` behavior and required-variable errors diverge (block scalar blank lines are best-effort) |
+| Sibling override merge rules | **Supported normalized subset** — recursive maps, appended sequences, target-key volumes/secrets/configs, tuple-key ports; command/entrypoint/healthcheck.test replace; mixed environment/labels/build args merge by key. Captured CLI differences remain for duplicate DNS and equivalent mixed-form ports |
+| `!reset` / `!override` | **Supported** on mapping values; tags at document roots or on sequence items are explicitly rejected |
+| `$VAR`, `${VAR}`, `-`/`:-`, `?`/`:?`, `+`/`:+`, nesting, `$$` | **Supported subset** — per-file/value-only, unset versus empty, explicit > process > `.env`; required/malformed errors are secret-safe; no shell substitution or pattern replacement. Lazy unused nested required evaluation differs from pinned CLI rejection |
+| YAML quoting, flow/block collections, anchors/aliases, `<<`, `\|`/`>` folding/chomping | **Supported within bounded single-document Compose YAML** via maintained parser; invalid syntax/duplicates/cycles reject; no arbitrary tagged types or full Compose schema validation |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
 | `healthcheck` | **Capability-gated** — native shell checks when required run/create flags are supported; complete app backend for `CMD` argv or unsupported flags; unknown support is surfaced |
 | `depends_on` incl. `condition: service_healthy` / `service_completed_successfully` | **Supported** — start ordering + health/exit gating |

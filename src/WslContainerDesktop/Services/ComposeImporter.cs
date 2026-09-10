@@ -22,28 +22,31 @@ namespace WslContainerDesktop.Services;
 /// <summary>
 /// Parses a <c>docker-compose.yml</c> into a <see cref="ComposeProject"/> (services plus their
 /// dependency graph, restart policy and health check) so the app can orchestrate it as a unit —
-/// see <see cref="ComposeProjectSupervisor"/>. A small indentation-aware YAML reader is used
-/// rather than pulling in a YAML dependency, mirroring the manual parsing already used elsewhere
-/// (see <see cref="K8sManifestSanitizer"/>).
+/// see <see cref="ComposeProjectSupervisor"/>. YAML syntax is read by YamlDotNet; Compose
+/// interpolation and merge rules are applied separately, before building the persisted model.
 ///
 /// <para>Supported per service: <c>image</c>, <c>container_name</c>, <c>command</c>,
 /// <c>entrypoint</c>, <c>ports</c>, <c>environment</c>, <c>volumes</c>, <c>networks</c> /
 /// <c>network_mode</c>, <c>user</c>, <c>working_dir</c>, <c>hostname</c>, <c>labels</c>,
 /// <c>cpus</c> / <c>mem_limit</c> / <c>deploy.resources.limits</c>, <c>restart</c>,
 /// <c>depends_on</c> (list and long/condition form) and <c>healthcheck</c>. Values support
-/// <c>${VAR}</c> / <c>${VAR:-default}</c> interpolation. Unknown keys are ignored; malformed
-/// content never throws.</para>
+/// Compose variable interpolation. Unknown keys produce warnings; malformed configuration
+/// throws a value-free <see cref="ComposeConfigurationException"/> before persistence or deployment.</para>
 /// </summary>
-public static class ComposeImporter
+public static partial class ComposeImporter
 {
-    private sealed record Line(int Indent, string Text);
+    private abstract class Node
+    {
+        public string? Tag { get; set; }
+    }
 
-    // Minimal YAML value tree produced by the reader.
-    private abstract class Node;
+    private sealed class NullNode : Node;
 
     private sealed class ScalarNode(string value) : Node
     {
         public string Value { get; } = value;
+        public string Location { get; init; } = "Compose value";
+        public bool IsMergeKey { get; init; }
     }
 
     private sealed class SequenceNode(List<Node> items) : Node
@@ -89,12 +92,12 @@ public static class ComposeImporter
 
     /// <summary>
     /// Parses <paramref name="yaml"/> into a <see cref="ComposeProject"/>. Returns a project with
-    /// no services when no <c>services:</c> block is present. Never throws for malformed content.
+    /// no services when no <c>services:</c> block is present. Rejects malformed configuration.
     /// </summary>
     /// <param name="yaml">The compose document text.</param>
     /// <param name="environment">
-    /// Variables used for <c>${VAR}</c> interpolation; process environment variables and inline
-    /// <c>:-</c> defaults are consulted as a fallback.
+    /// Variables used for interpolation. Explicit entries override the process environment,
+    /// which overrides the sibling .env file. Empty and unset values remain distinct.
     /// </param>
     /// <param name="baseDirectory">
     /// Directory the compose file was loaded from. When supplied, a sibling <c>.env</c> file seeds
@@ -106,18 +109,32 @@ public static class ComposeImporter
         string? baseDirectory = null)
     {
         var effectiveEnv = BuildInterpolationEnvironment(environment, baseDirectory);
-        var lines = Tokenize(yaml, effectiveEnv);
-        var anchors = new Dictionary<string, Node>(StringComparer.Ordinal);
-        var root = ParseMapping(lines, 0, lines.Count, 0, anchors);
+        var interpolationWarnings = new List<string>();
+        var root = ReadComposeYaml(yaml, effectiveEnv, interpolationWarnings);
 
         // Merge any top-level `include:` files first (the including file wins), then a sibling override.
-        root = ApplyIncludes(root, baseDirectory, effectiveEnv);
-        root = ApplyOverrideFile(root, baseDirectory, effectiveEnv);
+        root = ApplyIncludes(root, baseDirectory, effectiveEnv, interpolationWarnings);
+        root = ApplyOverrideFile(root, baseDirectory, effectiveEnv, interpolationWarnings);
+        if (root.Child("services") is MappingNode unresolvedServices && unresolvedServices.Tag != "!reset")
+        {
+            var resolvedServices = new Dictionary<string, Node>(StringComparer.Ordinal);
+            foreach (var (name, node) in unresolvedServices.Map)
+            {
+                resolvedServices[name] = node is MappingNode svc && svc.Tag != "!reset"
+                    ? ResolveExtends(svc, unresolvedServices, baseDirectory, effectiveEnv,
+                        new HashSet<string>(StringComparer.Ordinal), interpolationWarnings)
+                    : node;
+            }
+            root.Map["services"] = new MappingNode(resolvedServices);
+        }
+        root = (MappingNode)ApplyTags(root);
+        ValidateServices(root);
 
         var project = new ComposeProject
         {
             Name = SanitizeProjectName(root.Scalar("name")),
             ActiveProfiles = ParseActiveProfiles(effectiveEnv),
+            Warnings = interpolationWarnings.Distinct(StringComparer.Ordinal).ToList(),
         };
 
         if (root.Child("services") is not MappingNode services)
@@ -132,14 +149,11 @@ public static class ComposeImporter
                 continue;
             }
 
-            // Resolve `extends:` (same-file service or another file) before building the service.
-            var resolved = ResolveExtends(svc, services, baseDirectory, effectiveEnv, new HashSet<string>(StringComparer.Ordinal));
-
-            var service = BuildService(name, resolved, baseDirectory);
+            var service = BuildService(name, svc, baseDirectory);
             if (service is not null)
             {
                 project.Services.Add(service);
-                CollectServiceWarnings(name, resolved, service, project.Warnings);
+                CollectServiceWarnings(name, svc, service, project.Warnings);
             }
         }
 
@@ -231,6 +245,21 @@ public static class ComposeImporter
                     "a single instance is started.");
             }
         }
+
+        foreach (var field in new[] { "ports", "volumes", "secrets", "configs" })
+        {
+            if (svc.Child(field) is not SequenceNode resources) continue;
+            var supported = field switch
+            {
+                "ports" => new[] { "target", "published", "host_ip", "protocol" },
+                "volumes" => ["type", "source", "target", "read_only", "consistency"],
+                _ => ["source", "target"],
+            };
+            foreach (var resource in resources.Items.OfType<MappingNode>())
+            foreach (var key in resource.Map.Keys)
+                if (!supported.Contains(key, StringComparer.Ordinal) && !key.StartsWith("x-", StringComparison.Ordinal))
+                    warnings.Add($"Service '{name}': '{field}.{key}' is not supported and was ignored.");
+        }
     }
 
     /// <summary>Adds a warning for every unrecognized top-level key (ignoring <c>x-</c> extensions).</summary>
@@ -262,7 +291,8 @@ public static class ComposeImporter
     private static MappingNode ApplyOverrideFile(
         MappingNode root,
         string? baseDirectory,
-        IReadOnlyDictionary<string, string>? env)
+        IReadOnlyDictionary<string, string>? env,
+        List<string> warnings)
     {
         if (string.IsNullOrWhiteSpace(baseDirectory))
         {
@@ -272,7 +302,7 @@ public static class ComposeImporter
         foreach (var candidate in OverrideFileNames)
         {
             var path = Path.Combine(baseDirectory, candidate);
-            var overrideRoot = LoadComposeRoot(path, env);
+            var overrideRoot = LoadComposeRoot(path, env, warnings);
             if (overrideRoot is not null)
             {
                 return MergeMappings(root, overrideRoot);
@@ -284,14 +314,15 @@ public static class ComposeImporter
 
     /// <summary>
     /// Merges top-level <c>include:</c> files under <paramref name="root"/> (the including file wins),
-    /// mirroring <c>docker compose</c>'s <c>include</c>. Accepts the short list form
-    /// (<c>- other.yml</c>) and the long form (<c>- path: other.yml</c>). Best-effort: missing or
-    /// unreadable includes are skipped.
+    /// using the existing partial include implementation. Accepts the short list form
+    /// (<c>- other.yml</c>) and the long form (<c>- path: other.yml</c>). Missing includes are
+    /// currently skipped; present unreadable or malformed files fail configuration parsing.
     /// </summary>
     private static MappingNode ApplyIncludes(
         MappingNode root,
         string? baseDirectory,
-        IReadOnlyDictionary<string, string>? env)
+        IReadOnlyDictionary<string, string>? env,
+        List<string> warnings)
     {
         if (string.IsNullOrWhiteSpace(baseDirectory) || root.Child("include") is not SequenceNode includes)
         {
@@ -313,7 +344,7 @@ public static class ComposeImporter
                 continue;
             }
 
-            var included = LoadComposeRoot(ResolvePath(relative, baseDirectory), env);
+            var included = LoadComposeRoot(ResolvePath(relative, baseDirectory), env, warnings);
             if (included is not null)
             {
                 // Later includes win over earlier ones; the main file wins over all includes.
@@ -348,7 +379,8 @@ public static class ComposeImporter
         MappingNode localServices,
         string? baseDirectory,
         IReadOnlyDictionary<string, string>? env,
-        HashSet<string> visiting)
+        HashSet<string> visiting,
+        List<string> warnings)
     {
         var ext = svc.Child("extends");
         string? baseFile = null;
@@ -375,7 +407,7 @@ public static class ComposeImporter
         if (!string.IsNullOrWhiteSpace(baseFile))
         {
             var resolvedFile = ResolvePath(baseFile, baseDirectory);
-            baseServices = LoadComposeRoot(resolvedFile, env)?.Child("services") as MappingNode;
+            baseServices = LoadComposeRoot(resolvedFile, env, warnings)?.Child("services") as MappingNode;
             baseDirForBase = Path.GetDirectoryName(resolvedFile) ?? baseDirectory;
         }
 
@@ -390,14 +422,14 @@ public static class ComposeImporter
             return StripKey(svc, "extends"); // cycle — stop resolving.
         }
 
-        var resolvedBase = ResolveExtends(baseSvc, baseServices, baseDirForBase, env, visiting);
+        var resolvedBase = ResolveExtends(baseSvc, baseServices, baseDirForBase, env, visiting, warnings);
         visiting.Remove(key);
 
-        return MergeMappings(resolvedBase, StripKey(svc, "extends"));
+        return MergeMappings(resolvedBase, StripKey(svc, "extends"), "service");
     }
 
-    /// <summary>Parses a compose file from disk into its root mapping, or null when unreadable/malformed.</summary>
-    private static MappingNode? LoadComposeRoot(string path, IReadOnlyDictionary<string, string>? env)
+    /// <summary>Missing optional files return null; present malformed files must not be ignored.</summary>
+    private static MappingNode? LoadComposeRoot(string path, IReadOnlyDictionary<string, string>? env, List<string> warnings)
     {
         try
         {
@@ -407,12 +439,15 @@ public static class ComposeImporter
             }
 
             var text = File.ReadAllText(path);
-            var lines = Tokenize(text, env);
-            return ParseMapping(lines, 0, lines.Count, 0, new Dictionary<string, Node>(StringComparer.Ordinal));
+            return ReadComposeYaml(text, env, warnings);
         }
-        catch
+        catch (ComposeConfigurationException ex)
         {
-            return null;
+            throw new ComposeConfigurationException("Referenced Compose file: " + ex.Message);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ComposeConfigurationException("Cannot read a referenced Compose file. Check its path and permissions.");
         }
     }
 
@@ -421,77 +456,7 @@ public static class ComposeImporter
     {
         var copy = new Dictionary<string, Node>(map.Map, StringComparer.Ordinal);
         copy.Remove(key);
-        return new MappingNode(copy);
-    }
-
-    /// <summary>
-    /// Deep-merges <paramref name="overrideNode"/> onto <paramref name="baseNode"/>: nested mappings
-    /// merge recursively; scalars and sequences from the override replace the base value.
-    /// </summary>
-    private static readonly HashSet<string> KeyValueSequenceKeys =
-        new(StringComparer.Ordinal) { "environment", "labels" };
-
-    private static MappingNode MergeMappings(MappingNode baseNode, MappingNode overrideNode)
-    {
-        var result = new Dictionary<string, Node>(baseNode.Map, StringComparer.Ordinal);
-        foreach (var (k, ov) in overrideNode.Map)
-        {
-            if (result.TryGetValue(k, out var bv))
-            {
-                if (bv is MappingNode bm && ov is MappingNode om)
-                {
-                    result[k] = MergeMappings(bm, om);
-                    continue;
-                }
-
-                // environment/labels lists merge by KEY (override wins per-key), like docker compose.
-                if (KeyValueSequenceKeys.Contains(k) && bv is SequenceNode bs && ov is SequenceNode os)
-                {
-                    result[k] = MergeKeyValueSequences(bs, os);
-                    continue;
-                }
-            }
-
-            result[k] = ov;
-        }
-
-        return new MappingNode(result);
-    }
-
-    /// <summary>
-    /// Merges two <c>KEY=VALUE</c> scalar sequences by key: base order is preserved, matching keys are
-    /// overwritten by the override, and new override keys are appended. Mirrors compose's list-of-env merge.
-    /// </summary>
-    private static SequenceNode MergeKeyValueSequences(SequenceNode baseSeq, SequenceNode overrideSeq)
-    {
-        static string KeyOf(Node n) =>
-            n is ScalarNode s ? s.Value.Split('=', 2)[0].Trim() : string.Empty;
-
-        var order = new List<string>();
-        var byKey = new Dictionary<string, Node>(StringComparer.Ordinal);
-        foreach (var item in baseSeq.Items)
-        {
-            var key = KeyOf(item);
-            if (!byKey.ContainsKey(key))
-            {
-                order.Add(key);
-            }
-
-            byKey[key] = item;
-        }
-
-        foreach (var item in overrideSeq.Items)
-        {
-            var key = KeyOf(item);
-            if (!byKey.ContainsKey(key))
-            {
-                order.Add(key);
-            }
-
-            byKey[key] = item;
-        }
-
-        return new SequenceNode(order.Select(k => byKey[k]).ToList());
+        return new MappingNode(copy) { Tag = map.Tag };
     }
 
     /// <summary>
@@ -502,15 +467,18 @@ public static class ComposeImporter
         IReadOnlyDictionary<string, string>? environment,
         string? baseDirectory)
     {
-        if (string.IsNullOrWhiteSpace(baseDirectory))
+        var merged = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(baseDirectory))
         {
-            return environment;
+            foreach (var (key, value) in ReadEnvFile(Path.Combine(baseDirectory, ".env")))
+            {
+                merged[key] = value;
+            }
         }
 
-        var merged = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (key, value) in ReadEnvFile(Path.Combine(baseDirectory, ".env")))
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            merged[key] = value;
+            merged[(string)entry.Key] = (string)entry.Value!;
         }
 
         if (environment is not null)
@@ -521,7 +489,7 @@ public static class ComposeImporter
             }
         }
 
-        return merged.Count == 0 ? environment : merged;
+        return merged;
     }
 
     private static ComposeService? BuildService(string serviceName, MappingNode svc, string? baseDirectory)
@@ -551,7 +519,7 @@ public static class ComposeImporter
         // A service needs either an image to run or a build section to produce one.
         if (string.IsNullOrWhiteSpace(options.Image) && build is null)
         {
-            return null;
+            throw new ComposeConfigurationException("A Compose service has neither image nor build. Supply one before importing.");
         }
 
         var service = new ComposeService
@@ -1014,7 +982,9 @@ public static class ComposeImporter
                     var published = map.Scalar("published")?.Trim();
                     var proto = map.Scalar("protocol")?.Trim();
                     var mapping = string.IsNullOrWhiteSpace(published) ? target : $"{published}:{target}";
-                    if (!string.IsNullOrWhiteSpace(proto))
+                    if (map.Scalar("host_ip") is { Length: > 0 } hostIp)
+                        mapping = $"{(hostIp.Contains(':') ? $"[{hostIp}]" : hostIp)}:{mapping}";
+                    if (!string.IsNullOrWhiteSpace(proto) && !proto.Equals("tcp", StringComparison.OrdinalIgnoreCase))
                     {
                         mapping += $"/{proto}";
                     }
@@ -1093,25 +1063,18 @@ public static class ComposeImporter
             return;
         }
 
-        var existing = new HashSet<string>(
-            options.EnvironmentVariables.Select(e =>
-            {
-                var eq = e.IndexOf('=');
-                return eq < 0 ? e.Trim() : e[..eq].Trim();
-            }),
-            StringComparer.Ordinal);
-
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var path in paths)
         {
             var resolved = ResolvePath(path, baseDirectory);
             foreach (var (key, value) in ReadEnvFile(resolved))
             {
-                if (existing.Add(key))
-                {
-                    options.EnvironmentVariables.Add($"{key}={value}");
-                }
+                values[key] = $"{key}={value}";
             }
         }
+        foreach (var value in options.EnvironmentVariables)
+            values[value.Split('=', 2)[0]] = value;
+        options.EnvironmentVariables = values.Values.ToList();
     }
 
     /// <summary>
@@ -1237,6 +1200,8 @@ public static class ComposeImporter
 
         var source = spec[..firstColon];
         var rest = spec[(firstColon + 1)..];
+        if (source.StartsWith('/') && rest.Split(',').All(m => m is "ro" or "rw" or "cached" or "delegated" or "consistent"))
+            return (null, source, rest);
 
         var modeColon = rest.IndexOf(':');
         if (modeColon < 0)
@@ -1447,7 +1412,7 @@ public static class ComposeImporter
         switch (node)
         {
             case ScalarNode s:
-                return string.IsNullOrWhiteSpace(s.Value) ? null : s.Value.Trim();
+                return s.Value;
 
             case SequenceNode seq:
                 // Exec (list) form: each element is a distinct argv token and must survive the
@@ -1456,10 +1421,8 @@ public static class ComposeImporter
                 // (which would leave sh with just "while" as its -c script and exit immediately).
                 var tokens = seq.Items.OfType<ScalarNode>()
                     .Select(x => x.Value)
-                    .Where(x => !string.IsNullOrEmpty(x))
                     .Select(QuoteToken);
-                var joined = string.Join(' ', tokens).Trim();
-                return string.IsNullOrEmpty(joined) ? null : joined;
+                return string.Join(' ', tokens);
 
             default:
                 return null;
@@ -1473,7 +1436,9 @@ public static class ComposeImporter
     /// </summary>
     private static string QuoteToken(string token)
     {
-        if (!token.Any(char.IsWhiteSpace))
+        if (token.Length == 0)
+            return "\"\"";
+        if (!token.Any(char.IsWhiteSpace) && !token.Contains('"') && !token.Contains('\''))
         {
             return token;
         }
@@ -1488,7 +1453,9 @@ public static class ComposeImporter
             return $"'{token}'";
         }
 
-        return $"\"{token}\""; // best effort when both quote characters appear
+        // Adjacent quoted segments are understood by RunContainerOptions.SplitCommand; unlike
+        // backslash escaping they also preserve Windows paths verbatim.
+        return "'" + token.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
     }
 
     private static List<string> CollectStrings(Node? node)
@@ -1501,7 +1468,7 @@ public static class ComposeImporter
                 {
                     if (item is ScalarNode s && !string.IsNullOrWhiteSpace(s.Value))
                     {
-                        items.Add(s.Value.Trim());
+                        items.Add(s.Value);
                     }
                 }
 
@@ -1526,7 +1493,7 @@ public static class ComposeImporter
                 {
                     if (item is ScalarNode s && !string.IsNullOrWhiteSpace(s.Value))
                     {
-                        items.Add(s.Value.Trim());
+                        items.Add(s.Value);
                     }
                 }
 
@@ -1540,8 +1507,7 @@ public static class ComposeImporter
                         continue;
                     }
 
-                    var v = (value as ScalarNode)?.Value ?? string.Empty;
-                    items.Add(string.IsNullOrEmpty(v) ? key : $"{key}={v}");
+                    items.Add(value is NullNode ? key : $"{key}={(value as ScalarNode)?.Value ?? string.Empty}");
                 }
 
                 break;
@@ -1562,7 +1528,7 @@ public static class ComposeImporter
             }
             else
             {
-                labels[raw[..eq].Trim()] = raw[(eq + 1)..].Trim();
+                labels[raw[..eq].Trim()] = raw[(eq + 1)..];
             }
         }
 
@@ -1642,512 +1608,6 @@ public static class ComposeImporter
         }
 
         return sb.ToString();
-    }
-
-    // ----- YAML reader -------------------------------------------------------------------------
-
-    private static MappingNode ParseMapping(List<Line> lines, int start, int end, int indent, Dictionary<string, Node> anchors)
-    {
-        var map = new Dictionary<string, Node>(StringComparer.Ordinal);
-        var i = start;
-        while (i < end)
-        {
-            var line = lines[i];
-            if (line.Indent < indent || (line.Indent == indent && line.Text.StartsWith('-')))
-            {
-                break;
-            }
-
-            if (line.Indent > indent)
-            {
-                i++;
-                continue;
-            }
-
-            var key = KeyOf(line.Text);
-            var inline = ValueOf(line.Text);
-
-            var blockEnd = i + 1;
-            while (blockEnd < end)
-            {
-                var b = lines[blockEnd];
-                var deeper = b.Indent > indent;
-                var sameSeq = b.Indent == indent && b.Text.StartsWith('-');
-                if (!deeper && !sameSeq)
-                {
-                    break;
-                }
-
-                blockEnd++;
-            }
-
-            // A leading &anchor on the value names the node for later *alias / << merge references.
-            var anchorName = StripAnchor(ref inline);
-
-            // Merge key: "<<: *base" (or a flow list of aliases) folds the referenced mapping(s)
-            // into this mapping without overriding keys that are set explicitly.
-            if (key == "<<")
-            {
-                foreach (var merged in ResolveMergeSources(inline, anchors))
-                {
-                    foreach (var (mk, mv) in merged.Map)
-                    {
-                        if (!map.ContainsKey(mk))
-                        {
-                            map[mk] = mv;
-                        }
-                    }
-                }
-
-                i = blockEnd;
-                continue;
-            }
-
-            Node node;
-            if (IsBlockScalar(inline, out var literal))
-            {
-                node = BuildBlockScalar(lines, i + 1, blockEnd, literal);
-            }
-            else if (!string.IsNullOrEmpty(inline))
-            {
-                node = ResolveAlias(inline, anchors) ?? ParseInlineValue(inline);
-            }
-            else if (blockEnd > i + 1)
-            {
-                var first = lines[i + 1];
-                node = first.Text.StartsWith('-')
-                    ? ParseSequence(lines, i + 1, blockEnd, first.Indent, anchors)
-                    : ParseMapping(lines, i + 1, blockEnd, first.Indent, anchors);
-            }
-            else
-            {
-                node = new ScalarNode(string.Empty);
-            }
-
-            if (anchorName is not null)
-            {
-                anchors[anchorName] = node;
-            }
-
-            if (!string.IsNullOrEmpty(key))
-            {
-                map[key] = node;
-            }
-
-            i = blockEnd;
-        }
-
-        return new MappingNode(map);
-    }
-
-    private static SequenceNode ParseSequence(List<Line> lines, int start, int end, int indent, Dictionary<string, Node> anchors)
-    {
-        var items = new List<Node>();
-        var i = start;
-        while (i < end)
-        {
-            var line = lines[i];
-            if (line.Indent != indent || !line.Text.StartsWith('-'))
-            {
-                i++;
-                continue;
-            }
-
-            var afterDash = line.Text[1..].Trim();
-
-            var itemEnd = i + 1;
-            while (itemEnd < end && lines[itemEnd].Indent > indent)
-            {
-                itemEnd++;
-            }
-
-            var itemAnchor = StripAnchor(ref afterDash);
-
-            Node? item = null;
-            if (!string.IsNullOrEmpty(afterDash))
-            {
-                // "- key: value" starts a mapping item (e.g. long-form ports/volumes). Any deeper
-                // continuation lines belong to that same mapping.
-                if (!afterDash.StartsWith('[') && !afterDash.StartsWith('{') && FindKeySeparator(afterDash) >= 0)
-                {
-                    var sub = new List<Line> { new Line(indent + 2, afterDash) };
-                    for (var k = i + 1; k < itemEnd; k++)
-                    {
-                        sub.Add(lines[k]);
-                    }
-
-                    item = ParseMapping(sub, 0, sub.Count, indent + 2, anchors);
-                }
-                else
-                {
-                    // Scalar / alias / inline flow list item ("80:80", "db", "*ref", "[a, b]").
-                    item = ResolveAlias(afterDash, anchors) ?? ParseInlineValue(afterDash);
-                }
-            }
-            else if (itemEnd > i + 1)
-            {
-                var first = lines[i + 1];
-                item = first.Text.StartsWith('-')
-                    ? ParseSequence(lines, i + 1, itemEnd, first.Indent, anchors)
-                    : ParseMapping(lines, i + 1, itemEnd, first.Indent, anchors);
-            }
-
-            if (item is not null)
-            {
-                if (itemAnchor is not null)
-                {
-                    anchors[itemAnchor] = item;
-                }
-
-                items.Add(item);
-            }
-
-            i = itemEnd;
-        }
-
-        return new SequenceNode(items);
-    }
-
-    /// <summary>
-    /// If <paramref name="value"/> begins with a YAML anchor (<c>&amp;name</c>), removes it and returns
-    /// the anchor name; otherwise returns null and leaves the value unchanged.
-    /// </summary>
-    private static string? StripAnchor(ref string value)
-    {
-        if (string.IsNullOrEmpty(value) || value[0] != '&')
-        {
-            return null;
-        }
-
-        var end = 1;
-        while (end < value.Length && !char.IsWhiteSpace(value[end]))
-        {
-            end++;
-        }
-
-        var name = value[1..end];
-        value = value[end..].Trim();
-        return string.IsNullOrEmpty(name) ? null : name;
-    }
-
-    /// <summary>Resolves a <c>*alias</c> reference to its anchored node, or null if not an alias.</summary>
-    private static Node? ResolveAlias(string value, Dictionary<string, Node> anchors)
-    {
-        var v = value.Trim();
-        if (v.Length < 2 || v[0] != '*')
-        {
-            return null;
-        }
-
-        var name = v[1..].Trim();
-        return anchors.TryGetValue(name, out var node) ? node : new ScalarNode(string.Empty);
-    }
-
-    /// <summary>Resolves the mapping source(s) referenced by a merge key value (<c>*base</c> or <c>[*a, *b]</c>).</summary>
-    private static IEnumerable<MappingNode> ResolveMergeSources(string inline, Dictionary<string, Node> anchors)
-    {
-        var v = inline.Trim();
-        if (v.StartsWith('[') && v.EndsWith(']'))
-        {
-            foreach (var part in SplitFlow(v[1..^1]))
-            {
-                if (ResolveAlias(part.Trim(), anchors) is MappingNode m)
-                {
-                    yield return m;
-                }
-            }
-        }
-        else if (ResolveAlias(v, anchors) is MappingNode single)
-        {
-            yield return single;
-        }
-    }
-
-    /// <summary>True when a mapping value is a block scalar indicator (<c>|</c>, <c>&gt;</c> and chomping variants).</summary>
-    private static bool IsBlockScalar(string inline, out bool literal)
-    {
-        literal = false;
-        var v = inline.Trim();
-        if (v.Length == 0 || (v[0] != '|' && v[0] != '>'))
-        {
-            return false;
-        }
-
-        // The remainder may only be chomping/indentation indicators (-, +, digits).
-        for (var i = 1; i < v.Length; i++)
-        {
-            if (v[i] is not ('-' or '+') && !char.IsDigit(v[i]))
-            {
-                return false;
-            }
-        }
-
-        literal = v[0] == '|';
-        return true;
-    }
-
-    /// <summary>
-    /// Builds a block scalar from the deeper lines that follow. Literal (<c>|</c>) blocks join with
-    /// newlines; folded (<c>&gt;</c>) blocks join with spaces. Best-effort: blank lines are not preserved.
-    /// </summary>
-    private static ScalarNode BuildBlockScalar(List<Line> lines, int start, int end, bool literal)
-    {
-        var parts = new List<string>();
-        for (var i = start; i < end; i++)
-        {
-            parts.Add(lines[i].Text);
-        }
-
-        return new ScalarNode(string.Join(literal ? "\n" : " ", parts).Trim());
-    }
-
-    /// <summary>Parses an inline value: a flow sequence (<c>[a, b]</c>) or a plain scalar.</summary>
-    private static Node ParseInlineValue(string inline)
-    {
-        var trimmed = inline.Trim();
-        if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
-        {
-            var items = new List<Node>();
-            foreach (var part in SplitFlow(trimmed[1..^1]))
-            {
-                var value = Unquote(part.Trim());
-                if (!string.IsNullOrEmpty(value))
-                {
-                    items.Add(new ScalarNode(value));
-                }
-            }
-
-            return new SequenceNode(items);
-        }
-
-        return new ScalarNode(Unquote(trimmed));
-    }
-
-    /// <summary>Splits a flow-list body on commas that are not inside quotes.</summary>
-    private static IEnumerable<string> SplitFlow(string body)
-    {
-        var current = new StringBuilder();
-        var inSingle = false;
-        var inDouble = false;
-        foreach (var c in body)
-        {
-            if (c == '\'' && !inDouble)
-            {
-                inSingle = !inSingle;
-            }
-            else if (c == '"' && !inSingle)
-            {
-                inDouble = !inDouble;
-            }
-
-            if (c == ',' && !inSingle && !inDouble)
-            {
-                yield return current.ToString();
-                current.Clear();
-                continue;
-            }
-
-            current.Append(c);
-        }
-
-        if (current.Length > 0)
-        {
-            yield return current.ToString();
-        }
-    }
-
-    private static List<Line> Tokenize(string yaml, IReadOnlyDictionary<string, string>? environment)
-    {
-        var result = new List<Line>();
-        if (string.IsNullOrEmpty(yaml))
-        {
-            return result;
-        }
-
-        // Normalize every line-ending style to '\n' before splitting. In particular WinUI's TextBox
-        // returns multi-line text with bare '\r' separators, which would otherwise collapse the whole
-        // document into a single line and break parsing.
-        foreach (var raw in yaml.Replace("\r\n", "\n").Replace('\r', '\n').Replace('\t', ' ').Split('\n'))
-        {
-            var withoutComment = StripComment(raw);
-            if (string.IsNullOrWhiteSpace(withoutComment))
-            {
-                continue;
-            }
-
-            var indent = 0;
-            while (indent < withoutComment.Length && withoutComment[indent] == ' ')
-            {
-                indent++;
-            }
-
-            var text = Interpolate(withoutComment.Trim(), environment);
-            result.Add(new Line(indent, text));
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Applies compose-style variable interpolation: <c>$VAR</c>, <c>${VAR}</c>, and
-    /// <c>${VAR:-default}</c> / <c>${VAR-default}</c>. Values resolve from the supplied
-    /// environment, then process environment variables, then the inline default, then empty.
-    /// </summary>
-    private static string Interpolate(string text, IReadOnlyDictionary<string, string>? environment)
-    {
-        if (text.IndexOf('$') < 0)
-        {
-            return text;
-        }
-
-        var sb = new StringBuilder(text.Length);
-        for (var i = 0; i < text.Length; i++)
-        {
-            var c = text[i];
-            if (c != '$')
-            {
-                sb.Append(c);
-                continue;
-            }
-
-            // "$$" is an escaped literal dollar sign.
-            if (i + 1 < text.Length && text[i + 1] == '$')
-            {
-                sb.Append('$');
-                i++;
-                continue;
-            }
-
-            if (i + 1 < text.Length && text[i + 1] == '{')
-            {
-                var close = text.IndexOf('}', i + 2);
-                if (close > 0)
-                {
-                    var expr = text[(i + 2)..close];
-                    sb.Append(ResolveVariable(expr, environment));
-                    i = close;
-                    continue;
-                }
-            }
-
-            // Bare $NAME form.
-            var j = i + 1;
-            while (j < text.Length && (char.IsLetterOrDigit(text[j]) || text[j] == '_'))
-            {
-                j++;
-            }
-
-            if (j > i + 1)
-            {
-                sb.Append(ResolveVariable(text[(i + 1)..j], environment));
-                i = j - 1;
-                continue;
-            }
-
-            sb.Append(c);
-        }
-
-        return sb.ToString();
-    }
-
-    private static string ResolveVariable(string expr, IReadOnlyDictionary<string, string>? environment)
-    {
-        string name = expr;
-        string? fallback = null;
-
-        // Support ${VAR:-default} and ${VAR-default}.
-        var sep = expr.IndexOf(":-", StringComparison.Ordinal);
-        if (sep >= 0)
-        {
-            name = expr[..sep];
-            fallback = expr[(sep + 2)..];
-        }
-        else if ((sep = expr.IndexOf('-')) > 0)
-        {
-            name = expr[..sep];
-            fallback = expr[(sep + 1)..];
-        }
-
-        name = name.Trim();
-
-        if (environment is not null && environment.TryGetValue(name, out var fromEnv) && !string.IsNullOrEmpty(fromEnv))
-        {
-            return fromEnv;
-        }
-
-        var fromProcess = Environment.GetEnvironmentVariable(name);
-        if (!string.IsNullOrEmpty(fromProcess))
-        {
-            return fromProcess;
-        }
-
-        return fallback ?? string.Empty;
-    }
-
-    /// <summary>Removes a trailing <c>#</c> comment that is not inside quotes.</summary>
-    private static string StripComment(string line)
-    {
-        var inSingle = false;
-        var inDouble = false;
-        for (var i = 0; i < line.Length; i++)
-        {
-            var c = line[i];
-            if (c == '\'' && !inDouble)
-            {
-                inSingle = !inSingle;
-            }
-            else if (c == '"' && !inSingle)
-            {
-                inDouble = !inDouble;
-            }
-            else if (c == '#' && !inSingle && !inDouble && (i == 0 || line[i - 1] == ' '))
-            {
-                return line[..i];
-            }
-        }
-
-        return line;
-    }
-
-    private static string KeyOf(string text)
-    {
-        var colon = FindKeySeparator(text);
-        var key = colon < 0 ? text : text[..colon];
-        return Unquote(key.Trim());
-    }
-
-    private static string ValueOf(string text)
-    {
-        var colon = FindKeySeparator(text);
-        return colon < 0 || colon == text.Length - 1 ? string.Empty : text[(colon + 1)..].Trim();
-    }
-
-    /// <summary>
-    /// Finds the ':' that separates a mapping key from its value, ignoring colons inside quotes and
-    /// requiring the ':' to be followed by whitespace or end-of-line (so "80:80" is not split).
-    /// </summary>
-    private static int FindKeySeparator(string text)
-    {
-        var inSingle = false;
-        var inDouble = false;
-        for (var i = 0; i < text.Length; i++)
-        {
-            var c = text[i];
-            if (c == '\'' && !inDouble)
-            {
-                inSingle = !inSingle;
-            }
-            else if (c == '"' && !inSingle)
-            {
-                inDouble = !inDouble;
-            }
-            else if (c == ':' && !inSingle && !inDouble && (i == text.Length - 1 || text[i + 1] == ' '))
-            {
-                return i;
-            }
-        }
-
-        return -1;
     }
 
     private static string Unquote(string value)

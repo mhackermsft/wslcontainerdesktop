@@ -1,0 +1,27 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T16:57:04.0980513+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.yaml": "f2462170afaf60460ca7ed735a1672b31ce963f677f43d312ed3bd05da86226b",
+    "expectations.json": "09b2e31b31d2e3851bf1c8a8c4c6488fff04041e4b0d6c023a454430955a2959"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 1,
+  "stderr": "error while interpolating services.web.environment.UNUSED: required variable WCD_MISSING is missing a value: unused synthetic secret\n",
+  "config": null
+}

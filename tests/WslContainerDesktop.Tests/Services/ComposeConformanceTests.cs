@@ -37,7 +37,7 @@ public sealed class ComposeConformanceTests
     {
         var source = Path.Combine(Corpus, id);
         var expected = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(source, "expectations.json")))!.AsObject();
-        var directory = Path.Combine(Path.GetTempPath(), "wslcd-compose-conformance-" + Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(AppContext.BaseDirectory, "wslcd-compose-conformance-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
@@ -87,6 +87,16 @@ public sealed class ComposeConformanceTests
             }
             Assert.True(process.ExitCode == 0, $"{id}/compose.yaml: worker failed: {await error}");
             var actual = JsonNode.Parse(await output)!;
+            if (expected["appError"] is JsonArray errorParts)
+            {
+                Assert.NotNull(actual["error"]);
+                foreach (var part in errorParts)
+                    Assert.Contains(part!.GetValue<string>(), actual["error"]!.GetValue<string>());
+                foreach (var secret in expected["forbiddenDiagnostics"]?.AsArray() ?? [])
+                    Assert.DoesNotContain(secret!.GetValue<string>(), actual["error"]!.GetValue<string>());
+            }
+            else
+                Assert.Null(actual["error"]);
             var checks = expected["checks"]!.AsObject();
             var divergences = expected["divergences"]!.AsObject();
             Assert.True(checks.ContainsKey("/serviceNames"), $"{id}: service inventory must be asserted.");
@@ -185,7 +195,7 @@ public sealed class ComposeConformanceTests
         foreach (var id in cases)
         {
             var expectations = JsonNode.Parse(File.ReadAllText(Path.Combine(Corpus, id, "expectations.json")))!;
-            if (expectations["referenceError"] is not null)
+            if (expectations["referenceError"] is not null && expectations["appError"] is null)
                 Assert.False(string.IsNullOrWhiteSpace(expectations["diagnosticLimitation"]?.GetValue<string>()),
                     $"{id}: a reference rejection must document the app's diagnostic gap.");
         }
@@ -206,7 +216,7 @@ public sealed class ComposeConformanceTests
     public void ReferenceProjectionNormalizesOnlyDocumentedRepresentations()
     {
         var config = JsonNode.Parse("""
-            {"services":{"web":{"image":"fixture:1","command":["echo","two words"],"environment":{"LITERAL":"$$VAR","BARE":"$VAR"},
+            {"services":{"web":{"image":"fixture:1","command":["echo","two words"],"environment":{"LITERAL":"$$VAR","BARE":"$VAR","$${KEY}":"literal"},
             "ports":[{"host_ip":"127.0.0.1","published":"8080","target":80,"protocol":"tcp"}],
             "volumes":[{"type":"volume","source":"data","target":"/data","read_only":true}],
             "depends_on":{"db":{"condition":"service_healthy","required":true}}}}}
@@ -214,10 +224,20 @@ public sealed class ComposeConformanceTests
         var projection = ComposeConformanceProjection.FromReference(config);
         Assert.Equal("$VAR", projection["services"]!["web"]!["environment"]!["LITERAL"]!.GetValue<string>());
         Assert.Equal("$VAR", projection["services"]!["web"]!["environment"]!["BARE"]!.GetValue<string>());
+        Assert.Equal("literal", projection["services"]!["web"]!["environment"]!["${KEY}"]!.GetValue<string>());
         Assert.Equal("127.0.0.1:8080:80", projection["services"]!["web"]!["ports"]![0]!.GetValue<string>());
         Assert.Equal("data:/data:ro", projection["services"]!["web"]!["volumes"]![0]!.GetValue<string>());
         Assert.Equal("echo \"two words\"", projection["services"]!["web"]!["command"]!.GetValue<string>());
         Assert.Equal("service_healthy", projection["services"]!["web"]!["depends_on"]!["db"]!.GetValue<string>());
         Assert.IsType<JsonObject>(config["services"]!["web"]!["ports"]![0]);
+    }
+
+    [Fact]
+    public void ReferenceOmittedMountListRepresentsResetWithoutMaskingOtherMissingKeys()
+    {
+        var projection = ComposeConformanceProjection.FromReference(
+            JsonNode.Parse("""{"services":{"web":{"image":"fixture:1"}}}""")!.AsObject());
+        Assert.Empty(ComposeConformanceProjection.At(projection, "/services/web/volumes")!.AsArray());
+        Assert.Throws<InvalidDataException>(() => ComposeConformanceProjection.At(projection, "/services/web/command"));
     }
 }

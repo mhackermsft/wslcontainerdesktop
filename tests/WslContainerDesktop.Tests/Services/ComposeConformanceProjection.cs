@@ -32,6 +32,9 @@ internal static class ComposeConformanceProjection
             {
                 ["image"] = options.Image,
                 ["command"] = options.Command,
+                ["entrypoint"] = options.Entrypoint,
+                ["secrets"] = JsonSerializer.SerializeToNode(service.Secrets.Select(s => new { source = s.Source, target = s.Target })),
+                ["configs"] = JsonSerializer.SerializeToNode(service.Configs.Select(s => new { source = s.Source, target = s.Target })),
                 ["environment"] = JsonSerializer.SerializeToNode(options.EnvironmentVariables
                     .Select(v => v.Split('=', 2)).ToDictionary(v => v[0], v => v.Length == 2 ? v[1] : null)),
                 ["labels"] = JsonSerializer.SerializeToNode(options.Labels),
@@ -82,9 +85,13 @@ internal static class ComposeConformanceProjection
             // Compose config re-escapes literal dollars for a reloadable document. Compare
             // container environment values, not that serialization escape (never expand $VAR).
             if (service["environment"] is JsonObject environment)
-                foreach (var key in environment.Select(e => e.Key).ToArray())
-                    if (environment[key] is JsonValue value && value.TryGetValue<string>(out var text))
-                        environment[key] = text.Replace("$$", "$", StringComparison.Ordinal);
+                service["environment"] = new JsonObject(environment.Select(e => KeyValuePair.Create(
+                    e.Key.Replace("$$", "$", StringComparison.Ordinal),
+                    e.Value is JsonValue value && value.TryGetValue<string>(out var text)
+                        ? (JsonNode?)JsonValue.Create(text.Replace("$$", "$", StringComparison.Ordinal))
+                        : e.Value?.DeepClone())));
+            // Config omits empty mounts after !reset; the app persists an empty mount list.
+            if (!service.ContainsKey("volumes")) service["volumes"] = new JsonArray();
             if (service["ports"] is JsonArray ports)
                 service["ports"] = JsonSerializer.SerializeToNode(ports.Select(p =>
                     (p!["host_ip"] is { } ip ? ip.GetValue<string>() + ":" : "") +
@@ -97,11 +104,21 @@ internal static class ComposeConformanceProjection
             if (service["depends_on"] is JsonObject dependencies)
                 service["depends_on"] = new JsonObject(dependencies.Select(d =>
                     KeyValuePair.Create(d.Key, d.Value!["condition"]?.DeepClone())));
-            if (service["command"] is JsonArray command)
-                service["command"] = string.Join(' ', command.Select(c =>
+            foreach (var field in new[] { "command", "entrypoint" })
+            if (service[field] is JsonArray command)
+                service[field] = string.Join(' ', command.Select(c =>
                 {
                     var token = c!.GetValue<string>();
                     return token.Any(char.IsWhiteSpace) ? "\"" + token.Replace("\"", "\\\"") + "\"" : token;
+                }));
+            foreach (var field in new[] { "secrets", "configs" })
+            if (service[field] is JsonArray files)
+                service[field] = JsonSerializer.SerializeToNode(files.Select(f =>
+                {
+                    var source = f!["source"]!.GetValue<string>();
+                    var target = f["target"]?.GetValue<string>() ?? source;
+                    if (!target.StartsWith('/')) target = (field == "secrets" ? "/run/secrets/" : "/") + target;
+                    return new { source, target };
                 }));
         }
         return result;

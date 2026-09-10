@@ -731,7 +731,11 @@ public partial class TemplatesViewModel : ObservableObject
         StatusMessage = $"Launching {template.Name}… pulling images and starting services, this can take a moment.";
         try
         {
-            await _compose.ImportAndUpAsync(yaml, suggestedName: name);
+            if (!await _compose.ImportAndUpAsync(yaml, suggestedName: name))
+            {
+                StatusMessage = "Compose configuration was not imported.";
+                return;
+            }
             var note = string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note}";
             StatusMessage = $"{template.Name} launched{note}. See it in the Containers view.";
             _monitor.RequestRefresh();
@@ -756,21 +760,24 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        // Remember the edited YAML/name so the next Launch reuses them.
-        _configs.Save(new TemplateConfig
-        {
-            TemplateId = template.Id,
-            ComposeYaml = dialog.Yaml,
-            ComposeProjectName = string.IsNullOrWhiteSpace(dialog.ProjectName) ? null : dialog.ProjectName,
-        });
-
         IsBusy = true;
         StatusMessage = $"Launching {template.Name}…";
         try
         {
-            await _compose.ImportAndUpAsync(
+            if (!await _compose.ImportAndUpAsync(
                 dialog.Yaml,
-                suggestedName: string.IsNullOrWhiteSpace(dialog.ProjectName) ? template.ComposeProjectName : dialog.ProjectName);
+                suggestedName: string.IsNullOrWhiteSpace(dialog.ProjectName) ? template.ComposeProjectName : dialog.ProjectName))
+            {
+                StatusMessage = "Compose configuration was not imported; saved settings were not changed.";
+                return;
+            }
+            // Do not persist edited YAML until configuration validation has succeeded.
+            _configs.Save(new TemplateConfig
+            {
+                TemplateId = template.Id,
+                ComposeYaml = dialog.Yaml,
+                ComposeProjectName = string.IsNullOrWhiteSpace(dialog.ProjectName) ? null : dialog.ProjectName,
+            });
             StatusMessage = $"{template.Name} launched";
         }
         finally

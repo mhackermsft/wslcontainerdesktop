@@ -1,0 +1,11 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:1
+    command: [echo, base]
+    entrypoint: [sh]
+    ports: ["8080:80", "9090:90"]
+    volumes: ["data:/data"]
+    environment: {KEEP: base, REMOVE: base}
+    healthcheck: {test: [CMD, old], interval: 30s}
+    labels: {old: old}

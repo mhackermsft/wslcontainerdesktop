@@ -1,0 +1,9 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    image: example.invalid/conformance:1
+    environment:
+      OPTIONAL: ${WCD_MISSING}
+      EMPTY: ${WCD_EMPTY}
+      DEFAULT: ${WCD_MISSING:-fallback}
+      UNUSED: ${WCD_SET:-$WCD_UNSET_BRANCH}

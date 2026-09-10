@@ -1,0 +1,4 @@
+# Synthetic GPL-3.0-or-later fixture.
+services:
+  web:
+    environment: {REQUIRED: would-hide-the-error}

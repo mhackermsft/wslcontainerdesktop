@@ -1,0 +1,16 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/command": "",
+    "/services/web/entrypoint": null,
+    "/services/web/ports": ["8443:443"],
+    "/services/web/volumes": [],
+    "/services/web/environment": {"KEEP":"base","EMPTY":""},
+    "/services/web/labels": {"new":"new"},
+    "/services/web/healthcheck/test": ["CMD","new"],
+    "/services/web/healthcheck/interval": "30s"
+  },
+  "divergences": {},
+  "warnings": []
+}

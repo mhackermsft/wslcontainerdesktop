@@ -1,0 +1,61 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T16:57:03.9795355+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    ".env": "c073b13c83d516b9fbb8644e3bcc7cb92e90cf7c20406479bfc04a5f928112f7",
+    "compose.yaml": "58f51ab33b5f52d7afcc6e7a64dd80330e25e0a0809ac22eae41811f4f2a9e33",
+    "expectations.json": "68f48a1ffd743950bc30f92c11ab31f5b15d136c6de1f946f437cda88b8024ab"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 0,
+  "stderr": "",
+  "config": {
+    "name": "wcd-conformance",
+    "networks": {
+      "default": {
+        "name": "wcd-conformance_default",
+        "ipam": {}
+      }
+    },
+    "services": {
+      "web": {
+        "command": null,
+        "entrypoint": null,
+        "environment": {
+          "$${WCD_SET}": "literal-key",
+          "ALTERNATIVE": "default",
+          "EMPTY": "",
+          "EMPTY_COLON_PLUS": "",
+          "EMPTY_PLUS": "yes",
+          "ESCAPED": "$${WCD_SET}",
+          "FROM_DOTENV": "dotenv",
+          "FROM_PROCESS": "process",
+          "NESTED": "nested",
+          "STRUCTURAL": "private: [not yaml] # data"
+        },
+        "image": "example.invalid/conformance:1",
+        "labels": {
+          "process": "expanded-key"
+        },
+        "networks": {
+          "default": null
+        }
+      }
+    }
+  }
+}

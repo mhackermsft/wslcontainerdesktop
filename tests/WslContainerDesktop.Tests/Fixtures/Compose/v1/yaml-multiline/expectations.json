@@ -1,0 +1,14 @@
+{
+  "environment": {},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/command":"echo \"two words\"",
+    "/services/web/environment": {
+      "KEEP":"one","WINNER":"explicit","OTHER":"two","SINGLE":"it's # literal",
+      "DOUBLE":"quote=\" slash=\\ unicode=☺","LITERAL":"first\n\nsecond\n\n",
+      "FOLDED":"first continued\nparagraph\n  indented\nend"
+    }
+  },
+  "divergences": {},
+  "warnings": []
+}

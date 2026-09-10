@@ -1,0 +1,181 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T16:57:04.9058891+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.override.yaml": "f481dae8565c5dac341e98b21f26db6bb3d197769200919ea9b02c0a8596ef9f",
+    "compose.yaml": "eae2399dbb077423eb1264064fbddbed1f0bf2a18c33903cb65fdf5467d5eb8e",
+    "expectations.json": "944a3319e9a33c5b9f931315c85d5dacfd8418a5ea835bc46ab56bed5a928c13"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "-f",
+    "compose.override.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 0,
+  "stderr": "",
+  "config": {
+    "configs": {
+      "new": {
+        "name": "new",
+        "external": true
+      },
+      "settings": {
+        "name": "settings",
+        "external": true
+      }
+    },
+    "name": "wcd-conformance",
+    "networks": {
+      "default": {
+        "name": "wcd-conformance_default",
+        "ipam": {}
+      }
+    },
+    "secrets": {
+      "new": {
+        "name": "new",
+        "external": true
+      },
+      "token": {
+        "name": "token",
+        "external": true
+      }
+    },
+    "services": {
+      "web": {
+        "command": [
+          "echo",
+          "override"
+        ],
+        "configs": [
+          {
+            "source": "settings"
+          },
+          {
+            "source": "new",
+            "target": "/shared"
+          }
+        ],
+        "dns": [
+          "192.0.2.1",
+          "192.0.2.2"
+        ],
+        "entrypoint": [
+          "bash"
+        ],
+        "environment": {
+          "EMPTY": "",
+          "KEEP": "base",
+          "UNSET": null,
+          "WINNER": "override"
+        },
+        "healthcheck": {
+          "test": [
+            "CMD-SHELL",
+            "echo ready"
+          ],
+          "timeout": "5s",
+          "interval": "30s"
+        },
+        "image": "example.invalid/conformance:1",
+        "labels": {
+          "added": "last",
+          "keep": "base",
+          "winner": "override"
+        },
+        "networks": {
+          "default": null
+        },
+        "ports": [
+          {
+            "mode": "ingress",
+            "host_ip": "127.0.0.1",
+            "target": 80,
+            "published": "8080",
+            "protocol": "tcp"
+          },
+          {
+            "mode": "ingress",
+            "target": 90,
+            "published": "9090",
+            "protocol": "tcp"
+          },
+          {
+            "mode": "ingress",
+            "host_ip": "127.0.0.1",
+            "target": 80,
+            "published": "8080",
+            "protocol": "tcp"
+          },
+          {
+            "mode": "ingress",
+            "host_ip": "127.0.0.2",
+            "target": 80,
+            "published": "8080",
+            "protocol": "tcp"
+          },
+          {
+            "mode": "ingress",
+            "host_ip": "127.0.0.1",
+            "target": 80,
+            "published": "8080",
+            "protocol": "udp"
+          }
+        ],
+        "secrets": [
+          {
+            "source": "token",
+            "target": "/run/secrets/token"
+          },
+          {
+            "source": "new",
+            "target": "shared"
+          }
+        ],
+        "volumes": [
+          {
+            "type": "volume",
+            "source": "new",
+            "target": "/data"
+          },
+          {
+            "type": "volume",
+            "source": "keep",
+            "target": "/keep",
+            "volume": {}
+          },
+          {
+            "type": "volume",
+            "source": "last",
+            "target": "/last",
+            "volume": {}
+          }
+        ]
+      }
+    },
+    "volumes": {
+      "keep": {
+        "name": "wcd-conformance_keep"
+      },
+      "last": {
+        "name": "wcd-conformance_last"
+      },
+      "new": {
+        "name": "wcd-conformance_new"
+      }
+    }
+  }
+}
