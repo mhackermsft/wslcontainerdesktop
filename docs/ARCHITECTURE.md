@@ -363,7 +363,7 @@ against their owning project/source folder. Included projects have child `.env` 
 the parent's interpolation snapshot; an explicit include `project_directory` and include
 `env_file` paths resolve against the parent project. During import the parser also **collects warnings** for any compose keys it does
 not honor (e.g. `privileged`, `cap_add`, `logging`, unknown top-level keys) plus partially-supported
-features (`deploy.replicas` scaling); these are shown in a confirmation dialog
+features (Swarm deployment settings); these are shown in a confirmation dialog
 so the user can cancel or import anyway before the project is saved. `x-` extension keys and
 recognized-but-cosmetic keys (`version`) are never flagged.
 Interpolation precedence is explicit importer entries > process environment > sibling `.env`;
@@ -419,7 +419,8 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 | `restart:` (`no`/`always`/`on-failure`/`unless-stopped`) | **Supported (best-effort)** while the app runs; restart backoff timing is not byte-for-byte identical to Docker |
 | Project and targeted lifecycle, re-adoption | **Supported subset** — shared explainable plans, selective recreation, applied snapshots, preserved storage; restart is distinct from apply. See [intentional differences](COMPOSE-RECONCILIATION.md) |
 | `cap_add`/`cap_drop`, arbitrary `devices`, `sysctls`, `privileged`, rootfs `read_only`, `init`, `pid`/`ipc`, `mac_address`, `logging` drivers | **Not supported** — not advertised in current CLI help; GPU and read-only mount support are separate |
-| `deploy.replicas` / scaling, Swarm `deploy` | **Not implemented** — no native Compose/scaling command; local scaling does not inherently require a daemon |
+| `scale` / `deploy.replicas` | **Local supported subset** — persisted operator overrides, stable per-instance ownership and shared reconciliation; unchanged instances retained. See [local scaling](COMPOSE-SCALING.md) for preflight, readiness and failure semantics |
+| Swarm `deploy` | **Not implemented** — no scheduling, placement, replicated jobs, rolling updates or service VIP; only local `mode: replicated` accepted |
 | Always-on restart after the app closes | **Not supported** — restart/auto-heal remain app-owned; no advertised native `--restart` |
 
 #### Native and app-owned health

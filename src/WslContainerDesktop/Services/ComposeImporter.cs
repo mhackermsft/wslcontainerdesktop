@@ -198,7 +198,7 @@ public static partial class ComposeImporter
         "ports", "volumes", "environment", "labels", "env_file", "build", "pull_policy", "restart",
         "depends_on", "profiles", "stop_grace_period", "secrets", "configs", "healthcheck",
         "extra_hosts", "networks", "network_mode", "tmpfs", "dns", "dns_search", "dns_opt", "ulimits",
-        "shm_size", "stop_signal", "domainname", "cpus", "mem_limit", "deploy", "extends",
+        "shm_size", "stop_signal", "domainname", "cpus", "mem_limit", "deploy", "extends", "scale",
     };
 
     // Top-level keys the parser understands. Anything else (except `x-` extensions) is reported.
@@ -209,7 +209,7 @@ public static partial class ComposeImporter
 
     /// <summary>
     /// Adds a warning for every service key the parser does not honor, plus targeted notes for
-    /// partially-supported features (multi-network attach, <c>deploy.replicas</c> scaling), so the
+    /// partially-supported features (multi-network attach and Swarm deploy settings), so the
     /// user knows what was dropped before bringing the project up.
     /// </summary>
     private static void CollectServiceWarnings(
@@ -251,12 +251,11 @@ public static partial class ComposeImporter
 
         if (svc.Child("deploy") is MappingNode deploy)
         {
-            var replicas = deploy.Scalar("replicas");
-            if (!string.IsNullOrWhiteSpace(replicas) && replicas.Trim() != "1")
+            foreach (var key in deploy.Map.Keys.Where(key =>
+                key is not "replicas" and not "mode" and not "resources" &&
+                !key.StartsWith("x-", StringComparison.Ordinal)))
             {
-                warnings.Add(
-                    $"Service '{name}': 'deploy.replicas: {replicas.Trim()}' is not supported; " +
-                    "a single instance is started.");
+                warnings.Add($"Service '{name}': 'deploy.{key}' is not supported and was ignored; local scaling does not implement Swarm.");
             }
         }
 
@@ -390,6 +389,7 @@ public static partial class ComposeImporter
         {
             Name = serviceName,
             Options = options,
+            Replicas = ParseReplicas(svc),
             Restart = ParseRestart(svc.Scalar("restart")),
             DependsOn = ParseDependsOn(svc.Child("depends_on")),
             Build = build,
@@ -418,6 +418,30 @@ public static partial class ComposeImporter
         }
 
         return service;
+    }
+
+    private static int ParseReplicas(MappingNode svc)
+    {
+        var deploy = svc.Child("deploy") as MappingNode;
+        if (deploy?.Child("mode") is { } mode &&
+            (mode is not ScalarNode modeScalar || modeScalar.Value != "replicated"))
+            throw ShapeError("deploy.mode", "replicated (Swarm global and job modes are not supported)");
+
+        static int? Count(Node? node, string field)
+        {
+            if (node is null) return null;
+            if (node is not ScalarNode scalar ||
+                !int.TryParse(scalar.Value, System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var count))
+                throw ShapeError(field, "a nonnegative 32-bit integer");
+            return count;
+        }
+
+        var scale = Count(svc.Child("scale"), "scale");
+        var replicas = Count(deploy?.Child("replicas"), "deploy.replicas");
+        if (scale.HasValue && replicas.HasValue && scale != replicas)
+            throw ShapeError("scale", "the same value as deploy.replicas when both are specified");
+        return scale ?? replicas ?? 1;
     }
 
     /// <summary>

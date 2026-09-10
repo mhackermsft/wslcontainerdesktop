@@ -18,6 +18,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Dialogs;
 
@@ -29,6 +30,12 @@ public sealed class ComposeServicesDialog : ContentDialog
     private readonly CheckBox _rebuild;
     private readonly TextBlock _description;
     private readonly InfoBar _validation;
+    private readonly ComposeProject _project;
+    private readonly StackPanel _replicas;
+    private readonly CheckBox _saveReplicas;
+    private readonly Dictionary<string, NumberBox> _replicaInputs = new(StringComparer.Ordinal);
+
+    public bool SaveReplicaOverrides => Operation == ComposeLifecycleOperation.Up && _saveReplicas.IsChecked == true;
 
     private ComposeLifecycleOperation Operation => _operation.SelectedIndex switch
     {
@@ -52,10 +59,14 @@ public sealed class ComposeServicesDialog : ContentDialog
         Services = _services.SelectedItems.Cast<string>().ToArray(),
         Build = Operation == ComposeLifecycleOperation.Up && _rebuild.IsChecked == true,
         ForceRecreate = false,
+        Replicas = Operation == ComposeLifecycleOperation.Up
+            ? _replicaInputs.ToDictionary(p => p.Key, p => checked((int)p.Value.Value), StringComparer.Ordinal)
+            : new Dictionary<string, int>(),
     };
 
     public ComposeServicesDialog(ComposeProject project)
     {
+        _project = project;
         Title = $"Manage services: {project.Name}";
         CloseButtonText = "Cancel";
         DefaultButton = ContentDialogButton.Close;
@@ -82,6 +93,9 @@ public sealed class ComposeServicesDialog : ContentDialog
 
         _rebuild = new CheckBox { Content = "Rebuild images when applying", IsChecked = false };
         AutomationProperties.SetAutomationId(_rebuild, "ComposeServiceRebuild");
+        _replicas = new StackPanel { Spacing = 8 };
+        _saveReplicas = new CheckBox { Content = "Save these replica counts for future applies", IsChecked = true };
+        AutomationProperties.SetAutomationId(_saveReplicas, "ComposeSaveReplicaOverrides");
         _description = new TextBlock { TextWrapping = TextWrapping.Wrap };
         AutomationProperties.SetAutomationId(_description, "ComposeServiceScope");
         _validation = new InfoBar
@@ -101,6 +115,8 @@ public sealed class ComposeServicesDialog : ContentDialog
                 _services,
                 _operation,
                 _description,
+                new ScrollViewer { Content = _replicas, MaxHeight = 180 },
+                _saveReplicas,
                 _rebuild,
                 _validation,
             },
@@ -116,6 +132,8 @@ public sealed class ComposeServicesDialog : ContentDialog
     {
         PrimaryButtonText = OperationLabel;
         _rebuild.IsEnabled = Operation == ComposeLifecycleOperation.Up;
+        _replicas.Visibility = Operation == ComposeLifecycleOperation.Up ? Visibility.Visible : Visibility.Collapsed;
+        _saveReplicas.Visibility = _replicas.Visibility;
         if (!_rebuild.IsEnabled)
         {
             _rebuild.IsChecked = false;
@@ -135,7 +153,10 @@ public sealed class ComposeServicesDialog : ContentDialog
             _ =>
                 "Apply configuration to the selected services and their required dependency closure. " +
                 "Unchanged running containers are kept; stopped containers are started and changed containers " +
-                "may be recreated. Rebuild is explicit and applies only to Apply (up).",
+                "may be recreated. Replicas are local instances, not a Swarm deployment. Zero removes all selected " +
+                "instances. Named volumes and bind mounts are shared; anonymous volumes belong to each instance " +
+                "and are preserved on recreation. Scaling down does not delete volumes. " +
+                $"A local operation plans at most {ComposeReconciliationPlanner.MaximumPlanInstances} total instances.",
         };
     }
 
@@ -144,6 +165,30 @@ public sealed class ComposeServicesDialog : ContentDialog
 
     private void OnServicesChanged(object sender, SelectionChangedEventArgs args)
     {
+        var selected = _services.SelectedItems.Cast<string>().ToHashSet(StringComparer.Ordinal);
+        foreach (var removed in _replicaInputs.Keys.Where(name => !selected.Contains(name)).ToArray())
+        {
+            _replicas.Children.Remove(_replicaInputs[removed]);
+            _replicaInputs.Remove(removed);
+        }
+        foreach (var name in selected.Where(name => !_replicaInputs.ContainsKey(name)))
+        {
+            var service = _project.Services.Single(s => s.Name == name);
+            var input = new NumberBox
+            {
+                Header = $"{name} — desired replicas",
+                Minimum = 0,
+                Maximum = int.MaxValue,
+                SmallChange = 1,
+                LargeChange = 1,
+                Value = ComposeReconciliationPlanner.DesiredReplicas(_project, service, new()),
+                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+            };
+            AutomationProperties.SetAutomationId(input, $"ComposeReplicas_{name}");
+            AutomationProperties.SetName(input, $"Desired replicas for {name}");
+            _replicaInputs.Add(name, input);
+            _replicas.Children.Add(input);
+        }
         if (_services.SelectedItems.Count > 0)
         {
             _validation.IsOpen = false;
@@ -155,8 +200,16 @@ public sealed class ComposeServicesDialog : ContentDialog
         if (_services.SelectedItems.Count == 0)
         {
             args.Cancel = true;
+            _validation.Message = "Select at least one service before continuing.";
             _validation.IsOpen = true;
             _services.Focus(FocusState.Programmatic);
+        }
+        else if (Operation == ComposeLifecycleOperation.Up && _replicaInputs.Values.Any(input =>
+            !double.IsFinite(input.Value) || input.Value < 0 || input.Value > int.MaxValue || Math.Truncate(input.Value) != input.Value))
+        {
+            args.Cancel = true;
+            _validation.Message = "Every replica count must be a nonnegative whole number.";
+            _validation.IsOpen = true;
         }
     }
 }

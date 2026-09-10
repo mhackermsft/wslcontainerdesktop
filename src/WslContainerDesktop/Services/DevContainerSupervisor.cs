@@ -137,12 +137,14 @@ public sealed class DevContainerSupervisor(
 
         var result = await composeSupervisor.UpAsync(compose.Project, new(), completed =>
         {
-            if (completed.Service == compose.Service && completed.ContainerId is { Length: > 0 } id)
+            if (completed.Service == compose.Service && completed.InstanceIndex == 1 &&
+                completed.Success && completed.ContainerId is { Length: > 0 } id)
                 ScheduleComposeLifecycle(id, completed.Action, config);
         }, ct).ConfigureAwait(false);
-        var failures = result.Services.Where(s => !s.Success).Select(s => $"{s.Service}: {s.Detail}").ToList();
-        var primaryResult = result.Services.SingleOrDefault(s => s.Service == compose.Service);
-        if (primaryResult is { Success: true, ContainerId: { Length: > 0 } containerId })
+        var failures = result.Services.Where(s => !s.Success).Select(s => $"{s.InstanceKey}: {s.Detail}").ToList();
+        if (result.IsCancelled) failures.Add("Compose operation cancelled.");
+        var primaryResult = result.Services.SingleOrDefault(s => s.Service == compose.Service && s.InstanceIndex == 1);
+        if (!result.IsCancelled && primaryResult is { Success: true, ContainerId: { Length: > 0 } containerId })
         {
             // A successful primary still needs its hooks when a sibling fails. Otherwise
             // the retry keeps it and loses the creation event.
@@ -150,7 +152,7 @@ public sealed class DevContainerSupervisor(
             if (!lifecycle.Success)
                 failures.Add(lifecycle.Detail);
         }
-        else if (primaryResult is null || primaryResult.Success)
+        else if (!result.IsCancelled && (primaryResult is null || primaryResult.Success))
         {
             failures.Add("Compose did not return a successful container identity for the dev container service.");
         }

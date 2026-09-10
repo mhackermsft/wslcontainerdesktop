@@ -38,11 +38,16 @@ keep/start/create/recreate/restart/stop/remove/blocked, with value-free reasons 
 outcomes. Image work is separately identified as none/build/pull. A blocked preflight does not
 claim success for services that were not executed. `Started` excludes kept containers.
 
-The instance identity remains the existing project/service ownership labels and deterministic
-`project_service` name (or explicit `container_name`). No replica implementation is introduced.
-The centralized name resolver and per-instance plan/observed-ID fields are the extension point
-for scaling; compatibility and assistant previews must consume this contract rather than
-implement another planner.
+Instance one retains the existing project/service ownership labels and deterministic
+`project_service` name (or explicit `container_name`). Additional instances use numbered names
+and a one-based instance label. [Local scaling](COMPOSE-SCALING.md) extends this same centralized
+name resolver and per-instance plan/observed-ID contract; compatibility and assistant previews
+must consume it rather than implement another planner.
+
+Each selected lifecycle plan is limited to **1,024 total desired, existing and surplus instance
+entries**, counting each instance once. The budget is enforced before desired-count expansion.
+This is an execution-planning limit, not an Int32 parser limit; oversized configurations remain
+visible and editable, and callers can select fewer services to stay within the plan budget.
 
 Runtime fingerprints are versioned SHA-256 digests of normalized effective options. Mapping
 ordering does not create changes; ordered process arguments and meaningful network priority
@@ -156,7 +161,7 @@ are not hidden. Cancellation between acknowledged hook commands preserves the sa
 
 This is detached desktop orchestration, not the Docker Compose daemon/CLI. It does not implement
 attached-log exit semantics, `--abort-on-*`, all `up` flags, automatic orphan deletion, filesystem
-watching, registry polling, replica scaling, or atomic project-wide rollback. A failure after
+watching, registry polling, Swarm orchestration, or atomic project-wide rollback. A failure after
 destructive replacement cannot resurrect the old container; successfully completed and untouched
 services remain managed, and retry applies only remaining differences. Previously created but
 unused preparation resources may remain after a failure. Existing resource declarations are not

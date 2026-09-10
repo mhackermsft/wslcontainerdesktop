@@ -266,7 +266,7 @@ public sealed class ComposeNetworkSupervisorTests
         fixture.HealthChecks.Add(previous);
         fixture.Engine.AfterStart = _ => cts.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Supervisor.UpAsync(fixture.Project, cts.Token));
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project, cts.Token)).IsCancelled);
 
         Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
         Assert.Same(previous, Assert.Single(fixture.HealthChecks));

@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Text.Json.Serialization;
+
 namespace WslContainerDesktop.Models;
 
 public enum ComposeServiceChange { Unchanged, Changed, Missing, Incompatible }
@@ -28,6 +30,7 @@ public sealed record ComposeOperationRequest
     public IReadOnlyList<string> Services { get; init; } = Array.Empty<string>();
     public bool Build { get; init; }
     public bool ForceRecreate { get; init; }
+    public IReadOnlyDictionary<string, int> Replicas { get; init; } = new Dictionary<string, int>();
 }
 
 public sealed record ComposeServicePlan(
@@ -39,6 +42,12 @@ public sealed record ComposeServicePlan(
     string Reason,
     string? ContainerId)
 {
+    public int InstanceIndex { get; init; } = 1;
+    public string InstanceKey => InstanceIndex == 1 ? Service.Name : $"{Service.Name}#{InstanceIndex}";
+    public int DesiredReplicas { get; init; } = 1;
+    public string? StorageWarning => DesiredReplicas > 1 && Service.Options.Volumes.Any(v => v.Contains(":/", StringComparison.Ordinal))
+        ? "Named volumes and bind sources are shared by all replicas; ensure the application supports concurrent access. Anonymous volumes remain instance-local."
+        : null;
     public string? ImageId { get; init; }
     public ComposeImageAction ImageAction { get; init; } = ComposeImageAction.None;
 }
@@ -53,6 +62,9 @@ public sealed record ComposeReconciliationPlan(IReadOnlyList<ComposeServicePlan>
 /// <summary>Last successfully applied configuration, independent of subsequent desired edits.</summary>
 public sealed class ComposeAppliedService
 {
+    public int InstanceIndex { get; set; } = 1;
+    [JsonIgnore]
+    public string InstanceKey => InstanceIndex == 1 ? Service.Name : $"{Service.Name}#{InstanceIndex}";
     public string ContainerId { get; set; } = string.Empty;
     public string Fingerprint { get; set; } = string.Empty;
     public string? ImageId { get; set; }

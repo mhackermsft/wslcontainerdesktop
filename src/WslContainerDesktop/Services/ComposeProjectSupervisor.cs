@@ -23,6 +23,8 @@ namespace WslContainerDesktop.Services;
 /// <summary>Per-service outcome of a compose <c>up</c>.</summary>
 public sealed record ComposeServiceResult(string Service, bool Success, string Detail, string? Warning = null)
 {
+    public int InstanceIndex { get; init; } = 1;
+    public string InstanceKey => InstanceIndex == 1 ? Service : $"{Service}#{InstanceIndex}";
     public string? ContainerId { get; init; }
     public ComposeServiceAction Action { get; init; }
 }
@@ -32,14 +34,15 @@ public sealed class ComposeUpResult
 {
     public IReadOnlyList<ComposeServiceResult> Services { get; init; } = Array.Empty<ComposeServiceResult>();
     public ComposeReconciliationPlan? Plan { get; init; }
+    public bool IsCancelled { get; init; }
 
-    public bool AllSucceeded => Services.All(s => s.Success);
+    public bool AllSucceeded => !IsCancelled && Services.All(s => s.Success);
 
     public int Started => Services.Count(s => s.Success && s.Action is
         ComposeServiceAction.Start or ComposeServiceAction.Create or ComposeServiceAction.Recreate or ComposeServiceAction.Restart);
 
     public IReadOnlyList<string> Warnings => Services.Where(s => s.Warning is not null)
-        .Select(s => $"{s.Service}: {s.Warning}").ToList();
+        .Select(s => $"{s.InstanceKey}: {s.Warning}").ToList();
 }
 
 /// <summary>
@@ -105,6 +108,7 @@ public sealed partial class ComposeProjectSupervisor
     internal async Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
         Action<ComposeServiceResult>? onServiceSucceeded, CancellationToken ct)
     {
+        request = SnapshotRequest(request);
         if (request.Operation != ComposeLifecycleOperation.Up)
             throw new ArgumentException("Up requires an Up operation.", nameof(request));
         var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
@@ -112,7 +116,7 @@ public sealed partial class ComposeProjectSupervisor
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            desired.AppliedServices = _store.Get(project.Name)?.AppliedServices ?? desired.AppliedServices;
+            InheritPersistedState(desired, _store.Get(project.Name));
             desired.AppliedStateKnown = true;
             return await UpCoreAsync(desired, maximumStopVersion, ct, request, onServiceSucceeded).ConfigureAwait(false);
         }
@@ -162,127 +166,177 @@ public sealed partial class ComposeProjectSupervisor
         // Finish the complete selected graph's fallible preparation before stopping any workload.
         plan = await PreserveCompletedDependenciesAsync(project, plan, ct).ConfigureAwait(false);
         plan = await PrepareImagesAsync(project, plan, request, ct).ConfigureAwait(false);
+        if (!plan.CanApply) return RejectedPlan(plan);
         var prepared = new Dictionary<string, RunContainerOptions>(StringComparer.Ordinal);
         foreach (var entry in plan.Services.Where(p => p.Action is ComposeServiceAction.Create or ComposeServiceAction.Recreate))
-            prepared.Add(entry.Service.Name, await PrepareRunAsync(project, entry, ct).ConfigureAwait(false));
+            prepared.Add(entry.InstanceKey, await PrepareRunAsync(project, entry, ct).ConfigureAwait(false));
         await ProvisionResourcesAsync(ResourcesForPlan(project, plan), ct).ConfigureAwait(false);
         _store.Save(project);
 
         var results = new List<ComposeServiceResult>();
-        var started = new HashSet<string>(StringComparer.Ordinal);
         var startedContainers = new Dictionary<string, (string? Id, DateTimeOffset StartedAt)>(StringComparer.Ordinal);
 
         foreach (var entry in plan.Services)
         {
-            ct.ThrowIfCancellationRequested();
-            var service = entry.Service;
-            var dependencies = ComposeReconciliationPlanner.Dependencies(service);
-            // A running unchanged dependent needs no startup gate and must not be disrupted by
-            // a failed dependency update. Gates apply when we actually start/recreate a workload.
-            var unavailable = dependencies.Where(d => d.Required && !started.Contains(d.ServiceName)).ToList();
-            if (entry.Action != ComposeServiceAction.Keep && unavailable.Count > 0)
+            var completionErrors = new List<Exception>();
+            try
             {
-                results.Add(new ComposeServiceResult(service.Name, false,
-                    $"Required dependencies are not ready: {string.Join(", ", unavailable.Select(d => d.ServiceName))}.")
-                    { Action = ComposeServiceAction.Blocked, ContainerId = entry.ContainerId });
-                continue;
-            }
-
-            // Honor service_healthy dependencies before creating this service.
-            var dependencyFailed = false;
-            foreach (var dep in dependencies.Where(d => entry.Action != ComposeServiceAction.Keep &&
-                d.Condition == DependencyCondition.ServiceHealthy))
-            {
-                var depService = project.Services.FirstOrDefault(s =>
-                    string.Equals(s.Name, dep.ServiceName, StringComparison.Ordinal));
-                if (depService is null || !started.Contains(dep.ServiceName))
+                ct.ThrowIfCancellationRequested();
+                var service = entry.Service;
+                if (entry.Action == ComposeServiceAction.Remove)
                 {
-                    if (!dep.Required) continue;
-                    dependencyFailed = true;
-                    break;
-                }
-
-                var identity = startedContainers[dep.ServiceName];
-                var healthy = await WaitForHealthyAsync(project, depService, identity.Id, identity.StartedAt, ct).ConfigureAwait(false);
-                if (!healthy && dep.Required)
-                {
-                    dependencyFailed = true;
-                    break;
-                }
-            }
-            if (dependencyFailed)
-            {
-                results.Add(new ComposeServiceResult(service.Name, false,
-                    "A required service_healthy dependency is missing, failed, or did not become healthy. Service was not started.")
-                    { Action = ComposeServiceAction.Blocked, ContainerId = entry.ContainerId });
-                continue;
-            }
-
-            // Honor service_completed_successfully dependencies (one-shot init/migration services).
-            foreach (var dep in dependencies.Where(d => entry.Action != ComposeServiceAction.Keep &&
-                d.Condition == DependencyCondition.ServiceCompletedSuccessfully))
-            {
-                var depService = project.Services.FirstOrDefault(s =>
-                    string.Equals(s.Name, dep.ServiceName, StringComparison.Ordinal));
-                if (depService is null || !started.Contains(dep.ServiceName))
-                {
+                    results.Add(await RemoveExcessAsync(project, entry, ct).ConfigureAwait(false));
                     continue;
                 }
-
-                var completed = await WaitForCompletedAsync(project, depService, startedContainers[dep.ServiceName].Id, ct).ConfigureAwait(false);
-                if (!completed && dep.Required)
+                if (entry.ContainerId is null && entry.Action == ComposeServiceAction.Keep)
                 {
-                    dependencyFailed = true;
-                    break;
+                    var absent = ProjectWithServices(project, [entry.Service]);
+                    RemoveHealthChecks(absent);
+                    RemoveRestartPolicies(absent);
+                    project.AppliedServices.Remove(entry.InstanceKey);
+                    _store.Save(project);
+                    results.Add(new(service.Name, true, "Instance is already absent.")
+                        { InstanceIndex = entry.InstanceIndex, Action = entry.Action });
+                    continue;
+                }
+                // Unchanged running dependents are retained even when another instance fails.
+                if (entry.Action != ComposeServiceAction.Keep &&
+                    !await DependenciesReadyAsync(project, entry, plan, startedContainers, ct).ConfigureAwait(false))
+                {
+                    results.Add(new(service.Name, false, "Not all required dependency instances satisfied readiness/completion.")
+                        { InstanceIndex = entry.InstanceIndex, Action = ComposeServiceAction.Blocked, ContainerId = entry.ContainerId });
+                    continue;
+                }
+                var result = entry.Action switch
+                {
+                    ComposeServiceAction.Keep => await ReuseExistingAsync(project, entry,
+                        networkPlans[entry.InstanceKey].Warning, maximumStopVersion, ct).ConfigureAwait(false),
+                    ComposeServiceAction.Start or ComposeServiceAction.Restart =>
+                        await StartExistingAsync(project, entry, maximumStopVersion, ct).ConfigureAwait(false),
+                    _ => await StartServiceAsync(project, service, maximumStopVersion, ct,
+                        networkPlans[entry.InstanceKey], prepared[entry.InstanceKey], entry.ContainerId).ConfigureAwait(false),
+                };
+                result = result with { Action = entry.Action, InstanceIndex = entry.InstanceIndex };
+                results.Add(result);
+                if (result.Success)
+                {
+                    Complete(() => onServiceSucceeded?.Invoke(result));
+                    startedContainers[entry.InstanceKey] = (result.ContainerId,
+                        entry.Action == ComposeServiceAction.Keep ? DateTimeOffset.MinValue : DateTimeOffset.UtcNow);
+                    var readyProject = ProjectWithServices(project, [service]);
+                    Complete(() => SeedHealthChecks(readyProject));
+                    Complete(() => SeedRestartPolicies(readyProject));
+                    Complete(() => RecordApplied(project, entry, result.ContainerId!));
+                    Complete(() => _monitor.RequestRefresh());
                 }
             }
-            if (dependencyFailed)
+            catch (OperationCanceledException)
             {
-                results.Add(new(service.Name, false,
-                    "A required service_completed_successfully dependency failed or did not complete. Service was not started.")
-                    { Action = ComposeServiceAction.Blocked, ContainerId = entry.ContainerId });
-                continue;
+                return CancelledResult(plan, results);
             }
-
-            var result = entry.Action switch
+            catch (Exception ex)
             {
-                ComposeServiceAction.Keep => await ReuseExistingAsync(project, entry,
-                    networkPlans[service.Name].Warning, maximumStopVersion, ct).ConfigureAwait(false),
-                ComposeServiceAction.Start or ComposeServiceAction.Restart =>
-                    await StartExistingAsync(project, entry, maximumStopVersion, ct).ConfigureAwait(false),
-                _ => await StartServiceAsync(project, service, maximumStopVersion, ct,
-                    networkPlans[service.Name], prepared[service.Name], entry.ContainerId).ConfigureAwait(false),
-            };
-            result = result with { Action = entry.Action };
-            results.Add(result);
-            if (result.Success)
-            {
-                var completionErrors = new List<Exception>();
-                Complete(() => onServiceSucceeded?.Invoke(result));
-                started.Add(service.Name);
-                startedContainers[service.Name] = (result.ContainerId,
-                    entry.Action == ComposeServiceAction.Keep ? DateTimeOffset.MinValue : DateTimeOffset.UtcNow);
-                var readyProject = ProjectWithServices(project, [service]);
-                Complete(() => SeedHealthChecks(readyProject));
-                Complete(() => SeedRestartPolicies(readyProject));
-                Complete(() => RecordApplied(project, entry, result.ContainerId!));
-                Complete(() => _monitor.RequestRefresh());
-                if (completionErrors.Count == 1)
-                    ExceptionDispatchInfo.Capture(completionErrors[0]).Throw();
-                if (completionErrors.Count > 1)
-                    throw new AggregateException($"Could not finalize service '{service.Name}'.", completionErrors);
+                RecordFailedOutcome(results, entry, ex);
+            }
+            // Completion errors must abort siblings, not become recoverable per-instance failures.
+            if (completionErrors.Count == 1)
+                ExceptionDispatchInfo.Capture(completionErrors[0]).Throw();
+            if (completionErrors.Count > 1)
+                throw new AggregateException($"Could not finalize instance '{entry.InstanceKey}'.", completionErrors);
 
-                // The container already exists. Attempt every independent local completion
-                // even if checkpointing fails, then surface all errors before another service.
-                void Complete(Action action)
-                {
-                    try { action(); }
-                    catch (Exception ex) { completionErrors.Add(ex); }
-                }
+            void Complete(Action action)
+            {
+                try { action(); }
+                catch (Exception ex) { completionErrors.Add(ex); }
             }
         }
 
         return new ComposeUpResult { Services = results, Plan = plan };
+    }
+
+    // Deliberate local policy: every replica must satisfy completion, not just the first exited
+    // container observed by Docker Compose v2.39.4's isServiceCompleted. One early success must
+    // never release a dependent while another replica is still running or has failed.
+    private async Task<bool> DependenciesReadyAsync(ComposeProject project, ComposeServicePlan entry,
+        ComposeReconciliationPlan plan, Dictionary<string, (string? Id, DateTimeOffset StartedAt)> started,
+        CancellationToken ct, bool selectedOnly = false)
+    {
+        foreach (var dependency in ComposeReconciliationPlanner.Dependencies(entry.Service))
+        {
+            if (selectedOnly && !plan.Services.Any(p => p.Service.Name == dependency.ServiceName)) continue;
+            var instances = plan.Services.Where(p => p.Service.Name == dependency.ServiceName &&
+                p.Action != ComposeServiceAction.Remove &&
+                !(p.Action == ComposeServiceAction.Keep && p.ContainerId is null)).ToList();
+            var satisfied = instances.Count > 0;
+            foreach (var instance in instances)
+            {
+                if (!started.TryGetValue(instance.InstanceKey, out var identity)) { satisfied = false; break; }
+                satisfied = dependency.Condition switch
+                {
+                    DependencyCondition.ServiceHealthy => await WaitForHealthyAsync(project, instance.Service,
+                        identity.Id, identity.StartedAt, ct).ConfigureAwait(false),
+                    DependencyCondition.ServiceCompletedSuccessfully => await WaitForCompletedAsync(project,
+                        instance.Service, identity.Id, ct).ConfigureAwait(false),
+                    _ => true,
+                };
+                if (!satisfied) break;
+            }
+            if (!satisfied && dependency.Required) return false;
+        }
+        return true;
+    }
+
+    private static ComposeUpResult CancelledResult(ComposeReconciliationPlan plan, List<ComposeServiceResult> results) => new()
+    {
+        Plan = plan, IsCancelled = true,
+        Services = results.Concat(plan.Services.Where(p => results.All(r => r.InstanceKey != p.InstanceKey))
+            .Select(p => new ComposeServiceResult(p.Service.Name, false,
+                "Cancelled or not attempted. An in-flight engine operation may have committed; refresh before retrying.")
+                { InstanceIndex = p.InstanceIndex, Action = ComposeServiceAction.Blocked, ContainerId = p.ContainerId })).ToArray(),
+    };
+
+    private static void RecordFailedOutcome(List<ComposeServiceResult> results, ComposeServicePlan entry, Exception error)
+    {
+        var completed = results.FirstOrDefault(r => r.InstanceKey == entry.InstanceKey);
+        results.RemoveAll(r => r.InstanceKey == entry.InstanceKey);
+        results.Add(new(entry.Service.Name, false,
+            completed?.Success == true ? $"Engine action completed, but follow-up failed: {error.Message}" : error.Message)
+        {
+            InstanceIndex = entry.InstanceIndex, Action = entry.Action,
+            ContainerId = completed?.ContainerId ?? entry.ContainerId,
+        });
+    }
+
+    private async Task<ComposeServiceResult> RemoveExcessAsync(ComposeProject project, ComposeServicePlan entry, CancellationToken ct)
+    {
+        try
+        {
+            await RequireCurrentAsync(project, entry, ct).ConfigureAwait(false);
+            _suppression?.Suppress(entry.ContainerName);
+            if (project.AppliedServices.TryGetValue(entry.InstanceKey, out var saved))
+            {
+                saved.ManuallyStopped = true;
+                _store.Save(project);
+            }
+            else RecordApplied(project, entry, entry.ContainerId!, manuallyStopped: true);
+            SuspendSupervision(project, entry.Service);
+            var stop = await _wslc.StopContainerAsync(entry.ContainerId!, entry.Service.StopGracePeriodSeconds,
+                entry.Service.Options.StopSignal, ct).ConfigureAwait(false);
+            if (!stop.Success) throw new InvalidOperationException(Summarize(stop));
+            var remove = await _wslc.RemoveContainerAsync(entry.ContainerId!, force: true, ct).ConfigureAwait(false);
+            if (!remove.Success) throw new InvalidOperationException(Summarize(remove));
+            project.AppliedServices.Remove(entry.InstanceKey);
+            _store.Save(project);
+            _monitor.RequestRefresh();
+            return new(entry.Service.Name, true, entry.Reason)
+                { InstanceIndex = entry.InstanceIndex, Action = entry.Action, ContainerId = entry.ContainerId };
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            return new(entry.Service.Name, false, ex.Message)
+                { InstanceIndex = entry.InstanceIndex, Action = entry.Action, ContainerId = entry.ContainerId };
+        }
     }
 
     /// <summary>
@@ -449,21 +503,25 @@ public sealed partial class ComposeProjectSupervisor
             {
                 var ready = new List<ComposeService>();
                 var appliedProject = ExistingProject(project);
-                var services = appliedProject.Services;
+                var services = ComposeReconciliationPlanner.ExpandInstances(appliedProject,
+                    new() { Operation = ComposeLifecycleOperation.Restart }, appliedProject.Services, containers);
                 foreach (var desired in services)
                 {
-                    var service = project.AppliedServices.TryGetValue(desired.Name, out var applied)
-                        ? applied.Service : desired;
+                    var service = project.AppliedServices.TryGetValue(ComposeReconciliationPlanner.InstanceKey(desired), out var applied)
+                        ? ComposeReconciliationPlanner.ForInstance(applied.Service, applied.InstanceIndex) : desired;
                     var existing = FindByName(containers, ResolveContainerName(project, service));
                     if (existing is null)
                     {
+                        var absent = ProjectWithServices(project, [service]);
+                        RemoveHealthChecks(absent);
+                        RemoveRestartPolicies(absent);
                         continue;
                     }
 
                     try
                     {
                         var state = await _networks.InspectAsync(existing.Id, ct).ConfigureAwait(false);
-                        if (!state.IsOwnedBy(project, service))
+                        if (!ComposeReconciliationPlanner.IsOwnedInstance(state, project, service))
                         {
                             var unsafeService = ProjectWithServices(project, [service]);
                             RemoveHealthChecks(unsafeService);
@@ -487,6 +545,14 @@ public sealed partial class ComposeProjectSupervisor
                             RemoveHealthChecks(stoppedService);
                             RemoveRestartPolicies(stoppedService);
                             continue;
+                        }
+                        if (applied is null && ComposeReconciliationPlanner.InstanceIndex(service) >
+                            ComposeReconciliationPlanner.DesiredReplicas(project, service, new()))
+                        {
+                            var untracked = ProjectWithServices(project, [service]);
+                            RemoveHealthChecks(untracked);
+                            RemoveRestartPolicies(untracked);
+                            throw new InvalidOperationException("An untracked owned instance exceeds the desired replica count; apply explicitly to reconcile it.");
                         }
                         if (applied is null && state.Labels.TryGetValue(ComposeProject.ConfigHashLabel, out var fingerprint) &&
                             fingerprint != ComposeReconciliationPlanner.Fingerprint(project, service))
@@ -568,7 +634,7 @@ public sealed partial class ComposeProjectSupervisor
             if (existing is not null)
             {
                 var state = await _networks.InspectAsync(existing.Id, ct).ConfigureAwait(false);
-                if (!state.IsOwnedBy(project, service) || expectedId is null ||
+                if (!ComposeReconciliationPlanner.IsOwnedInstance(state, project, service) || expectedId is null ||
                     ContainerIdentity.ResolveId([state.Id], expectedId) != state.Id)
                 {
                     return new ComposeServiceResult(service.Name, false,
@@ -577,7 +643,7 @@ public sealed partial class ComposeProjectSupervisor
 
                 ct.ThrowIfCancellationRequested();
                 restoreSupervision = SuspendSupervision(project, service);
-                var previous = project.AppliedServices.TryGetValue(service.Name, out var applied)
+                var previous = project.AppliedServices.TryGetValue(ComposeReconciliationPlanner.InstanceKey(service), out var applied)
                     ? applied.Service : service;
                 var stop = await _wslc.StopContainerAsync(
                     state.Id, previous.StopGracePeriodSeconds, previous.Options.StopSignal, ct)
@@ -590,6 +656,8 @@ public sealed partial class ComposeProjectSupervisor
                     return new ComposeServiceResult(service.Name, false, removed.ErrorText);
                 }
                 oldRemoved = true;
+                project.AppliedServices.Remove(ComposeReconciliationPlanner.InstanceKey(service));
+                _store.Save(project);
             }
             else
             {
@@ -629,7 +697,7 @@ public sealed partial class ComposeProjectSupervisor
                 // Complete observation of an acknowledged run even if cancellation arrives now.
                 using var observation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                 var state = await _networks.InspectAsync(name, observation.Token).ConfigureAwait(false);
-                if (!state.IsOwnedBy(project, service) || !state.HasLabel(ApplyOperationLabel, operation))
+                if (!ComposeReconciliationPlanner.IsOwnedInstance(state, project, service) || !state.HasLabel(ApplyOperationLabel, operation))
                     throw new InvalidOperationException("Started container ownership could not be verified.");
                 containerId = state.Id;
             }
@@ -870,7 +938,7 @@ public sealed partial class ComposeProjectSupervisor
             Aliases = new List<string>(src.Aliases),
         };
 
-        PrepareNetworkOptions(project, service, options);
+        PrepareNetworkOptions(project, service, options, includeFirstContainerAlias: true);
 
         // Bind-mount file-backed secrets/configs read-only (wslc has no secret store).
         foreach (var mount in service.Secrets)
@@ -886,10 +954,13 @@ public sealed partial class ComposeProjectSupervisor
         // Tag the container so the project can be re-adopted and torn down as a unit.
         options.Labels[ComposeProject.ProjectLabel] = project.Name;
         options.Labels[ComposeProject.ServiceLabel] = service.Name;
+        // The sole issuer is PrepareRunAsync, after validating the plan's explicit ordinal.
+        options.Labels.Remove(ComposeProject.InstanceLabel);
         return options;
     }
 
-    private static void PrepareNetworkOptions(ComposeProject project, ComposeService service, RunContainerOptions options)
+    private static void PrepareNetworkOptions(ComposeProject project, ComposeService service, RunContainerOptions options,
+        bool includeFirstContainerAlias = false)
     {
         var mode = options.NetworkMode ?? options.Network;
         if (mode?.StartsWith("service:", StringComparison.Ordinal) == true)
@@ -906,6 +977,14 @@ public sealed partial class ComposeProjectSupervisor
             if (!endpoint.Aliases.Contains(service.Name, StringComparer.Ordinal))
             {
                 endpoint.Aliases.Add(service.Name);
+            }
+            // New containers get an explicit unique alias on every endpoint. Existing legacy
+            // instance one is not recreated/reconnected merely to retrofit this implicit alias.
+            if (includeFirstContainerAlias || ComposeReconciliationPlanner.InstanceIndex(service) > 1)
+            {
+                var containerName = ResolveContainerName(project, service);
+                if (!endpoint.Aliases.Contains(containerName, StringComparer.Ordinal))
+                    endpoint.Aliases.Add(containerName);
             }
         }
     }

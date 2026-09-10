@@ -39,8 +39,9 @@ namespace WslContainerDesktop.Dialogs
     public sealed class ComposeServicesDialog
     {
         public ComposeServicesDialog(ComposeProject project) { }
-        public ComposeOperationRequest Request => throw new NotSupportedException();
-        public string OperationLabel => throw new NotSupportedException();
+        public ComposeOperationRequest Request { get; set; } = new();
+        public string OperationLabel => "Apply";
+        public bool SaveReplicaOverrides { get; set; }
     }
 }
 
@@ -50,9 +51,10 @@ namespace WslContainerDesktop.Services
     {
         public TaskCompletionSource MessageShown { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource DismissMessage { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Func<object, Microsoft.UI.Xaml.Controls.ContentDialogResult>? OnShowDialog { get; set; }
 
         public Task<Microsoft.UI.Xaml.Controls.ContentDialogResult> ShowDialogAsync(object dialog) =>
-            throw new NotSupportedException();
+            Task.FromResult(OnShowDialog?.Invoke(dialog) ?? throw new NotSupportedException());
 
         public Task<bool> ShowConfirmAsync(string title, string message, string primaryText) =>
             Task.FromResult(true);

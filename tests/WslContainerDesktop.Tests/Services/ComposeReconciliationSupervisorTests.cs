@@ -759,7 +759,7 @@ public sealed class ComposeReconciliationSupervisorTests
             cts.Cancel();
         };
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Supervisor.UpAsync(fixture.Project, cts.Token));
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project, cts.Token)).IsCancelled);
 
         Assert.Equal(support == WslcCapabilitySupport.Supported ? "demo_web" : "verified-run-id",
             fixture.SavedProject!.AppliedServices["web"].ContainerId);
@@ -790,7 +790,7 @@ public sealed class ComposeReconciliationSupervisorTests
         };
 
         if (cancel)
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Supervisor.UpAsync(fixture.Project, cts.Token));
+            Assert.True((await fixture.Supervisor.UpAsync(fixture.Project, cts.Token)).IsCancelled);
         else
             Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
 
@@ -814,7 +814,7 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Engine.Mutations.Clear();
         fixture.Engine.AfterStart = _ => cts.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Supervisor.UpAsync(fixture.Project, cts.Token));
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project, cts.Token)).IsCancelled);
 
         Assert.Contains(fixture.RestartPolicies, p => p.ContainerName == "demo_web");
         Assert.Contains(fixture.RestartPolicies, p => p.ContainerName == "demo_worker");
@@ -925,7 +925,7 @@ public sealed class ComposeReconciliationSupervisorTests
         var request = new ComposeOperationRequest { Operation = ComposeLifecycleOperation.Stop, Services = ["web"] };
 
         if (cancelledAfterCommit)
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Supervisor.OperateAsync("demo", request, cts.Token));
+            Assert.True((await fixture.Supervisor.OperateAsync("demo", request, cts.Token)).IsCancelled);
         else
             Assert.False((await fixture.Supervisor.OperateAsync("demo", request)).AllSucceeded);
 
@@ -1121,7 +1121,7 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.True(result.AllSucceeded);
         Assert.Equal(ComposeServiceAction.Recreate, Assert.Single(result.Services).Action);
         Assert.Contains("remove:demo_web", fixture.Engine.Mutations);
-        Assert.Equal(["private", "web"], fixture.Engine.Endpoints["demo_web"].Single(n => n.Network == "b").Aliases);
+        Assert.Equal(["private", "web", "demo_web"], fixture.Engine.Endpoints["demo_web"].Single(n => n.Network == "b").Aliases);
     }
 
     [Fact]

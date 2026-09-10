@@ -136,6 +136,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.Reconciliation.cs" Link="Services\ComposeProjectSupervisor.Reconciliation.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcService.cs" Link="Services\IWslcService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeProjectStore.cs" Link="Services\IComposeProjectStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectStore.cs" Link="Services\ComposeProjectStore.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'">
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcService.cs" Link="Services\WslcService.cs" />
