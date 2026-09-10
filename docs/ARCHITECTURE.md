@@ -74,6 +74,59 @@ Supporting layers: **Models** (DTOs, parsers, and simple state records), **Helpe
 
 ## Key services
 
+### Foundry Local standalone integration
+
+Foundry is a separate local inference provider, not an Ollama container backend.
+Its explicitly configured endpoint and model must remain independent of OpenAI,
+Azure and Ollama settings and credentials. Standalone runtime ownership must not
+depend on WSLC engine state, container labels, mounts or GPU create flags.
+The existing assistant service still owns approval, original validated action
+closures, sanitized journals, conversation isolation and cancellation outcomes.
+Positive capability observations remain required for tool-enabled chat.
+
+The revised product direction uses an external REST host and app-guided,
+explicitly confirmed standalone installation/initial-model setup. It does not
+introduce a Foundry native SDK into the WinUI process or an app-owned inference
+broker. Read-only CLI status and `/v1/models` are distinct from
+inference and explicit CLI load/unload. Legacy GET mutation routes are not used
+by the selected 0.10.3 adapter. Catalog device/provider fields are target
+hints, not observed hardware support. Acquisition is not enabled without
+authoritative version, publication-date and license evidence.
+
+`FoundryLocalSetupService` now exposes separately confirmed **runtime-only**
+registration. A compiled package allowlist pins the inspected Microsoft MSIX and
+prerequisite archive; `FoundryLocalDownloader` streams bounded, hash-verified
+payloads into `ApplicationData.Current.LocalCacheFolder.Path`, extracts only the
+exact prerequisite APPX, and rehashes retained cache before offline reuse.
+`FoundryLocalInstaller` runs fixed read-only preflight and deployment scripts
+through `ProcessExecutor` without starting Foundry. Existing Foundry installations
+block replacement; newer Microsoft VCLibs are preserved. Cancellation is not rollback.
+No model/EP download, native-initialization claim or automatic runtime start is
+implied by package registration.
+
+`FoundryLocalModelArtifacts` stages one compiled, audited CPU variant through
+exact-origin conditional HTTPS requests, with per-file receipts and offline
+rehash. Settings/setup own explicit consent and cancellation. This preparation
+does not itself invoke the CLI or claim load readiness.
+`FoundryLocalInitialSetupService` composes this with `FoundryLocalModelRegistration`
+using the real scanner layout, an owned cache leaf and a `download.tmp` sentinel.
+One original approval covers runtime installation if missing, model terms,
+registration, conditional daemon start and exact CLI load plus synthetic readiness.
+Only successful preparation updates Foundry-specific settings. Failures retain
+partial resources; no shared server is automatically stopped or adopted.
+`FoundryLocalStandaloneRuntimeService` binds loaded-model evidence to the CLI
+load/completion and process/start identity, not identical pre/post model lists.
+The observed unversioned catalog ID maps only to the pinned canonical CPU v4 ID.
+
+Foundry 0.10.3 catalog listing requires network even with cached files. Daemon
+startup may acquire Microsoft-selected EPs through Windows; these vendor-managed
+components are disclosed, not chosen/pinned/audited by this app. The app's audit
+gates remain on the runtime/prerequisite/model payloads it selects and downloads.
+
+See [Foundry standalone scope and compatibility](FOUNDRY-LOCAL.md) for pinned
+installer research, external-host memory ownership, the real standalone CPU
+exercise and the remaining signed app-MSIX/hardware evidence gaps.
+
 ### Owned local AI runtime (`LocalAiSetupService`)
 
 Ollama container lifecycle is separate from native providers and capability observation.

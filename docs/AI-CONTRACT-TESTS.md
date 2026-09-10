@@ -372,8 +372,8 @@ That failed check cannot subsequently grant tool support.
 `AiChatRequest.Progress` is an optional synchronous `Action<AiChatProgress>`;
 `IContainerAssistant.SendAsync(string, Action<AiChatProgress>, CancellationToken)`
 scopes it to one turn. Existing configuration, history, structured final result,
-and the authoritative service journal remain unchanged. A future Foundry Local
-adapter can use the same request callback and `AiStreamingText` without adding a
+and the authoritative service journal remain unchanged. The Foundry Local
+adapter uses the same request callback and `AiStreamingText` without adding a
 provider-specific UI contract.
 
 Providers publish only Loading, Generating, and TextDelta. The service alone
@@ -563,6 +563,101 @@ WSLC inspect variants still require explicitly authorized disposable smoke runs.
   acquisition is implemented by #88. Real-provider/hardware behavior remains
   subject to the explicit opt-in smoke policy below.
 
+## Foundry Local deterministic REST and setup contracts (#92, partial)
+
+`FoundryLocalTests` exercises the dedicated provider, restricted HTTP transport,
+runtime observer/service and Settings view model against strict in-memory HTTP
+fixtures. It also runs the real assistant approval/journal path and isolated
+temporary-file settings persistence. It does not contact a real runtime.
+
+`FoundryLocalSetupTests` additionally captures real `ProcessExecutor` start
+arguments, positive help gating, ambiguous/unsafe status rejection, cancellation,
+inventory-before-confirmation, provider/edit/rediscovery invalidation and
+endpoint-only persistence. Its help/status samples are synthetic: they are not
+proof of CLI 0.10.3 command or output compatibility.
+
+`FoundryLocalRecordedCliTests` replays the actual network-isolated 0.10.3
+version/help capture from `Fixtures/Foundry/0.10.3/help.json`. It proves the
+advertised server/status command selection, not an unrecorded status response
+or model execution. Parser regressions reject command mentions in prose and
+examples. Model help explicitly does not establish pinned acquisition/offline
+loading. The older synthetic cases remain separate negative/adapter tests.
+
+`FoundryLocalModelArtifactTests` covers the complete pinned nine-file metadata
+graph, strict conditional responses, origin/redirect/credential protection,
+bounded streaming, interruption retention, receipt corruption and verified
+offline reuse. Real setup/VM tests enforce consent before any network, stale
+approval/provider cancellation, no duplicate confirmation and no runtime/CLI
+calls. Their payloads are synthetic and small; they never download the model.
+Recorded cache-location tests separately establish the observed 0.10.3 JSON
+schema and reject unknown versions/fields/unsafe paths. Cache-list timeout is
+not interpreted as empty inventory.
+
+`FoundryLocalStandaloneTests` covers the DI-selected CLI-status/v1 metadata path:
+stopped-state/stale-URL rejection, process restart invalidation, unknown
+cache/load state and zero generation from mere model-list presence. Its standard
+v1 edge payloads are synthetic, not an assertion of observed loaded-state fields.
+The actual stopped-status fixture is recorded separately. Legacy route tests
+describe only the retained reference adapter; `/openai/status` returned 404 in
+the real standalone exercise and the application no longer requires it.
+
+`FoundryLocalInstallerTests` exercises prepared-file size/hash checks, locked
+files during approval, fixed PowerShell script/environment arguments, one
+runtime-only consent, stale approval, failure/cancellation retention guidance,
+capability invalidation before/finally, and rejection of unknown or unaudited
+package sets. Synthetic bytes and a captured executor never install a package.
+No download, initial-model setup or hardware behavior is implied.
+
+`FoundryLocalDownloadTests` and `FoundryLocalRuntimeSetupTests` cover the populated
+production registration manifest, bounded streaming/redirects, exact size/hash
+verification before ZIP parsing, exact-entry-only extraction, corrupted-cache
+rejection, verified offline reuse, retained partial files, consent before network,
+original-configuration cancellation, existing-runtime rejection, preservation of
+newer prerequisites and Windows registration failure. HTTP/process execution is
+captured; test payloads are synthetic, not the downloaded inspection archives.
+
+Independent-review regressions bind capability evidence across inventory awaits
+and recheck after generating-progress callbacks (zero POST after AI disable or
+cache invalidation). An ephemeral certificate with only a `localhost` DNS SAN
+verifies preserved URI hostname matching; socket-destination tests prove the
+chosen endpoint is loopback without weakening TLS validation. No TLS server,
+certificate-store changes or installed Foundry runtime is used.
+
+Coverage includes explicit loopback-only endpoint/port validation; no defaults,
+redirects, proxies or credentials; metadata-only status/catalog/cached/loaded
+reads; malformed/missing metadata; separate model/download/load/feature states;
+catalog advertisements versus positive probes; synthetic tool-result roundtrip
+acceptance; exact response model identity; independent JSON and streaming gates;
+shared fragmented-stream validation; original tool arguments with sanitized
+history; changed configuration/runtime identity; cancellation; iteration limits;
+and no retry after failures or completed actions. Older provider enum values and
+persisted endpoint/model settings remain independent.
+
+`FoundryLocalLifecycleTests` uses recorded successful CLI load/unload/start/stop
+and real v1 model/completion bodies. It verifies canonical `:4` identity despite
+an unversioned catalog ID, complete-message parsing when `delta` is also present,
+no load proof from listing alone, restart rejection before synthetic inference,
+and unload refusal without app-observed load evidence. Initial-model preparation
+has explicit original consent; normal metadata never starts or loads anything.
+There is no unload-all, automatic shared-server cleanup, app-selected EP or
+container dependency. Vendor-managed Windows EP acquisition is disclosed; app
+downloads retain their compiled artifact-audit gates.
+
+```powershell
+# Deterministic only: explicitly keep both real-runtime gates off.
+$env:WSLC_FOUNDRY_LOCAL_METADATA_TESTS = '0'
+$env:WSLC_FOUNDRY_LOCAL_INFERENCE_TESTS = '0'
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~FoundryLocal|FullyQualifiedName~AiProviderContractTests|FullyQualifiedName~AiHttpStreamingTests|FullyQualifiedName~AiCapabilityContractTests|FullyQualifiedName~AssistantHistoryContractTests|FullyQualifiedName~AssistantOrchestrationContractTests"
+```
+
+`FoundryLocalRuntimeOptInTests` has separate explicitly enabled metadata and
+synthetic-inference gates, with an actual endpoint/model required. It does not
+deploy packages or set up a runtime. Both checks remain unexecuted here.
+See [Foundry compatibility and prerequisites](FOUNDRY-LOCAL.md) for exact gates,
+revised standalone setup scope and the open acquisition, external lifecycle, packaged,
+offline, cold-start and hardware acceptance criteria. Source-linked tests and
+an x64 app build cannot establish those properties.
+
 ## Current engine evidence and saved-project tools (#93)
 
 `AssistantObservationContractTests` uses the real toolset and assistant service with strict
@@ -687,7 +782,7 @@ the sanitized `IActivityLog.Record` input boundary, not packaged on-disk storage
 | #88 live compatibility | Deterministic observation/consumer contracts are covered above. Actual provider metadata conventions, SDK transport/entitlement failures and hardware cold starts still require explicitly authorized smoke runs; unknown metadata is not filled with guesses. |
 | #89 streaming | Covered: fragmented SSE/NDJSON/UTF-8, complete validation before action, safe progress ordering, disconnect failure without retry, inference versus approval timeouts, cancellation/reset generations and partial outcomes. Actual provider/SDK event delivery remains a separately authorized smoke observation. |
 | #90 runtime ownership | Deterministic real-lifecycle/fake-engine coverage is described above. Automatic model-volume deletion is deliberately unavailable without atomic immutable targeting. Real-engine/GPU compatibility remains unverified; no workload is manipulated by the suite. |
-| #92 Foundry Local | Separate product branch/scope, not included here and not required for #95 completion. Its native adapter/runtime product limitations and any opted-in hardware evidence must be recorded there; this suite acquires no Foundry dependency or model. |
+| #92 Foundry Local | See [Foundry scope and compatibility](FOUNDRY-LOCAL.md). Standalone installation, pinned staging, owned registration and explicit load/verification are implemented. The actual CPU lifecycle was exercised; signed app-MSIX and representative GPU/NPU coverage remain evidence gaps. Catalog access requires network on 0.10.3. No Foundry dependency or model is acquired by the deterministic suite. |
 | #94 Compose live integration | Deterministic shared-plan/approval/outcome coverage is complete above. Real provider/tool rendering, actual engine resource retention and packaged UI review remain unverified until separately authorized smoke runs. |
 | #93 full catalog | Covered: real 40-tool catalog, bundled templates, browsable registry, installed k3s states, actual concrete-adapter schemas/routes/budgets, read-only and approved project action plus paired follow-up evidence. UI rendering/poller dispatch remain separate observations. |
 | Copilot SDK adapter | Covered: production runner history/budget/cancellation/failure plus app-owned SessionConfig, SDK AIFunction binding, permission mapping and sanitized prompt serialization. SDK RPC transport, actual model events, sign-in and opaque runtime overhead still require an explicitly authorized live smoke run. |
@@ -698,9 +793,10 @@ external engine races; no such guarantee is claimed or required for #95 closure.
 
 ## Opt-in real-provider and runtime smoke coverage
 
-There is intentionally no automatically executable smoke test or implicit
-runtime setup in the normal suite. Real-provider compatibility remains unverified
-until a separately authorized run records its results.
+There is no enabled-by-default smoke test or implicit runtime setup in the
+normal suite. The Foundry checks above require separate explicit environment
+gates and a configured prepared host. Real-provider compatibility remains
+unverified until a separately authorized run records its results.
 
 Prerequisites for a manual smoke run:
 

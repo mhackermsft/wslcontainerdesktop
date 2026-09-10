@@ -70,6 +70,10 @@ public interface ISettingsService
 
     string AiOpenAiModel { get; set; }
 
+    string AiFoundryLocalEndpoint { get; set; }
+
+    string AiFoundryLocalModel { get; set; }
+
     string AiGitHubCopilotModel { get; set; }
 
     bool AiAssistantAutoCreateRun { get; set; }

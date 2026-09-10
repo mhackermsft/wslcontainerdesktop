@@ -203,6 +203,10 @@ internal sealed class AiContractHarness
             Tools = new(Tools, AiObservationSource.HarmlessProbe),
             StructuredJson = new(Json, AiObservationSource.HarmlessProbe),
             Endpoint = AiEndpointState.Reachable,
+            Runtime = configuration.Kind == AiProviderKind.FoundryLocal ? AiRuntimeState.Ready : AiRuntimeState.Unknown,
+            Model = configuration.Kind == AiProviderKind.FoundryLocal ? AiModelState.Available : AiModelState.Unknown,
+            Download = configuration.Kind == AiProviderKind.FoundryLocal ? AiDownloadState.Downloaded : AiDownloadState.Unknown,
+            Load = configuration.Kind == AiProviderKind.FoundryLocal ? AiLoadState.Loaded : AiLoadState.Unknown,
         };
         public Task<AiCapabilitySnapshot> GetAsync(AiChatConfiguration configuration, bool probe = false, CancellationToken ct = default)
         {

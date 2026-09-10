@@ -92,26 +92,45 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct)
     {
+        if (request.Configuration.Kind != Kind)
+            throw new ArgumentException("The request configuration belongs to a different AI provider.", nameof(request));
+        credentials.TryReadSecret(Kind, out var key);
+        return await RunTurnCoreAsync(http, request, tools, invokeToolAsync, capabilities, key, ct).ConfigureAwait(false);
+    }
+
+    // Shared wire transport, not shared provider configuration or credentials. Foundry supplies
+    // its own restricted client, no key, and a guard rechecked before every request/tool callback.
+    internal static async Task<AiChatTurnResult> RunTurnCoreAsync(
+        AiHttpClient http, AiChatRequest request, IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        IAiCapabilityService? capabilities, string? key, CancellationToken ct,
+        Func<CancellationToken, Task>? guard = null, Action? beforeSend = null)
+    {
         var configuration = request.Configuration;
+        var isFoundry = configuration.Kind == AiProviderKind.FoundryLocal;
         // Select once from this configuration's observed capabilities, never retry a failed stream.
         var useStreaming = request.Progress != null &&
-            capabilities?.GetCached(configuration).Streaming.Support != AiSupport.Unsupported;
+            (isFoundry
+                ? capabilities?.GetCached(configuration).Streaming.Support == AiSupport.Supported
+                : capabilities?.GetCached(configuration).Streaming.Support != AiSupport.Unsupported);
         if (string.IsNullOrWhiteSpace(configuration.Model))
         {
             throw MissingModel("Assistant chat");
         }
 
-        var uri = BuildUri(configuration.Endpoint, "chat/completions");
-        credentials.TryReadSecret(Kind, out var key);
+        var uri = isFoundry
+            ? FoundryLocalEndpoint.BuildUri(configuration.Endpoint, "v1/chat/completions")
+            : BuildUri(configuration.Endpoint, "chat/completions");
         var messages = request.History.Select(AiTextSanitizer.SanitizeMessage).ToList();
         var transcript = new List<AiChatMessage>();
         var seenIds = request.History.SelectMany(m => m.ToolCalls).Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         for (var i = 0; i < 8; i++)
         {
             ct.ThrowIfCancellationRequested();
+            if (guard is not null) await guard(ct).ConfigureAwait(false);
             messages = AiConversationContext.Prepare(messages, tools, configuration).ToList();
             using var message = new HttpRequestMessage(HttpMethod.Post, uri);
-            if (!string.IsNullOrWhiteSpace(key))
+            if (!isFoundry && !string.IsNullOrWhiteSpace(key))
                 message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
             var payload = new Dictionary<string, object>
             {
@@ -128,17 +147,19 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
             message.Content = JsonContent.Create(payload);
 
             AiToolTurn turn;
-            if (request.Progress != null)
+            if (request.Progress != null || isFoundry)
             {
-                turn = await AiHttpStreaming.SendAsync(http, message, request, tools, seenIds, ct, useStreaming).ConfigureAwait(false);
+                turn = await AiHttpStreaming.SendAsync(http, message, request, tools, seenIds, ct, useStreaming,
+                    beforeSend).ConfigureAwait(false);
             }
             else
             {
+                beforeSend?.Invoke();
                 using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
                 var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 ct.ThrowIfCancellationRequested();
                 if (!response.IsSuccessStatusCode)
-                    throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), configuration.Model, body);
+                    throw AiProviderException.FromHttpFailure(configuration.Kind, "Assistant chat", response.StatusCode, uri.ToString(), configuration.Model, body);
 
                 using var doc = JsonDocument.Parse(body);
                 turn = ParseToolTurn(doc.RootElement.GetProperty("choices")[0].GetProperty("message"));
@@ -157,6 +178,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
             foreach (var call in turn.ToolCalls)
             {
                 ct.ThrowIfCancellationRequested();
+                if (guard is not null) await guard(ct).ConfigureAwait(false);
                 var toolResult = await invokeToolAsync(call, ct).ConfigureAwait(false);
                 var outcome = new AiChatMessage
                 {

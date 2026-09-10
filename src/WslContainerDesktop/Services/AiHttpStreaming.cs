@@ -34,7 +34,8 @@ internal static class AiHttpStreaming
 
     internal static async Task<AiToolTurn> SendAsync(
         AiHttpClient http, HttpRequestMessage message, AiChatRequest request,
-        IReadOnlyList<AiToolDefinition> tools, HashSet<string> seenIds, CancellationToken ct, bool streamResponse = true)
+        IReadOnlyList<AiToolDefinition> tools, HashSet<string> seenIds, CancellationToken ct,
+        bool streamResponse = true, Action? beforeSend = null)
     {
         // This deadline ends before returning to approval/tool execution. HttpClient's own
         // timeout covers headers only with ResponseHeadersRead, not subsequent body reads.
@@ -42,6 +43,8 @@ internal static class AiHttpStreaming
         generation.CancelAfter(TimeSpan.FromMinutes(5));
         var token = generation.Token;
         request.Progress?.Invoke(new(AiChatProgressKind.Generating, "Generating response…"));
+        token.ThrowIfCancellationRequested();
+        beforeSend?.Invoke();
         try
         {
             using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
@@ -54,11 +57,12 @@ internal static class AiHttpStreaming
 
             using var stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
             var narration = new AiStreamingText(request.Progress);
+            var expectedModel = request.Configuration.Kind == AiProviderKind.FoundryLocal ? request.Configuration.Model : null;
             var turn = !streamResponse
-                ? await ReadJsonAsync(stream, request.Configuration.Kind, token).ConfigureAwait(false)
+                ? await ReadJsonAsync(stream, request.Configuration.Kind, token, expectedModel).ConfigureAwait(false)
                 : request.Configuration.Kind == AiProviderKind.Ollama
                 ? await ReadOllamaAsync(stream, narration, token).ConfigureAwait(false)
-                : await ReadOpenAiAsync(stream, narration, token).ConfigureAwait(false);
+                : await ReadOpenAiAsync(stream, narration, token, expectedModel).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             var currentIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var call in turn.ToolCalls)
@@ -95,6 +99,13 @@ internal static class AiHttpStreaming
     private static bool ValidIdentifier(string value, int limit) =>
         value.Length is > 0 && value.Length <= limit &&
         value.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
+
+    private static void ValidateModel(JsonElement root, string? expectedModel)
+    {
+        if (expectedModel is not null && (!root.TryGetProperty("model", out var model)
+            || model.ValueKind != JsonValueKind.String || model.GetString() != expectedModel))
+            throw InvalidStream();
+    }
 
     private static bool HasValue(JsonElement element, string name, out JsonElement value) =>
         element.TryGetProperty(name, out value) && value.ValueKind != JsonValueKind.Null;
@@ -190,7 +201,7 @@ internal static class AiHttpStreaming
         internal readonly StringBuilder Arguments = new();
     }
 
-    private static async Task<AiToolTurn> ReadJsonAsync(Stream stream, AiProviderKind kind, CancellationToken ct)
+    private static async Task<AiToolTurn> ReadJsonAsync(Stream stream, AiProviderKind kind, CancellationToken ct, string? expectedModel = null)
     {
         using var body = new MemoryStream();
         var buffer = new byte[4096];
@@ -203,6 +214,7 @@ internal static class AiHttpStreaming
         }
         using var doc = JsonDocument.Parse(body.ToArray());
         var root = doc.RootElement;
+        ValidateModel(root, expectedModel);
         RejectDuplicateProperties(root);
         if (root.TryGetProperty("error", out _)) throw InvalidStream();
         JsonElement message;
@@ -256,7 +268,7 @@ internal static class AiHttpStreaming
         return new AiToolTurn { AssistantText = text, ToolCalls = calls };
     }
 
-    private static async Task<AiToolTurn> ReadOpenAiAsync(Stream stream, AiStreamingText narration, CancellationToken ct)
+    private static async Task<AiToolTurn> ReadOpenAiAsync(Stream stream, AiStreamingText narration, CancellationToken ct, string? expectedModel = null)
     {
         var text = new StringBuilder();
         var calls = new SortedDictionary<int, PendingCall>();
@@ -279,6 +291,7 @@ internal static class AiHttpStreaming
             }
             using var doc = JsonDocument.Parse(data);
             var root = doc.RootElement;
+            ValidateModel(root, expectedModel);
             RejectDuplicateProperties(root);
             if (root.TryGetProperty("error", out _)) throw InvalidStream();
             var choices = root.GetProperty("choices");

@@ -45,6 +45,7 @@ public enum AiProviderKind
     Ollama,
     AzureOpenAi,
     OpenAi,
+    FoundryLocal,
 }
 
 /// <summary>Friendly display name for an <see cref="AiProviderKind"/>, shared by provider
@@ -57,6 +58,7 @@ public static class AiProviderKindExtensions
         AiProviderKind.Ollama => "Ollama",
         AiProviderKind.AzureOpenAi => "Azure OpenAI",
         AiProviderKind.OpenAi => "OpenAI",
+        AiProviderKind.FoundryLocal => "Foundry Local",
         _ => "AI",
     };
 }

@@ -29,6 +29,8 @@ public static class AiConversationContext
     {
         AiProviderKind.OpenAi => new(kind, Endpoint(settings.AiOpenAiEndpoint, OpenAiProvider.DefaultEndpoint),
             settings.AiOpenAiModel.Trim()),
+        AiProviderKind.FoundryLocal => new(kind, Endpoint(settings.AiFoundryLocalEndpoint, ""),
+            settings.AiFoundryLocalModel.Trim()),
         AiProviderKind.AzureOpenAi => new(kind, Endpoint(settings.AiAzureOpenAiEndpoint, ""),
             settings.AiAzureOpenAiDeployment.Trim()),
         AiProviderKind.Ollama => new(kind, Endpoint(settings.AiOllamaEndpoint, "http://localhost:11434"),

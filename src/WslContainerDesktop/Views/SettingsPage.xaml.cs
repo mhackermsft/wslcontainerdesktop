@@ -59,4 +59,61 @@ public sealed partial class SettingsPage : Page
 
     private void ProviderFeedbackBar_CloseButtonClick(InfoBar sender, object args) =>
         ViewModel.DismissProviderFeedbackCommand.Execute(null);
+
+    private void UseFoundryEndpoint_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(() => ViewModel.FoundryLocal.UseDiscoveredEndpointAsync(async message =>
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = "Connect to existing Foundry Local",
+                Content = new ScrollViewer
+                {
+                    Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                    MaxHeight = 450,
+                },
+                PrimaryButtonText = "Use this endpoint",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        }));
+
+    private void InstallFoundryRuntime_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(() => ViewModel.FoundryLocal.InstallRuntimeAsync((message, ct) =>
+            ConfirmFoundryPreparationAsync(message, ct, "Install runtime only", "Accept terms and install runtime")));
+
+    private void PrepareFoundryInitialModel_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(() => ViewModel.FoundryLocal.PrepareInitialModelAsync((message, ct) =>
+            ConfirmFoundryPreparationAsync(message, ct, "Set up Foundry Local and CPU model", "Accept terms and prepare")));
+
+    private void StopFoundryServer_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(() => ViewModel.FoundryLocal.StopServerAsync((message, ct) =>
+            ConfirmFoundryPreparationAsync(message, ct, "Stop shared Foundry server", "Stop this server")));
+
+    private void StageFoundryModelFiles_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(() => ViewModel.FoundryLocal.StageModelFilesAsync((message, ct) =>
+            ConfirmFoundryPreparationAsync(message, ct, "Model files only — no import or loading", "Accept license and download files")));
+
+    private async Task<bool> ConfirmFoundryPreparationAsync(string message, CancellationToken ct, string title, string action)
+    {
+            ct.ThrowIfCancellationRequested();
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = title,
+                Content = new ScrollViewer
+                {
+                    Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true },
+                    MaxHeight = 450,
+                },
+                PrimaryButtonText = action,
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            using var registration = ct.Register(() => DispatcherQueue.TryEnqueue(dialog.Hide));
+            var result = await dialog.ShowAsync();
+            ct.ThrowIfCancellationRequested();
+            return result == ContentDialogResult.Primary;
+    }
 }
