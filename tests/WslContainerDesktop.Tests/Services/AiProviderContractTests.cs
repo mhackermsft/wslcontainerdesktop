@@ -80,12 +80,13 @@ public sealed class AiProviderContractTests
         },
     ];
 
-    private static IAiChatProvider Create(AiProviderKind kind, AiHttpClient http, ISettingsService settings, string? key = "synthetic-key-not-a-credential") =>
+    private static IAiChatProvider Create(AiProviderKind kind, AiHttpClient http, ISettingsService settings, string? key = "synthetic-key-not-a-credential",
+        IAiCapabilityService? capabilities = null) =>
         kind switch
         {
-            AiProviderKind.OpenAi => new OpenAiProvider(http, settings, new AiContractHarness.Credentials(key)),
-            AiProviderKind.AzureOpenAi => new AzureOpenAiProvider(http, settings, new AiContractHarness.Credentials(key)),
-            AiProviderKind.Ollama => new OllamaProvider(http, settings),
+            AiProviderKind.OpenAi => new OpenAiProvider(http, settings, new AiContractHarness.Credentials(key), capabilities),
+            AiProviderKind.AzureOpenAi => new AzureOpenAiProvider(http, settings, new AiContractHarness.Credentials(key), capabilities),
+            AiProviderKind.Ollama => new OllamaProvider(http, settings, capabilities),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
@@ -444,9 +445,8 @@ public sealed class AiProviderContractTests
                     throw new InvalidOperationException("No execution expected"), CancellationToken.None));
 
             Assert.Equal((int)status, error.StatusCode);
-            Assert.Equal(kind == AiProviderKind.Ollama && status == HttpStatusCode.BadRequest
-                ? AiFailureKind.Configuration
-                : status == HttpStatusCode.ServiceUnavailable ? AiFailureKind.ServerError : AiFailureKind.Unexpected, error.Kind);
+            Assert.Equal(status == HttpStatusCode.ServiceUnavailable
+                ? AiFailureKind.ServerError : AiFailureKind.Unexpected, error.Kind);
             Assert.NotNull(error.ResponseDetail);
             Assert.True(error.ResponseDetail.Length <= 400);
             AssertNoSensitiveValues(error.ToString());
@@ -799,7 +799,7 @@ public sealed class AiProviderContractTests
         using var handler = new AiContractHarness.ScriptedHttpHandler();
         using var http = new AiHttpClient(handler);
         handler.Enqueue(Response(kind, """{"summary":" synthetic diagnosis ","likelyCause":"test","confidence":0.8}"""));
-        var provider = (IAiProvider)Create(kind, http, h.Settings);
+        var provider = (IAiProvider)Create(kind, http, h.Settings, capabilities: h.Capabilities);
         var diagnosis = await provider.CompleteAsync(new AiPromptRequest("system", "synthetic evidence"), CancellationToken.None);
         Assert.Equal("synthetic diagnosis", diagnosis.Summary);
         using var request = JsonDocument.Parse(Assert.Single(handler.Requests).Body);

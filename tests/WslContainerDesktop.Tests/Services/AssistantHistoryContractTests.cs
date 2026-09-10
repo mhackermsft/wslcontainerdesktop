@@ -525,8 +525,8 @@ public sealed class AssistantHistoryContractTests
     public void BudgetIncludesSchemasUnicodeAndPairedGroupsAndNeverDropsActiveEvidence()
     {
         var config = new AiChatConfiguration(AiProviderKind.Ollama, "http://local", "unknown");
-        Assert.True(AiConversationContext.InputByteLimit(config with { Model = "llama3.1" }) >
-            AiConversationContext.InputByteLimit(config));
+        Assert.Equal(AiConversationContext.InputByteLimit(config),
+            AiConversationContext.InputByteLimit(config with { Model = "llama3.1" }));
         var messages = new List<AiChatMessage> { new() { Role = "system", Content = "trusted instructions" } };
         for (var i = 0; i < 12; i++)
         {

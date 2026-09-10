@@ -63,7 +63,7 @@ public partial class AssistantViewModel : ObservableObject
     private string _providerLabel = string.Empty;
 
     /// <summary>True only when AI is enabled, a provider is chosen, and
-    /// <see cref="IAiAvailabilityService.IsAvailable"/> has actually verified connectivity — never
+    /// <see cref="IAiAvailabilityService.CanUseTools"/> has observed chat and tool support — never
     /// an unconditional "healthy" dot merely because a provider is selected.</summary>
     [ObservableProperty]
     private bool _isProviderAvailable;
@@ -110,7 +110,7 @@ public partial class AssistantViewModel : ObservableObject
             }
         };
 
-        // Availability is (re)verified with a live round-trip elsewhere (IAiAvailabilityService);
+        // Independent feature observations are maintained elsewhere (IAiAvailabilityService);
         // reflect it here instead of always showing a green "healthy" dot.
         _availability.Changed += (_, _) => _dispatcher.TryEnqueue(RefreshProviderLabel);
         _settings.Changed += (_, _) => _dispatcher.TryEnqueue(() =>
@@ -134,10 +134,10 @@ public partial class AssistantViewModel : ObservableObject
         };
         IsProviderAvailable = _settings.AiFeaturesEnabled
             && _settings.AiProvider != AiProviderKind.None
-            && _availability.IsAvailable;
+            && _availability.CanUseTools;
 
         static string Format(string provider, string? model) =>
-            string.IsNullOrWhiteSpace(model) ? provider : $"{provider} · {model.Trim()}";
+            string.IsNullOrWhiteSpace(model) ? provider : $"{provider} · {AiTextSanitizer.Sanitize(model.Trim(), 160)}";
     }
 
     private bool CanSend() => !IsBusy && !string.IsNullOrWhiteSpace(Draft);

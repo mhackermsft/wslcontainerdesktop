@@ -26,7 +26,8 @@ public sealed class AiDiagnosticsService(
     ISettingsService settings,
     IWslcCapabilitiesService capabilities,
     IEnumerable<IAiProvider> providers,
-    ILogger<AiDiagnosticsService> logger) : IAiDiagnosticsService
+    ILogger<AiDiagnosticsService> logger,
+    IAiCapabilityService? aiCapabilities = null) : IAiDiagnosticsService
 {
     private const int LogTail = 300;
     private const int MaxSectionChars = 16_000;
@@ -97,6 +98,20 @@ public sealed class AiDiagnosticsService(
 
         var provider = providers.FirstOrDefault(p => p.Kind == settings.AiProvider)
             ?? throw new InvalidOperationException($"AI provider '{settings.AiProvider}' is not registered.");
+        var configuration = AiConversationContext.Capture(settings, provider.Kind);
+        if (aiCapabilities is not null)
+        {
+            var observation = await aiCapabilities.GetAsync(
+                configuration, ct: ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            // Observation adds an async boundary. Never send previewed evidence to a destination
+            // selected while that check was running; require a fresh explicit diagnosis instead.
+            if (!settings.AiFeaturesEnabled || settings.AiProvider != configuration.Kind
+                || AiConversationContext.Capture(settings, configuration.Kind) != configuration)
+                throw new OperationCanceledException("AI configuration changed. Review the destination before sending diagnostics again.");
+            if (!observation.CanChat)
+                throw new InvalidOperationException("Diagnosis needs observed chat support. " + observation.NextStep);
+        }
         var safeRequest = new AiPromptRequest(request.SystemPrompt, AiTextSanitizer.Sanitize(request.UserPrompt, AiTextSanitizer.DiagnosticLimit));
         return await provider.CompleteAsync(safeRequest, ct).ConfigureAwait(false);
     }
@@ -115,7 +130,11 @@ public sealed class AiDiagnosticsService(
 
         var provider = providers.FirstOrDefault(p => p.Kind == settings.AiProvider)
             ?? throw new InvalidOperationException($"AI provider '{settings.AiProvider}' is not registered.");
-        return await provider.TestAsync(ct).ConfigureAwait(false);
+        if (aiCapabilities is null)
+            throw new InvalidOperationException("Capability observation service is unavailable.");
+        var observation = await aiCapabilities.GetAsync(
+            AiConversationContext.Capture(settings, provider.Kind), probe: true, ct: ct).ConfigureAwait(false);
+        return observation.StatusText;
     }
 
     private async Task AddCommandSectionAsync(StringBuilder builder, string title, Func<Task<CommandResult>> command)

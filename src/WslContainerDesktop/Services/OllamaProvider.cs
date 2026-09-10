@@ -20,7 +20,8 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings) : IAiProvider, IAiChatProvider
+public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
+    IAiCapabilityService? capabilities = null) : IAiProvider, IAiChatProvider
 {
     public AiProviderKind Kind => AiProviderKind.Ollama;
 
@@ -47,18 +48,20 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
 
         var endpoint = NormalizeBase(settings.AiOllamaEndpoint, "http://localhost:11434");
         var uri = new Uri(endpoint, "/api/chat");
-        using var response = await http.PostAsJsonAsync(uri, new
+        var payload = new Dictionary<string, object>
         {
-            model = settings.AiOllamaModel.Trim(),
-            stream = false,
-            format = "json",
-            messages = new[]
+            ["model"] = settings.AiOllamaModel.Trim(),
+            ["stream"] = false,
+            ["messages"] = new[]
             {
                 new { role = "system", content = request.SystemPrompt },
                 new { role = "user", content = AiTextSanitizer.Sanitize(request.UserPrompt, AiTextSanitizer.DiagnosticLimit) },
             },
-            options = new { temperature = 0.2 },
-        }, ct).ConfigureAwait(false);
+            ["options"] = new { temperature = 0.2 },
+        };
+        if (capabilities?.GetCached(AiConversationContext.Capture(settings, Kind)).StructuredJson.Support == AiSupport.Supported)
+            payload["format"] = "json";
+        using var response = await http.PostAsJsonAsync(uri, payload, ct).ConfigureAwait(false);
 
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
@@ -108,32 +111,20 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
         {
             ct.ThrowIfCancellationRequested();
             messages = AiConversationContext.Prepare(messages, tools, configuration).ToList();
-            using var response = await http.PostAsJsonAsync(uri, new
+            var payload = new Dictionary<string, object>
             {
-                model,
-                stream = false,
-                messages = messages.Select(ToOllamaMessage).ToList(),
-                tools = tools.Select(ToOllamaTool).ToList(),
-                options = new { temperature = 0.2 },
-            }, ct).ConfigureAwait(false);
+                ["model"] = model,
+                ["stream"] = false,
+                ["messages"] = messages.Select(ToOllamaMessage).ToList(),
+                ["options"] = new { temperature = 0.2 },
+            };
+            if (tools.Count > 0) payload["tools"] = tools.Select(ToOllamaTool).ToList();
+            using var response = await http.PostAsJsonAsync(uri, payload, ct).ConfigureAwait(false);
 
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             if (!response.IsSuccessStatusCode)
             {
-                if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
-                {
-                    throw new AiProviderException(
-                        Kind,
-                        "Assistant chat",
-                        $"Ollama rejected the chat request. The model '{model}' may not support tool calling (try llama3.1, qwen2.5, or mistral-nemo).",
-                        AiFailureKind.Configuration,
-                        (int)response.StatusCode,
-                        uri.ToString(),
-                        model,
-                        body);
-                }
-
                 throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), model, body);
             }
 

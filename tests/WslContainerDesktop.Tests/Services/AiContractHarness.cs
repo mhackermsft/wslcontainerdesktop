@@ -44,6 +44,7 @@ internal sealed class AiContractHarness
     public ScriptedProvider Provider { get; } = new();
     public ScriptedTools Tools { get; } = new();
     public ContainerAssistantService Assistant { get; }
+    public ObservedCapabilities Capabilities { get; } = new();
 
     public AiContractHarness(Func<ISettingsService, IAssistantToolset>? toolsetFactory = null,
         Func<ISettingsService, IEnumerable<IAiChatProvider>>? providerFactory = null)
@@ -76,7 +77,7 @@ internal sealed class AiContractHarness
             return null;
         });
         Assistant = new(Settings, providerFactory?.Invoke(Settings) ?? [Provider], toolsetFactory?.Invoke(Settings) ?? Tools,
-            new AssistantActionGate(Settings), activity);
+            new AssistantActionGate(Settings), activity, Capabilities);
     }
 
     public static AiToolCall Call(string name = "stop_container", string arguments = """{"id":"approved-id"}""") =>
@@ -172,7 +173,7 @@ internal sealed class AiContractHarness
             Requests.Add(new(
                 request.RequestUri!,
                 request.Method,
-                await request.Content!.ReadAsStringAsync(ct),
+                request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct),
                 request.Headers.ToDictionary(h => h.Key, h => string.Join(",", h.Value), StringComparer.OrdinalIgnoreCase)));
             if (Responses.Count == 0)
             {
@@ -184,4 +185,26 @@ internal sealed class AiContractHarness
     }
 
     internal sealed record CapturedRequest(Uri Uri, HttpMethod Method, string Body, Dictionary<string, string> Headers);
+
+    // Existing orchestration scenarios explicitly begin with positive capability evidence.
+    // Capability-layer tests override this; production has no permissive default.
+    internal sealed class ObservedCapabilities : IAiCapabilityService
+    {
+        public AiSupport Chat { get; set; } = AiSupport.Supported;
+        public AiSupport Tools { get; set; } = AiSupport.Supported;
+        public AiSupport Json { get; set; } = AiSupport.Supported;
+        public AiCapabilitySnapshot GetCached(AiChatConfiguration configuration) => new(configuration)
+        {
+            Chat = new(Chat, AiObservationSource.HarmlessProbe),
+            Tools = new(Tools, AiObservationSource.HarmlessProbe),
+            StructuredJson = new(Json, AiObservationSource.HarmlessProbe),
+            Endpoint = AiEndpointState.Reachable,
+        };
+        public Task<AiCapabilitySnapshot> GetAsync(AiChatConfiguration configuration, bool probe = false, CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(GetCached(configuration));
+        }
+        public void Invalidate() { Chat = Tools = Json = AiSupport.Unknown; }
+    }
 }
