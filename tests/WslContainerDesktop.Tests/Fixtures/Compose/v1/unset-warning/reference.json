@@ -1,7 +1,7 @@
 {
   "cliVersion": "2.39.4",
   "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
-  "capturedAtUtc": "2026-09-10T17:01:12.4829499+00:00",
+  "capturedAtUtc": "2026-09-10T17:24:20.4301466+00:00",
   "origin": "standalone-compose-config",
   "inputHashAlgorithm": "sha256-utf8-lf",
   "inputHashes": {
@@ -22,7 +22,7 @@
     "json"
   ],
   "exitCode": 0,
-  "stderr": "time=\"2026-09-10T13:01:12-04:00\" level=warning msg=\"The \\\"WCD_MISSING\\\" variable is not set. Defaulting to a blank string.\"\ntime=\"2026-09-10T13:01:12-04:00\" level=warning msg=\"The \\\"WCD_UNSET_BRANCH\\\" variable is not set. Defaulting to a blank string.\"\n",
+  "stderr": "time=\"2026-09-10T13:24:20-04:00\" level=warning msg=\"The \\\"WCD_UNSET_BRANCH\\\" variable is not set. Defaulting to a blank string.\"\ntime=\"2026-09-10T13:24:20-04:00\" level=warning msg=\"The \\\"WCD_MISSING\\\" variable is not set. Defaulting to a blank string.\"\n",
   "config": {
     "name": "wcd-conformance",
     "networks": {
