@@ -418,9 +418,11 @@ WSL Container Desktop can import a `docker-compose.yml` and run the whole stack,
 The [versioned configuration corpus](docs/COMPOSE-CONFORMANCE.md) records tested subsets and known
 differences. Empty environment values, later `env_file` precedence, sequence/resource overrides and
 required-variable errors now have spec-expected regressions; included-file paths and required-file
-handling remain partial. Its 20 cases have **captured Docker Compose v2.39.4 config output**
+handling remain partial. Its 21 cases have **captured Docker Compose v2.39.4 config output**
 compared with spec-derived expectations. The separate opt-in WSLC runtime harness is not run by
 normal tests; configuration comparisons are not runtime certification.
+Captured differences remain explicit: unused nested required expressions, duplicate DNS entries,
+and equivalent mixed short/long port bindings do not exactly match the pinned CLI.
 
 ### Purpose & model — "desktop-as-daemon"
 

@@ -1,0 +1,30 @@
+{
+  "cliVersion": "2.39.4",
+  "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
+  "capturedAtUtc": "2026-09-10T16:57:05.1765602+00:00",
+  "origin": "standalone-compose-config",
+  "inputHashAlgorithm": "sha256-utf8-lf",
+  "inputHashes": {
+    "compose.override.yaml": "7b855dec053b327845e001668a074b0081cf3804872a0a054e1babf85f40c9f2",
+    "compose.yaml": "6b0358b291c99f4f5d67940609ebbb8b4bd0975bcfc3e70e7665f9be82038ea9",
+    "expectations.json": "474fcbb476e9e9d080855f97d39d893d849067bf7c9f96a160d36b1b13ac717f"
+  },
+  "arguments": [
+    "--project-directory",
+    "$FIXTURE",
+    "-p",
+    "wcd-conformance",
+    "--profile",
+    "*",
+    "-f",
+    "compose.yaml",
+    "-f",
+    "compose.override.yaml",
+    "config",
+    "--format",
+    "json"
+  ],
+  "exitCode": 1,
+  "stderr": "error while interpolating services.web.environment.REQUIRED: required variable WCD_MISSING is missing a value: synthetic-secret\n",
+  "config": null
+}

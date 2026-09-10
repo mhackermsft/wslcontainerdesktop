@@ -5,7 +5,6 @@ services:
     environment:
       NESTED: "${WCD_MISSING:-${WCD_EMPTY:-${WCD_SET:+nested}}}"
       ALTERNATIVE: "${WCD_SET+${WCD_FALLBACK-default}}"
-      UNUSED: "${WCD_SET:-${WCD_MISSING:?unused synthetic secret}}"
       ESCAPED: "$${WCD_SET}"
       EMPTY: "${WCD_EMPTY?only unset is an error}"
       EMPTY_PLUS: "${WCD_EMPTY+yes}"

@@ -216,7 +216,7 @@ public sealed class ComposeConformanceTests
     public void ReferenceProjectionNormalizesOnlyDocumentedRepresentations()
     {
         var config = JsonNode.Parse("""
-            {"services":{"web":{"image":"fixture:1","command":["echo","two words"],"environment":{"LITERAL":"$$VAR","BARE":"$VAR"},
+            {"services":{"web":{"image":"fixture:1","command":["echo","two words"],"environment":{"LITERAL":"$$VAR","BARE":"$VAR","$${KEY}":"literal"},
             "ports":[{"host_ip":"127.0.0.1","published":"8080","target":80,"protocol":"tcp"}],
             "volumes":[{"type":"volume","source":"data","target":"/data","read_only":true}],
             "depends_on":{"db":{"condition":"service_healthy","required":true}}}}}
@@ -224,10 +224,20 @@ public sealed class ComposeConformanceTests
         var projection = ComposeConformanceProjection.FromReference(config);
         Assert.Equal("$VAR", projection["services"]!["web"]!["environment"]!["LITERAL"]!.GetValue<string>());
         Assert.Equal("$VAR", projection["services"]!["web"]!["environment"]!["BARE"]!.GetValue<string>());
+        Assert.Equal("literal", projection["services"]!["web"]!["environment"]!["${KEY}"]!.GetValue<string>());
         Assert.Equal("127.0.0.1:8080:80", projection["services"]!["web"]!["ports"]![0]!.GetValue<string>());
         Assert.Equal("data:/data:ro", projection["services"]!["web"]!["volumes"]![0]!.GetValue<string>());
         Assert.Equal("echo \"two words\"", projection["services"]!["web"]!["command"]!.GetValue<string>());
         Assert.Equal("service_healthy", projection["services"]!["web"]!["depends_on"]!["db"]!.GetValue<string>());
         Assert.IsType<JsonObject>(config["services"]!["web"]!["ports"]![0]);
+    }
+
+    [Fact]
+    public void ReferenceOmittedMountListRepresentsResetWithoutMaskingOtherMissingKeys()
+    {
+        var projection = ComposeConformanceProjection.FromReference(
+            JsonNode.Parse("""{"services":{"web":{"image":"fixture:1"}}}""")!.AsObject());
+        Assert.Empty(ComposeConformanceProjection.At(projection, "/services/web/volumes")!.AsArray());
+        Assert.Throws<InvalidDataException>(() => ComposeConformanceProjection.At(projection, "/services/web/command"));
     }
 }

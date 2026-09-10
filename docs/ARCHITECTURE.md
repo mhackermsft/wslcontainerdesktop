@@ -378,7 +378,7 @@ Dependency readiness and watchdog enrollment include only successfully ready ser
 
 These are implementation capabilities, not full specification conformance claims. The
 [versioned conformance corpus](COMPOSE-CONFORMANCE.md) distinguishes passing configuration subsets,
-known differences, actionable warnings, and missing fail-closed diagnostics. All 20
+known differences, actionable warnings, and missing fail-closed diagnostics. All 21
 spec-derived projections now have actual pinned CLI config captures. A separate opt-in real-WSLC
 harness covers owned lifecycle scenarios; it has not been executed or runtime-certified. The
 issue #82 layer updates the parser and its assertions; no supervisor or capability policy changes.
@@ -398,9 +398,9 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 | `extends:` (same-file and cross-file `file:`/`service:`) | **Partial** — resolved before model projection using shared merging; missing references, cycles, path ownership and extends-specific sequence deduplication remain #83 work |
 | `include:` (top-level) | **Partial** — short `- file.yml` and long `- path:` forms; files are merged under the main file, unlike Compose's independent project/conflict rules; included `env_file` paths currently resolve against the main directory |
 | `extra_hosts:` | **Supported (best-effort)** — appended to the container's `/etc/hosts` via `exec` after start (no `--add-host` flag); `host-gateway` resolves to the container's default gateway |
-| Sibling override merge rules | **Exact for supported normalized fields** — recursive maps, appended sequences, target-key volumes/secrets/configs, tuple-key ports; command/entrypoint/healthcheck.test replace; mixed environment/labels/build args merge by key |
+| Sibling override merge rules | **Supported normalized subset** — recursive maps, appended sequences, target-key volumes/secrets/configs, tuple-key ports; command/entrypoint/healthcheck.test replace; mixed environment/labels/build args merge by key. Captured CLI differences remain for duplicate DNS and equivalent mixed-form ports |
 | `!reset` / `!override` | **Supported** on mapping values; tags at document roots or on sequence items are explicitly rejected |
-| `$VAR`, `${VAR}`, `-`/`:-`, `?`/`:?`, `+`/`:+`, nesting, `$$` | **Exact for the documented interpolation subset** — per-file/value-only, unset versus empty, explicit > process > `.env`; required/malformed errors are secret-safe; no shell substitution or pattern replacement |
+| `$VAR`, `${VAR}`, `-`/`:-`, `?`/`:?`, `+`/`:+`, nesting, `$$` | **Supported subset** — per-file/value-only, unset versus empty, explicit > process > `.env`; required/malformed errors are secret-safe; no shell substitution or pattern replacement. Lazy unused nested required evaluation differs from pinned CLI rejection |
 | YAML quoting, flow/block collections, anchors/aliases, `<<`, `\|`/`>` folding/chomping | **Supported within bounded single-document Compose YAML** via maintained parser; invalid syntax/duplicates/cycles reject; no arbitrary tagged types or full Compose schema validation |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
 | `healthcheck` | **Capability-gated** — native shell checks when required run/create flags are supported; complete app backend for `CMD` argv or unsupported flags; unknown support is surfaced |

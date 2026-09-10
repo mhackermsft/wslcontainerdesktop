@@ -6,15 +6,26 @@
     "/services/web/entrypoint": "bash",
     "/services/web/environment": {"KEEP":"base","WINNER":"override","UNSET":null,"EMPTY":""},
     "/services/web/labels": {"keep":"base","winner":"override","added":"last"},
-    "/services/web/dns": ["192.0.2.1","192.0.2.2","192.0.2.1"],
+    "/services/web/dns": ["192.0.2.1","192.0.2.2"],
     "/services/web/volumes": ["new:/data","keep:/keep","last:/last"],
-    "/services/web/ports": ["127.0.0.1:8080:80","9090:90","127.0.0.2:8080:80","127.0.0.1:8080:80/udp"],
+    "/services/web/ports": ["127.0.0.1:8080:80","9090:90","127.0.0.1:8080:80","127.0.0.2:8080:80","127.0.0.1:8080:80/udp"],
     "/services/web/secrets": [{"source":"token","target":"/run/secrets/token"},{"source":"new","target":"/run/secrets/shared"}],
     "/services/web/configs": [{"source":"settings","target":"/settings"},{"source":"new","target":"/shared"}],
     "/services/web/healthcheck/test": ["CMD-SHELL","echo ready"],
     "/services/web/healthcheck/interval": "30s",
     "/services/web/healthcheck/timeout": "5s"
   },
-  "divergences": {},
+  "divergences": {
+    "/services/web/ports": {
+      "app": ["127.0.0.1:8080:80","9090:90","127.0.0.2:8080:80","127.0.0.1:8080:80/udp"],
+      "reason": "Pinned Compose v2.39.4 retains the equivalent short-form and numeric-published long-form bindings in this fixture; the importer merges their normalized tuple identity.",
+      "issue": 82
+    },
+    "/services/web/dns": {
+      "app": ["192.0.2.1","192.0.2.2","192.0.2.1"],
+      "reason": "Pinned Compose v2.39.4 removes duplicate DNS entries after merging; the importer retains ordinary sequence duplicates.",
+      "issue": 82
+    }
+  },
   "warnings": []
 }

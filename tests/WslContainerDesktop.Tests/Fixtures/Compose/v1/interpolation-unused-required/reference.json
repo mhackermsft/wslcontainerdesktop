@@ -1,12 +1,12 @@
 {
   "cliVersion": "2.39.4",
   "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
-  "capturedAtUtc": "2026-09-10T16:57:05.3068661+00:00",
+  "capturedAtUtc": "2026-09-10T16:57:04.0980513+00:00",
   "origin": "standalone-compose-config",
   "inputHashAlgorithm": "sha256-utf8-lf",
   "inputHashes": {
-    "compose.yaml": "059735b0359648fccdc2379f41a60cb67e45a4326ee372d00a32a38e72281b2a",
-    "expectations.json": "9040fc6d71bfa5489d39a4f3ed35237992d101b8ad575263826bd5ca4d9bcd95"
+    "compose.yaml": "f2462170afaf60460ca7ed735a1672b31ce963f677f43d312ed3bd05da86226b",
+    "expectations.json": "09b2e31b31d2e3851bf1c8a8c4c6488fff04041e4b0d6c023a454430955a2959"
   },
   "arguments": [
     "--project-directory",
@@ -22,6 +22,6 @@
     "json"
   ],
   "exitCode": 1,
-  "stderr": "error while interpolating services.web.environment.REQUIRED: required variable WCD_REQUIRED is missing a value: synthetic required value missing\n",
+  "stderr": "error while interpolating services.web.environment.UNUSED: required variable WCD_MISSING is missing a value: unused synthetic secret\n",
   "config": null
 }

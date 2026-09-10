@@ -7,13 +7,14 @@ for issue #86, extended by issue #82. It uses the existing xUnit runner and link
 `ComposeImporter`, including its audited YamlDotNet dependency. No Docker Desktop, daemon, image
 pulls, WSL installation or package activation are needed. #82 changes parsing, not orchestration.
 
-**All 20 cases now have actual `config --format json` reference captures** from the
+**All 21 cases now have actual `config --format json` reference captures** from the
 official Windows x64 standalone Compose v2.39.4 binary. Initial expectations were hand-authored
 spec projections; those projections are now compared with the captured output. Capture ran on
 2026-09-10 in an isolated synthetic directory/environment, with no engine/workloads. The runtime
 harness remains unexecuted and there is no real-engine runtime certification. Required-variable
 cases now assert fail-closed, secret-safe errors; the missing-file case still characterizes an
-unsafe diagnostic gap for #83. Resolved #82 differences no longer have divergence exemptions.
+unsafe diagnostic gap for #83. Resolved #82 differences no longer have divergence exemptions;
+newly observed CLI differences are recorded explicitly rather than hidden by the projection.
 
 The reference is pinned in `reference-provenance.json`:
 
@@ -67,9 +68,9 @@ Exact warning lists are checked independently of config values.
 | Representation | Normalization / scope |
 |---|---|
 | Services | Dictionary by name; `serviceNames` sorted ordinally; runtime IDs, timestamps, default project names and generated labels excluded |
-| Environment | App `KEY=VALUE` list becomes a map; bare `KEY` remains null, distinct from `KEY=`; config JSON's `$$` serialization escape becomes literal `$`, without resolving `$VAR`; actual ambient values are never resolved by the projection |
+| Environment | App `KEY=VALUE` list becomes a map; bare `KEY` remains null, distinct from `KEY=`; config JSON's `$$` serialization escape in keys and values becomes literal `$`, without resolving `$VAR`; actual ambient values are never resolved by the projection |
 | Ports | Canonical config port objects become app-style `host_ip:published:target/protocol`; default TCP omitted; list order retained |
-| Mounts | Canonical config mount objects become `source:target[:ro]`; tests cover named-volume short/long forms, not every bind/driver option |
+| Mounts | Canonical config mount objects become `source:target[:ro]`; omitted mount lists (including after reset) become empty lists; tests cover named-volume short/long forms, not every bind/driver option |
 | Commands / entrypoints | Config argv is joined with whitespace-bearing tokens quoted for the selected simple examples. Separate parser tests check empty tokens, mixed quotes, newlines and Windows paths through argument construction; no runtime certification |
 | Secrets / configs | Compare source/target only, expanding relative/default targets under `/run/secrets/` or `/`; ownership/mode are not normalized away and must not be inferred as supported |
 | Dependencies | Compare named edge conditions; default `required` metadata excluded; optional edges/restart propagation require later fixtures |
@@ -106,7 +107,8 @@ retain `referenceError` for future CLI capture; rejecting configuration is not a
 | `missing-env-file` | Reference should reject; current importer still returns a service without a diagnostic (#83) |
 | `interpolation-nested` | Nested/alternative/required operators, empty/process/`.env` precedence, escaped dollars, literal mapping keys and structure-safe substituted values |
 | `unset-warning` | Unset direct substitution warns without exposing values; empty variables/defaults/unused branches do not warn |
-| `override-unique` | Mixed map/list environment/labels; port IP/protocol identity; target-key mounts/secrets/configs; DNS retains duplicates; command/entrypoint/health-test replacement |
+| `override-unique` | Mixed map/list environment/labels; port IP/protocol identity; target-key mounts/secrets/configs; command/entrypoint/health-test replacement. Explicit captured divergences: CLI removes duplicate DNS but retains equivalent short/numeric-long port bindings; the importer retains DNS duplicates and normalizes port tuple identity |
+| `interpolation-unused-required` | Actual CLI rejection of a nested required expression in an unused default branch; importer lazy success is explicitly characterized, not claimed equivalent. Kept separate so all other nested-success keys still compare against valid captured config |
 | `override-tags` | Reset removes attributes and individual environment entries; override replaces collections/maps; null versus empty commands |
 | `yaml-multiline` | Flow collections, sequence aliases, merge precedence, quoted escapes and literal/folded blank lines/chomping |
 

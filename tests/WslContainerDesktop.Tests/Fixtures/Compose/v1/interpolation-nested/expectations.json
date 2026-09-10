@@ -3,7 +3,7 @@
   "checks": {
     "/serviceNames": ["web"],
     "/services/web/environment": {
-      "NESTED":"nested","ALTERNATIVE":"default","UNUSED":"process","ESCAPED":"${WCD_SET}",
+      "NESTED":"nested","ALTERNATIVE":"default","ESCAPED":"${WCD_SET}",
       "EMPTY":"","EMPTY_PLUS":"yes","EMPTY_COLON_PLUS":"","FROM_DOTENV":"dotenv",
       "FROM_PROCESS":"process","STRUCTURAL":"private: [not yaml] # data","${WCD_SET}":"literal-key"
     },

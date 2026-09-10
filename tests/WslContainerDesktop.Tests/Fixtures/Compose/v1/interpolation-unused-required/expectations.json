@@ -1,0 +1,11 @@
+{
+  "environment": {"WCD_SET":"process"},
+  "checks": {
+    "/serviceNames": ["web"],
+    "/services/web/environment": {"UNUSED":"process"}
+  },
+  "referenceError": "required variable WCD_MISSING is missing a value",
+  "diagnosticLimitation": "The pinned CLI evaluates the nested required expression in an unused default branch; the importer lazily selects the outer value. This negative-reference case is not configuration equivalence.",
+  "divergences": {},
+  "warnings": []
+}

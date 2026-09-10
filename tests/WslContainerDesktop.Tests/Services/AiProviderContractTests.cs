@@ -34,7 +34,8 @@ public sealed class AiProviderContractTests
         handler.Enqueue(Response(kind, null, AiContractHarness.Call("inspect_container")));
         handler.Enqueue(Response(kind, "Done"));
         var raw = "\u001b[32m{\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"},\"metadata\":{\"name\":\"ordinary-context\"}}\u001b[0m";
-        await Create(kind, http, h.Settings).RunTurnAsync(History, Tools,
+        await Create(kind, http, h.Settings).RunTurnAsync(
+            new AiChatRequest(AiConversationContext.Capture(h.Settings, kind), History), Tools,
             (_, _) => Task.FromResult(raw), CancellationToken.None);
         Assert.Equal(2, handler.Requests.Count);
         Assert.DoesNotContain("synthetic-review-canary", handler.Requests[1].Body);

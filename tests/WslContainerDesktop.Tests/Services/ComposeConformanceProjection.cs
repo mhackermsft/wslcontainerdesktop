@@ -85,9 +85,13 @@ internal static class ComposeConformanceProjection
             // Compose config re-escapes literal dollars for a reloadable document. Compare
             // container environment values, not that serialization escape (never expand $VAR).
             if (service["environment"] is JsonObject environment)
-                foreach (var key in environment.Select(e => e.Key).ToArray())
-                    if (environment[key] is JsonValue value && value.TryGetValue<string>(out var text))
-                        environment[key] = text.Replace("$$", "$", StringComparison.Ordinal);
+                service["environment"] = new JsonObject(environment.Select(e => KeyValuePair.Create(
+                    e.Key.Replace("$$", "$", StringComparison.Ordinal),
+                    e.Value is JsonValue value && value.TryGetValue<string>(out var text)
+                        ? (JsonNode?)JsonValue.Create(text.Replace("$$", "$", StringComparison.Ordinal))
+                        : e.Value?.DeepClone())));
+            // Config omits empty mounts after !reset; the app persists an empty mount list.
+            if (!service.ContainsKey("volumes")) service["volumes"] = new JsonArray();
             if (service["ports"] is JsonArray ports)
                 service["ports"] = JsonSerializer.SerializeToNode(ports.Select(p =>
                     (p!["host_ip"] is { } ip ? ip.GetValue<string>() + ":" : "") +

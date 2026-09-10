@@ -12,5 +12,6 @@ services:
     secrets: [token, {source: old, target: shared}]
     configs: [settings, {source: old, target: /shared}]
     healthcheck: {test: [CMD, old], interval: 30s}
-secrets: {token: {}, old: {}, new: {}}
-configs: {settings: {}, old: {}, new: {}}
+volumes: {old: {}, keep: {}, new: {}, last: {}}
+secrets: {token: {external: true}, old: {external: true}, new: {external: true}}
+configs: {settings: {external: true}, old: {external: true}, new: {external: true}}

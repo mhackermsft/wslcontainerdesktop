@@ -30,7 +30,9 @@ baseline restoration uses only the already-cached graph after `--no-restore` rep
 The target remains Compose specification commit
 `c0c3dba71a73260cf9649e05370dcad6fe29e11c`, especially chapters 12 (interpolation) and 13 (merge),
 and the conformance corpus's separately pinned reference CLI v2.39.4.
-Expectations are spec-derived, **not captured Docker output or runtime certification**.
+Expectations originated as spec-derived projections. The publication integration now includes
+actual pinned config-only captures for all 21 cases, with explicit observed divergences and
+**no runtime certification**.
 The documented `+` / `:+` operators and environment precedence also follow Docker's
 [interpolation guide](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
 The importer API's explicit environment overlay is an application facility, not an emulation of
@@ -118,6 +120,11 @@ their existing error boundaries.
 - Include/extends required/missing-file, independent-project/conflict, recursive path ownership
   and extends-specific deduplication rules remain #83 work. A present malformed referenced file
   now fails, but a missing required `env_file` still has an explicit conformance diagnostic gap.
+- Actual pinned CLI captures expose three additional differences, without changing the parser:
+  nested required operands in unused default branches reject in the CLI but are lazy in the app;
+  the CLI de-duplicates merged DNS; equivalent short/numeric-long published ports remain duplicated
+  in the captured CLI but merge by normalized tuple in the app. See the isolated negative-reference
+  fixture and `override-unique` divergence records; these are not equivalence claims.
 - Advanced long-form port/mount/secret/config options warn; long mount types other than bind/volume
   and unsupported short mount modes reject. No new engine flags were introduced.
 - Argv construction retains empty tokens, mixed quotes, newlines and Windows paths without adding
@@ -174,3 +181,19 @@ their existing error boundaries.
 - UI call ordering and all `ImportAndUpAsync` callers were inspected. The test project does not
   compile the WinUI views/view-models; no packaged app build/run/deploy or UI smoke was performed,
   as required. No Docker, WSL, model/workload or engine operations were executed.
+
+### Publication integration, 2026-09-10
+
+Rebased on the reviewed conformance foundation and retained its real captures, UTF8-LF hashes,
+config dollar decoding and unexecuted consent-gated runtime harness. Regenerated 21 cases using
+the hash-verified authorized standalone v2.39.4 binary, with only `version`/`config` operations.
+The negative nested-required case is isolated from the successful nested-expression fixture;
+DNS and mixed-port differences retain exact existing app expectations in explicit divergence
+records. No production parser semantics changed during this integration.
+
+The narrow reference projection additionally decodes dollar escapes in environment keys and
+maps omitted reset mount lists to empty lists, without making other missing selected keys valid.
+An inherited AI provider contract test was adapted to the current `AiChatRequest` signature.
+Targeted `ComposeConformanceTests`, `ComposeSemanticsTests` and that three-provider contract test
+passed **106 tests on each target**, zero warnings, using `--no-restore -p:Platform=x64
+-p:CopilotSkipCliDownload=true`. No runtime harness, engine workload or packaged deployment ran.

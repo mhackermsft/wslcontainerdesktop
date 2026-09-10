@@ -1,12 +1,12 @@
 {
   "cliVersion": "2.39.4",
   "executableSha256": "6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955",
-  "capturedAtUtc": "2026-09-10T14:13:55.1578768+00:00",
+  "capturedAtUtc": "2026-09-10T16:57:03.8570929+00:00",
   "origin": "standalone-compose-config",
   "inputHashAlgorithm": "sha256-utf8-lf",
   "inputHashes": {
     "compose.yaml": "d13bf966e3bdba838dd18684c59a0428cccd1f9ed013c012a326829a9f42afe0",
-    "expectations.json": "feb84975c8e42ecac0d0b633f52ad9c7a6a9e264321cd4f81d84ae75a9557577"
+    "expectations.json": "ca550cdfb0f32fb991e8789ebabbd84143c15b7370f432f4a95d990e1302bbef"
   },
   "arguments": [
     "--project-directory",
