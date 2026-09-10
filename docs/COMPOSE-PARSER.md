@@ -267,6 +267,30 @@ passed **106 tests on each target**, zero warnings, using `--no-restore -p:Platf
 -p:CopilotSkipCliDownload=true`. No runtime harness, engine workload or packaged deployment ran.
 ## File-graph validation (#83)
 
+### Explicit file sets and dev containers
+
+`ParseProjectFiles` loads an explicit ordered list through the same document-level pipeline:
+decode/interpolate/rebase each layer, merge mappings, resolve includes/inheritance, and validate
+and project once. All override paths use the first file's directory and its interpolation snapshot.
+No implicit sibling override is loaded for an explicit file set. Dev-container `dockerComposeFile`
+arrays use this API, so environment-only override layers are valid but an invalid final service
+still rejects. Missing list members and malformed Compose inputs are not omitted or mislabeled
+as JSONC syntax errors.
+
+Compose diagnostics are retained both in the outer dev-container import warnings and in the
+embedded `ComposeProject.Warnings`. This list now serializes with saved projects so later review
+cannot lose unresolved-interpolation/unsupported-option warnings on reload. Older saved projects
+without the field still deserialize with an empty list; this does not reconstruct lost diagnostics.
+
+The September 10 review follow-up adds 13 actual importer/serialization regressions for ordered
+files, cross-directory paths, partial layers, invalid final models, missing/malformed later inputs,
+invalid lists and persisted inner/outer diagnostics. The combined focused command below passed
+361 portable and 392 Windows-target tests. A full Debug x64 app build passed with zero warnings
+or errors and no deployment. After the initial app `--no-restore` reported missing assets, restore
+used only the checksum-verified #96 audited app feed plus the previously audited YamlDotNet archive,
+in this session's isolated local cache; all 29 resolved libraries and SDK download references
+matched the publication audits. No new dependency versions or network acquisitions were needed.
+
 The new focused graph tests use synthetic filesystem inputs under uniquely owned test-output
 directories inside the checkout, always cleaned up after each case. Sharing violations use
 locked local files; Windows drive/UNC bind tests are lexical only and never probe a live share.

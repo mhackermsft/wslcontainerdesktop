@@ -30,6 +30,19 @@ public static partial class ComposeImporter
         private readonly HashSet<(string File, string Service)> _extends = [];
         private int _reads;
 
+        public MappingNode LoadFiles(IReadOnlyList<string> paths, string? directory,
+            IReadOnlyDictionary<string, string> env)
+        {
+            MappingNode? root = null;
+            for (var i = 0; i < paths.Count; i++)
+            {
+                var source = $"Compose files[{i + 1}]";
+                var part = Decode(ReadInput(paths[i], true, source)!, directory, env, source);
+                root = root is null ? part : MergeMappings(root, part);
+            }
+            return Finish(root!, directory, env, PathIdentity(paths[0]), 0, reportTopLevelWarnings: false);
+        }
+
         public MappingNode LoadMain(string yaml, string? directory, IReadOnlyDictionary<string, string> env)
         {
             var root = Decode(yaml, directory, env, "Compose input");
@@ -71,7 +84,7 @@ public static partial class ComposeImporter
         }
 
         private MappingNode Finish(MappingNode root, string? directory,
-            IReadOnlyDictionary<string, string> env, string identity, int depth)
+            IReadOnlyDictionary<string, string> env, string identity, int depth, bool reportTopLevelWarnings = true)
         {
             if (depth > 64) throw FileError(root.Source, "file graph exceeds the 64-level limit");
             var includedProjects = new List<MappingNode>();
@@ -102,7 +115,7 @@ public static partial class ComposeImporter
                     if (service.Child("build") is MappingNode build && build.Child("context") is null or NullNode)
                         build.Map["context"] = new ScalarNode(build.DefaultBuildContext ?? ResolvePath(".", directory));
             ValidateResourceShapes(root);
-            if (identity != "<main>")
+            if (identity != "<main>" && reportTopLevelWarnings)
             {
                 var firstWarning = warnings.Count;
                 CollectTopLevelWarnings(root, warnings);

@@ -115,6 +115,32 @@ public static partial class ComposeImporter
         var interpolationWarnings = new List<string>();
         var graph = new FileGraph(interpolationWarnings);
         var root = graph.LoadMain(yaml, baseDirectory, effectiveEnv);
+        return ProjectRoot(root, baseDirectory, effectiveEnv, interpolationWarnings);
+    }
+
+    /// <summary>
+    /// Loads an explicit ordered Compose file set as one project. All override paths use the
+    /// first file's directory; no implicit sibling override is discovered.
+    /// </summary>
+    public static ComposeProject ParseProjectFiles(
+        IReadOnlyList<string> files,
+        IReadOnlyDictionary<string, string>? environment = null)
+    {
+        if (files.Count == 0)
+            throw FileError("Compose files", "expected a nonempty ordered file list");
+        var paths = files.Select((file, index) =>
+            RequiredPath(RequiredScalar(new ScalarNode(file), $"Compose files[{index + 1}]"),
+                null, $"Compose files[{index + 1}]")).ToList();
+        var directory = Path.GetDirectoryName(paths[0]);
+        var effectiveEnv = BuildInterpolationEnvironment(environment, directory);
+        var warnings = new List<string>();
+        var root = new FileGraph(warnings).LoadFiles(paths, directory, effectiveEnv);
+        return ProjectRoot(root, directory, effectiveEnv, warnings);
+    }
+
+    private static ComposeProject ProjectRoot(MappingNode root, string? baseDirectory,
+        IReadOnlyDictionary<string, string> effectiveEnv, List<string> interpolationWarnings)
+    {
         ValidateServices(root);
         ValidateFileResources(root);
 

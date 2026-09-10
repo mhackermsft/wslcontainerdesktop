@@ -129,6 +129,11 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
             config.RunOptions = ToRunOptions(config);
             return new DevContainerImportResult { Config = config, Options = config.RunOptions, Warnings = warnings };
         }
+        catch (ComposeConfigurationException ex)
+        {
+            logger.LogWarning("Dev container Compose configuration failed: {Diagnostic}", ex.Message);
+            return Fail(ex.Message);
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to import devcontainer from {Workspace}.", workspacePath);
@@ -219,26 +224,26 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
         }
 
         var configDir = Path.GetDirectoryName(configPath) ?? workspace;
-        var files = ReadStringOrArray(composeElement, vars)
-            .Select(p => ResolvePath(configDir, p))
-            .Where(File.Exists)
-            .ToList();
-        if (files.Count == 0)
+        if (composeElement.ValueKind != JsonValueKind.String &&
+            (composeElement.ValueKind != JsonValueKind.Array ||
+                composeElement.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.String)))
+            throw new ComposeConfigurationException("dockerComposeFile requires a path or an ordered list of paths.");
+        var entries = composeElement.ValueKind == JsonValueKind.String
+            ? new[] { composeElement } : composeElement.EnumerateArray().ToArray();
+        var paths = entries.Select(item => vars.Substitute(item.GetString()!)).ToList();
+        if (paths.Any(string.IsNullOrWhiteSpace))
+            throw new ComposeConfigurationException("dockerComposeFile requires nonempty file paths.");
+        List<string> files;
+        try
         {
-            warnings.Add("No referenced dockerComposeFile could be found; Compose dev container import was skipped.");
-            return null;
+            files = paths.Select(p => ResolvePath(configDir, p)).ToList();
         }
-
-        var project = new ComposeProject
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
         {
-            Name = "devcontainer_" + config.Id,
-        };
-        foreach (var file in files)
-        {
-            var parsed = ComposeImporter.ParseProject(File.ReadAllText(file), baseDirectory: Path.GetDirectoryName(file));
-            project = MergeProjects(project, parsed);
-            warnings.AddRange(parsed.Warnings);
+            throw new ComposeConfigurationException("dockerComposeFile contains an invalid file path.");
         }
+        var project = ComposeImporter.ParseProjectFiles(files);
+        warnings.AddRange(project.Warnings);
 
         project.Name = "devcontainer_" + config.Id;
         var runServices = ReadStringList(root, "runServices", vars);
@@ -263,17 +268,6 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
             RunServices = runServices,
             Project = project,
         };
-    }
-
-    private static ComposeProject MergeProjects(ComposeProject baseProject, ComposeProject next)
-    {
-        baseProject.Services.RemoveAll(s => next.Services.Any(ns => string.Equals(ns.Name, s.Name, StringComparison.Ordinal)));
-        baseProject.Services.AddRange(next.Services);
-        baseProject.Networks.AddRange(next.Networks.Where(n => !baseProject.Networks.Any(e => string.Equals(e.Name, n.Name, StringComparison.Ordinal))));
-        baseProject.Volumes.AddRange(next.Volumes.Where(v => !baseProject.Volumes.Any(e => string.Equals(e.Name, v.Name, StringComparison.Ordinal))));
-        baseProject.Secrets.AddRange(next.Secrets.Where(s => !baseProject.Secrets.Any(e => string.Equals(e.Name, s.Name, StringComparison.Ordinal))));
-        baseProject.Configs.AddRange(next.Configs.Where(c => !baseProject.Configs.Any(e => string.Equals(e.Name, c.Name, StringComparison.Ordinal))));
-        return baseProject;
     }
 
     private static void ApplyDevContainerToService(ComposeService service, DevContainerConfig config, DevContainerVariables vars)
