@@ -80,21 +80,35 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct)
+        => (await RunTurnAsync(new AiChatRequest(AiConversationContext.Capture(settings, Kind), history),
+            tools, invokeToolAsync, ct).ConfigureAwait(false)).FinalText;
+
+    public async Task<AiChatTurnResult> RunTurnAsync(
+        AiChatRequest request,
+        IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(settings.AiOpenAiModel))
+        var configuration = request.Configuration;
+        if (string.IsNullOrWhiteSpace(configuration.Model))
         {
             throw MissingModel("Assistant chat");
         }
 
-        var uri = ChatCompletionsUri();
-        var messages = history.Select(AiTextSanitizer.SanitizeMessage).ToList();
+        var uri = BuildUri(configuration.Endpoint, "chat/completions");
+        credentials.TryReadSecret(Kind, out var key);
+        var messages = request.History.Select(AiTextSanitizer.SanitizeMessage).ToList();
+        var transcript = new List<AiChatMessage>();
         for (var i = 0; i < 8; i++)
         {
+            ct.ThrowIfCancellationRequested();
+            messages = AiConversationContext.Prepare(messages, tools, configuration).ToList();
             using var message = new HttpRequestMessage(HttpMethod.Post, uri);
-            ApplyAuthorization(message);
+            if (!string.IsNullOrWhiteSpace(key))
+                message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
             message.Content = JsonContent.Create(new
             {
-                model = settings.AiOpenAiModel.Trim(),
+                model = configuration.Model.Trim(),
                 temperature = 0.2,
                 messages = messages.Select(ToOpenAiMessage).ToList(),
                 tools = tools.Select(ToOpenAiTool).ToList(),
@@ -103,9 +117,10 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
 
             using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (!response.IsSuccessStatusCode)
             {
-                throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), settings.AiOpenAiModel, body);
+                throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), configuration.Model, body);
             }
 
             using var doc = JsonDocument.Parse(body);
@@ -113,21 +128,28 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
             var turn = ParseToolTurn(root);
             if (turn.ToolCalls.Count == 0)
             {
-                return string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);
+                var finalText = string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);
+                transcript.Add(new AiChatMessage { Role = "assistant", Content = finalText });
+                return new AiChatTurnResult(finalText, transcript.ToArray());
             }
 
             // The execution calls stay original; only redacted copies enter conversation history.
-            messages.Add(AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls }));
+            var assistant = AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls });
+            messages.Add(assistant);
+            transcript.Add(assistant);
             foreach (var call in turn.ToolCalls)
             {
+                ct.ThrowIfCancellationRequested();
                 var toolResult = await invokeToolAsync(call, ct).ConfigureAwait(false);
-                messages.Add(new AiChatMessage
+                var outcome = new AiChatMessage
                 {
                     Role = "tool",
                     ToolCallId = call.Id,
                     ToolName = call.Name,
                     Content = AiTextSanitizer.Sanitize(toolResult),
-                });
+                };
+                messages.Add(outcome);
+                transcript.Add(outcome);
             }
         }
 

@@ -140,6 +140,22 @@ public sealed class GitHubCopilotProvider(
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct)
+        => (await RunTurnAsync(new AiChatRequest(AiConversationContext.Capture(settings, Kind), history),
+            tools, invokeToolAsync, ct).ConfigureAwait(false)).FinalText;
+
+    public Task<AiChatTurnResult> RunTurnAsync(
+        AiChatRequest request,
+        IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        CancellationToken ct)
+        => new CopilotChatTurnRunner(RunChatSessionAsync).RunTurnAsync(request, tools, invokeToolAsync, ct);
+
+    private async Task<string> RunChatSessionAsync(
+        AiChatConfiguration configuration,
+        IReadOnlyList<AiChatMessage> history,
+        IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(RequestTimeout);
@@ -148,7 +164,7 @@ public sealed class GitHubCopilotProvider(
         {
             await using var client = CreateClient();
             await client.StartAsync(timeout.Token).ConfigureAwait(false);
-            var model = await ResolveModelAsync(client, timeout.Token).ConfigureAwait(false);
+            var model = await ResolveModelAsync(client, timeout.Token, configuration.Model).ConfigureAwait(false);
             var allowlistedToolNames = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
 
             await using var session = await client.CreateSessionAsync(new SessionConfig
@@ -157,7 +173,7 @@ public sealed class GitHubCopilotProvider(
                 SystemMessage = new SystemMessageConfig
                 {
                     Mode = SystemMessageMode.Replace,
-                    Content = history.FirstOrDefault(m => m.Role == "system")?.Content ?? string.Empty,
+                    Content = string.Join("\n\n", history.Where(m => m.Role == "system").Select(m => m.Content)),
                 },
                 Tools = BuildCopilotTools(tools, invokeToolAsync),
                 AvailableTools = tools.Select(t => t.Name).ToList(),
@@ -177,6 +193,7 @@ public sealed class GitHubCopilotProvider(
                 RequestTimeout,
                 timeout.Token).ConfigureAwait(false);
 
+            timeout.Token.ThrowIfCancellationRequested();
             var data = message?.Data ?? throw new InvalidOperationException("GitHub Copilot returned no assistant message.");
             return string.IsNullOrWhiteSpace(data.Content) ? "Done." : AiTextSanitizer.Sanitize(data.Content);
         }
@@ -236,6 +253,8 @@ public sealed class GitHubCopilotProvider(
         {
             if (message.ToolCalls.Count > 0)
             {
+                if (!string.IsNullOrWhiteSpace(message.Content))
+                    builder.AppendLine($"assistant: {message.Content}");
                 builder.AppendLine($"assistant requested tools: {string.Join("; ", message.ToolCalls.Select(c => $"{c.Name}({c.ArgumentsJson}) call_id={c.Id}"))}");
                 continue;
             }
@@ -268,6 +287,7 @@ public sealed class GitHubCopilotProvider(
             AIFunctionArguments arguments,
             CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var json = JsonSerializer.Serialize(arguments.ToDictionary(kvp => kvp.Key, kvp => kvp.Value));
             var call = new AiToolCall
             {
@@ -297,11 +317,12 @@ public sealed class GitHubCopilotProvider(
         });
     }
 
-    private async Task<string> ResolveModelAsync(CopilotClient client, CancellationToken ct)
+    private async Task<string> ResolveModelAsync(CopilotClient client, CancellationToken ct, string? configuredModel = null)
     {
-        var requested = string.IsNullOrWhiteSpace(settings.AiGitHubCopilotModel)
+        configuredModel ??= settings.AiGitHubCopilotModel;
+        var requested = string.IsNullOrWhiteSpace(configuredModel)
             ? DefaultModel
-            : settings.AiGitHubCopilotModel.Trim();
+            : configuredModel.Trim();
 
         try
         {

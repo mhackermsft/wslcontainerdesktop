@@ -73,7 +73,10 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
     private static Uri NormalizeBase(string? value, string fallback)
     {
         var text = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
-        return new Uri(text.EndsWith('/') ? text : text + "/", UriKind.Absolute);
+        if (!Uri.TryCreate(text.EndsWith('/') ? text : text + "/", UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            throw new InvalidOperationException("Enter a valid absolute http(s) Ollama endpoint.");
+        return uri;
     }
 
     public async Task<string> RunTurnAsync(
@@ -81,18 +84,30 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct)
+        => (await RunTurnAsync(new AiChatRequest(AiConversationContext.Capture(settings, Kind), history),
+            tools, invokeToolAsync, ct).ConfigureAwait(false)).FinalText;
+
+    public async Task<AiChatTurnResult> RunTurnAsync(
+        AiChatRequest request,
+        IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(settings.AiOllamaModel))
+        var configuration = request.Configuration;
+        if (string.IsNullOrWhiteSpace(configuration.Model))
         {
             throw MissingModel("Assistant chat");
         }
 
-        var endpoint = NormalizeBase(settings.AiOllamaEndpoint, "http://localhost:11434");
+        var endpoint = NormalizeBase(configuration.Endpoint, "http://localhost:11434");
         var uri = new Uri(endpoint, "/api/chat");
-        var model = settings.AiOllamaModel.Trim();
-        var messages = history.Select(AiTextSanitizer.SanitizeMessage).ToList();
+        var model = configuration.Model.Trim();
+        var messages = request.History.Select(AiTextSanitizer.SanitizeMessage).ToList();
+        var transcript = new List<AiChatMessage>();
         for (var i = 0; i < 8; i++)
         {
+            ct.ThrowIfCancellationRequested();
+            messages = AiConversationContext.Prepare(messages, tools, configuration).ToList();
             using var response = await http.PostAsJsonAsync(uri, new
             {
                 model,
@@ -103,6 +118,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
             }, ct).ConfigureAwait(false);
 
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (!response.IsSuccessStatusCode)
             {
                 if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
@@ -126,21 +142,28 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings)
             var turn = ParseToolTurn(messageElement);
             if (turn.ToolCalls.Count == 0)
             {
-                return string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);
+                var finalText = string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);
+                transcript.Add(new AiChatMessage { Role = "assistant", Content = finalText });
+                return new AiChatTurnResult(finalText, transcript.ToArray());
             }
 
             // The execution calls stay original; only redacted copies enter conversation history.
-            messages.Add(AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls }));
+            var assistant = AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls });
+            messages.Add(assistant);
+            transcript.Add(assistant);
             foreach (var call in turn.ToolCalls)
             {
+                ct.ThrowIfCancellationRequested();
                 var toolResult = await invokeToolAsync(call, ct).ConfigureAwait(false);
-                messages.Add(new AiChatMessage
+                var outcome = new AiChatMessage
                 {
                     Role = "tool",
                     ToolCallId = call.Id,
                     ToolName = call.Name,
                     Content = AiTextSanitizer.Sanitize(toolResult),
-                });
+                };
+                messages.Add(outcome);
+                transcript.Add(outcome);
             }
         }
 

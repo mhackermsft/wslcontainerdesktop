@@ -34,6 +34,7 @@ internal sealed class AiContractHarness
         [nameof(ISettingsService.AiAzureOpenAiDeployment)] = "synthetic-deployment",
         [nameof(ISettingsService.AiOllamaEndpoint)] = "http://ollama.invalid:11434",
         [nameof(ISettingsService.AiOllamaModel)] = "synthetic-model",
+        [nameof(ISettingsService.AiGitHubCopilotModel)] = "synthetic-model",
     };
 
     public HashSet<string> AutoApproved { get; } = new(StringComparer.Ordinal);
@@ -44,7 +45,8 @@ internal sealed class AiContractHarness
     public ScriptedTools Tools { get; } = new();
     public ContainerAssistantService Assistant { get; }
 
-    public AiContractHarness(Func<ISettingsService, IAssistantToolset>? toolsetFactory = null)
+    public AiContractHarness(Func<ISettingsService, IAssistantToolset>? toolsetFactory = null,
+        Func<ISettingsService, IEnumerable<IAiChatProvider>>? providerFactory = null)
     {
         Settings = NetworkTestProxy.Create<ISettingsService>((method, args) =>
         {
@@ -73,12 +75,12 @@ internal sealed class AiContractHarness
             PersistedActivity.Add(JsonSerializer.Serialize(item));
             return null;
         });
-        Assistant = new(Settings, [Provider], toolsetFactory?.Invoke(Settings) ?? Tools,
+        Assistant = new(Settings, providerFactory?.Invoke(Settings) ?? [Provider], toolsetFactory?.Invoke(Settings) ?? Tools,
             new AssistantActionGate(Settings), activity);
     }
 
     public static AiToolCall Call(string name = "stop_container", string arguments = """{"id":"approved-id"}""") =>
-        new() { Id = "call-1", Name = name, ArgumentsJson = arguments };
+        new() { Id = Guid.NewGuid().ToString("N"), Name = name, ArgumentsJson = arguments };
 
     public static TaskCompletionSource<T> Signal<T>() =>
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -90,15 +92,19 @@ internal sealed class AiContractHarness
         public List<IReadOnlyList<AiChatMessage>> Requests { get; } = [];
         public Queue<Func<Func<AiToolCall, CancellationToken, Task<string>>, CancellationToken, Task<string>>> Turns { get; } = new();
 
-        public Task<string> RunTurnAsync(
-            IReadOnlyList<AiChatMessage> history,
+        public async Task<AiChatTurnResult> RunTurnAsync(
+            AiChatRequest request,
             IReadOnlyList<AiToolDefinition> tools,
             Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
             CancellationToken ct)
         {
-            Requests.Add(history.ToArray());
-            return Turns.Dequeue()(invokeToolAsync, ct);
+            Requests.Add(request.History.ToArray());
+            Configurations.Add(request.Configuration);
+            var text = await Turns.Dequeue()(invokeToolAsync, ct);
+            return new(text, [new() { Role = "assistant", Content = text }]);
         }
+
+        public List<AiChatConfiguration> Configurations { get; } = [];
     }
 
     internal sealed class ScriptedTools : IAssistantToolset
@@ -109,14 +115,17 @@ internal sealed class AiContractHarness
         public Func<AiToolCall, CancellationToken, Task<string>> Execute { get; set; } =
             (_, _) => Task.FromResult("Stopped approved-id.");
         public Func<AiToolCall, Exception?>? ResolutionFailure { get; set; }
+        public Func<AiToolCall, CancellationToken, Task<AssistantResolvedToolCall>>? Resolve { get; set; }
+        public Func<CancellationToken, Task<IReadOnlyList<AiToolDefinition>>>? Definitions { get; set; }
 
         public Task<IReadOnlyList<AiToolDefinition>> GetDefinitionsAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<AiToolDefinition>>(
+            Definitions?.Invoke(ct) ?? Task.FromResult<IReadOnlyList<AiToolDefinition>>(
                 [new() { Name = "stop_container", Description = "Stop a synthetic container", JsonSchemaParameters = """{"type":"object"}""" }]);
 
         public Task<AssistantResolvedToolCall> ResolveAsync(AiToolCall call, CancellationToken ct)
         {
             Resolved.Add(call);
+            if (Resolve is not null) return Resolve(call, ct);
             if (ResolutionFailure?.Invoke(call) is { } failure)
             {
                 throw failure;

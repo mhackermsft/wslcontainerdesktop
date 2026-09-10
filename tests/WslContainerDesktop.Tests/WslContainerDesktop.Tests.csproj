@@ -36,6 +36,8 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAssistantActionGate.cs" Link="Services\IAssistantActionGate.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IActivityLog.cs" Link="Services\IActivityLog.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAiChatProvider.cs" Link="Services\IAiChatProvider.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AiConversationContext.cs" Link="Services\AiConversationContext.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\CopilotChatTurnRunner.cs" Link="Services\CopilotChatTurnRunner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAiProvider.cs" Link="Services\IAiProvider.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAiCredentialStore.cs" Link="Services\IAiCredentialStore.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiHttpClient.cs" Link="Services\AiHttpClient.cs" />

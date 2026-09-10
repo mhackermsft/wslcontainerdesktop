@@ -82,21 +82,33 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         CancellationToken ct)
+        => (await RunTurnAsync(new AiChatRequest(AiConversationContext.Capture(settings, Kind), history),
+            tools, invokeToolAsync, ct).ConfigureAwait(false)).FinalText;
+
+    public async Task<AiChatTurnResult> RunTurnAsync(
+        AiChatRequest request,
+        IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        CancellationToken ct)
     {
+        var configuration = request.Configuration;
         if (!credentials.TryReadSecret(AiProviderKind.AzureOpenAi, out var key) || string.IsNullOrWhiteSpace(key))
         {
             throw ConfigurationError("Assistant chat", "Enter and save an Azure OpenAI key in Settings first.");
         }
 
-        if (string.IsNullOrWhiteSpace(settings.AiAzureOpenAiEndpoint) || string.IsNullOrWhiteSpace(settings.AiAzureOpenAiDeployment))
+        if (string.IsNullOrWhiteSpace(configuration.Endpoint) || string.IsNullOrWhiteSpace(configuration.Model))
         {
             throw ConfigurationError("Assistant chat", "Enter an Azure OpenAI endpoint and deployment in Settings first.");
         }
 
-        var uri = CompletionUri();
-        var messages = history.Select(AiTextSanitizer.SanitizeMessage).ToList();
+        var uri = CompletionUri(configuration.Endpoint, configuration.Model);
+        var messages = request.History.Select(AiTextSanitizer.SanitizeMessage).ToList();
+        var transcript = new List<AiChatMessage>();
         for (var i = 0; i < 8; i++)
         {
+            ct.ThrowIfCancellationRequested();
+            messages = AiConversationContext.Prepare(messages, tools, configuration).ToList();
             using var message = new HttpRequestMessage(HttpMethod.Post, uri);
             message.Headers.Add("api-key", key);
             message.Content = JsonContent.Create(new
@@ -109,30 +121,38 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
 
             using var response = await http.SendAsync(message, ct).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (!response.IsSuccessStatusCode)
             {
-                throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), settings.AiAzureOpenAiDeployment, body);
+                throw AiProviderException.FromHttpFailure(Kind, "Assistant chat", response.StatusCode, uri.ToString(), configuration.Model, body);
             }
 
             using var doc = JsonDocument.Parse(body);
             var turn = OpenAiProvider.ParseToolTurn(doc.RootElement.GetProperty("choices")[0].GetProperty("message"));
             if (turn.ToolCalls.Count == 0)
             {
-                return string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);
+                var finalText = string.IsNullOrWhiteSpace(turn.AssistantText) ? "Done." : AiTextSanitizer.Sanitize(turn.AssistantText!);
+                transcript.Add(new AiChatMessage { Role = "assistant", Content = finalText });
+                return new AiChatTurnResult(finalText, transcript.ToArray());
             }
 
             // The execution calls stay original; only redacted copies enter conversation history.
-            messages.Add(AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls }));
+            var assistant = AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", Content = turn.AssistantText, ToolCalls = turn.ToolCalls });
+            messages.Add(assistant);
+            transcript.Add(assistant);
             foreach (var call in turn.ToolCalls)
             {
+                ct.ThrowIfCancellationRequested();
                 var toolResult = await invokeToolAsync(call, ct).ConfigureAwait(false);
-                messages.Add(new AiChatMessage
+                var outcome = new AiChatMessage
                 {
                     Role = "tool",
                     ToolCallId = call.Id,
                     ToolName = call.Name,
                     Content = AiTextSanitizer.Sanitize(toolResult),
-                });
+                };
+                messages.Add(outcome);
+                transcript.Add(outcome);
             }
         }
 
@@ -145,10 +165,15 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
         message,
         AiFailureKind.Configuration);
 
-    private Uri CompletionUri()
+    private Uri CompletionUri() => CompletionUri(settings.AiAzureOpenAiEndpoint!, settings.AiAzureOpenAiDeployment!);
+
+    private static Uri CompletionUri(string baseEndpoint, string model)
     {
-        var endpoint = settings.AiAzureOpenAiEndpoint!.Trim().TrimEnd('/');
-        var deployment = Uri.EscapeDataString(settings.AiAzureOpenAiDeployment!.Trim());
+        var endpoint = baseEndpoint.Trim().TrimEnd('/');
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var parsed)
+            || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+            throw ConfigurationError("Assistant chat", "Enter a valid absolute http(s) Azure OpenAI endpoint.");
+        var deployment = Uri.EscapeDataString(model.Trim());
         return new Uri($"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={ApiVersion}", UriKind.Absolute);
     }
 }

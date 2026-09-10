@@ -53,3 +53,11 @@ public sealed class AiToolTurn
 
     public IReadOnlyList<AiToolCall> ToolCalls { get; init; } = Array.Empty<AiToolCall>();
 }
+
+public sealed record AiChatConfiguration(AiProviderKind Kind, string Endpoint, string Model);
+
+public sealed record AiChatRequest(
+    AiChatConfiguration Configuration,
+    IReadOnlyList<AiChatMessage> History);
+
+public sealed record AiChatTurnResult(string FinalText, IReadOnlyList<AiChatMessage> Messages);

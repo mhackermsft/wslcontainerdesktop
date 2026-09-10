@@ -28,6 +28,9 @@ public sealed class ContainerAssistantService(
     private readonly List<AiChatMessage> _history = new() { new AiChatMessage { Role = "system", Content = SystemPrompt } };
     private readonly Dictionary<string, PendingApproval> _pending = new(StringComparer.Ordinal);
     private readonly object _stateGate = new();
+    private AiChatConfiguration? _configuration;
+    private long _generation;
+    private ActiveTurn? _active;
 
     public event EventHandler<AssistantApprovalRequest?>? ApprovalChanged;
 
@@ -44,31 +47,91 @@ public sealed class ContainerAssistantService(
             return OneMessage(AssistantMessageRole.Assistant, "What would you like to do with your containers?");
         }
 
+        ActiveTurn turn;
+        lock (_stateGate)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_active is not null)
+                throw new InvalidOperationException("An assistant turn is already running. Cancel or reset it before sending another.");
+
+            var configuration = AiConversationContext.Capture(settings, settings.AiProvider);
+            var configurationChanged = _configuration is not null && _configuration != configuration;
+            if (_configuration != configuration)
+            {
+                ClearHistory();
+                _configuration = configuration;
+            }
+
+            turn = new ActiveTurn(_generation, configuration, CancellationTokenSource.CreateLinkedTokenSource(ct));
+            turn.ConfigurationChanged = configurationChanged;
+            turn.Messages.Add(new AiChatMessage { Role = "user", Content = AiTextSanitizer.Sanitize(userMessage.Trim()) });
+            _active = turn;
+        }
+
+        using var cancellation = turn.Cancellation;
+        var token = turn.Token;
         try
         {
-            var provider = providers.FirstOrDefault(p => p.Kind == settings.AiProvider)
-                ?? throw new InvalidOperationException($"AI provider '{settings.AiProvider}' is not registered for assistant chat.");
-            var definitions = (await tools.GetDefinitionsAsync(ct).ConfigureAwait(false))
+            var provider = providers.FirstOrDefault(p => p.Kind == turn.Configuration.Kind)
+                ?? throw new InvalidOperationException($"AI provider '{turn.Configuration.Kind}' is not registered for assistant chat.");
+            var definitions = (await tools.GetDefinitionsAsync(token).ConfigureAwait(false))
                 .Select(AiTextSanitizer.SanitizeDefinition).ToArray();
             IReadOnlyList<AiChatMessage> snapshot;
             lock (_stateGate)
             {
-                _history.Add(new AiChatMessage { Role = "user", Content = AiTextSanitizer.Sanitize(userMessage.Trim()) });
-                snapshot = _history.ToList();
+                EnsureCurrent(turn);
+                turn.Definitions = definitions;
+                snapshot = AiConversationContext.Prepare([.. _history, .. turn.Messages], definitions, turn.Configuration);
+                turn.PriorHistory = snapshot.Take(snapshot.Count - 1).ToArray();
             }
 
-            var text = await provider.RunTurnAsync(snapshot, definitions, InvokeToolAsync, ct).ConfigureAwait(false);
-            var finalText = string.IsNullOrWhiteSpace(text) ? "Done." : AiTextSanitizer.Sanitize(text.Trim());
+            var result = await provider.RunTurnAsync(new(turn.Configuration, snapshot), definitions,
+                (call, callbackToken) => InvokeToolAsync(turn, call, callbackToken), token).ConfigureAwait(false);
+            var finalText = string.IsNullOrWhiteSpace(result.FinalText) ? "Done." : AiTextSanitizer.Sanitize(result.FinalText.Trim());
             lock (_stateGate)
             {
-                _history.Add(new AiChatMessage { Role = "assistant", Content = finalText });
+                EnsureCurrent(turn);
+                // The service journal, not model prose or a provider's echoed outcomes, is authoritative.
+                turn.Messages.Add(new AiChatMessage { Role = "assistant", Content = finalText });
+                Commit(turn);
+                turn.Committed = true;
+                if (_history.Any(m => m.Content == AiConversationContext.TruncationNotice))
+                    finalText += "\n\n" + AiConversationContext.TruncationNotice;
+                if (turn.ConfigurationChanged)
+                    finalText += "\n\nProvider configuration changed. This is a fresh conversation; previous history was not sent.";
             }
 
             return OneMessage(AssistantMessageRole.Assistant, finalText);
         }
         finally
         {
-            ApprovalChanged?.Invoke(this, null);
+            lock (_stateGate)
+            {
+                if (ReferenceEquals(_active, turn) && turn.Generation == _generation)
+                {
+                    try
+                    {
+                        if (!turn.Committed && turn.PriorHistory is not null)
+                        {
+                            turn.Messages.Add(new AiChatMessage
+                            {
+                                Role = "assistant",
+                                Content = "Turn interrupted or failed. Recorded tool outcomes remain evidence; " +
+                                    "an unknown outcome is not a rollback. Inspect current state before any fresh approved action. Do not replay.",
+                            });
+                            Commit(turn);
+                        }
+                    }
+                    finally
+                    {
+                        _active = null;
+                        foreach (var pending in _pending.Values)
+                            pending.Decision.TrySetCanceled();
+                        _pending.Clear();
+                        ApprovalChanged?.Invoke(this, null);
+                    }
+                }
+            }
         }
     }
 
@@ -80,7 +143,8 @@ public sealed class ContainerAssistantService(
             _pending.Remove(approval.Id, out pending);
         }
 
-        pending?.Decision.TrySetResult(true);
+        if (pending is not null && !pending.Turn.Cancellation.IsCancellationRequested)
+            pending.Decision.TrySetResult(true);
         return Task.FromResult(new AssistantTurnResult());
     }
 
@@ -106,23 +170,118 @@ public sealed class ContainerAssistantService(
             }
 
             _pending.Clear();
-            _history.Clear();
-            _history.Add(new AiChatMessage { Role = "system", Content = SystemPrompt });
+            var previous = _active;
+            _active = null;
+            ClearHistory();
+            previous?.Cancellation.Cancel();
+            ApprovalChanged?.Invoke(this, null);
         }
-
-        ApprovalChanged?.Invoke(this, null);
     }
 
-    private async Task<string> InvokeToolAsync(AiToolCall call, CancellationToken ct)
+    private void ClearHistory()
     {
+        _generation++;
+        _history.Clear();
+        _history.Add(new AiChatMessage { Role = "system", Content = SystemPrompt });
+    }
+
+    private void EnsureCurrent(ActiveTurn turn, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        turn.Token.ThrowIfCancellationRequested();
+        if (!ReferenceEquals(_active, turn) || turn.Generation != _generation)
+            throw new OperationCanceledException("The assistant conversation was reset.");
+        if (turn.CallbackFailed)
+            throw new InvalidOperationException("An assistant tool callback failed. The turn cannot continue or report success; inspect recorded outcomes before a fresh action.");
+    }
+
+    private void Commit(ActiveTurn turn)
+    {
+        // A temporary next-turn boundary permits whole-turn eviction even if this completed
+        // turn filled the budget. Never keep an orphaned call or drop a live outcome to continue inference.
+        var retained = AiConversationContext.Prepare(
+            [.. turn.PriorHistory!, .. turn.Messages, new AiChatMessage { Role = "user", Content = "" }],
+            turn.Definitions, turn.Configuration);
+        _history.Clear();
+        _history.AddRange(retained.Take(retained.Count - 1));
+    }
+
+    private async Task<string> InvokeToolAsync(ActiveTurn turn, AiToolCall call, CancellationToken callbackToken)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(turn.Token, callbackToken);
+        var ct = linked.Token;
+        var entered = false;
+        var completed = false;
         try
         {
-            return await InvokeResolvedToolAsync(call, ct).ConfigureAwait(false);
+            await turn.ToolGate.WaitAsync(ct).ConfigureAwait(false);
+            entered = true;
+            var output = await InvokeJournaledToolAsync(turn, call, ct).ConfigureAwait(false);
+            completed = true;
+            return output;
+        }
+        finally
+        {
+            if (!completed)
+            {
+                lock (_stateGate) turn.CallbackFailed = true;
+            }
+            if (entered) turn.ToolGate.Release();
+        }
+    }
+
+    private async Task<string> InvokeJournaledToolAsync(ActiveTurn turn, AiToolCall call, CancellationToken ct)
+    {
+        int outcomeIndex;
+        var invocation = new Invocation();
+        lock (_stateGate)
+        {
+            EnsureCurrent(turn, ct);
+            if (!turn.CallIds.Add(call.Id))
+                throw new InvalidOperationException("Duplicate tool-call identifier; the action was not executed again.");
+            var callMessage = AiTextSanitizer.SanitizeMessage(new AiChatMessage { Role = "assistant", ToolCalls = [call] });
+            var notRun = new AiChatMessage
+            {
+                Role = "tool", ToolCallId = call.Id, ToolName = call.Name,
+                Content = "Not run: invocation did not reach execution. Any later action needs fresh authorization.",
+            };
+            _ = AiConversationContext.Prepare(
+                [.. turn.PriorHistory!, .. turn.Messages, callMessage, notRun], turn.Definitions, turn.Configuration);
+            turn.Messages.Add(callMessage);
+            outcomeIndex = turn.Messages.Count;
+            turn.Messages.Add(notRun);
+            invocation.OutcomeIndex = outcomeIndex;
+        }
+        try
+        {
+            var output = await InvokeResolvedToolAsync(turn, invocation, call, ct).ConfigureAwait(false);
+            lock (_stateGate)
+            {
+                // A cancelled mutation can still supply honest partial evidence. Reset discards it.
+                if (ReferenceEquals(_active, turn) && turn.Generation == _generation)
+                    turn.Messages[outcomeIndex] = new AiChatMessage
+                    {
+                        Role = "tool", ToolCallId = call.Id, ToolName = call.Name, Content = AiTextSanitizer.Sanitize(output),
+                    };
+                EnsureCurrent(turn, ct);
+            }
+            return output;
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or
             System.ComponentModel.Win32Exception or System.Text.Json.JsonException or TimeoutException or ArgumentException)
         {
             var safe = AiTextSanitizer.Sanitize(ex.Message);
+            lock (_stateGate)
+            {
+                if (ReferenceEquals(_active, turn) && turn.Generation == _generation)
+                    turn.Messages[outcomeIndex] = new AiChatMessage
+                    {
+                        Role = "tool", ToolCallId = call.Id, ToolName = call.Name,
+                        Content = AiTextSanitizer.Sanitize((invocation.Started
+                            ? "Invocation failed; effects may be unknown. Do not retry automatically. "
+                            : "Not run: invocation failed before execution. ") + safe),
+                    };
+            }
             if (safe == ex.Message && ex.InnerException is null)
                 throw;
             // Do not retain the raw exception as InnerException: callers may persist technical details.
@@ -130,12 +289,13 @@ public sealed class ContainerAssistantService(
         }
     }
 
-    private async Task<string> InvokeResolvedToolAsync(AiToolCall call, CancellationToken ct)
+    private async Task<string> InvokeResolvedToolAsync(ActiveTurn turn, Invocation invocation, AiToolCall call, CancellationToken ct)
     {
         var resolved = await tools.ResolveAsync(call, ct).ConfigureAwait(false);
+        lock (_stateGate) EnsureCurrent(turn, ct);
         if (!gate.RequiresApproval(resolved.Call.Name, resolved.Category))
         {
-            return await ExecuteToolAsync(resolved, ct).ConfigureAwait(false);
+            return await ExecuteToolAsync(turn, invocation, resolved, ct).ConfigureAwait(false);
         }
 
         var approval = new AssistantApprovalRequest
@@ -146,19 +306,24 @@ public sealed class ContainerAssistantService(
             Summary = AiTextSanitizer.Sanitize(resolved.Summary),
             Details = AiTextSanitizer.Sanitize(resolved.Details),
         };
-        var pending = new PendingApproval(resolved, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
+        var pending = new PendingApproval(turn, resolved, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
         lock (_stateGate)
         {
+            EnsureCurrent(turn, ct);
             _pending[approval.Id] = pending;
+            Audit(ActivityKind.AssistantToolInvoked, $"Approval required: {call.Name}", resolved.Details);
+            ApprovalChanged?.Invoke(this, approval);
         }
 
-        Audit(ActivityKind.AssistantToolInvoked, $"Approval required: {call.Name}", resolved.Details);
-        ApprovalChanged?.Invoke(this, approval);
         try
         {
             await using var registration = ct.Register(() => pending.Decision.TrySetCanceled(ct));
             var approved = await pending.Decision.Task.ConfigureAwait(false);
-            ApprovalChanged?.Invoke(this, null);
+            lock (_stateGate)
+            {
+                EnsureCurrent(turn, ct);
+                ApprovalChanged?.Invoke(this, null);
+            }
             if (!approved)
             {
                 Audit(ActivityKind.AssistantApprovalRejected, $"Rejected: {call.Name}", resolved.Details);
@@ -166,7 +331,7 @@ public sealed class ContainerAssistantService(
             }
 
             Audit(ActivityKind.AssistantApprovalApproved, $"Approved: {call.Name}", resolved.Details);
-            return await ExecuteToolAsync(resolved, ct).ConfigureAwait(false);
+            return await ExecuteToolAsync(turn, invocation, resolved, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -177,11 +342,23 @@ public sealed class ContainerAssistantService(
         }
     }
 
-    private async Task<string> ExecuteToolAsync(AssistantResolvedToolCall tool, CancellationToken ct)
+    private async Task<string> ExecuteToolAsync(ActiveTurn turn, Invocation invocation, AssistantResolvedToolCall tool, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        Audit(ActivityKind.AssistantToolInvoked, $"Invoked: {tool.Call.Name}", tool.Details);
-        var output = await tool.ExecuteAsync(ct).ConfigureAwait(false);
+        Task<string> execution;
+        lock (_stateGate)
+        {
+            EnsureCurrent(turn, ct);
+            Audit(ActivityKind.AssistantToolInvoked, $"Invoked: {tool.Call.Name}", tool.Details);
+            invocation.Started = true;
+            var previous = turn.Messages[invocation.OutcomeIndex];
+            turn.Messages[invocation.OutcomeIndex] = new AiChatMessage
+            {
+                Role = "tool", ToolCallId = previous.ToolCallId, ToolName = previous.ToolName,
+                Content = "Outcome unknown: execution started but did not complete. Do not retry automatically; inspect current state.",
+            };
+            execution = tool.ExecuteAsync(ct);
+        }
+        var output = await execution.ConfigureAwait(false);
         return string.IsNullOrWhiteSpace(output) ? "Succeeded." : AiTextSanitizer.Sanitize(output);
     }
 
@@ -206,8 +383,33 @@ public sealed class ContainerAssistantService(
     };
 
     private sealed record PendingApproval(
+        ActiveTurn Turn,
         AssistantResolvedToolCall Tool,
         TaskCompletionSource<bool> Decision);
+
+    private sealed class ActiveTurn(long generation, AiChatConfiguration configuration, CancellationTokenSource cancellation)
+    {
+        public long Generation { get; } = generation;
+        public AiChatConfiguration Configuration { get; } = configuration;
+        public CancellationTokenSource Cancellation { get; } = cancellation;
+        public CancellationToken Token { get; } = cancellation.Token;
+        public List<AiChatMessage> Messages { get; } = [];
+        public HashSet<string> CallIds { get; } = new(StringComparer.Ordinal);
+        public IReadOnlyList<AiChatMessage>? PriorHistory { get; set; }
+        public IReadOnlyList<AiToolDefinition> Definitions { get; set; } = [];
+        public bool Committed { get; set; }
+        public bool ConfigurationChanged { get; set; }
+        public bool CallbackFailed { get; set; }
+        // No wait handle is created. Keep the gate alive with late provider callbacks so
+        // they fail the generation check instead of racing disposal.
+        public SemaphoreSlim ToolGate { get; } = new(1, 1);
+    }
+
+    private sealed class Invocation
+    {
+        public int OutcomeIndex { get; set; }
+        public bool Started { get; set; }
+    }
 
     private const string SystemPrompt = """
         You are the Container AI Assistant for WSL Container Desktop.
