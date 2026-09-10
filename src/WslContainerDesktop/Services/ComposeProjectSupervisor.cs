@@ -27,7 +27,10 @@ public sealed record ComposeServiceResult(string Service, bool Success, string D
     public string InstanceKey => InstanceIndex == 1 ? Service : $"{Service}#{InstanceIndex}";
     public string? ContainerId { get; init; }
     public ComposeServiceAction Action { get; init; }
+    public ComposeInstanceOutcome? Outcome { get; init; }
 }
+
+public enum ComposeInstanceOutcome { Started, Reused, Skipped, Failed, Cancelled, Stopped, Removed }
 
 /// <summary>Aggregate result of bringing a compose project up.</summary>
 public sealed class ComposeUpResult
@@ -196,7 +199,7 @@ public sealed partial class ComposeProjectSupervisor
                     project.AppliedServices.Remove(entry.InstanceKey);
                     _store.Save(project);
                     results.Add(new(service.Name, true, "Instance is already absent.")
-                        { InstanceIndex = entry.InstanceIndex, Action = entry.Action });
+                        { InstanceIndex = entry.InstanceIndex, Action = entry.Action, Outcome = ComposeInstanceOutcome.Skipped });
                     continue;
                 }
                 // Unchanged running dependents are retained even when another instance fails.
@@ -292,7 +295,8 @@ public sealed partial class ComposeProjectSupervisor
         Services = results.Concat(plan.Services.Where(p => results.All(r => r.InstanceKey != p.InstanceKey))
             .Select(p => new ComposeServiceResult(p.Service.Name, false,
                 "Cancelled or not attempted. An in-flight engine operation may have committed; refresh before retrying.")
-                { InstanceIndex = p.InstanceIndex, Action = ComposeServiceAction.Blocked, ContainerId = p.ContainerId })).ToArray(),
+                { InstanceIndex = p.InstanceIndex, Action = ComposeServiceAction.Blocked, ContainerId = p.ContainerId,
+                    Outcome = ComposeInstanceOutcome.Cancelled })).ToArray(),
     };
 
     private static void RecordFailedOutcome(List<ComposeServiceResult> results, ComposeServicePlan entry, Exception error)

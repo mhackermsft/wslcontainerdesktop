@@ -54,12 +54,15 @@ public sealed class ComposeReviewToken
 public enum ComposePlanValidation { Valid, Blocked, Stale, Cancelled, AlreadyUsed, ForeignToken, Expired }
 public enum ComposeReviewOutcomeKind { Applied, PartialFailure, Blocked, Stale, Cancelled, AlreadyUsed, ForeignToken, Expired }
 
+public sealed record ComposeRetainedResource(string Kind, string Name, string State, string Detail);
+
 /// <summary>Safe for UI/assistant audit. Raw execution state is deliberately assembly-internal.</summary>
 public sealed class ComposeReviewOutcome
 {
     public required ComposeReviewOutcomeKind Kind { get; init; }
     public required string Message { get; init; }
     public IReadOnlyList<ComposeServiceResult> Services { get; init; } = [];
+    public IReadOnlyList<ComposeRetainedResource> RetainedResources { get; init; } = [];
     public bool AllSucceeded => Kind == ComposeReviewOutcomeKind.Applied;
     internal ComposeUpResult? Execution { get; init; }
     internal ComposeUpResult ToUpResult() => Execution ?? new()
@@ -174,22 +177,61 @@ public sealed partial class ComposeProjectSupervisor
                         "Instance action did not complete. Refresh actual state before retrying; technical values withheld.",
                     Warning = s.Warning is null ? null : "Execution reported a warning; refresh actual state before retrying.",
                     ContainerId = null,
+                    Outcome = s.Outcome ?? (s.Success
+                        ? s.Action switch
+                        {
+                            ComposeServiceAction.Keep => ComposeInstanceOutcome.Reused,
+                            ComposeServiceAction.Stop => ComposeInstanceOutcome.Stopped,
+                            ComposeServiceAction.Remove => ComposeInstanceOutcome.Removed,
+                            _ => ComposeInstanceOutcome.Started,
+                        }
+                        : s.Action == ComposeServiceAction.Blocked ? ComposeInstanceOutcome.Skipped : ComposeInstanceOutcome.Failed),
                 }).ToList().AsReadOnly(),
+                RetainedResources = token.Request.Operation == ComposeLifecycleOperation.Up
+                    ? RetainedReviewResources(desired, evidence.Plan, result.AllSucceeded) : [],
                 Execution = result,
             };
         }
         catch (OperationCanceledException) when (onServiceSucceeded is null)
         {
             return new() { Kind = ComposeReviewOutcomeKind.Cancelled,
-                Message = "Apply cancelled. Preparation or execution may have completed partially; refresh actual state before retrying." };
+                Message = "Apply cancelled. Preparation or execution may have completed partially; refresh actual state before retrying.",
+                RetainedResources = token.Request.Operation == ComposeLifecycleOperation.Up
+                    ? RetainedReviewResources(token.Project, token.Plan, false) : [] };
         }
         catch (Exception) when (onServiceSucceeded is null)
         {
             // Never log the exception: engine failures can echo environment/stdin or file contents.
             _logger.LogWarning("Reviewed Compose apply failed. Preparation or execution may be partial; refresh actual state before retrying. Technical values withheld.");
-            return ReviewRefusal(ComposeReviewOutcomeKind.PartialFailure);
+            return new()
+            {
+                Kind = ComposeReviewOutcomeKind.PartialFailure,
+                Message = "Apply failed. Preparation or execution may have completed partially; refresh actual state and review again. Technical values withheld.",
+                RetainedResources = token.Request.Operation == ComposeLifecycleOperation.Up
+                    ? RetainedReviewResources(token.Project, token.Plan, false) : [],
+            };
         }
         finally { _lifecycleGate.Release(); }
+    }
+
+    private static IReadOnlyList<ComposeRetainedResource> RetainedReviewResources(
+        ComposeProject project, ComposeReconciliationPlan plan, bool completed)
+    {
+        var projection = new ComposePreviewProjection(project);
+        var resources = ResourcesForPlan(project, plan);
+        var state = completed ? "retained" : "unverified";
+        var detail = completed ? "Available after reviewed apply; not removed." :
+            "May remain after partial preparation/execution. Refresh inventory before cleanup; do not delete automatically.";
+        return resources.Networks.Select(n => new ComposeRetainedResource("network", projection.Redact(n.Name), state,
+                n.External ? "External resource; never deleted by this operation. " + detail : detail))
+            .Concat(resources.Volumes.Select(v => new ComposeRetainedResource("volume", projection.Redact(v.Name), state,
+                v.External ? "External resource; never deleted by this operation. " + detail : detail)))
+            .Concat(plan.Services.SelectMany(p => p.Service.Options.Volumes).Distinct(StringComparer.Ordinal)
+                .Select(mount => new ComposeRetainedResource("mount", projection.Redact(mount), "not_removed",
+                    "Mounted storage is not deleted by this operation. Workloads may have changed its contents.")))
+            .Concat(completed ? [] : plan.Services.Where(p => p.DesiredReplicas > 0)
+                .Select(p => new ComposeRetainedResource("container", projection.Redact(p.ContainerName), "unverified", detail)))
+            .ToList().AsReadOnly();
     }
 
     private static ComposeReviewOutcome ReviewRefusal(ComposeReviewOutcomeKind kind) => new()

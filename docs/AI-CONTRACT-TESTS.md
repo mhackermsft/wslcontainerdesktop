@@ -33,7 +33,8 @@ model, or model download.
 `IAssistantToolset` exposes the existing `GetDefinitionsAsync(CancellationToken)`
 and `ResolveAsync(AiToolCall, CancellationToken)` contracts. The production
 `AssistantToolset` implements it; DI resolves the same singleton instance. The
-unchanged `AssistantResolvedToolCall` record lives in its own source file.
+`AssistantResolvedToolCall` record lives in its own source file; #94 adds trusted
+explicit-approval, blocked-result and decline hooks without changing model argument schemas.
 `AiHttpClient(HttpMessageHandler)` enables in-memory transport while preserving
 the normal five-minute timeout and default constructor.
 
@@ -553,6 +554,36 @@ WSLC inspect variants still require explicitly authorized disposable smoke runs.
   acquisition is implemented by #88. Real-provider/hardware behavior remains
   subject to the explicit opt-in smoke policy below.
 
+## Shared Compose consequence approval (#94)
+
+`AssistantComposeContractTests` runs the real toolset, assistant gate/journal, importer,
+shared review/planner and supervisor against the existing strict engine/store doubles.
+Generated YAML and Compose templates use the same assertions. Coverage includes complete
+ports/mounts/warnings/backend/ownership previews, forced explicit approval despite saved
+auto-approval, no second dialog or pre-approval mutation, unknown capabilities and
+resource/ownership blockers, stale inventory/capabilities/templates and changed/missing
+included source files, token expiry/reuse,
+rejection/cancellation/reset, unchanged applied-instance reuse and reviewed replacement,
+replica-level partial cancellation, failed/dependency-skipped startup, failed native cleanup
+without legacy retry, and retained-resource uncertainty. Parse/preflight failures preserve
+saved project state and template defaults.
+
+Sensitive environment/probe values remain in original execution options but are absent from
+approval details, provider evidence/history and serialized activity. Raw generated YAML is
+withheld centrally from echoed tool arguments, including arbitrary-key values. Oversized
+approval details fail closed; bounded outcome JSON preserves failure kind/success flags and
+explicit omitted outcome/resource counts. Schemas reject model-supplied confirmation fields.
+
+Run the existing combined suites (both configured target frameworks):
+
+```powershell
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~Assistant|FullyQualifiedName~Ai|FullyQualifiedName~Compose"
+```
+
+This is deterministic contract evidence, not live provider, WSLC, packaged UI, bind-file,
+or GPU certification. The two installed-engine smoke cases remain explicitly opted out.
+No provider, workload, model download, deployment or new dependency is needed.
+
 ## Remaining feature-layer acceptance
 
 These are **unmet criteria**, not skipped tests or assertions that unsafe
@@ -567,6 +598,7 @@ Serialized activity capture is a test sink, not the production on-disk store.
 | #89 streaming | Fragment assembly, complete validation before action, progress ordering, disconnect recovery, inference versus approval timeouts, cancellation/reset generations, partial outcomes and no replay. Current adapters return final strings. |
 | #90 runtime ownership | Deterministic real-lifecycle/fake-engine coverage is described above. Automatic model-volume deletion is deliberately unavailable without atomic immutable targeting. Real-engine/GPU compatibility remains unverified; no workload is manipulated by the suite. |
 | #92 Foundry Local | Deterministic dedicated adapter/runtime tests using the shared contracts, plus explicitly opted-in packaged and hardware runs. No Foundry dependency or model is acquired by this foundation. |
+| #94 Compose live integration | Deterministic shared-plan/approval/outcome coverage is complete above. Real provider/tool rendering, actual engine resource retention and packaged UI review remain unverified until separately authorized smoke runs. |
 | Copilot SDK adapter | The production chat bridge now has fake-session history/budget/cancellation/failure coverage, including real-service round trips. SDK-internal transport, actual model events, sign-in and opaque runtime overhead still require an explicitly authorized live smoke run. |
 
 Do not treat the absence of automatic retries in these scenarios as general

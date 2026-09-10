@@ -3,7 +3,7 @@
 This is a read-only review of the existing local Compose planner, not a second planner or
 Docker/WSLC runtime certification. The parser, file graph, reconciliation and scaling contracts
 remain in [parser](COMPOSE-PARSER.md), [reconciliation](COMPOSE-RECONCILIATION.md) and
-[scaling](COMPOSE-SCALING.md). No new package, engine minimum, Compose daemon or AI feature is added.
+[scaling](COMPOSE-SCALING.md). No new package, engine minimum or Compose daemon is added.
 
 ## What the review shows
 
@@ -59,7 +59,7 @@ expanded to numeric mappings; the importer already normalizes supported range sy
 processes outside WSLC are not inspected. Multi-replica published ports retain #84's stricter
 unsupported policy, including published zero.
 
-## Approval API for #94 consumers
+## Approval API
 
 The API is in-process and supervisor-instance scoped:
 
@@ -70,6 +70,57 @@ var confirmed = await presenter.ConfirmAsync(token.Preview, cancellationToken);
 var outcome = await supervisor.ApplyReviewedAsync(
     token, confirmed, saveReplicaOverrides: false, ct: cancellationToken);
 ```
+
+### Assistant integration (#94)
+
+`deploy_compose` (`yaml`, optional `projectName`) and Compose `deploy_template`
+(`idOrName`) prepare this same review during tool resolution. There is no second planner,
+provider-visible executable token, confirmation argument, or `UpAsync` call after assistant
+approval. `ContainerAssistantService` requires **one explicit approval** of the complete
+redacted consequences, even if an older saved per-tool preference says auto-approve.
+The permission settings no longer offer Compose auto-approval; template auto-approval
+applies only to single-container templates.
+
+`AssistantResolvedToolCall.RequiresExplicitApproval`, `BlockedResult`, and `DeclineAsync`
+are trusted application hooks, not model arguments. Blocked preparation returns safe
+diagnostics without presenting an approval that could bypass them. Rejection, cancellation,
+reset and late gate failures retire the local token. Execution calls `ApplyReviewedAsync`
+on that exact token; the supervisor revalidates under its lifecycle gate. Template content,
+identity and defaults are also compared with the captured catalog snapshot before apply.
+The same importer re-resolves the original YAML and its file/interpolation graph before apply;
+changed resolved input is stale and newly unreadable input is blocked. This check never
+replaces the approved snapshot with new values. It is not an atomic filesystem lock or a
+recursive build-context/content watch; shared storage/image preparation guarantees still apply.
+Neither parsing nor review saves project/template defaults. The assistant never persists
+new template defaults; supervisor applied-state persistence remains authoritative.
+
+The complete display must fit the shared 12,000-character assistant evidence budget.
+Oversized consequences fail closed and direct the user to the Compose page for a full
+review rather than authorizing a truncated preview. The shared 1,024-selected-instance
+planner cap is unchanged; the assistant display budget can impose a smaller practical limit.
+
+Provider results are JSON with `status`, `kind` (the `ComposeReviewOutcomeKind` name),
+`allSucceeded` (true **only** for Applied), `message`, safe `blockers`, `outcomes`,
+`retainedResources`, and `retentionNotice`. Each outcome carries `instance`
+(the shared `InstanceKey`, e.g. `web` / `web#2`), service/index, action, status, safe detail
+and warning. Status distinguishes started, reused, skipped, failed and cancelled; scaling
+removals are reported as removed, not started. The public shared service result adds
+`Outcome` to distinguish an absent no-op or cancellation from reuse/dependency failure.
+
+`ComposeReviewOutcome.RetainedResources` contains safe kind/name/state/detail records:
+selected networks and named volumes retained after success, mounts not removed by the
+operation, and **unverified** resource/container candidates after partial execution.
+These are not claims of live inventory certification. Refresh before cleanup; no automatic
+destructive retry, volume deletion, or project-wide rollback is implied. When evidence is
+bounded, the central sanitizer preserves kind/success metadata and reports `omittedOutcomes`
+and `omittedResources` rather than implying the remaining list is complete.
+
+Only safe public outcomes cross the assistant boundary; internal `Execution`, `ToUpResult`,
+raw engine diagnostics, token snapshots and comparison evidence never do. The central
+`AiTextSanitizer.SanitizeMessage` withholds generated Compose YAML from echoed arguments,
+including arbitrary environment/build values and YAML aliases, while preserving call IDs
+and tool names. The original YAML/options remain only in the validated execution path;
+the shared projection masks known private configuration in preview/result copies.
 
 1. `PrepareReviewAsync` snapshots desired configuration and request service/count collections.
    Under the lifecycle gate it invalidates capability cache, resolves the shared plan, reads saved

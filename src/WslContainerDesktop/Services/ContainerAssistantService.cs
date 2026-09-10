@@ -412,8 +412,28 @@ public sealed class ContainerAssistantService(
     private async Task<string> InvokeResolvedToolAsync(ActiveTurn turn, Invocation invocation, AiToolCall call, CancellationToken ct)
     {
         var resolved = await tools.ResolveAsync(call, ct).ConfigureAwait(false);
+        try
+        {
+            return await InvokePreparedToolAsync(turn, invocation, call, resolved, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Retire trusted local approval state even on reset, provider cancellation or gate failure.
+            if (resolved.DeclineAsync is not null)
+                await resolved.DeclineAsync().ConfigureAwait(false);
+        }
+    }
+
+    private async Task<string> InvokePreparedToolAsync(ActiveTurn turn, Invocation invocation,
+        AiToolCall call, AssistantResolvedToolCall resolved, CancellationToken ct)
+    {
         lock (_stateGate) EnsureCurrent(turn, ct);
-        if (!gate.RequiresApproval(resolved.Call.Name, resolved.Category))
+        if (resolved.BlockedResult is not null)
+        {
+            Audit(ActivityKind.AssistantToolInvoked, $"Blocked: {call.Name}", resolved.Details);
+            return resolved.BlockedResult;
+        }
+        if (!resolved.RequiresExplicitApproval && !gate.RequiresApproval(resolved.Call.Name, resolved.Category))
         {
             return await ExecuteToolAsync(turn, invocation, resolved, ct).ConfigureAwait(false);
         }
@@ -449,6 +469,8 @@ public sealed class ContainerAssistantService(
             if (!approved)
             {
                 Audit(ActivityKind.AssistantApprovalRejected, $"Rejected: {call.Name}", resolved.Details);
+                if (resolved.DeclineAsync is not null)
+                    return await resolved.DeclineAsync().ConfigureAwait(false);
                 return "The user rejected this action. Do not perform it; explain that it was not run.";
             }
 
