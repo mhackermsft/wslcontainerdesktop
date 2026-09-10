@@ -25,7 +25,17 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class DialogService
 {
-    public XamlRoot? XamlRoot { get; set; }
+    private XamlRoot? _xamlRoot;
+    public Microsoft.UI.Dispatching.DispatcherQueue? Dispatcher { get; private set; }
+    public XamlRoot? XamlRoot
+    {
+        get => _xamlRoot;
+        set
+        {
+            _xamlRoot = value;
+            Dispatcher = value is null ? null : Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        }
+    }
 
     // ContentDialog content renders in a separate popup scope that does NOT inherit the app-level
     // TextControlPlaceholderForeground override declared in App.xaml, so hint text in dialog

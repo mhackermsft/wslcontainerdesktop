@@ -50,6 +50,10 @@ public sealed record ComposeServicePlan(
         : null;
     public string? ImageId { get; init; }
     public ComposeImageAction ImageAction { get; init; } = ComposeImageAction.None;
+    public ComposeExecutionBackend Backend { get; init; } = ComposeExecutionBackend.Unknown;
+    public WslcCapabilitySupport? NetworkSupport { get; init; }
+    public ComposePolicyOwner HealthOwner { get; init; } = ComposePolicyOwner.Unknown;
+    public string? CompatibilityWarning { get; init; }
 }
 
 public sealed record ComposeReconciliationPlan(IReadOnlyList<ComposeServicePlan> Services)

@@ -14,6 +14,14 @@ Reject malformed documents, duplicate explicit keys, unsupported tags and alias 
 value-free location diagnostics. This is preferable to accepting a misleading partial document.
 The persisted `ComposeProject`/`RunContainerOptions` schema does not change.
 
+Compatibility review (#87) additionally persists `ComposeProject.Warnings`: saving an import
+without deployment must not erase unresolved-variable blockers or ignored-option explanations.
+Older saved projects without this optional list still load. Reimport is required to recover
+diagnostics that older versions never saved. Parser failures still reject before review; a
+successful import with an unset-variable warning can be saved but cannot deploy until resolved.
+The [review contract](COMPOSE-COMPATIBILITY.md) retains logical diagnostic breadcrumbs and
+explicitly labels original line information unavailable when the resolved model does not carry it.
+
 ### Dependency publication audit
 
 Before acquisition, NuGet's authoritative

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -177,7 +178,8 @@ public sealed class ComposeNetworkSupervisorTests
         fixture.RestartPolicies.Add(restart);
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
         Assert.False(result.AllSucceeded);
-        Assert.Contains("fixture diagnostic", result.Services[0].Detail);
+        Assert.Contains("Unknown", result.Services[0].Detail);
+        Assert.DoesNotContain("fixture diagnostic", result.Services[0].Detail);
         Assert.Empty(fixture.Engine.Mutations);
         Assert.Same(health, Assert.Single(fixture.HealthChecks));
         Assert.Same(restart, Assert.Single(fixture.RestartPolicies));
@@ -245,7 +247,7 @@ public sealed class ComposeNetworkSupervisorTests
         fixture.HealthChecks.Add(new() { ContainerName = "demo_web", Command = "old-probe" });
         fixture.RestartPolicies.Add(new() { ContainerName = "demo_web", Policy = RestartPolicyKind.Always });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project));
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
 
         Assert.Empty(fixture.Engine.Mutations);
         Assert.Single(fixture.HealthChecks);
@@ -352,8 +354,9 @@ public sealed class ComposeNetworkSupervisorTests
         var fixture = new Fixture();
         fixture.Project.Networks = [new() { Name = "external", External = true }];
         fixture.Project.Services[0].Options.NetworkAttachments.Add(new() { Network = "external" });
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project));
-        Assert.Contains("external", error.Message);
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        Assert.Contains(fixture.Reviews.Single().Settings, row =>
+            row.Disposition == ComposeSettingDisposition.Blocked && row.Explanation.Contains("external"));
         Assert.Empty(fixture.Engine.Mutations);
     }
 
@@ -445,13 +448,18 @@ public sealed class ComposeNetworkSupervisorTests
         public Exception? CapabilityError { get; set; }
         public Func<Task>? BeforeCapabilities { get; set; }
         public int CapabilityReads { get; private set; }
+        public int CapabilityInvalidations { get; private set; }
         public ComposeProject? SavedProject { get; private set; }
         public List<ComposeProject> SavedSnapshots { get; } = new();
         public Action<ComposeProject>? BeforeSave { get; set; }
         public Action? BeforeSettingsSave { get; set; }
+        public Func<ComposeCompatibilityPreview, Task<bool>> ConfirmReviewAsync { get; set; } = _ => Task.FromResult(true);
+        public List<ComposeCompatibilityPreview> Reviews { get; } = [];
+        public bool ReturnStoredReferences { get; set; }
 
         public Fixture(WslcCapabilitySupport support = WslcCapabilitySupport.Supported, Engine? engine = null,
-            ComposeProject? persisted = null)
+            ComposeProject? persisted = null, TimeProvider? clock = null,
+            ILogger<ComposeProjectSupervisor>? logger = null, bool presenterAvailable = true)
         {
             Engine = engine ?? new();
             if (persisted is not null)
@@ -462,6 +470,11 @@ public sealed class ComposeNetworkSupervisorTests
             Snapshot = Capabilities(support);
             var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) =>
             {
+                if (method.Name == nameof(IWslcCapabilitiesService.Invalidate))
+                {
+                    CapabilityInvalidations++;
+                    return null;
+                }
                 if (method.Name != nameof(IWslcCapabilitiesService.GetAsync))
                     throw new InvalidOperationException(method.Name);
                 return ReadCapabilitiesAsync();
@@ -485,8 +498,14 @@ public sealed class ComposeNetworkSupervisorTests
                     default: throw new InvalidOperationException(method.Name);
                 }
             });
-            Supervisor = new(Engine.Service, store, settings, NullLogger<ComposeProjectSupervisor>.Instance,
-                capabilities, Health, Monitor, Suppression);
+            Supervisor = new(Engine.Service, store, settings, logger ?? NullLogger<ComposeProjectSupervisor>.Instance,
+                capabilities, Health, Monitor, Suppression,
+                presenterAvailable ? NetworkTestProxy.Create<IComposeReviewPresenter>((_, args) =>
+                {
+                    var review = (ComposeCompatibilityPreview)args[0]!;
+                    Reviews.Add(review);
+                    return ConfirmReviewAsync(review);
+                }) : null, clock);
         }
 
         private object? Save(ComposeProject project)
@@ -508,6 +527,7 @@ public sealed class ComposeNetworkSupervisorTests
 
         private ComposeProject ReadProject()
         {
+            if (ReturnStoredReferences) return SavedProject ?? Project;
             var desired = Clone(Project);
             if (SavedProject is { } saved)
             {

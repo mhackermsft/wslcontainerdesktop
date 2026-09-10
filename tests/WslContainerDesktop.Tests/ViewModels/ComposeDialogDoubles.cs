@@ -17,13 +17,40 @@
 using WslContainerDesktop.Models;
 
 // Only the dialog boundary is replaced: the source-linked VM and generated commands are real.
+namespace Microsoft.UI.Xaml
+{
+    public enum TextWrapping { Wrap }
+}
+
 namespace Microsoft.UI.Xaml.Controls
 {
     public enum ContentDialogResult { None, Primary, Secondary }
+    public enum ContentDialogButton { Close }
+    public sealed class ContentDialog
+    {
+        public string Title { get; set; } = "";
+        public object? Content { get; set; }
+        public string PrimaryButtonText { get; set; } = "";
+        public string SecondaryButtonText { get; set; } = "";
+        public string CloseButtonText { get; set; } = "";
+        public ContentDialogButton DefaultButton { get; set; }
+    }
+
+    public sealed class TextBlock
+    {
+        public string Text { get; set; } = "";
+        public Microsoft.UI.Xaml.TextWrapping TextWrapping { get; set; }
+    }
 }
 
 namespace WslContainerDesktop.Dialogs
 {
+    public sealed class ComposePreviewDialog
+    {
+        public ComposePreviewDialog(ComposeCompatibilityPreview preview) => Preview = preview;
+        public ComposeCompatibilityPreview Preview { get; }
+    }
+
     public sealed class ImportComposeDialog
     {
         public string Yaml => throw new NotSupportedException();

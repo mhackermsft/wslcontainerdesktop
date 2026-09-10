@@ -260,7 +260,7 @@ public sealed class AssistantToolset(
                 : template.ComposeProjectName;
             project.ApplyProjectNamespacing();
             var up = await composeSupervisor.UpAsync(project, ct).ConfigureAwait(false);
-            return SummarizeCompose($"template '{template.Name}'", up);
+            return SummarizeCompose($"template '{template.Name}'", up, project);
         }
 
         if (template.RunOptions is null)
@@ -283,17 +283,18 @@ public sealed class AssistantToolset(
 
         project.Name = ResolveComposeProjectName(projectName, project.Name);
         project.ApplyProjectNamespacing();
-        composeStore.Save(project);
         var up = await composeSupervisor.UpAsync(project, ct).ConfigureAwait(false);
-        return SummarizeCompose($"project '{project.Name}'", up);
+        return SummarizeCompose($"project '{project.Name}'", up, project);
     }
 
-    private static string SummarizeCompose(string target, ComposeUpResult result)
+    private static string SummarizeCompose(string target, ComposeUpResult result, ComposeProject project)
     {
         var status = result.IsCancelled ? "Cancelled" : result.AllSucceeded ? "Applied" : "Partially applied or failed";
         var outcomes = string.Join("\n", result.Services.Select(service =>
-            $"{service.InstanceKey}: {(service.Success ? "succeeded" : "failed")} - {service.Detail}"));
-        return $"{status} compose {target}. Started {result.Started} instances. Per-instance outcomes:\n{outcomes}";
+            $"{service.InstanceKey}: {service.Action} - {(service.Success ? "succeeded" : "not completed")}" +
+            (service.Warning is null ? "" : " (execution warning; refresh actual state)")));
+        return new ComposePreviewProjection(project).Redact(
+            $"{status} compose {target}. Started {result.Started} instances. Per-instance outcomes:\n{outcomes}");
     }
 
     private AssistantResolvedToolCall ResolveDeployCompose(AiToolCall call, JsonElement args)

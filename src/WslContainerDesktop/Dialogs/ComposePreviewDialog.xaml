@@ -1,0 +1,46 @@
+<!-- WSL Container Desktop - Copyright (C) 2026 Michael Hacker.
+     Licensed under GNU GPL version 3 or later; without any warranty.
+     See https://www.gnu.org/licenses/. -->
+<ContentDialog
+    x:Class="WslContainerDesktop.Dialogs.ComposePreviewDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:WslContainerDesktop.Models"
+    AutomationProperties.AutomationId="ComposePreviewDialog"
+    Title="{x:Bind ViewModel.Title}"
+    PrimaryButtonText="{x:Bind ViewModel.ApplyLabel}"
+    IsPrimaryButtonEnabled="{x:Bind ViewModel.CanApply}"
+    CloseButtonText="Cancel"
+    DefaultButton="Close">
+    <ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxWidth">880</x:Double>
+    </ContentDialog.Resources>
+    <Grid RowSpacing="12" MinWidth="480" MaxWidth="800">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <InfoBar
+            AutomationProperties.AutomationId="ComposePreviewStatus"
+            IsOpen="True"
+            IsClosable="False"
+            Severity="{x:Bind Severity}"
+            Message="{x:Bind ViewModel.Summary}" />
+        <ListView
+            AutomationProperties.AutomationId="ComposePreviewSettings"
+            AutomationProperties.Name="Resolved Compose settings and compatibility"
+            Grid.Row="1"
+            MaxHeight="480"
+            SelectionMode="None"
+            ItemsSource="{x:Bind ViewModel.Settings}">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="models:ComposeCompatibilitySetting">
+                    <StackPanel Spacing="4" Padding="4,8">
+                        <TextBlock Text="{x:Bind Summary}" TextWrapping="Wrap" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="{x:Bind Detail}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</ContentDialog>

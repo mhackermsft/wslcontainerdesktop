@@ -66,6 +66,8 @@ public sealed partial class ComposeProjectSupervisor
     private readonly RestartSuppressionState? _suppression;
     private readonly IWslcCapabilitiesService _capabilities;
     private readonly ComposeNetworkOrchestrator _networks;
+    private readonly IComposeReviewPresenter? _reviewPresenter;
+    private readonly TimeProvider _reviewClock;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     public IReadOnlyList<string> ReconciliationWarnings { get; private set; } = Array.Empty<string>();
 
@@ -80,7 +82,9 @@ public sealed partial class ComposeProjectSupervisor
         IWslcCapabilitiesService capabilities,
         HealthWatchdog health,
         StatusMonitor monitor,
-        RestartSuppressionState? suppression = null)
+        RestartSuppressionState? suppression = null,
+        IComposeReviewPresenter? reviewPresenter = null,
+        TimeProvider? reviewClock = null)
     {
         _wslc = wslc;
         _store = store;
@@ -90,6 +94,8 @@ public sealed partial class ComposeProjectSupervisor
         _health = health;
         _monitor = monitor;
         _suppression = suppression;
+        _reviewPresenter = reviewPresenter;
+        _reviewClock = reviewClock ?? TimeProvider.System;
         _networks = new ComposeNetworkOrchestrator(wslc, logger, suppression);
     }
 
@@ -108,25 +114,16 @@ public sealed partial class ComposeProjectSupervisor
     internal async Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
         Action<ComposeServiceResult>? onServiceSucceeded, CancellationToken ct)
     {
-        request = SnapshotRequest(request);
         if (request.Operation != ComposeLifecycleOperation.Up)
             throw new ArgumentException("Up requires an Up operation.", nameof(request));
-        var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
-        var desired = SnapshotProject(project);
-        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            InheritPersistedState(desired, _store.Get(project.Name));
-            desired.AppliedStateKnown = true;
-            return await UpCoreAsync(desired, maximumStopVersion, ct, request, onServiceSucceeded).ConfigureAwait(false);
-        }
-        finally
-        {
-            _lifecycleGate.Release();
-        }
+        var review = await PrepareReviewAsync(project, request, ct).ConfigureAwait(false);
+        var confirmed = _reviewPresenter is not null &&
+            await _reviewPresenter.ConfirmAsync(review.Preview, ct).ConfigureAwait(false);
+        return (await ApplyReviewedAsync(review, confirmed, false, onServiceSucceeded, ct).ConfigureAwait(false)).ToUpResult();
     }
 
-    private sealed record NetworkStartupPlan(bool Native, string? Warning);
+    private sealed record NetworkStartupPlan(bool Native, string? Warning,
+        ComposePolicyOwner HealthOwner = ComposePolicyOwner.None, WslcCapabilitySupport? NetworkSupport = null);
 
     private async Task<NetworkStartupPlan> PreflightNetworkAsync(
         ComposeProject project, ComposeService service, CancellationToken ct)
@@ -140,31 +137,34 @@ public sealed partial class ComposeProjectSupervisor
         }
 
         string? warning = null;
-        var native = endpoints.Count > 1 && ComposeNetworkOrchestrator.SelectNative(desired,
-            await _capabilities.GetAsync(ct).ConfigureAwait(false), out warning);
+        var capabilities = await _capabilities.GetAsync(ct).ConfigureAwait(false);
+        var native = endpoints.Count > 1 && ComposeNetworkOrchestrator.SelectNative(desired, capabilities, out warning);
         var desiredHealth = service.Options.Health ?? service.Health?.DesiredHealth;
+        var owner = service.Health is null ? ComposePolicyOwner.Engine : ComposePolicyOwner.Application;
         if (desiredHealth is not null)
         {
-            NativeHealthPolicy.Select(desiredHealth,
-                await _capabilities.GetAsync(ct).ConfigureAwait(false), forCreate: native);
+            var health = NativeHealthPolicy.Select(desiredHealth, capabilities, forCreate: native);
+            owner = desiredHealth.IsDisabled ? ComposePolicyOwner.None :
+                health.Native ? ComposePolicyOwner.Engine : ComposePolicyOwner.Application;
+            warning = string.Join(" ", new[] { warning, health.Diagnostic }.Where(s => !string.IsNullOrWhiteSpace(s)));
         }
-        return new(native, warning);
+        return new(native, warning, owner, endpoints.Count > 1 ? capabilities[WslcFeature.NetworkConnect].Support : null);
     }
 
     private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, long maximumStopVersion, CancellationToken ct,
-        ComposeOperationRequest request, Action<ComposeServiceResult>? onServiceSucceeded)
+        ComposeOperationRequest request, ComposeReconciliationPlan plan, Action<ComposeServiceResult>? onServiceSucceeded)
     {
-        var plan = await ReadPlanAsync(project, request, ct).ConfigureAwait(false);
         if (!plan.CanApply)
             return RejectedPlan(plan);
-        ValidateResourceDeclarations(project, plan);
-        var networkPreflight = await PreflightNetworksAsync(project, plan, ct).ConfigureAwait(false);
-        plan = networkPreflight.Plan;
-        var networkPlans = networkPreflight.Networks;
-        if (!plan.CanApply) return RejectedPlan(plan);
+        var networkPlans = plan.Services.Where(entry => entry.Action != ComposeServiceAction.Remove &&
+            !(entry.ContainerId is null && entry.Action == ComposeServiceAction.Keep)).ToDictionary(
+                entry => entry.InstanceKey, entry => new NetworkStartupPlan(
+                    entry.Backend == ComposeExecutionBackend.NativeCreateConnectStart,
+                    entry.CompatibilityWarning, entry.HealthOwner, entry.NetworkSupport), StringComparer.Ordinal);
 
         // Finish the complete selected graph's fallible preparation before stopping any workload.
-        plan = await PreserveCompletedDependenciesAsync(project, plan, ct).ConfigureAwait(false);
+        // Backend/selection came from the freshly revalidated review. Image acquisition is the
+        // explicitly reviewed conditional work; it may resolve a pull to destructive recreation.
         plan = await PrepareImagesAsync(project, plan, request, ct).ConfigureAwait(false);
         if (!plan.CanApply) return RejectedPlan(plan);
         var prepared = new Dictionary<string, RunContainerOptions>(StringComparer.Ordinal);

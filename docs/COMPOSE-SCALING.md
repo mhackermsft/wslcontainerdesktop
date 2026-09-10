@@ -25,7 +25,7 @@ This is a syntax example only; the synthetic image is not intended to be pulled.
 
 Effective counts use operation-request overrides first, saved UI overrides second, and imported
 service defaults last. Request overrides are ephemeral. The UI optionally saves operator counts
-after successful read-only preview and confirmation, before final apply preparation. Saved intent
+after read-only preview, confirmation and fresh evidence validation, before final apply preparation. Saved intent
 is separate from applied instance snapshots and survives later apply failure.
 Partial execution can therefore leave desired and actual counts different:
 retry reconciles the remaining difference, not a fabricated all-or-nothing result. Reimport
@@ -113,6 +113,12 @@ image decision and lifecycle action. `ComposeServiceResult` exposes the same log
 and instance identity, action, actual result ID, detail and warning. `ComposeUpResult.Plan`
 describes the executed plan; `IsCancelled`, `AllSucceeded`, `Started` and per-instance outcomes
 must be interpreted together. `Started` excludes kept instances.
+
+For user/assistant approval, use `PrepareReviewAsync` / `ValidateReviewAsync` /
+`ApplyReviewedAsync` and the [safe review contract](COMPOSE-COMPATIBILITY.md), not the raw
+planner model as a provider payload. Request counts and service targets are snapshotted.
+Cancel, expiry and drift never save operator counts; an accepted apply that later fails can
+retain explicitly saved counts, separately from actual per-instance outcomes.
 
 `ComposeAppliedService.InstanceIndex` and the applied dictionary key are persisted;
 the computed applied `InstanceKey` is not. Internal `ComposeService.RuntimeInstanceIndex` is

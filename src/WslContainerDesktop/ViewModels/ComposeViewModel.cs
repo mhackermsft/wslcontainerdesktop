@@ -207,7 +207,7 @@ public partial class ComposeViewModel : ObservableObject
         if (project.Warnings.Count > 0)
         {
             const int maxShown = 12;
-            var shown = project.Warnings.Take(maxShown);
+            var shown = project.Warnings.Take(maxShown).Select(new ComposePreviewProjection(project).Redact);
             var more = project.Warnings.Count - maxShown;
             var body = string.Join("\n", shown.Select(w => "• " + w));
             if (more > 0)
@@ -231,35 +231,46 @@ public partial class ComposeViewModel : ObservableObject
         {
             Value = project.Name,
         };
-        if (await _dialogs.ShowDialogAsync(nameDialog) == ContentDialogResult.Primary &&
-            !string.IsNullOrWhiteSpace(nameDialog.Value))
-        {
-            project.Name = nameDialog.Value.Trim();
-        }
+        if (await _dialogs.ShowDialogAsync(nameDialog) != ContentDialogResult.Primary ||
+            string.IsNullOrWhiteSpace(nameDialog.Value)) return;
+        project.Name = nameDialog.Value.Trim();
 
         // Namespace project-created volumes/networks with the (now-final) project name so removing
         // this project can never delete or detach resources another project shares by bare name.
         project.ApplyProjectNamespacing();
 
-        _store.Save(project);
-        await RefreshAsync();
-        StatusMessage = $"Imported project \"{project.Name}\" ({project.Services.Count} services)";
-
-        var bringUp = await _dialogs.ShowConfirmAsync(
-            "Bring project up now?",
-            $"\"{project.Name}\" has {project.Services.Count} service(s). Start them now in dependency order?\n\n" +
-            "Restart and health-check policies are enforced by this app, so they only apply while it is running.",
-            "Bring up");
-        if (bringUp)
+        var importChoice = await _dialogs.ShowDialogAsync(new ContentDialog
+        {
+            Title = "Import Compose project",
+            Content = new TextBlock
+            {
+                Text = new ComposePreviewProjection(project).Redact(
+                    $"\"{project.Name}\" has {project.Services.Count} service(s). Review compatibility before applying, or save an import without starting it.\n\n" +
+                    "App-owned restart and health supervision require this app to remain open."),
+                TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap,
+            },
+            PrimaryButtonText = "Review and apply",
+            SecondaryButtonText = "Import only",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        });
+        if (importChoice == ContentDialogResult.Primary)
         {
             await BringUpAsync(project);
+        }
+        else if (importChoice == ContentDialogResult.Secondary)
+        {
+            // Explicit import-only choice, not a side effect of cancelling deployment review.
+            _store.Save(project);
+            await RefreshAsync();
+            StatusMessage = $"Imported project \"{new ComposePreviewProjection(project).Redact(project.Name)}\"";
         }
     }
 
     /// <summary>
     /// One-click template path: parse <paramref name="yaml"/>, import it as a project under
-    /// <paramref name="suggestedName"/>, and bring it up immediately — with no import warnings,
-    /// name, or confirmation prompts. Re-importing an already-imported project just refreshes it,
+    /// <paramref name="suggestedName"/>, and offer resolved compatibility review.
+    /// Re-importing an already-imported project refreshes it only after confirmation,
     /// so a template's Launch button is idempotent. Errors are surfaced via the dialog service.
     /// </summary>
     /// <returns>False when configuration validation/import failed; not a runtime health guarantee.</returns>
@@ -290,10 +301,7 @@ public partial class ComposeViewModel : ObservableObject
         }
 
         project.ApplyProjectNamespacing();
-        _store.Save(project);
-        await RefreshAsync();
-        await BringUpAsync(project);
-        return true;
+        return await BringUpAsync(project);
     }
 
     /// <summary>
@@ -365,27 +373,15 @@ public partial class ComposeViewModel : ObservableObject
             }
 
             StatusMessage = $"{dialog.OperationLabel} — \"{row.Name}\"…";
-            var plan = await _supervisor.PlanAsync(row.Project, request);
-            var review = string.Join("\n", plan.Services.GroupBy(p => p.Service.Name).Select(group =>
-                $"{group.Key} — desired replicas: {group.First().DesiredReplicas}\n" +
-                string.Join("\n", group.Select(p => $"• {p.InstanceKey}: {p.Action} — {p.Reason}")) +
-                (group.First().StorageWarning is { } warning ? $"\n{warning}" : "")));
-            if (!plan.CanApply)
+            var review = await _supervisor.PrepareReviewAsync(row.Project, request);
+            var confirmed = await _dialogs.ShowDialogAsync(new ComposePreviewDialog(review.Preview)) == ContentDialogResult.Primary;
+            var outcome = await _supervisor.ApplyReviewedAsync(review, confirmed, dialog.SaveReplicaOverrides);
+            if (!outcome.AllSucceeded && outcome.Execution is null)
             {
-                await _dialogs.ShowMessageAsync("Operation blocked", review);
+                StatusMessage = outcome.Message;
                 return;
             }
-            if (!await _dialogs.ShowConfirmAsync("Review instance changes",
-                review.Length == 0 ? "No instance changes are required." : review, dialog.OperationLabel))
-                return;
-            if (dialog.SaveReplicaOverrides)
-            {
-                foreach (var pair in request.Replicas) row.Project.ReplicaOverrides[pair.Key] = pair.Value;
-                _store.Save(row.Project);
-            }
-            var result = request.Operation == ComposeLifecycleOperation.Up
-                ? await _supervisor.UpAsync(row.Project, request)
-                : await _supervisor.OperateAsync(row.Name, request);
+            var result = outcome.ToUpResult();
             await RefreshAsync();
             StatusMessage = result.AllSucceeded
                 ? $"{dialog.OperationLabel} completed for \"{row.Name}\""
@@ -395,7 +391,7 @@ public partial class ComposeViewModel : ObservableObject
                 StatusMessage += $" — {result.Started} instance(s) started";
             }
 
-            await ShowServiceOutcomesAsync($"{dialog.OperationLabel}: {row.Name}", result);
+            await ShowServiceOutcomesAsync($"{dialog.OperationLabel}: {row.Name}", result, row.Project);
         }
         catch (Exception ex)
         {
@@ -408,19 +404,22 @@ public partial class ComposeViewModel : ObservableObject
         }
     }
 
-    private Task ShowServiceOutcomesAsync(string title, ComposeUpResult result) =>
-        _dialogs.ShowMessageAsync(title, result.Services.Count == 0
+    private Task ShowServiceOutcomesAsync(string title, ComposeUpResult result, ComposeProject project)
+    {
+        var safe = new ComposePreviewProjection(project);
+        return _dialogs.ShowMessageAsync(safe.Redact(title), result.Services.Count == 0
             ? "No service actions were performed."
             : string.Join("\n", result.Services.Select(service =>
             {
                 var reason = result.Plan?.Services.FirstOrDefault(entry =>
                     string.Equals(entry.InstanceKey, service.InstanceKey, StringComparison.Ordinal))?.Reason;
-                return $"• {service.InstanceKey}: {service.Action}{(service.Success ? "" : " (failed)")} — {service.Detail}" +
+                return safe.Redact($"• {service.InstanceKey}: {service.Action}{(service.Success ? "" : " (failed)")} — {service.Detail}" +
                     (string.IsNullOrWhiteSpace(reason) || reason == service.Detail ? "" : $"\n  Reason: {reason}") +
-                    (string.IsNullOrWhiteSpace(service.Warning) ? "" : $"\n  Warning: {service.Warning}");
+                    (string.IsNullOrWhiteSpace(service.Warning) ? "" : $"\n  Warning: {service.Warning}"));
             })));
+    }
 
-    private async Task BringUpAsync(ComposeProject project)
+    private async Task<bool> BringUpAsync(ComposeProject project)
     {
         BeginBusyOperation();
         StatusMessage = $"Bringing up \"{project.Name}\"…";
@@ -450,17 +449,19 @@ public partial class ComposeViewModel : ObservableObject
                     {
                         await RestartSessionCoreAsync();
                     }
-                    return;
+                    return false;
                 }
 
             }
 
-            await ShowServiceOutcomesAsync($"Apply: {project.Name}", result);
+            await ShowServiceOutcomesAsync($"Apply: {project.Name}", result, project);
+            return result.AllSucceeded;
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Bring up failed", ex.Message);
+            await _dialogs.ShowMessageAsync("Bring up failed", new ComposePreviewProjection(project).Redact(ex.Message));
             StatusMessage = "Error";
+            return false;
         }
         finally
         {
@@ -543,7 +544,7 @@ public partial class ComposeViewModel : ObservableObject
                 StatusMessage = $"\"{row.Name}\" restart incomplete — {result.Started} instance(s) started";
             }
 
-            await ShowServiceOutcomesAsync($"Restart: {row.Name}", result);
+            await ShowServiceOutcomesAsync($"Restart: {row.Name}", result, row.Project);
         }
         catch (Exception ex)
         {

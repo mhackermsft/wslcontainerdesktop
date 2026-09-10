@@ -424,6 +424,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ITemplateVisibilityStore, TemplateVisibilityStore>();
         services.AddSingleton<IComposeProjectStore, ComposeProjectStore>();
         services.AddSingleton<ComposeProjectSupervisor>();
+        services.AddSingleton<IComposeReviewPresenter, ComposeReviewPresenter>();
         services.AddSingleton<IDevContainerImporter, DevContainerImporter>();
         services.AddSingleton<IDevContainerStore, DevContainerStore>();
         services.AddSingleton<IDevContainerFeatureResolver, DevContainerFeatureResolver>();

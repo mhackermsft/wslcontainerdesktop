@@ -310,7 +310,7 @@ public sealed class ComposeScalingSupervisorTests
         fixture.Engine.Mounts["demo_web_2"] = null;
         fixture.Project.Services[0].Options.Command = "updated";
         fixture.Engine.Mutations.Clear();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project));
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
         Assert.Empty(fixture.Engine.Mutations);
     }
 

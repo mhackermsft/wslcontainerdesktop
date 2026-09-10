@@ -220,7 +220,7 @@ of `StackTemplate`s grouped by category. Single-container templates carry prefil
 `RunContainerOptions`; Compose templates carry raw `docker-compose.yml` text. **Launch** starts a
 template directly with no dialog — single containers via `wslc run` (offering to replace a
 name-conflicting container first, since named volumes keep the data), Compose stacks via
-`ComposeViewModel.ImportAndUpAsync` (a non-interactive import + bring-up). A per-card **Settings**
+`ComposeViewModel.ImportAndUpAsync` (import + resolved compatibility review + confirmed bring-up). A per-card **Settings**
 button opens the Run dialog (single container) or `ConfigureComposeDialog` (editable project name +
 YAML) to configure *before* starting; confirming both starts the template **and** saves the choices.
 Saved per-template configs are keyed by `StackTemplate.Id` and persisted to `template-configs.json`
@@ -312,6 +312,15 @@ keeps unchanged running instances, starts unchanged stopped instances, and selec
 changed ones. It completes selected-graph preflight, necessary image work, file staging and resource
 preparation before stopping any workload. Restart stop/starts existing instances without applying
 edits, rebuilding images or removing resources. See [the reconciliation contract](COMPOSE-RECONCILIATION.md).
+
+`PrepareReviewAsync` resolves the same planner under the lifecycle gate and produces an opaque,
+single-use ten-minute `ComposeReviewToken`. `ComposePreviewProjection` exposes redacted,
+display-only compatibility rows; `ComposePreviewViewModel` and `ComposePreviewDialog` are immutable.
+The DI `IComposeReviewPresenter` marshals service/template/dev-container/assistant Up callers to
+that dialog and fails closed without a UI. `ApplyReviewedAsync` refreshes capability and inventory
+evidence before authorizing the captured request. It rejects blockers, expiry and drift without
+workload/settings mutations. Unsupported settings and unresolved-input diagnostics survive
+project persistence. See [compatibility review and the #94 integration contract](COMPOSE-COMPATIBILITY.md).
 New containers retain ownership labels (`com.wsldesktop.project` / `com.wsldesktop.service`) in `depends_on`
 topological order. It **skips services excluded by the active `profiles:`** (a service with no
 profile always starts; a profiled service starts only when one of its profiles is active). It gives

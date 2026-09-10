@@ -422,7 +422,8 @@ public sealed class ComposeProject
     /// <summary>
     /// Human-readable warnings collected during import about compose keys that are not supported and
     /// were ignored (e.g. <c>privileged</c>, <c>cap_add</c>, multi-network attach). Surfaced to the
-    /// user at import time and retained with saved configuration for subsequent review.
+    /// user during compatibility review and persisted so import-only/save/reload cannot erase
+    /// unresolved-input blockers or unsupported-setting explanations.
     /// </summary>
     public List<string> Warnings { get; set; } = new();
 }
