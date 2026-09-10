@@ -1,12 +1,12 @@
 # Assistant contract test foundation
 
-Issue #95 establishes deterministic coverage for existing orchestration and HTTP
-adapter contracts. It is a foundation, **not completion of all #95 acceptance
-criteria**. The feature layers below must add their own regression coverage as
-their contracts become available. Issue #97 extends this foundation with real
-argument resolution, approval-bound container plans, and partial-execution tests.
-Issue #91 adds the shared evidence/privacy boundary and deterministic regression
-coverage described below.
+The #95 deterministic acceptance matrix is implemented across the suites below:
+real orchestration/approval/journal, argument resolution and immutable targets,
+privacy boundaries, concrete HTTP serialization/streaming, Copilot app-owned SDK
+binding, full production catalog budgets and local runtime ownership. #93 closes
+the full-catalog/SDK-mapping integration gaps; this does not certify live providers,
+packaged UI, hardware or the separate Foundry product integration. Those remain
+explicit opt-in observations, not prerequisites for the normal deterministic suite.
 
 ## Running the deterministic suite
 
@@ -21,7 +21,11 @@ dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c 
 
 Use the repository's existing xUnit runner. If assets are missing, first audit
 publication dates for the exact restore graph under the seven-day dependency-age
-policy, then restore. No additional test packages are needed. Source links compile
+policy, then restore. The Windows binding suite references the same audited
+GitHub.Copilot.SDK 1.0.7 and logging abstractions 10.0.2 as the app graph; it does
+not introduce a new runtime version. `CopilotSkipCliDownload=true` is set in the
+test project itself, so ordinary test builds cannot trigger SDK CLI acquisition.
+Source links compile
 the actual service and adapter implementations without loading the WinUI
 executable or activating its MSIX package. Tests run for both configured target
 frameworks, except real toolset tests run only on the Windows target already used
@@ -49,7 +53,9 @@ An optional toolset factory allows the same harness to run the actual
 `AssistantToolset` instead of scripted resolution/execution. Its inventory and
 service interfaces use strict `NetworkTestProxy` fakes. Source-linked template,
 registry and Kubernetes dependencies compile their real contracts; no real
-registry, credential store, process runner, Compose deployment, or provider is invoked.
+registry, credential store, process runner, real Compose workload or live provider is invoked.
+The catalog integration suite additionally uses the real bundled `TemplateCatalog`
+and concrete HTTP providers with the synthetic transport.
 
 The real `ContainerAssistantService` and `AssistantActionGate` are exercised for:
 
@@ -219,7 +225,10 @@ bytes for **every** model. #88 removed the model-name exceptions. A fresh,
 configuration-keyed, explicitly byte-accounted observation can only lower this
 ceiling; token-window metadata is retained separately and never converted into
 bytes. Accounting includes messages, tool
-schemas, escaping, and a fixed plus per-item protocol reserve. These are
+schemas as structured JSON objects in function envelopes, escaping, and a fixed
+plus per-item protocol reserve. Schema syntax whitespace is compacted structurally;
+description/property/regex whitespace is preserved. Malformed schemas fail closed.
+These are
 conservative application ceilings, **not negotiated model context-window
 claims or an exact tokenizer**. Smaller server contexts may reject a request;
 no fallback to another model/provider occurs. Configuration/runtime invalidation
@@ -586,10 +595,55 @@ Run the combined offline contracts without deployment:
 dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~Assistant|FullyQualifiedName~Ai|FullyQualifiedName~Compose|FullyQualifiedName~VolumeUsageResolver|FullyQualifiedName~WslcCapabilitiesService"
 ```
 
-Remaining #95/#86 integration scope is unchanged: packaged approval/progress/accessibility
-presentation and actual StatusMonitor/watchdog dispatch, live WSLC help/inspect schema variants,
-real provider/SDK behavior, and disposable native/legacy lifecycle/volume runs require separate
-explicit authorization. #92 Foundry remains a separate draft and is not included in this branch.
+Packaged approval/progress/accessibility presentation and actual StatusMonitor/watchdog
+dispatch, live WSLC help/inspect variants, provider service behavior and disposable
+native/legacy lifecycle/volume runs remain separately authorized integration observations,
+not missing #95 deterministic acceptance. #92 Foundry remains separate and is not included here.
+
+### Full catalog and app-owned Copilot mapping (#95 completion)
+
+`AssistantCatalogAdapterTests` uses all 40 production tool definitions, the real bundled
+template catalog, a browsable registry and both Running/Stopped k3s states. The real
+assistant/gate drives OpenAI, Azure OpenAI and Ollama adapters through captured synthetic
+HTTP, plus `CopilotChatTurnRunner` through the actual app-owned SDK function mapping.
+It verifies every emitted schema and description, required/extra-field/range semantics,
+read-only cached health without approval/probes, and saved-project Stop with explicit
+approval despite an auto-approve toggle. Completed paired tool evidence survives provider
+continuation and the next user turn. Actual captured HTTP UTF-8 payloads and the serialized
+SDK app-owned prompt/tool mapping must fit their conservative accounting and the unchanged
+32,768-byte ceiling. All declared tools remain present.
+
+These tests reproduced a real regression: the full catalog alone previously accounted
+for **32,973 bytes**, before any system prompt or user text. Schema JSON was counted as an
+escaped JSON string, unlike the schema objects sent by all adapters. Structural schema
+accounting fixes that artificial double encoding; shorter equivalent descriptions and
+template IDs remove redundant metadata. The full bundled catalog now accounts for
+**24,484 bytes**, including the unchanged fixed/per-tool reserves, leaving over 8KB for
+prompt/request/evidence. No ceiling increase, tool filtering, silent evidence deletion
+or permission change is used. Existing overflow, active-evidence refusal and paired
+eviction contracts remain enforced.
+
+`CopilotSdkBindingTests` source-links `GitHubCopilotProvider` itself, not a substitute
+mapping. `BuildChatSessionConfig` is a behavior-preserving extraction used by production:
+tests assert captured model/system prompt, complete tool allowlist, disabled host/config/
+skills/session-store features and approve-once permission mapping for declared custom
+tools only. Host/nonallowlisted requests remain rejected; SDK permission is not app
+mutation approval. `BuildCopilotTools` exercises the installed SDK's `CopilotTool.DefineTool`
+binder with real `ToolInvocation` context. It preserves opaque call IDs, tool names and
+original raw JSON (including duplicate fields for downstream validation), rejects missing,
+wrong-type, mismatched or missing-argument context via the failure callback, and propagates
+cancellation. `BuildCopilotChatPrompt` preserves call/result pairing while sanitizing history.
+
+The test context key is the actual SDK 1.0.7 convention verified in pinned upstream commit
+`d95cfacc5d3ca13ce8cc9a3ece2746134da5c50c`, `dotnet/src/CopilotTool.cs` and
+`dotnet/src/Session.cs`: `AIFunctionArguments.Context[typeof(ToolInvocation)]`. Tests invoke
+the real SDK binder without starting a client/session or replacing it with a fabricated
+`AiToolCall` binding. They do not certify SDK RPC dispatch, CLI/model events or service
+entitlement. No process, sign-in, network, deployment or model acquisition is performed.
+
+```powershell
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~Assistant|FullyQualifiedName~Ai|FullyQualifiedName~CopilotSdkBindingTests|FullyQualifiedName~GitHubCopilot|FullyQualifiedName~Compose"
+```
 
 ## Shared Compose consequence approval (#94)
 
@@ -621,26 +675,26 @@ This is deterministic contract evidence, not live provider, WSLC, packaged UI, b
 or GPU certification. The two installed-engine smoke cases remain explicitly opted out.
 No provider, workload, model download, deployment or new dependency is needed.
 
-## Remaining feature-layer acceptance
+## Completion matrix and separate live integration
 
-These are **unmet criteria**, not skipped tests or assertions that unsafe
-behavior is desirable. Scripted resolver tests remain orchestration-boundary
-coverage; the separate real-toolset suite above establishes argument validation
-and inventory safety.
-Serialized activity capture is a test sink, not the production on-disk store.
+The deterministic #95 foundation and feature-layer contracts are covered. Scripted
+resolver tests are complemented by real toolset/supervisor/adapter suites; they are
+not presented as live-runtime certification. Serialized activity capture establishes
+the sanitized `IActivityLog.Record` input boundary, not packaged on-disk storage.
 
-| Layer | Regression coverage still required |
+| Layer | Deterministic coverage and separate integration limits |
 | --- | --- |
 | #88 live compatibility | Deterministic observation/consumer contracts are covered above. Actual provider metadata conventions, SDK transport/entitlement failures and hardware cold starts still require explicitly authorized smoke runs; unknown metadata is not filled with guesses. |
-| #89 streaming | Fragment assembly, complete validation before action, progress ordering, disconnect recovery, inference versus approval timeouts, cancellation/reset generations, partial outcomes and no replay. Current adapters return final strings. |
+| #89 streaming | Covered: fragmented SSE/NDJSON/UTF-8, complete validation before action, safe progress ordering, disconnect failure without retry, inference versus approval timeouts, cancellation/reset generations and partial outcomes. Actual provider/SDK event delivery remains a separately authorized smoke observation. |
 | #90 runtime ownership | Deterministic real-lifecycle/fake-engine coverage is described above. Automatic model-volume deletion is deliberately unavailable without atomic immutable targeting. Real-engine/GPU compatibility remains unverified; no workload is manipulated by the suite. |
-| #92 Foundry Local | Deterministic dedicated adapter/runtime tests using the shared contracts, plus explicitly opted-in packaged and hardware runs. No Foundry dependency or model is acquired by this foundation. |
+| #92 Foundry Local | Separate product branch/scope, not included here and not required for #95 completion. Its native adapter/runtime product limitations and any opted-in hardware evidence must be recorded there; this suite acquires no Foundry dependency or model. |
 | #94 Compose live integration | Deterministic shared-plan/approval/outcome coverage is complete above. Real provider/tool rendering, actual engine resource retention and packaged UI review remain unverified until separately authorized smoke runs. |
-| Copilot SDK adapter | The production chat bridge now has fake-session history/budget/cancellation/failure coverage, including real-service round trips. SDK-internal transport, actual model events, sign-in and opaque runtime overhead still require an explicitly authorized live smoke run. |
+| #93 full catalog | Covered: real 40-tool catalog, bundled templates, browsable registry, installed k3s states, actual concrete-adapter schemas/routes/budgets, read-only and approved project action plus paired follow-up evidence. UI rendering/poller dispatch remain separate observations. |
+| Copilot SDK adapter | Covered: production runner history/budget/cancellation/failure plus app-owned SessionConfig, SDK AIFunction binding, permission mapping and sanitized prompt serialization. SDK RPC transport, actual model events, sign-in and opaque runtime overhead still require an explicitly authorized live smoke run. |
 
-Do not treat the absence of automatic retries in these scenarios as general
-exactly-once execution or duplicate-model-call detection. Those guarantees need
-explicit production contracts and additional tests.
+Duplicate call IDs within a turn are rejected by tested production contracts.
+This is not a general exactly-once guarantee across explicit user retries or
+external engine races; no such guarantee is claimed or required for #95 closure.
 
 ## Opt-in real-provider and runtime smoke coverage
 

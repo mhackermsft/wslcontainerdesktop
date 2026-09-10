@@ -225,35 +225,15 @@ public sealed class GitHubCopilotProvider(
             await using var client = CreateClient();
             await client.StartAsync(timeout.Token).ConfigureAwait(false);
             var model = await ResolveModelAsync(client, timeout.Token, configuration.Model).ConfigureAwait(false);
-            var allowlistedToolNames = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
-
-            await using var session = await client.CreateSessionAsync(new SessionConfig
-            {
-                Model = model,
-                SystemMessage = new SystemMessageConfig
-                {
-                    Mode = SystemMessageMode.Replace,
-                    Content = string.Join("\n\n", history.Where(m => m.Role == "system").Select(m => m.Content)),
-                },
-                Streaming = true,
-                Tools = BuildCopilotTools(tools, async (call, callbackToken) =>
+            await using var session = await client.CreateSessionAsync(BuildChatSessionConfig(
+                model, history, tools, async (call, callbackToken) =>
                 {
                     timeout.Token.ThrowIfCancellationRequested();
                     if (Volatile.Read(ref bridgeFailure) is not null)
                         throw new InvalidOperationException("The Copilot tool bridge has already failed.");
                     using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, callbackToken);
                     return await invokeToolAsync(call, linked.Token).ConfigureAwait(false);
-                }, FailBridge),
-                AvailableTools = tools.Select(t => t.Name).ToList(),
-                InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
-                EnableSkills = false,
-                EnableConfigDiscovery = false,
-                SkipCustomInstructions = true,
-                EnableHostGitOperations = false,
-                EnableSessionStore = false,
-                WorkingDirectory = SafeWorkingDirectory(),
-                OnPermissionRequest = (request, _) => Task.FromResult(HandleToolPermissionRequest(request, allowlistedToolNames)),
-            }, timeout.Token).ConfigureAwait(false);
+                }, FailBridge, SafeWorkingDirectory()), timeout.Token).ConfigureAwait(false);
 
             var prompt = BuildCopilotChatPrompt(history.Where(m => m.Role != "system"));
             string? finalText = null;
@@ -331,7 +311,38 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
-    private static ICollection<AIFunctionDeclaration> BuildCopilotTools(
+    internal static SessionConfig BuildChatSessionConfig(
+        string model,
+        IReadOnlyList<AiChatMessage> history,
+        IReadOnlyList<AiToolDefinition> tools,
+        Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
+        Action<Exception> failBridge,
+        string workingDirectory)
+    {
+        var allowlistedToolNames = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
+        return new SessionConfig
+        {
+            Model = model,
+            SystemMessage = new SystemMessageConfig
+            {
+                Mode = SystemMessageMode.Replace,
+                Content = string.Join("\n\n", history.Where(m => m.Role == "system").Select(m => m.Content)),
+            },
+            Streaming = true,
+            Tools = BuildCopilotTools(tools, invokeToolAsync, failBridge),
+            AvailableTools = tools.Select(t => t.Name).ToList(),
+            InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
+            EnableSkills = false,
+            EnableConfigDiscovery = false,
+            SkipCustomInstructions = true,
+            EnableHostGitOperations = false,
+            EnableSessionStore = false,
+            WorkingDirectory = workingDirectory,
+            OnPermissionRequest = (request, _) => Task.FromResult(HandleToolPermissionRequest(request, allowlistedToolNames)),
+        };
+    }
+
+    internal static ICollection<AIFunctionDeclaration> BuildCopilotTools(
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
         Action<Exception> failBridge)
@@ -345,7 +356,7 @@ public sealed class GitHubCopilotProvider(
         return declarations;
     }
 
-    private static PermissionDecision HandleToolPermissionRequest(
+    internal static PermissionDecision HandleToolPermissionRequest(
         PermissionRequest request,
         IReadOnlySet<string> allowlistedToolNames)
     {
@@ -359,7 +370,7 @@ public sealed class GitHubCopilotProvider(
         return PermissionDecision.Reject("Only WSL Container Desktop's declared allowlisted assistant tools may run.");
     }
 
-    private static string BuildCopilotChatPrompt(IEnumerable<AiChatMessage> history)
+    internal static string BuildCopilotChatPrompt(IEnumerable<AiChatMessage> history)
     {
         var builder = new StringBuilder();
         builder.AppendLine("Continue this tool-calling conversation. Use the declared tools when an action or live data is needed.");

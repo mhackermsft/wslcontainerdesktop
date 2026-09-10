@@ -524,6 +524,24 @@ public sealed class AssistantHistoryContractTests
     }
 
     [Fact]
+    public void SchemaAccountingCompactsSyntaxOnlyAndRejectsMalformedSchemas()
+    {
+        var compact = new AiToolDefinition { Name = "tool", Description = "description",
+            JsonSchemaParameters = """{"type":"object","properties":{"spaced key":{"type":"string","pattern":"^a b$","description":"keep  two spaces\nand a newline"}}}""" };
+        using var schema = JsonDocument.Parse(compact.JsonSchemaParameters);
+        AiToolDefinition WithSchema(string json) => new()
+            { Name = compact.Name, Description = compact.Description, JsonSchemaParameters = json };
+        var formatted = WithSchema(JsonSerializer.Serialize(schema.RootElement, new JsonSerializerOptions { WriteIndented = true }));
+        var baseline = AiConversationContext.Measure([], [compact]);
+        Assert.Equal(baseline, AiConversationContext.Measure([], [formatted]));
+        var significant = WithSchema(compact.JsonSchemaParameters.Replace("a b", "a  b", StringComparison.Ordinal));
+        Assert.Equal(baseline + 1, AiConversationContext.Measure([], [significant]));
+        foreach (var invalid in new[] { "{", "[]", "null", "\"string\"" })
+            Assert.Throws<InvalidOperationException>(() =>
+                AiConversationContext.Measure([], [WithSchema(invalid)]));
+    }
+
+    [Fact]
     public void BudgetIncludesSchemasUnicodeAndPairedGroupsAndNeverDropsActiveEvidence()
     {
         var config = new AiChatConfiguration(AiProviderKind.Ollama, "http://local", "unknown");

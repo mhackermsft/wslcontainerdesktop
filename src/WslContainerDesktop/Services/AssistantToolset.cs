@@ -45,25 +45,25 @@ public sealed partial class AssistantToolset(
             Tool("list_volumes", "List volumes."),
             Tool("list_networks", "List networks."),
             Tool("engine_status", "Check WSL container engine availability and version."),
-            Tool("engine_capabilities", "Read current shared configured-engine capability evidence. Supported, Unsupported and Unknown are distinct; partial/unavailable evidence never authorizes optional flags or speculative mutations. No version inference."),
-            Tool("get_health_observations", "Read cached native health from StatusMonitor and app watchdog observations without polling, probes or auto-heal. Includes timestamps, age and unknown/stale status; native health, app supervision and process state are distinct."),
-            Tool("get_volume_usage", "Read a point-in-time mount usage scan through the shared volume resolver, including stopped containers. Exact, Partial, Estimated, Unknown and Unused are distinct; incomplete evidence never proves safe deletion. Not volume disk consumption."),
-            Tool("k8s_status", "Read cluster evidence, explicitly distinguishing NotInstalled, Unknown and unavailable. Missing tools are not proof of absence."),
+            Tool("engine_capabilities", "Read configured-engine Supported/Unsupported/Unknown evidence. Partial/unavailable is not permission; never infer flags from versions."),
+            Tool("get_health_observations", "Read cached native/app health, timestamps and staleness; no probes or auto-heal. Health, supervision and process state differ."),
+            Tool("get_volume_usage", "Scan mount users including stopped containers. Exact/Partial/Estimated/Unknown/Unused; not disk consumption or deletion permission."),
+            Tool("k8s_status", "Read cluster NotInstalled/Unknown/unavailable evidence; missing tools do not prove absence."),
             Tool("list_compose_projects", "List saved compose projects."),
-            Tool("start_compose_project", "Review and bring up one exact saved Compose project through its supervisor, including dependencies. Always requires explicit consequence approval; may create or reconcile instances, not merely start containers."),
-            Tool("stop_compose_project", "Review and stop one exact saved Compose project through its supervisor in dependency order, preserving manual-stop suppression. Always requires explicit consequence approval."),
-            Tool("restart_compose_project", "Review and restart one exact saved Compose project through its supervisor, preserving ownership and supervision. Always requires explicit consequence approval."),
-            Tool("down_compose_project", "Review and remove owned containers for one exact saved Compose project through its supervisor. Retains volumes; no volume deletion argument. Always requires explicit consequence approval."),
-            Tool("run_container", "Run a container from structured options. Use for simple deployments such as nginx. Set gpus=true for GPU workloads (e.g. Ollama, CUDA)."),
+            Tool("start_compose_project", "Explicitly review one saved project Up via supervisor; may create/reconcile instances and dependencies."),
+            Tool("stop_compose_project", "Explicitly review one saved project Stop via supervisor; dependency order and manual-stop suppression apply."),
+            Tool("restart_compose_project", "Explicitly review one saved project Restart via supervisor; ownership and supervision apply."),
+            Tool("down_compose_project", "Explicitly review one saved project Down via supervisor; removes owned containers, retains volumes."),
+            Tool("run_container", "Run one standalone container from structured options; use Compose for multi-container apps."),
             Tool("pull_image", "Pull a container image reference."),
             Tool("start_container", "Start a container by id or name."),
             Tool("stop_container", "Stop a container by id or name."),
             Tool("restart_container", "Restart a container by id or name."),
             Tool("remove_container", "Remove a container by id or name."),
-            Tool("stop_all_containers", "Stop running containers. Set namePrefix or nameContains to restrict matching names, or explicitly set scope=\"all\" without filters for every running container."),
-            Tool("remove_all_containers", "Remove containers after the app resolves exact targets. Set namePrefix or nameContains to restrict matching names, or explicitly set scope=\"all\" without filters. onlyRunning defaults to true."),
-            Tool("deploy_template", "Review and deploy an app template by id or name. Compose templates require explicit approval of the shared resolved consequences, then inventory/capability revalidation. Blocked, stale, cancelled or partial outcomes are not success; never retry automatically. Available templates include: " + TemplateList()),
-            Tool("deploy_compose", "Review and deploy a multi-container application from Compose YAML as a single project with shared network and DNS. ALWAYS use this (or deploy_template) for multi-container apps, not multiple run_container calls. The app previews active instances, ports, mounts, warnings, ownership, replacements and native/legacy choices and requires explicit approval. Blockers cannot be ignored. Approval expires and inventory/capabilities are revalidated before mutation. Read structured per-instance outcomes; partial, blocked, stale or cancelled is not success. Never retry automatically. No approval token or confirmation argument is accepted."),
+            Tool("stop_all_containers", "Stop exact resolved running targets. Use name filters OR explicit scope=\"all\", never both."),
+            Tool("remove_all_containers", "Remove exact resolved targets. Use name filters OR scope=\"all\". onlyRunning defaults true."),
+            Tool("deploy_template", "Deploy template by ID/name. Compose requires explicit approval and fresh revalidation; blocked/stale/cancelled/partial is not success. No auto-retry. IDs: " + TemplateList()),
+            Tool("deploy_compose", "Deploy multi-container YAML as one project with shared networks/DNS, not separate runs. Requires explicit approval of instances, ports, mounts, warnings, ownership, replacements and native/legacy choices. Blockers cannot be ignored. Approval expires; inventory/capabilities are revalidated. Read per-instance outcomes: partial/blocked/stale/cancelled is not success. No automatic retry or model confirmation/token."),
             Tool("create_volume", "Create a named volume."),
             Tool("remove_volume", "Remove a named volume."),
             Tool("create_network", "Create a named network."),
@@ -429,7 +429,7 @@ public sealed partial class AssistantToolset(
     public async Task<string> ClusterStopAsync(CancellationToken ct) =>
         Summarize(await kubernetes.StopAsync(ct).ConfigureAwait(false));
 
-    private string TemplateList() => string.Join(", ", templates.Templates.Select(t => $"{t.Id} ({t.Name})").Take(40));
+    private string TemplateList() => string.Join(", ", templates.Templates.Select(t => t.Id).Take(40));
 
     private static AiToolDefinition Tool(string name, string description) => new()
     {
@@ -455,14 +455,14 @@ public sealed partial class AssistantToolset(
         "repository" => "Repository/image name within the registry, e.g. team/myapp",
         "namespace" => "Optional namespace; defaults depend on the resource operation",
         "replicas" => "Replica count (0-100)",
-        "kind" => "Resource kind: pods, deployments, services, ingresses, pvc, configmaps, secrets, jobs, cronjobs, namespaces (singular aliases also accepted)",
+        "kind" => "pods/deployments/services/ingresses/pvc/configmaps/secrets/jobs/cronjobs/namespaces; singular aliases accepted",
         "yaml" => "Complete Kubernetes YAML manifest",
         _ => "Resource name",
     };
 
     private static string DeployComposeSchema() =>
         "{\"type\":\"object\",\"properties\":{" +
-        "\"yaml\":{\"type\":\"string\",\"description\":\"Complete Compose YAML for shared-plan review, not shell commands. Active services resolve each other by service name over DNS. The app requires explicit approval of resolved consequences; blocked settings cannot be ignored. Raw YAML is withheld from echoed history.\"}," +
+        "\"yaml\":{\"type\":\"string\",\"description\":\"Complete Compose YAML, not shell. Shared explicit review required; blocked settings cannot be ignored. Echoed YAML is withheld.\"}," +
         "\"projectName\":{\"type\":\"string\",\"description\":\"Optional project name; defaults to the compose 'name' or 'ai-compose'.\"}" +
         "},\"required\":[\"yaml\"],\"additionalProperties\":false}";
 
@@ -487,29 +487,29 @@ public sealed partial class AssistantToolset(
           "properties": {
             "image": { "type": "string", "description": "Image reference" },
             "name": { "type": "string", "description": "Optional container name" },
-            "command": { "type": "string", "description": "Optional command to run in the container" },
-            "entrypoint": { "type": "string", "description": "Override the image entrypoint executable (--entrypoint)" },
-            "ports": { "type": "array", "items": { "type": "string" }, "description": "host:container[/proto] port mappings (-p)" },
-            "environment": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE environment variables (-e)" },
-            "volumes": { "type": "array", "items": { "type": "string" }, "description": "source:destination volume/bind mounts (-v)" },
-            "labels": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE metadata labels (--label)" },
-            "networks": { "type": "array", "items": { "type": "string" }, "description": "Networks to attach; the first is the primary network (--network)" },
-            "aliases": { "type": "array", "items": { "type": "string" }, "description": "Network-scoped hostname aliases (--network-alias)" },
-            "dns": { "type": "array", "items": { "type": "string" }, "description": "DNS nameserver IPs (--dns)" },
-            "dnsSearch": { "type": "array", "items": { "type": "string" }, "description": "DNS search domains (--dns-search)" },
-            "dnsOptions": { "type": "array", "items": { "type": "string" }, "description": "DNS resolver options (--dns-option)" },
-            "tmpfs": { "type": "array", "items": { "type": "string" }, "description": "tmpfs mount targets (--tmpfs)" },
-            "ulimits": { "type": "array", "items": { "type": "string" }, "description": "ulimit settings as name=soft[:hard] (--ulimit)" },
-            "gpus": { "type": "boolean", "description": "Set true to grant the container access to all host GPUs (maps to --gpus all). Use for GPU workloads such as Ollama or CUDA images." },
-            "removeOnExit": { "type": "boolean", "description": "Remove the container automatically when it exits (--rm)" },
-            "user": { "type": "string", "description": "User to run the process as (--user)" },
-            "workingDir": { "type": "string", "description": "Working directory inside the container (--workdir)" },
-            "hostname": { "type": "string", "description": "Container hostname (--hostname)" },
-            "domainname": { "type": "string", "description": "Container domain name (--domainname)" },
-            "cpuLimit": { "type": "string", "description": "CPU limit, e.g. \"1.5\" (--cpus)" },
-            "memoryLimit": { "type": "string", "description": "Memory limit, e.g. \"512M\" (--memory)" },
-            "shmSize": { "type": "string", "description": "Size of /dev/shm, e.g. \"64M\" (--shm-size)" },
-            "stopSignal": { "type": "string", "description": "Signal used to stop the container (--stop-signal)" }
+            "command": { "type": "string", "description": "Command inside container" },
+            "entrypoint": { "type": "string", "description": "Entrypoint executable override" },
+            "ports": { "type": "array", "items": { "type": "string" }, "description": "host:container[/proto]" },
+            "environment": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE environment" },
+            "volumes": { "type": "array", "items": { "type": "string" }, "description": "source:destination volume/bind mounts" },
+            "labels": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE labels" },
+            "networks": { "type": "array", "items": { "type": "string" }, "description": "Networks; first is primary" },
+            "aliases": { "type": "array", "items": { "type": "string" }, "description": "Network-scoped hostname aliases" },
+            "dns": { "type": "array", "items": { "type": "string" }, "description": "DNS nameserver IPs" },
+            "dnsSearch": { "type": "array", "items": { "type": "string" }, "description": "DNS search domains" },
+            "dnsOptions": { "type": "array", "items": { "type": "string" }, "description": "DNS resolver options" },
+            "tmpfs": { "type": "array", "items": { "type": "string" }, "description": "tmpfs targets" },
+            "ulimits": { "type": "array", "items": { "type": "string" }, "description": "name=soft[:hard]" },
+            "gpus": { "type": "boolean", "description": "Request all GPUs for GPU workloads; not proof of acceleration" },
+            "removeOnExit": { "type": "boolean", "description": "Automatically remove on exit" },
+            "user": { "type": "string", "description": "Process user" },
+            "workingDir": { "type": "string", "description": "Container working directory" },
+            "hostname": { "type": "string", "description": "Container hostname" },
+            "domainname": { "type": "string", "description": "Container domain" },
+            "cpuLimit": { "type": "string", "description": "CPU limit, e.g. 1.5" },
+            "memoryLimit": { "type": "string", "description": "Memory limit, e.g. 512M" },
+            "shmSize": { "type": "string", "description": "/dev/shm size, e.g. 64M" },
+            "stopSignal": { "type": "string", "description": "Stop signal" }
           },
           "required": ["image"],
           "additionalProperties": false
@@ -701,9 +701,9 @@ public sealed partial class AssistantToolset(
             ObjectSchema(("id", "string", "")),
         "get_container_logs" => ObjectSchema(("id", "string", ""), ("tail", "integer", "")),
         "pull_image" => ObjectSchema(("reference", "string", "")),
-        "deploy_template" => ObjectSchema(("idOrName", "string", "Existing template ID or name. Compose templates use the same explicit consequence review as deploy_compose; catalog changes invalidate approval.")),
+        "deploy_template" => ObjectSchema(("idOrName", "string", "Existing template ID/name; catalog changes invalidate approval.")),
         "start_compose_project" or "stop_compose_project" or "restart_compose_project" or "down_compose_project" =>
-            ObjectSchema(("projectName", "string", "Exact saved project name from list_compose_projects. No filters, approval flags or scope expansion.")),
+            ObjectSchema(("projectName", "string", "Exact name from list_compose_projects; no scope expansion.")),
         "create_volume" or "remove_volume" or "create_network" or "remove_network" => ObjectSchema(("name", "string", "")),
         "list_registry_repositories" => ObjectSchema(("registry", "string", "")),
         "list_registry_tags" => ObjectSchema(("registry", "string", ""), ("repository", "string", "")),
