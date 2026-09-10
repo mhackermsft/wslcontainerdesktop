@@ -728,12 +728,12 @@ public partial class TemplatesViewModel : ObservableObject
         }
 
         IsBusy = true;
-        StatusMessage = $"Launching {template.Name}… pulling images and starting services, this can take a moment.";
+        StatusMessage = $"Reviewing {template.Name}… no images or services are changed before confirmation.";
         try
         {
             if (!await _compose.ImportAndUpAsync(yaml, suggestedName: name))
             {
-                StatusMessage = "Compose configuration was not imported.";
+                StatusMessage = "Compose launch was cancelled, blocked, or incomplete. Check Compose details and refresh actual state before retrying.";
                 return;
             }
             var note = string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note}";
@@ -768,10 +768,10 @@ public partial class TemplatesViewModel : ObservableObject
                 dialog.Yaml,
                 suggestedName: string.IsNullOrWhiteSpace(dialog.ProjectName) ? template.ComposeProjectName : dialog.ProjectName))
             {
-                StatusMessage = "Compose configuration was not imported; saved settings were not changed.";
+                StatusMessage = "Compose launch was cancelled, blocked, or incomplete. Saved template defaults were not changed; check Compose details.";
                 return;
             }
-            // Do not persist edited YAML until configuration validation has succeeded.
+            // Preserve template defaults unless the reviewed deployment completed successfully.
             _configs.Save(new TemplateConfig
             {
                 TemplateId = template.Id,

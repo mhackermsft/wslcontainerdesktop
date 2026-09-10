@@ -229,6 +229,8 @@ public sealed class ComposeNetworkOrchestratorTests
         public Dictionary<string, int> ExitCodes { get; } = new();
         public Dictionary<string, string> ContainerIds { get; } = new();
         public Dictionary<string, string> InspectionErrors { get; } = new();
+        public Dictionary<string, List<PortMapping>> PublishedPorts { get; } = new();
+        public Dictionary<string, string> NetworkInspectionOverrides { get; } = new();
         public List<ImageInfo> Images { get; } = [new() { Id = "sha256:fixture-v1", Repository = "fixture", Tag = "latest" }];
         public List<string> Mutations { get; } = new();
         public List<string> Reads { get; } = new();
@@ -406,6 +408,8 @@ public sealed class ComposeNetworkOrchestratorTests
                         return Result(true);
                     case nameof(IWslcService.InspectNetworkAsync):
                         Reads.Add("network:" + args[0]);
+                        if (NetworkInspectionOverrides.TryGetValue((string)args[0]!, out var networkJson))
+                            return Result(true, networkJson);
                         return Networks.TryGetValue((string)args[0]!, out var owner)
                             ? Result(true, JsonSerializer.Serialize(new { Labels = new Dictionary<string, string?> { [ComposeProject.ProjectLabel] = owner } }))
                             : Result(false, error: "WSLC_E_NETWORK_NOT_FOUND");
@@ -442,6 +446,8 @@ public sealed class ComposeNetworkOrchestratorTests
             return Containers.Keys.Select(n => new ContainerInfo
             {
                 Id = ContainerIds[n], Name = n, StateValue = (int)States[n],
+                PortsKnown = PublishedPorts.ContainsKey(n),
+                Ports = PublishedPorts.GetValueOrDefault(n) ?? [],
             }).ToList();
         }
 

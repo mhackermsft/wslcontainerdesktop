@@ -523,7 +523,7 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Project.Services[0].Build = new() { Context = Directory.GetCurrentDirectory(), Args = ["MODE=first"] };
         AddService(fixture, "worker").Build = new() { Context = Directory.GetCurrentDirectory(), Args = ["MODE=second"] };
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project, new ComposeOperationRequest { Build = true }));
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project, new ComposeOperationRequest { Build = true })).AllSucceeded);
 
         Assert.Empty(fixture.Engine.Mutations);
         Assert.Empty(fixture.Engine.Containers);
@@ -600,7 +600,7 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Engine.Images.Clear();
         fixture.Project.Services[0].PullPolicy = ComposeImagePolicy.Never;
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project));
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
 
         Assert.Empty(fixture.Engine.Mutations);
         Assert.Empty(fixture.Engine.Containers);
@@ -618,8 +618,7 @@ public sealed class ComposeReconciliationSupervisorTests
         };
         fixture.Engine.Mutations.Clear();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Supervisor.UpAsync(fixture.Project, new ComposeOperationRequest { Build = true }));
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project, new ComposeOperationRequest { Build = true })).AllSucceeded);
 
         Assert.Empty(fixture.Engine.Mutations);
         Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);
@@ -1046,7 +1045,7 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Engine.Mutations.Clear();
         fixture.Engine.BeforeList = () => throw new IOException("inventory unavailable");
 
-        await Assert.ThrowsAsync<IOException>(() => fixture.Supervisor.UpAsync(fixture.Project));
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
         await Assert.ThrowsAsync<IOException>(() => fixture.Supervisor.PlanAsync(fixture.Project));
 
         Assert.Empty(fixture.Engine.Mutations);
@@ -1165,7 +1164,7 @@ public sealed class ComposeReconciliationSupervisorTests
         if (failure == "inspect") fixture.Engine.VolumeInspectionError = "WSLC_E_ACCESS_DENIED";
         fixture.Engine.Mutations.Clear();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project));
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
 
         Assert.DoesNotContain(fixture.Engine.Mutations, m =>
             m.StartsWith("stop:") || m.StartsWith("remove:") || m.StartsWith("create:") || m.StartsWith("run:"));
@@ -1210,7 +1209,7 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Engine.Mutations.Clear();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.PlanAsync(fixture.Project));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project));
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
 
         Assert.Empty(fixture.Engine.Mutations);
         Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);
@@ -1295,7 +1294,7 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Project.Services[0].Options.Command = "updated";
         fixture.Engine.Mutations.Clear();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.UpAsync(fixture.Project));
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
 
         Assert.Empty(fixture.Engine.Mutations);
         Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);

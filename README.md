@@ -33,7 +33,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Full container lifecycle** — run, start, stop, restart, kill, remove, prune, logs, exec terminal, inspect, and live stats.
 - **Docker Compose** — import a `docker-compose.yml` and bring a whole multi-service stack **up / down / restart as a unit**, with dependency ordering, health/exit gating, and auto-heal. The desktop app acts as the orchestration layer above `wslc` — see [Docker Compose compatibility](#docker-compose-compatibility) for exactly what is and isn't supported.
 - **Images, volumes, networks** — pull, build, tag, push, inspect, and prune, all from a clean Fluent UI.
-- **Templates gallery** — a catalog of curated **one-click stacks** (databases, web tools, developer sandboxes, and multi-service Compose projects). **Launch** starts them immediately with sensible defaults; a per-card **Settings** button lets you configure first, and your choices are remembered for next time.
+- **Templates gallery** — a catalog of curated stacks (databases, web tools, developer sandboxes, and multi-service Compose projects). **Launch** uses sensible defaults; Compose stacks show a compatibility review before deployment. A per-card **Settings** button lets you configure first, and your choices are remembered for next time.
 - **Image update badges** — **Check for updates** compares your local image digests against the registry and flags out-of-date images with an **↓ Update** badge, so you can pull the newer version in one click.
 - **Endpoints dashboard** — every published port across all running containers in one list, with clickable `localhost` links that open in your browser or copy to the clipboard.
 - **Bulk actions** — a **Select** mode on the Containers, Images, Volumes, and Networks lists lets you multi-select rows and start, stop, or remove many at once.
@@ -313,6 +313,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - Projects are **re-adopted on relaunch**, and the importer **warns about any unsupported keys** before you commit, so you always know what will and won't be honored.
 - See [Docker Compose compatibility](#docker-compose-compatibility) for the full feature matrix.
 - See [reconciliation semantics](docs/COMPOSE-RECONCILIATION.md) for plans, profiles, dependency restart conditions, image policies, preserved storage, and partial-failure behavior.
+- **Compatibility review before apply** — inspect active services, replicas, dependencies, storage, ports, networks, limits, native/legacy backend and app-owned supervision. Supported, approximated, ignored and blocked settings have explanations; blockers cannot be overridden. Cancel changes no workload or saved deployment settings. Confirmation rechecks fresh evidence and rejects stale or expired reviews. See the [review and reusable approval API](docs/COMPOSE-COMPATIBILITY.md).
 - **Local scaling** — set `scale` / `deploy.replicas` or a saved per-service UI count. Reconciliation preserves unchanged instances and applies ownership-safe scale changes. See the [supported scaling subset](docs/COMPOSE-SCALING.md), including port/name conflicts and replicated dependency behavior.
 
 ### Images
@@ -363,7 +364,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - **Launch** starts a template **immediately with sensible defaults — no dialog**. If a container from a previous launch already exists, Launch offers to **replace** it with the current configuration (data in named volumes is preserved).
 - A per-card **⚙️ Settings** button lets you **configure before starting**: single-container templates open the full **Run a container** dialog prefilled; Compose stacks open an editable **project name + YAML** editor. Saving both **starts the template and remembers your configuration**, so the next Launch reuses it. Saved configs persist across restarts (`template-configs.json`).
 - **Developer sandboxes** — keep-alive **Python, Node.js, .NET SDK, Java, Go, and Rust** environments (latest supported versions) with a persistent `/workspace` volume; open the container's **Terminal** action for a shell.
-- **Compose stacks** — templates like **WordPress + MySQL** and **PostgreSQL + pgAdmin** are imported and brought up as a multi-service project in one click.
+- **Compose stacks** — templates like **WordPress + MySQL** and **PostgreSQL + pgAdmin** resolve a multi-service project and show compatibility review before applying it. Saved template defaults change only after successful reviewed deployment.
 
 ### Kubernetes
 - **Install / uninstall** a single-node **k3s** cluster inside your WSL distro, with streaming progress.

@@ -33,6 +33,13 @@ public sealed class ComposeViewModelBusyTests
         fixture.Compose.Project.Services[0].Options.NetworkAttachments.ForEach(endpoint => endpoint.Ipv4Address = null);
         fixture.Dialogs.OnShowDialog = dialog =>
         {
+            if (dialog is WslContainerDesktop.Dialogs.ComposePreviewDialog preview)
+            {
+                AssertBusy(fixture.ViewModel, true);
+                Assert.True(preview.Preview.CanApply);
+                Assert.Empty(fixture.Compose.Engine.Mutations);
+                return Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary;
+            }
             var services = Assert.IsType<WslContainerDesktop.Dialogs.ComposeServicesDialog>(dialog);
             services.Request = new()
             {

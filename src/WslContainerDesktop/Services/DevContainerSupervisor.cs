@@ -42,10 +42,10 @@ public sealed class DevContainerSupervisor(
         await _upGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (config.Compose is not null)
+                return await UpComposeAsync(config, rebuild, noCache, ct).ConfigureAwait(false);
             await RunHostLifecycleAsync(config, ct).ConfigureAwait(false);
-            return config.Compose is not null
-                ? await UpComposeAsync(config, rebuild, noCache, ct).ConfigureAwait(false)
-                : await UpSingleContainerAsync(config, rebuild, noCache, ct).ConfigureAwait(false);
+            return await UpSingleContainerAsync(config, rebuild, noCache, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -122,20 +122,26 @@ public sealed class DevContainerSupervisor(
     {
         var compose = config.Compose!;
         config.ComposeLifecycleProgress = store.Get(config.Id)?.ComposeLifecycleProgress ?? config.ComposeLifecycleProgress;
-        var primary = compose.Project.Services.FirstOrDefault(s => string.Equals(s.Name, compose.Service, StringComparison.Ordinal));
+        var project = System.Text.Json.JsonSerializer.Deserialize<ComposeProject>(
+            System.Text.Json.JsonSerializer.Serialize(compose.Project))!;
+        var primary = project.Services.FirstOrDefault(s => string.Equals(s.Name, compose.Service, StringComparison.Ordinal));
         if (primary is null)
         {
             return new DevContainerOperationResult(false, $"Compose service '{compose.Service}' was not found.");
         }
 
-        var image = await PrepareImageAsync(config, primary.Options, rebuild, noCache, ct, primary).ConfigureAwait(false);
-        if (!image.Success)
-        {
-            store.Save(config);
-            return image;
-        }
-
-        var result = await composeSupervisor.UpAsync(compose.Project, new(), completed =>
+        // Dynamic feature acquisition and initializeCommand can alter the reviewed inputs. They
+        // cannot execute before a resolved review, nor be quietly skipped after it.
+        if (config.Features.Count > 0 || config.Lifecycle.Initialize.Any(c => !string.IsNullOrWhiteSpace(c)))
+            project.Warnings.Add("Blocked deployment: Compose dev-container features and host initialize commands require externally prepared inputs before a resolved compatibility review. No preparation was executed.");
+        if (config.Build is { } build)
+            primary.Build = new()
+            {
+                Context = build.Context, Dockerfile = build.Dockerfile, Args = [.. build.Args],
+                Target = build.Target, NoCache = noCache,
+            };
+        if (primary.Build is not null) primary.Build.NoCache |= noCache;
+        var result = await composeSupervisor.UpAsync(project, new ComposeOperationRequest { Build = rebuild }, completed =>
         {
             if (completed.Service == compose.Service && completed.InstanceIndex == 1 &&
                 completed.Success && completed.ContainerId is { Length: > 0 } id)
@@ -159,7 +165,7 @@ public sealed class DevContainerSupervisor(
 
         store.Save(config);
         if (failures.Count > 0)
-            return new DevContainerOperationResult(false, string.Join("\n", failures));
+            return new DevContainerOperationResult(false, new ComposePreviewProjection(project).Redact(string.Join("\n", failures)));
         return new DevContainerOperationResult(true, $"Started {config.Name} using Compose service {compose.Service}.");
     }
 

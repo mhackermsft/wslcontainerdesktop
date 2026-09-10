@@ -97,6 +97,11 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\RestartPolicyConfig.cs" Link="Models\RestartPolicyConfig.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeProject.cs" Link="Models\ComposeProject.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeReconciliationPlan.cs" Link="Models\ComposeReconciliationPlan.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeCompatibilityPreview.cs" Link="Models\ComposeCompatibilityPreview.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposePreviewProjection.cs" Link="Services\ComposePreviewProjection.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeReviewPresenter.cs" Link="Services\IComposeReviewPresenter.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ComposePreviewViewModel.cs" Link="ViewModels\ComposePreviewViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.Review.cs" Link="Services\ComposeProjectSupervisor.Review.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeReconciliationPlanner.cs" Link="Services\ComposeReconciliationPlanner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerOptions.cs" Link="Models\RunContainerOptions.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ISettingsService.cs" Link="Services\ISettingsService.cs" />
@@ -170,6 +175,7 @@
     <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
     <Compile Remove="Services\ComposeReconciliationSupervisorTests.cs" />
     <Compile Remove="Services\DevContainerLifecycleTests.cs" />
+    <Compile Remove="Services\ComposeReviewSupervisorTests.cs" />
     <Compile Remove="Services\SupervisorMonitorDoubles.cs" />
   </ItemGroup>
   <ItemGroup>

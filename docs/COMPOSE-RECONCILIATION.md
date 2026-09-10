@@ -33,6 +33,13 @@ not known until it completes. Preview does not pull, build, stage files, create 
 projects, or start/stop containers. Apply always replans; a previously displayed plan is not a
 permission to act on a stale container ID.
 
+The #87 [compatibility review](COMPOSE-COMPATIBILITY.md) uses the same
+`ReadResolvedPlanAsync` path as `PlanAsync`, captures its evidence under the lifecycle gate,
+and supplies only a redacted display projection to approval callers. It does not combine an
+earlier plan with newer capability/resource evidence. Apply consumes the reviewed request once,
+recomputes the shared plan and rejects drift before using that freshly validated plan. Expected
+conditional image work remains explicit; resource/storage errors are blockers, not empty success.
+
 Classifications are **unchanged**, **changed**, **missing**, and **incompatible**. Actions distinguish
 keep/start/create/recreate/restart/stop/remove/blocked, with value-free reasons and per-service
 outcomes. Image work is separately identified as none/build/pull. A blocked preflight does not
@@ -48,6 +55,7 @@ Each selected lifecycle plan is limited to **1,024 total desired, existing and s
 entries**, counting each instance once. The budget is enforced before desired-count expansion.
 This is an execution-planning limit, not an Int32 parser limit; oversized configurations remain
 visible and editable, and callers can select fewer services to stay within the plan budget.
+Previews and execution share the same limit.
 
 Runtime fingerprints are versioned SHA-256 digests of normalized effective options. Mapping
 ordering does not create changes; ordered process arguments and meaningful network priority

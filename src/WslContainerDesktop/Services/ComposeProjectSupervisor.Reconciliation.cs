@@ -66,15 +66,25 @@ public sealed partial class ComposeProjectSupervisor
             InheritPersistedState(snapshot, _store.Get(project.Name));
             if (request.Operation != ComposeLifecycleOperation.Up)
                 snapshot = ExistingProject(snapshot);
-            var plan = await ReadPlanAsync(snapshot, request, ct).ConfigureAwait(false);
-            if (!plan.CanApply || request.Operation != ComposeLifecycleOperation.Up) return plan;
-            ValidateResourceDeclarations(snapshot, plan);
-            plan = (await PreflightNetworksAsync(snapshot, plan, ct).ConfigureAwait(false)).Plan;
-            if (!plan.CanApply) return plan;
-            plan = await PreserveCompletedDependenciesAsync(snapshot, plan, ct).ConfigureAwait(false);
-            return await PrepareImagesAsync(snapshot, plan, request, ct, execute: false).ConfigureAwait(false);
+            return await ReadResolvedPlanAsync(snapshot, request, ct).ConfigureAwait(false);
         }
+
         finally { _lifecycleGate.Release(); }
+    }
+
+    private async Task<ComposeReconciliationPlan> ReadResolvedPlanAsync(ComposeProject project,
+        ComposeOperationRequest request, CancellationToken ct)
+    {
+        var plan = await ReadPlanAsync(project, request, ct).ConfigureAwait(false);
+        if (!plan.CanApply) return plan;
+        if (request.Operation == ComposeLifecycleOperation.Restart)
+            return (await PreflightNetworksAsync(project, plan, ct).ConfigureAwait(false)).Plan;
+        if (request.Operation != ComposeLifecycleOperation.Up) return plan;
+        ValidateResourceDeclarations(project, plan);
+        plan = (await PreflightNetworksAsync(project, plan, ct).ConfigureAwait(false)).Plan;
+        if (!plan.CanApply) return plan;
+        plan = await PreserveCompletedDependenciesAsync(project, plan, ct).ConfigureAwait(false);
+        return await PrepareImagesAsync(project, plan, request, ct, execute: false).ConfigureAwait(false);
     }
 
     private async Task<ComposeReconciliationPlan> ReadPlanAsync(ComposeProject project,
@@ -91,7 +101,7 @@ public sealed partial class ComposeProjectSupervisor
             {
                 try { inspections[existing.Id] = await _networks.InspectAsync(existing.Id, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { throw; }
-                catch (Exception ex) { failures[ComposeReconciliationPlanner.InstanceKey(service)] = ex.Message; }
+                catch (Exception) { failures[ComposeReconciliationPlanner.InstanceKey(service)] = "Inventory is unavailable or unusable; technical values withheld."; }
             }
         }
         var plan = ComposeReconciliationPlanner.Plan(project, request, inventory, inspections);
@@ -132,18 +142,27 @@ public sealed partial class ComposeProjectSupervisor
                             (!string.IsNullOrWhiteSpace(desired.Ipv4Address) && desired.Ipv4Address != actual.Ipv4Address);
                     }
                 }
-                entries.Add(drift ? entry with
+                var resolved = entry with
+                {
+                    Backend = decision.Native ? ComposeExecutionBackend.NativeCreateConnectStart : ComposeExecutionBackend.LegacyRun,
+                    NetworkSupport = decision.NetworkSupport, HealthOwner = decision.HealthOwner,
+                    CompatibilityWarning = decision.Warning,
+                };
+                entries.Add(drift ? resolved with
                 {
                     Action = ComposeServiceAction.Recreate, Change = ComposeServiceChange.Changed,
                     Reason = "Observed network endpoints differ from the supported effective configuration.",
-                } : entry);
+                } : resolved);
             }
             catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
+            catch (Exception)
             {
                 entries.Add(entry with
                 {
-                    Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible, Reason = ex.Message,
+                    Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible,
+                    Reason = "Network or health compatibility could not be established. Unknown capability evidence blocks deployment; invalid endpoint/health settings must be corrected.",
+                    NetworkSupport = entry.Service.Options.GetNetworkAttachments().Count > 1
+                        ? (await _capabilities.GetAsync(ct).ConfigureAwait(false))[WslcFeature.NetworkConnect].Support : null,
                 });
             }
         }
@@ -172,14 +191,14 @@ public sealed partial class ComposeProjectSupervisor
     }
 
     private async Task<ComposeUpResult> ExistingCoreAsync(ComposeProject project, ComposeOperationRequest request,
-        long maximumStopVersion, CancellationToken ct)
+        long maximumStopVersion, CancellationToken ct, ComposeReconciliationPlan? reviewedPlan = null)
     {
         project.AppliedStateKnown = true;
         // Desired edits must not become the configuration of an existing instance on restart.
         var applied = ExistingProject(project);
-        var plan = await ReadPlanAsync(applied, request, ct).ConfigureAwait(false);
+        var plan = reviewedPlan ?? await ReadPlanAsync(applied, request, ct).ConfigureAwait(false);
         if (!plan.CanApply) return RejectedPlan(plan);
-        if (request.Operation == ComposeLifecycleOperation.Restart)
+        if (request.Operation == ComposeLifecycleOperation.Restart && reviewedPlan is null)
         {
             foreach (var entry in plan.Services.Where(p => p.ContainerId is not null))
             {
@@ -342,9 +361,10 @@ public sealed partial class ComposeProjectSupervisor
     private static void InheritPersistedState(ComposeProject desired, ComposeProject? saved)
     {
         if (saved is null) return;
-        desired.AppliedServices = saved.AppliedServices;
+        var snapshot = SnapshotProject(saved);
+        desired.AppliedServices = snapshot.AppliedServices;
         if (!desired.AppliedStateKnown)
-            foreach (var entry in saved.ReplicaOverrides.Where(entry =>
+            foreach (var entry in snapshot.ReplicaOverrides.Where(entry =>
                 desired.Services.Any(service => service.Name == entry.Key)))
                 desired.ReplicaOverrides.TryAdd(entry.Key, entry.Value);
     }
