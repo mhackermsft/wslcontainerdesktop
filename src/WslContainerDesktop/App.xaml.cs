@@ -404,6 +404,10 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IAiCredentialStore, AiCredentialStore>();
         services.AddSingleton<FoundryLocalHttpClient>();
         services.AddSingleton<IFoundryLocalRuntimeService, FoundryLocalRuntimeService>();
+        services.AddSingleton<FoundryLocalCli>();
+        services.AddSingleton<FoundryLocalArtifactCatalog>();
+        services.AddSingleton<FoundryLocalInstaller>();
+        services.AddSingleton<FoundryLocalSetupService>();
         services.AddSingleton<IAiCapabilityService>(sp =>
         {
             var service = new AiCapabilityService(sp.GetServices<IAiCapabilityObserver>(),

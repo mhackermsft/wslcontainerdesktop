@@ -381,8 +381,14 @@ settings for an explicitly prepared local host; inference does not require an
 Ollama container or the WSLC engine. Supply the host's actual loopback URL and
 exact model ID, not a sample port or guessed model. Catalog metadata does not
 prove tool support, hardware acceleration or offline readiness. Downloads,
-in-app model loading and native SDK provisioning are not enabled: exact model/runtime/execution-provider
+in-app model loading and complete initial-model setup are not enabled: exact model/runtime/execution-provider
 versions, publication dates and licenses must be audited before acquisition.
+The setup direction is a separately installed Microsoft Foundry Local runtime,
+not a bundled SDK or inference broker.
+**Discover existing server** uses installed CLI help/status and REST metadata,
+then offers explicit confirmation before saving the discovered endpoint.
+The prepared-installer adapter remains disabled pending its complete artifact
+audit; there is no working one-click installer/model download yet.
 Use an already-loaded host; explicit selected-model unload is available without
 forcing the host's memory policy. There is no cloud fallback, and assistant actions still require the existing
 capability and approval gates. **Live Foundry compatibility, signed x64 MSIX and

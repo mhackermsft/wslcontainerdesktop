@@ -74,26 +74,28 @@ Supporting layers: **Models** (DTOs, parsers, and simple state records), **Helpe
 
 ## Key services
 
-### Foundry Local REST integration
+### Foundry Local standalone integration
 
 Foundry is a separate local inference provider, not an Ollama container backend.
 Its explicitly configured endpoint and model must remain independent of OpenAI,
-Azure and Ollama settings and credentials. Native runtime ownership must not
+Azure and Ollama settings and credentials. Standalone runtime ownership must not
 depend on WSLC engine state, container labels, mounts or GPU create flags.
 The existing assistant service still owns approval, original validated action
 closures, sanitized journals, conversation isolation and cancellation outcomes.
 Positive capability observations remain required for tool-enabled chat.
 
-This integration uses an externally prepared REST host, without introducing a
-Foundry native SDK into the WinUI process. Read-only metadata is distinct from
+The revised product direction uses an external REST host and app-guided,
+explicitly confirmed standalone installation/initial-model setup. It does not
+introduce a Foundry native SDK into the WinUI process or an app-owned inference
+broker. Read-only metadata is distinct from
 inference, download and load/unload; notably, the documented load/unload REST
 routes use GET but are mutations. Catalog device/provider fields are target
 hints, not observed hardware support. Acquisition is not enabled without
 authoritative version, publication-date and license evidence.
 
-See [Foundry compatibility and SDK evaluation](FOUNDRY-LOCAL.md) for the
-REST/WinML tradeoffs, external-host memory ownership, blocked phase 1 runtime
-exercise, acquisition policy and signed x64 MSIX/hardware release gates.
+See [Foundry standalone scope and compatibility](FOUNDRY-LOCAL.md) for pinned
+installer research, external-host memory ownership, blocked phase 1 runtime
+exercise, model/EP provenance blockers and signed x64 MSIX/hardware release gates.
 Deterministic adapter coverage does not complete issue #92.
 
 ### Owned local AI runtime (`LocalAiSetupService`)

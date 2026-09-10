@@ -532,6 +532,18 @@
                                 </Grid>
                             </StackPanel>
                             <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.ShowFoundryLocalSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="{x:Bind ViewModel.FoundryLocal.InstallationGuidance}" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button AutomationProperties.AutomationId="FoundryLocalDiscoverButton"
+                                        Content="Discover existing server" Command="{x:Bind ViewModel.FoundryLocal.DiscoverCommand}" />
+                                    <Button AutomationProperties.AutomationId="FoundryLocalUseEndpointButton"
+                                        Content="Review connection" IsEnabled="{x:Bind ViewModel.FoundryLocal.CanUseDiscoveredEndpoint, Mode=OneWay}"
+                                        Click="UseFoundryEndpoint_Click" />
+                                    <Button AutomationProperties.AutomationId="FoundryLocalCancelDiscoveryButton"
+                                        Content="Cancel discovery" Command="{x:Bind ViewModel.FoundryLocal.DiscoverCancelCommand}" />
+                                </StackPanel>
+                                <TextBlock AutomationProperties.AutomationId="FoundryLocalSetupStatusText"
+                                    Text="{x:Bind ViewModel.FoundryLocal.SetupStatus, Mode=OneWay}" TextWrapping="Wrap" />
                                 <TextBox AutomationProperties.AutomationId="FoundryLocalEndpointTextBox"
                                     Header="Foundry Local URL (explicit loopback host and port)"
                                     Text="{x:Bind ViewModel.FoundryLocal.Endpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />

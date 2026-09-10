@@ -30,23 +30,31 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     private readonly IFoundryLocalRuntimeService _runtime;
     private readonly IAiCapabilityService _capabilities;
     private readonly ILogger _logger;
+    private readonly FoundryLocalSetupService _setup;
+    private FoundryLocalConnectionPlan? _connectionPlan;
+    private int _configurationRevision;
+    private bool _confirmingConnection;
 
     [ObservableProperty] private string _endpoint;
     [ObservableProperty] private string _model;
     [ObservableProperty] private string _inventoryText = "Not refreshed. Enter the actual runtime URL and model ID. No default port or model is assumed.";
     [ObservableProperty] private string _status = "No runtime operation requested.";
+    [ObservableProperty] private string _setupStatus = "Discovery is read-only and runs only when requested.";
+    [ObservableProperty] private bool _canUseDiscoveredEndpoint;
 
     public string AcquisitionGuidance => FoundryLocalRuntimeService.AcquisitionGuidance;
     public string MemoryPolicy => FoundryLocalRuntimeService.MemoryPolicy;
+    public string InstallationGuidance => FoundryLocalSetupService.InstallationGuidance;
 
     public FoundryLocalSettingsViewModel(ISettingsService settings,
         IFoundryLocalRuntimeService runtime, IAiCapabilityService capabilities,
-        ILogger<FoundryLocalSettingsViewModel> logger)
+        ILogger<FoundryLocalSettingsViewModel> logger, FoundryLocalSetupService? setup = null)
     {
         _settings = settings;
         _runtime = runtime;
         _capabilities = capabilities;
         _logger = AiTextSanitizer.WrapLogger(logger);
+        _setup = setup ?? new(new FoundryLocalCli(), runtime);
         _endpoint = settings.AiFoundryLocalEndpoint;
         _model = settings.AiFoundryLocalModel;
     }
@@ -65,6 +73,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
 
     private void ConfigurationChanged()
     {
+        InvalidateDiscovery();
         RunOperationCommand.Cancel();
         _capabilities.Invalidate();
         _settings.Save();
@@ -74,10 +83,97 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
 
     public void OnProviderChanged()
     {
+        InvalidateDiscovery();
         RunOperationCommand.Cancel();
         _capabilities.Invalidate();
         InventoryText = "Provider changed. Refresh metadata after selecting Foundry Local.";
         Status = "Pending requests cancelled. Refresh observed state; completed actions are not rolled back.";
+    }
+
+    private void InvalidateDiscovery()
+    {
+        _configurationRevision++;
+        DiscoverCommand.Cancel();
+        _connectionPlan = null;
+        CanUseDiscoveredEndpoint = false;
+        SetupStatus = "Configuration changed. Discover again before connecting; no runtime was changed.";
+    }
+
+    [RelayCommand(IncludeCancelCommand = true)]
+    private async Task DiscoverAsync(CancellationToken ct)
+    {
+        var original = AiConversationContext.Capture(_settings, AiProviderKind.FoundryLocal);
+        var revision = _configurationRevision;
+        var reading = true;
+        _connectionPlan = null;
+        CanUseDiscoveredEndpoint = false;
+        try
+        {
+            if (!IsCurrent(original)) return;
+            SetupStatus = "Discovering the existing standalone CLI/server; no installation or start requested…";
+            var progress = new Progress<string>(text =>
+            {
+                if (reading && revision == _configurationRevision && IsCurrent(original) && !ct.IsCancellationRequested)
+                    SetupStatus = text;
+            });
+            var plan = await _setup.DiscoverAsync(original, progress, ct);
+            reading = false;
+            ct.ThrowIfCancellationRequested();
+            if (revision != _configurationRevision || !IsCurrent(original)) return;
+            _connectionPlan = plan;
+            CanUseDiscoveredEndpoint = plan.Inventory.Selected is not null;
+            SetupStatus = plan.Confirmation + (CanUseDiscoveredEndpoint ? "\nReview and confirm to change the endpoint setting."
+                : "\nEnter an exact model ID advertised by this server, then discover again. No model was selected automatically.");
+            InventoryText = AiTextSanitizer.Sanitize("Discovered catalog IDs (up to 100): " +
+                string.Join(", ", plan.Inventory.Catalog.Take(100).Select(model => model.Id)));
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogDebug(ex, "Foundry Local discovery cancelled.");
+            if (revision == _configurationRevision && IsCurrent(original))
+                SetupStatus = "Discovery cancelled or timed out. Settings and external runtime were not changed.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Foundry Local discovery failed without fallback.");
+            if (revision == _configurationRevision && IsCurrent(original))
+                SetupStatus = "Discovery failed: " + AiTextSanitizer.Sanitize(ex.Message) +
+                    "\nSettings and runtime were not changed. Enter the actual endpoint manually or inspect the standalone installation.";
+        }
+        finally
+        {
+            reading = false;
+        }
+    }
+
+    public async Task UseDiscoveredEndpointAsync(Func<string, Task<bool>> confirm)
+    {
+        if (_confirmingConnection || _connectionPlan is not { } plan || !CanUseDiscoveredEndpoint) return;
+        var revision = _configurationRevision;
+        _confirmingConnection = true;
+        try
+        {
+            FoundryLocalRuntimeService.Validate(plan.Inventory.Configuration);
+            if (!IsCurrent(plan.Original) || !await confirm(plan.Confirmation)) return;
+            // The dialog may outlive edits, provider switches (including away and back), or a
+            // new discovery. Approval applies only to the immutable observation it displayed.
+            if (revision != _configurationRevision || !IsCurrent(plan.Original)
+                || !ReferenceEquals(plan, _connectionPlan)) return;
+            Endpoint = plan.Discovery.Endpoint;
+            _connectionPlan = null;
+            CanUseDiscoveredEndpoint = false;
+            SetupStatus = "Confirmed endpoint saved. Model selection preserved; no runtime or model was changed. Refresh metadata and test capabilities before inference.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Foundry Local connection confirmation failed.");
+            if (revision == _configurationRevision && IsCurrent(plan.Original))
+                SetupStatus = "Connection was not confirmed. Inspect settings and discover again.";
+        }
+        finally
+        {
+            _confirmingConnection = false;
+        }
     }
 
     [RelayCommand(IncludeCancelCommand = true)]

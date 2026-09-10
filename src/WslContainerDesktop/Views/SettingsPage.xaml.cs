@@ -59,4 +59,23 @@ public sealed partial class SettingsPage : Page
 
     private void ProviderFeedbackBar_CloseButtonClick(InfoBar sender, object args) =>
         ViewModel.DismissProviderFeedbackCommand.Execute(null);
+
+    private void UseFoundryEndpoint_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(() => ViewModel.FoundryLocal.UseDiscoveredEndpointAsync(async message =>
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = "Connect to existing Foundry Local",
+                Content = new ScrollViewer
+                {
+                    Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                    MaxHeight = 450,
+                },
+                PrimaryButtonText = "Use this endpoint",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        }));
 }

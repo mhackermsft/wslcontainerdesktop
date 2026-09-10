@@ -1,7 +1,15 @@
 # Foundry Local integration: scope and compatibility
 
-Issue #92 is **not complete** until the runtime and signed-package acceptance
-checks below have been performed. Deterministic HTTP fixtures establish adapter
+**Revised product scope, 2026-09-10:** connect to a Microsoft Foundry Local
+instance running on this PC, plus app-guided, explicitly confirmed installation
+of the standalone runtime and an initial model. This supersedes the earlier
+in-process WinML/native-broker proposal. The app will not bundle a Foundry SDK,
+host native inference itself, or treat a new broker as an acceptance requirement.
+
+Issue #92 is **not complete** until usable provenance-gated setup and the
+runtime/signed-package acceptance checks below have been delivered. Working
+model setup is a product requirement, not something a smoke test can replace.
+Deterministic HTTP fixtures establish adapter
 behavior, not compatibility with a particular installed Foundry release, model,
 execution provider or device.
 
@@ -44,8 +52,9 @@ capability observations before and after the operation.
 
 **Memory ownership policy:** the external host owns its idle TTL and allocation
 policy. The app never keeps a model alive, automatically unloads models on exit,
-or promises an immediate release following cancellation. A configurable
-app-owned memory policy needs the deferred native integration.
+or promises an immediate release following cancellation. The standalone
+runtime owns its model TTL; setup does not grant ownership of pre-existing
+processes or permission to stop/uninstall them.
 
 ## Investigation record (2026-09-09)
 
@@ -93,13 +102,16 @@ These tests are HTTP integration checks, not packaged or hardware acceptance.
 dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~FoundryLocalRuntimeOptInTests"
 ```
 
-## Windows SDK versus externally hosted REST
+## Earlier SDK evaluation (not the selected product architecture)
 
-Microsoft currently recommends `Microsoft.AI.Foundry.Local.WinML` for Windows.
+The initial investigation evaluated `Microsoft.AI.Foundry.Local.WinML` for Windows.
 It exposes hardware-aware catalog selection, model cache/load/unload and
 execution-provider management without requiring an installed Foundry CLI.
-The cross-platform package is `Microsoft.AI.Foundry.Local`. Neither is added by
+The cross-platform package was `Microsoft.AI.Foundry.Local`. Neither is added by
 this REST integration; no Foundry dependency version is implicitly approved.
+The later SDK 2.0.1 release unifies packages and changes the native API; it must
+not be confused with standalone CLI release 0.10.3. The user's revised direction
+selects the separately installed CLI/REST architecture, not either SDK variant.
 
 | Concern | Native WinML SDK inside the app | Separate local REST host |
 | --- | --- | --- |
@@ -116,12 +128,126 @@ and discuss a non-self-contained Windows App SDK. Those settings must **not**
 be transplanted into this packaged app. Existing package identity and
 self-contained deployment remain intact.
 
-An eventual native integration must place writable models/logs/runtime assets
-in an appropriate app-data location. For paths supplied to an external process,
+Any app-owned setup staging files must use an appropriate writable location,
+not the signed app's install directory. For paths supplied to an external process,
 use `ApplicationData.Current.LocalCacheFolder.Path`; a literal
 `%LOCALAPPDATA%` path can differ from the packaged app's redirected path.
 This REST path does not copy a remote `ModelDirPath` into an app-owned path,
 claim ownership of that directory, or delete it.
+
+## Standalone installation provenance (2026-09-10)
+
+### Current implementation versus remaining product work
+
+**Available:** Settings can explicitly discover an existing `foundry.exe` from
+an absolute local PATH entry, inspect its help before selecting a status command,
+validate an unambiguous loopback endpoint, and read REST inventory. A separate
+confirmation saves only that endpoint and preserves the exact model selection.
+Cancellation, edits, provider switches and newer discovery invalidate the
+pending connection. Unknown command/output contracts produce manual-URL guidance.
+No automatic model selection or runtime start occurs.
+
+**Implemented but not enabled:** `FoundryLocalInstaller` verifies prepared local
+MSIX/APPX sizes and SHA-256 hashes and holds the files open through a separate
+runtime-only confirmation and fixed `Add-AppxPackage` process invocation.
+It refuses known existing Foundry installations, checks the selected dependency
+and installed identity, invalidates capabilities around attempted deployment,
+and reports cancellation/failure without promising rollback. This is a
+prepared-package adapter, **not a downloader or working setup feature**.
+The production artifact allowlist is empty; no installation button is exposed,
+and the adapter cannot install from user-entered provenance records.
+
+**Still unimplemented:** the authorized download/staging flow, a complete
+approved installation graph, hardware-aware initial-model choices and exact
+model/EP audit, and version-proven download/load/start orchestration with
+partial-cache recovery. Those need implementation after the prerequisites are
+established; neither adapter tests nor a runtime smoke replaces that work.
+The standalone MSIX is per-user; this still installs Foundry on the PC and is
+not itself a blocker merely because it is not an all-users installer.
+
+The documented standalone candidate is **CLI 0.10.3**, package version
+**0.10.3.0**, not SDK 2.0.1. Its release notes say it embeds SDK 1.2.4.
+Read-only research identified:
+
+| Artifact | Evidence | Limitation |
+| --- | --- | --- |
+| `foundry-0.10.3-win-x64-winml.msix` | Microsoft release asset, published 2026-08-07T21:38:48Z; 29,982,055 bytes; SHA-256 `86A01C52265BD9C9167C1F8A04F34621A2A63EC5C8276166C2EECC8C6A56553F`. Microsoft winget manifest independently supplies the same hash. | No installer was downloaded or installed here. Artifact metadata does not prove that first-run EP downloads are absent. |
+| `Microsoft.VCLibs.Desktop.14` | Foundry winget manifest requires at least `14.0.33728.0`; per-user x64 runtime package. | A minimum version is not an approved future dependency version. Do not let winget acquire an unpinned newer prerequisite silently. |
+| Initial model | REST catalog reports names, versions, size, license and device hints. | No approved exact model variant/file manifest with authoritative publication dates and hashes is available. No sample alias is an approved default. |
+| Dynamic EPs | CLI docs describe first-run acquisition and automatic plugin updates. | Exact prospective binaries, dependencies, dates and integrity evidence must be verified before acquisition. A cached model does not prove EP readiness. |
+
+The installer meets a conservative 2026-09-03T00:00:00Z publication cutoff, but
+this is **not approval of the entire installation/model/EP graph**.
+The VCLibs winget manifest identifies a nested x64 APPX inside
+`DesktopAppInstaller_Dependencies.zip` from winget-cli release `v1.9.25180`,
+SHA-256 `EEBA62F08531C8669B3E5FB895CE8800AE66D798739CDA2B4AEF2A1D80A5F3C5`.
+The official release asset metadata dates that ZIP to
+2024-11-01T16:37:27Z (approximately 47.9 MB), so its distribution age passes.
+The nested package's license/identity and the complete installation dependency
+closure still need verification before new prerequisite acquisition, rather than
+approving a mutable future dependency by minimum version.
+
+The CLI's license permits installation/use but has separate proprietary terms,
+third-party notices, model licenses and telemetry disclosures. Do not bundle or
+redistribute its installer in the app. Linking to Microsoft's installer and
+orchestrating a user's separately approved installation is different from
+shipping Foundry object code inside this GPLv3 app; do not describe it as MIT.
+Local inference is not a promise that the standalone runtime emits no telemetry.
+
+### Supported command boundaries
+
+The current CLI reference documents `foundry --version` and `foundry server
+status` for discovery, with the actual local endpoint in server status.
+Unknown/ambiguous output must not be replaced by a guessed port. Older
+`foundry service ...` commands are not interchangeable with current `server ...`.
+The release notes say most commands support `--output json`; exact command
+support and returned schema still need version-aware observation.
+
+For CLI 0.10.3 specifically, the tagged release documents `foundry --version`,
+`foundry status`, `foundry model load <model>` and `foundry server stop`.
+The public tag resolves to commit
+`da50cfea8a43d22a63214f8bd9e58949a5177fb0`; its tree contains no CLI command
+implementation or status JSON schema. The tagged README links the current Learn
+reference instead of a version-locked command contract. Consequently, commands
+below are documented candidates, **not evidence of 0.10.3 compatibility**.
+Enable a version-specific lifecycle adapter only after obtaining authoritative
+tagged help/schema documentation or authorized real help/status fixtures. Do not
+represent synthetic parser fixtures as that evidence.
+
+`foundry server start --port 0`, `foundry model download <model>`, and
+`foundry model load <model>` are mutations, available only after a valid setup
+plan and explicit confirmation. `0` requests an OS-selected port; subsequent
+status discovery must use the actual assigned endpoint. Starting a server is
+not proof of a loaded model or chat/tool readiness.
+
+**Do not use `foundry model list` as read-only discovery.** Microsoft's current
+CLI documentation states its first invocation downloads execution providers.
+`foundry run`/`chat` can also acquire models; they are not capability probes.
+The app must not restart, uninstall, replace or adopt a pre-existing runtime
+merely because a process name or endpoint responds.
+
+WinGet documents exact version/ID/source/architecture selection,
+`--skip-dependencies`, `--no-upgrade` and `--disable-interactivity`. These do not
+by themselves establish authoritative artifact provenance. Never suppress hash
+failures, enable local-manifest installation policy automatically, or substitute
+agreement flags for the app's explicit, fully informed confirmation.
+Package and source agreements are separate consent surfaces.
+
+### One-click setup release gate
+
+The intended UX prepares a bounded immutable plan, then shows one confirmation
+with runtime/model identities, sizes, licenses, network effects and retained-data
+policy. Only after all required artifact evidence is available may execution
+install, initialize the model and save the discovered endpoint. A failed model
+audit must stop before runtime installation, not leave a surprise partial install.
+Runtime-only installation, if offered, requires a separately clear user choice.
+Cancellation can leave an installed package or partially downloaded files;
+report actual/unknown outcomes, retain user assets and never auto-uninstall.
+
+Initial-model and EP provenance gaps are **product setup blockers**. A scripted
+adapter test or a user checking an audit box cannot make unavailable model setup
+work. Real-machine installation, first-run behavior and signed desktop integration
+are separate evidence gaps requiring separately authorized execution.
 
 ## Acquisition boundary
 
@@ -137,9 +263,9 @@ a license checkbox, or user attestation is not an authoritative age audit.
 In-app acquisition therefore remains unavailable rather than forwarding an
 unaudited `/openai/download` request.
 
-Before adding a native SDK or acquiring any artifact:
+Before acquiring any standalone runtime, prerequisite, model or EP artifact:
 
-1. Identify the exact SDK, transitive/native runtime, execution-provider and
+1. Identify the exact standalone distribution, prerequisite/native runtime, execution-provider and
    model versions, including hardware-specific variants and runtime-selected
    dependencies. Record immutable identities and authoritative source URLs.
 2. Verify authoritative publication dates are at least seven days old at
@@ -150,10 +276,10 @@ Before adding a native SDK or acquiring any artifact:
 4. Implement bounded progress, supported cooperative cancellation, and accurate
    retained/partial-cache outcomes. Cancellation is not deletion or rollback.
 5. Exercise the signed package with the pinned prepared assets before declaring
-   native compatibility, offline support or representative hardware support.
+   standalone setup compatibility, offline support or representative hardware support.
 
-No SDK version was selected or newly restored for this integration. Baseline
-app/test dependencies are separate from a future Foundry artifact audit.
+No SDK dependency is part of the revised setup architecture. Baseline app/test
+dependencies remain separate from the standalone installation artifact audit.
 
 ## Authorized runtime and packaged acceptance procedure
 
@@ -184,7 +310,8 @@ registration with other worktrees. Do not run it without permission.
    offline and document missing execution-provider/model guidance.
 8. Build/sign/deploy the x64 MSIX using the existing packaging workflow only
    after deployment approval. Repeat the preceding cases with real package
-   identity, restart the app, and inspect app-data/native-loading behavior.
+   identity, restart the app, and inspect external CLI discovery, setup staging
+   paths, runtime installation consent and REST behavior.
    Record CPU coverage and each actually supported GPU/NPU configuration
    separately; unavailable hardware is an explicit untested case.
 
@@ -194,7 +321,21 @@ Do not label a deterministic fixture run as this runtime acceptance evidence.
 
 ## Authoritative references
 
-Reviewed on 2026-09-09:
+Reviewed on 2026-09-09 and 2026-09-10:
+
+- [Standalone CLI reference](https://learn.microsoft.com/en-us/azure/foundry-local/reference/reference-cli):
+  server/model commands, dynamic endpoints and explicit warning about EP
+  acquisition during first-time model listing.
+- [CLI 0.10.3 release](https://github.com/microsoft/Foundry-Local/releases/tag/cli-preview-0.10.3)
+  and [asset metadata](https://github.com/microsoft/Foundry-Local/releases/expanded_assets/cli-preview-0.10.3):
+  installer names, publication dates, hashes and supported-version notes.
+- [Foundry winget installer manifest](https://github.com/microsoft/winget-pkgs/blob/master/manifests/m/Microsoft/FoundryLocal/0.10.3.0/Microsoft.FoundryLocal.installer.yaml)
+  and [VCLibs prerequisite manifest](https://github.com/microsoft/winget-pkgs/blob/master/manifests/m/Microsoft/VCLibs/Desktop/14/14.0.33728.0/Microsoft.VCLibs.Desktop.14.installer.yaml):
+  source artifact hashes and declared prerequisites. These source pages are
+  discovery evidence, not permission to trust future edits to mutable branches.
+- [Tagged CLI license](https://github.com/microsoft/Foundry-Local/blob/cli-preview-0.10.3/LICENSE)
+  and [WinGet install options](https://learn.microsoft.com/en-us/windows/package-manager/winget/install):
+  separate installation agreements and guarded command construction.
 
 - [Current SDK reference](https://learn.microsoft.com/en-us/azure/foundry-local/reference/reference-sdk-current)
   (page date 2026-08-05): Windows package selection, hardware and EP management,
