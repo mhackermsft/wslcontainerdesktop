@@ -697,7 +697,7 @@ public sealed class WslcService(
     public async Task<IReadOnlyList<ImageInfo>> ListImagesAsync(CancellationToken ct = default)
     {
         var result = await runner.RunAsync(["images", "--format", "json"], ct).ConfigureAwait(false);
-        return Deserialize<ImageInfo>(result);
+        return WslcJsonParser.ParseImages(result);
     }
 
     public Task<CommandResult> PullImageAsync(string reference, CancellationToken ct = default) =>
@@ -944,7 +944,7 @@ public sealed class WslcService(
     public async Task<IReadOnlyList<VolumeInfo>> ListVolumesAsync(CancellationToken ct = default)
     {
         var result = await runner.RunAsync(["volume", "list", "--format", "json"], ct).ConfigureAwait(false);
-        return Deserialize<VolumeInfo>(result);
+        return WslcJsonParser.ParseVolumes(result);
     }
 
     public Task<CommandResult> CreateVolumeAsync(

@@ -74,6 +74,24 @@ Supporting layers: **Models** (DTOs, parsers, and simple state records), **Helpe
 
 ## Key services
 
+### Owned local AI runtime (`LocalAiSetupService`)
+
+Ollama container lifecycle is separate from native providers and capability observation.
+Setup serializes with removal, resolves discovery names to full inspected IDs, and requires
+managed/operation labels plus a matching labelled model-volume snapshot and exact loopback
+API binding. New setup uses a cached image ID with `--pull never`; shared create-help
+tri-state capabilities select GPU or definitive unsupported CPU before any mutation.
+Create/verify/start is not retried through another backend on failure.
+
+Only a current-operation labelled container can be automatically cleaned up, by immutable ID,
+under a bounded recovery token. Existing/unrelated resources and all model data are retained.
+Volume deletion by mutable name has no atomic ownership guarantee in WSLC, so runtime removal
+returns separate runtime/data outcomes and explicitly reports unfulfilled model deletion.
+`LocalRuntimeResourceState` can be reused by native runtimes; container labels, mounts and GPU
+creation rules must not leak into a Foundry adapter. Capability caches are invalidated before
+owned changes and after completion/failure. Running/created is not model or tool readiness.
+See `AI-CONTRACT-TESTS.md` for regression coverage, preparation policy and recovery limitations.
+
 ### Process execution (`ProcessExecutor`, `ProcessRunner`, `WslRootShell`)
 
 Every external command goes through a **single** helper, `ProcessExecutor.RunAsync`, which owns

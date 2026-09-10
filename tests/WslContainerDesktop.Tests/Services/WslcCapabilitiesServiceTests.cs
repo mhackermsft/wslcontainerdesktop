@@ -61,6 +61,25 @@ public sealed class WslcCapabilitiesServiceTests
     }
 
     [Fact]
+    public async Task RuntimeCreationOptions_UseCreateHelpNotVersionOrRunHelp()
+    {
+        using var fixture = new Fixture();
+        fixture.Responses["create --help"] = Ok(Help("current", "run")
+            .Replace("wslc run", "wslc create")
+            .Replace("--gpus", "--gpus-extra")
+            .Replace("--pull", "--pull-extra"));
+        var snapshot = await fixture.Service.GetAsync();
+
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.CreateGpus].Support);
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.CreatePull].Support);
+        fixture.Responses["create --help"] = new() { ExitCode = 1, StandardError = "probe failure" };
+        fixture.Service.Invalidate();
+        snapshot = await fixture.Service.GetAsync();
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.CreateGpus].Support);
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.CreatePull].Support);
+    }
+
+    [Fact]
     public async Task RunAndCreateFlagsAndNetworkCommands_AreIndependentExactTokens()
     {
         using var fixture = new Fixture();

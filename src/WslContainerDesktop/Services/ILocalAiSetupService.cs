@@ -21,26 +21,33 @@ namespace WslContainerDesktop.Services;
 /// <summary>How the app-managed Ollama container ended up running.</summary>
 public enum LocalAiContainerState
 {
-    /// <summary>The container was already up (or a non-container Ollama is answering the endpoint).</summary>
+    /// <summary>The ownership-verified container was already running; API readiness is separate.</summary>
     AlreadyRunning,
 
     /// <summary>An existing stopped container was started again.</summary>
     StartedExisting,
 
-    /// <summary>A new container was created with GPU acceleration (<c>--gpus all</c>).</summary>
+    /// <summary>A new container was started with GPU access requested, not proof of acceleration.</summary>
     CreatedWithGpu,
 
-    /// <summary>A new container was created CPU-only (GPU unavailable or GPU start failed).</summary>
+    /// <summary>A new container was started CPU-only because create help definitively lacks GPU support.</summary>
     CreatedCpuOnly,
+
+    Failed,
+    Cancelled,
 }
 
 /// <summary>Result of ensuring the local Ollama container exists and is running.</summary>
-public sealed record LocalAiSetupResult(bool Success, LocalAiContainerState State, string Message);
+public sealed record LocalAiSetupResult(bool Success, LocalAiContainerState State, string Message,
+    string? ContainerId = null, LocalRuntimeResourceState Runtime = LocalRuntimeResourceState.Unknown,
+    LocalRuntimeResourceState ModelData = LocalRuntimeResourceState.Unknown);
+
+public sealed record LocalAiRemovalResult(bool Success, LocalRuntimeResourceState Runtime,
+    LocalRuntimeResourceState ModelData, string Message);
 
 /// <summary>
-/// One-click provisioning of a local AI engine: deploys the <c>ollama/ollama</c> container (GPU
-/// preferred, CPU fallback), so users get an offline AI assistant without any manual container work.
-/// The container is engine-managed (<c>--restart unless-stopped</c>); the app has no background daemon.
+/// Provisions an ownership-verified Ollama container from an already acquired immutable image.
+/// This service never downloads images/models, starts native runtimes, or asserts model capabilities.
 /// </summary>
 public interface ILocalAiSetupService
 {
@@ -50,10 +57,11 @@ public interface ILocalAiSetupService
     /// <summary>The published host port for the Ollama API.</summary>
     int HostPort { get; }
 
-    /// <summary>Pulls the image if needed and starts (or reuses) the Ollama container. Prefers GPU,
-    /// falling back to CPU when GPU acceleration is unavailable.</summary>
+    /// <summary>Starts or reuses an owned container. CPU selection requires definitive pre-mutation
+    /// evidence that the CLI does not support GPU creation. Failed mutations are never retried.</summary>
     Task<LocalAiSetupResult> EnsureOllamaContainerAsync(IProgress<string>? progress, CancellationToken ct = default);
 
-    /// <summary>Stops and removes the app-managed Ollama container. Optionally removes its model volume.</summary>
-    Task<CommandResult> RemoveOllamaContainerAsync(bool removeModelVolume, CancellationToken ct = default);
+    /// <summary>Removes only the verified immutable container ID. Model deletion requests are
+    /// reported separately; name-only volume deletion is unsafe and retains data.</summary>
+    Task<LocalAiRemovalResult> RemoveOllamaContainerAsync(bool removeModelVolume, CancellationToken ct = default);
 }

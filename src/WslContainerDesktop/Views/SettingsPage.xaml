@@ -348,7 +348,7 @@
                                 <TextBlock
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="One click deploys a local Ollama container (GPU-accelerated when your machine supports it, otherwise CPU), downloads the qwen2.5:7b model, and points the assistant at it. No account or API key needed."
+                                    Text="Set up only the app-owned Ollama container at 127.0.0.1 using an already acquired, immutable image. Setup never adopts native or unrelated runtimes and never downloads images or models or warms a model. If the image is missing, acquire it separately after auditing its digest and publication age (at least seven days). Select an installed model or explicitly request an audited model pull below. GPU acceleration and model capabilities are not assumed."
                                     TextWrapping="Wrap" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -361,6 +361,11 @@
                                         <TextBlock Text="Set up local AI" />
                                     </StackPanel>
                                 </Button>
+                                <Button
+                                    AutomationProperties.AutomationId="CancelSetUpLocalAiButton"
+                                    Command="{x:Bind ViewModel.SetUpLocalAiCancelCommand}"
+                                    Content="Cancel setup"
+                                    Visibility="{x:Bind ViewModel.SetUpLocalAiCommand.IsRunning, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                                 <Button
                                     AutomationProperties.AutomationId="RemoveLocalAiButton"
                                     Command="{x:Bind ViewModel.RemoveLocalAiCommand}"
@@ -436,6 +441,7 @@
                             </StackPanel>
                             <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowOllamaSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <TextBox
+                                    AutomationProperties.AutomationId="AiOllamaEndpointTextBox"
                                     Header="Ollama endpoint"
                                     Text="{x:Bind ViewModel.AiOllamaEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <Grid ColumnSpacing="8">
@@ -444,6 +450,7 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <ComboBox
+                                        AutomationProperties.AutomationId="AiOllamaModelComboBox"
                                         Grid.Column="0"
                                         HorizontalAlignment="Stretch"
                                         DisplayMemberPath="DisplayName"
@@ -452,22 +459,29 @@
                                         SelectedValue="{x:Bind ViewModel.AiOllamaModel, Mode=TwoWay}"
                                         SelectedValuePath="Id" />
                                     <Button
+                                        AutomationProperties.AutomationId="RefreshOllamaModelsButton"
                                         Grid.Column="1"
                                         VerticalAlignment="Bottom"
                                         Command="{x:Bind ViewModel.RefreshOllamaModelsCommand}"
                                         Content="Refresh" />
                                 </Grid>
+                                <TextBlock
+                                    Text="Pull downloads a model on the configured endpoint, which may be remote. You must confirm that you audited its immutable digest and authoritative publication date (at least seven days old). The app cannot verify that audit; a model name or mutable tag is not evidence of age or tool support."
+                                    TextWrapping="Wrap"
+                                    Style="{StaticResource CaptionTextBlockStyle}" />
                                 <Grid ColumnSpacing="8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBox
+                                        AutomationProperties.AutomationId="OllamaPullModelTextBox"
                                         Grid.Column="0"
                                         Header="Pull a model"
-                                        PlaceholderText="qwen2.5:7b"
+                                        PlaceholderText="Audited model reference"
                                         Text="{x:Bind ViewModel.OllamaPullModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                     <Button
+                                        AutomationProperties.AutomationId="PullOllamaModelButton"
                                         Grid.Column="1"
                                         VerticalAlignment="Bottom"
                                         Command="{x:Bind ViewModel.PullOllamaModelCommand}"

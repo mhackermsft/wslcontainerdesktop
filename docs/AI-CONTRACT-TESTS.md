@@ -477,11 +477,75 @@ Run all related contracts (both configured frameworks, no deployment):
 dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~AiCapabilityContractTests|FullyQualifiedName~AssistantHistoryContractTests|FullyQualifiedName~AssistantOrchestrationContractTests|FullyQualifiedName~AssistantToolsetContractTests|FullyQualifiedName~AiProviderContractTests|FullyQualifiedName~AiTextSanitizerTests|FullyQualifiedName~GitHubCopilotProviderContractTests"
 ```
 
+## Local runtime ownership (#90)
+
+`LocalAiSetupServiceTests` source-links the real lifecycle service against strict
+in-memory `IWslcService`, WSLC capability and AI capability fakes. No engine,
+container, image/model download or packaged application is used. The lifecycle
+does not publish inference progress or alter the assistant journal/history.
+
+The setup/removal semaphore serializes this service's operations. Inventory names
+are discovery hints only: inspect must supply a full immutable container ID,
+the `com.wslcontainerdesktop.managed=local-ai` label and a valid operation token.
+The container also identifies its model volume's operation token. Mount metadata,
+volume labels, creation timestamp and mountpoint must agree; unknown/malformed
+metadata is a conflict. Setup additionally requires the exact loopback-only
+published API port. Older containers/volumes without these proofs remain intact;
+there is no silent name-based ownership migration.
+An older running Ollama can still be configured as an external Ollama provider;
+that does not grant this lifecycle service ownership or removal permission.
+
+New setup selects an already cached full image ID and enforces `--pull never`.
+Shared `IWslcCapabilitiesService` observations of **create** help govern `--pull`
+and `--gpus`; version numbers and run-help guesses are not evidence. Only
+definitive absence of the GPU flag selects CPU before creation. Unknown GPU
+support blocks. GPU creation/start failures, image/configuration/engine errors,
+cancellation and uncertain outcomes never trigger a CPU retry. GPU access
+requested and container running are not proof of acceleration or model readiness.
+The container is created first and its real mount is verified before start.
+
+Failure cleanup has a separate ten-second cancellation budget. Only the current
+operation's ownership-verified immutable container ID can be removed; an existing
+or racing unrelated runtime cannot be cleaned up. Failed/uncertain cleanup is
+reported explicitly, including a possibly late creation after cancellation.
+Images and model data are never automatically cleaned up. Callers receive
+`LocalAiSetupResult` and `LocalAiRemovalResult`, with separate runtime/data states;
+`LocalRuntimeResourceState` is backend-neutral for future native runtime use.
+No container labels, mounts or GPU policy are presented as Foundry contracts.
+
+**Product limitation:** automatic model-volume deletion remains unavailable.
+`RemoveVolumeAsync` accepts a mutable name, not an immutable handle or atomic
+compare-and-delete. Inspect-then-delete cannot eliminate a replacement race.
+A requested deletion therefore returns an explicit partial/retained-data result,
+even when runtime removal succeeds; the UI must not claim models were removed.
+Users can inspect ownership and users before a separate deliberate Volumes action.
+
+Preparation must be explicit and age-audited: pin the image/model identity and
+verify authoritative publication is at least seven days old before acquisition.
+Missing cached images give preparation/tagging guidance, not an implicit pull.
+Mutable names and build timestamps are not publication evidence. Settings does
+not download or warm a default model during setup. The separate model-pull
+confirmation is user attestation of an audit, not automated publication/digest
+verification; do not treat it as a provenance verifier. Capability evidence is
+invalidated before owned runtime/model mutations and again on completion/failure;
+HTTP metadata remains the separate source for actual runtime/model readiness.
+
+```powershell
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "FullyQualifiedName~LocalAiSetupServiceTests|FullyQualifiedName~WslcCapabilitiesServiceTests|FullyQualifiedName~AiCapability|FullyQualifiedName~Assistant|FullyQualifiedName~AiProvider|FullyQualifiedName~AiHttpStreaming"
+```
+
+Covered cases include owned reuse/start, same-name collisions, missing labels,
+short/mismatched immutable IDs, unknown metadata, GPU tri-state selection and
+unrelated mutation failures, cached-only arguments, partial creation, replacement
+races, cancellation, cleanup failure, serialization, separate runtime/data
+outcomes and pre-mutation capability invalidation. Hardware GPU behavior and real
+WSLC inspect variants still require explicitly authorized disposable smoke runs.
+
 ### Follow-on integration rules
 
 - #89 may add recognized streaming observations and consume this snapshot; it
   must not infer streaming from successful non-streaming chat or bypass the journal.
-- #90 and #92 should implement the observer seam using authoritative runtime
+- #92 should implement the observer seam using authoritative native runtime
   identities and separate download/load states, calling `Invalidate()` **before**
   owned transitions/replacement. Metadata methods must never download or load a
   model. A capability probe is not permission to deploy workloads.
@@ -501,7 +565,7 @@ Serialized activity capture is a test sink, not the production on-disk store.
 | --- | --- |
 | #88 live compatibility | Deterministic observation/consumer contracts are covered above. Actual provider metadata conventions, SDK transport/entitlement failures and hardware cold starts still require explicitly authorized smoke runs; unknown metadata is not filled with guesses. |
 | #89 streaming | Fragment assembly, complete validation before action, progress ordering, disconnect recovery, inference versus approval timeouts, cancellation/reset generations, partial outcomes and no replay. Current adapters return final strings. |
-| #90 runtime ownership | Fake inventory/process-backed local setup: ownership/name collisions, GPU versus other failures, safe fallback, partial creation, racing replacement, cancellation, cleanup failures and retained model data. No runtime lifecycle is invoked here. |
+| #90 runtime ownership | Deterministic real-lifecycle/fake-engine coverage is described above. Automatic model-volume deletion is deliberately unavailable without atomic immutable targeting. Real-engine/GPU compatibility remains unverified; no workload is manipulated by the suite. |
 | #92 Foundry Local | Deterministic dedicated adapter/runtime tests using the shared contracts, plus explicitly opted-in packaged and hardware runs. No Foundry dependency or model is acquired by this foundation. |
 | Copilot SDK adapter | The production chat bridge now has fake-session history/budget/cancellation/failure coverage, including real-service round trips. SDK-internal transport, actual model events, sign-in and opaque runtime overhead still require an explicitly authorized live smoke run. |
 

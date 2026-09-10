@@ -38,13 +38,16 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IAiDiagnosticsService _aiDiagnostics;
     private readonly IAiCredentialStore _aiCredentials;
     private readonly ILocalAiSetupService _localAi;
+    private readonly IAiCapabilityService _aiCapabilities;
     private readonly IAiAvailabilityService _aiAvailability;
     private readonly ILogger<SettingsViewModel> _logger;
     private readonly HttpClient _http;
 
     private bool _suppressStartupWrite;
+    private bool _suppressProviderModelRefresh;
     private bool _suppressAiModelWrite;
     private bool _suppressAiOllamaModelWrite;
+    private int _localAiSetupGeneration;
 
     [ObservableProperty]
     private string _wslcPath;
@@ -253,7 +256,7 @@ public partial class SettingsViewModel : ObservableObject
         return groups;
     }
 
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, HttpClient http, ILogger<SettingsViewModel> logger)
+    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger)
     {
         _settings = settings;
         _wslc = wslc;
@@ -263,6 +266,7 @@ public partial class SettingsViewModel : ObservableObject
         _aiDiagnostics = aiDiagnostics;
         _aiCredentials = aiCredentials;
         _localAi = localAi;
+        _aiCapabilities = aiCapabilities;
         _aiAvailability = aiAvailability;
         _aiAvailability.Changed += (_, _) => OnPropertyChanged(nameof(AiCapabilityStatus));
         _http = http;
@@ -374,7 +378,7 @@ public partial class SettingsViewModel : ObservableObject
         {
             _ = LoadGitHubCopilotModelsAsync();
         }
-        else if (_settings.AiProvider == AiProviderKind.Ollama)
+        else if (_settings.AiProvider == AiProviderKind.Ollama && !_suppressProviderModelRefresh)
         {
             _ = LoadOllamaModelsAsync();
         }
@@ -805,35 +809,11 @@ public partial class SettingsViewModel : ObservableObject
             IsOllamaBusy = true;
             ProviderFeedback = AiFeedback.Informational("Loading models", "Loading installed Ollama models…");
             endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
-            using var response = await _http.GetAsync(new Uri(endpoint, "api/tags"));
-            var body = await response.Content.ReadAsStringAsync();
-            if (!response.IsSuccessStatusCode)
-            {
-                throw AiProviderException.FromHttpFailure(AiProviderKind.Ollama, "Refresh Ollama models", response.StatusCode, endpoint.ToString(), persisted, body);
-            }
-
-            var names = new List<string>();
-            using (var doc = JsonDocument.Parse(body))
-            {
-                if (doc.RootElement.TryGetProperty("models", out var models) && models.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var model in models.EnumerateArray())
-                    {
-                        if (model.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String)
-                        {
-                            var value = name.GetString();
-                            if (!string.IsNullOrWhiteSpace(value))
-                            {
-                                names.Add(value!);
-                            }
-                        }
-                    }
-                }
-            }
+            var names = await ReadInstalledOllamaModelsAsync(endpoint, CancellationToken.None);
 
             ReplaceOllamaModels(names, persisted);
             ProviderFeedback = names.Count == 0
-                ? AiFeedback.Warning("No models installed", "No Ollama models installed. Pull one below (for example qwen2.5:7b).")
+                ? AiFeedback.Warning("No models installed", "No Ollama models installed. Before pulling one below, audit its immutable digest and authoritative publication date (at least seven days old).")
                 : AiFeedback.Success("Models loaded", $"Loaded {names.Count} installed Ollama model(s).");
         }
         catch (Exception ex)
@@ -959,10 +939,25 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         Uri? endpoint = null;
+        var isPullStarted = false;
         try
         {
             IsOllamaBusy = true;
             endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
+            if (!await _dialogs.ShowConfirmAsync(
+                    "Confirm audited model download",
+                    $"Download '{name}' at '{endpoint}'? This may download several GB on that server. " +
+                    "Continue only if you have audited the immutable model digest and verified from authoritative publication metadata that it is at least seven days old. " +
+                    "A mutable tag or model name alone is not proof. The app cannot verify this audit; cancel if the digest or publication date is unknown.",
+                    primaryText: "I audited it — pull",
+                    closeText: "Cancel"))
+            {
+                ProviderFeedback = AiFeedback.Informational("Model pull cancelled", "No model download was requested.");
+                return;
+            }
+
+            isPullStarted = true;
+            _aiCapabilities.Invalidate();
             if (await StreamPullModelAsync(name, endpoint, fb => ProviderFeedback = fb))
             {
                 OllamaPullModel = string.Empty;
@@ -978,15 +973,18 @@ public partial class SettingsViewModel : ObservableObject
         }
         finally
         {
+            if (isPullStarted)
+            {
+                _aiCapabilities.Invalidate();
+            }
             IsOllamaBusy = false;
         }
     }
 
     /// <summary>
     /// Streams an Ollama <c>/api/pull</c> for <paramref name="name"/>, reporting progress through
-    /// <paramref name="report"/> so the caller can route it into the right feedback channel — the
-    /// explicit "Pull a model" action reports to <see cref="ProviderFeedback"/>, while the one-click
-    /// local AI setup reports to <see cref="LocalAiFeedback"/>. Returns true when the model
+    /// <paramref name="report"/> for the explicitly confirmed, audited "Pull a model" action.
+    /// Runtime setup never calls this method. Returns true when the model
     /// finished downloading, false on a reported error. Callers own <see cref="IsOllamaBusy"/> and
     /// any follow-up (model list refresh, selection).
     /// </summary>
@@ -1032,6 +1030,11 @@ public partial class SettingsViewModel : ObservableObject
                 var status = root.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String
                     ? s.GetString() ?? string.Empty
                     : string.Empty;
+                if (string.Equals(status, "success", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
                 if (root.TryGetProperty("total", out var totalEl) && totalEl.TryGetInt64(out var total) && total > 0
                     && root.TryGetProperty("completed", out var compEl) && compEl.TryGetInt64(out var completed))
                 {
@@ -1049,68 +1052,92 @@ public partial class SettingsViewModel : ObservableObject
             }
         }
 
-        return true;
+        report(AiFeedback.Error("Pull incomplete", "The server closed the progress stream without confirming success. Refresh installed models before retrying."));
+        return false;
     }
 
-    [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
-    private async Task SetUpLocalAiAsync()
+    [RelayCommand(CanExecute = nameof(CanRunOllamaCommand), IncludeCancelCommand = true)]
+    private async Task SetUpLocalAiAsync(CancellationToken ct)
     {
+        var generation = Interlocked.Increment(ref _localAiSetupGeneration);
+        var isAcceptingProgress = true;
         try
         {
             IsOllamaBusy = true;
 
-            // The one-click default: a local, tool-capable model that fits most dev machines.
-            const string model = "qwen2.5:7b";
-            var endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
-            var progress = new Progress<string>(msg => LocalAiFeedback = AiFeedback.Informational("Setting up local AI", msg));
-
-            // Skip deployment if an Ollama (container or native) is already answering the endpoint.
-            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Checking for a running Ollama…");
-            if (!await IsOllamaHealthyAsync(endpoint, CancellationToken.None))
+            // Setup is always ownership-verified and local, independent of provider configuration.
+            var endpoint = new Uri($"http://127.0.0.1:{_localAi.HostPort}/", UriKind.Absolute);
+            var progress = new Progress<string>(msg =>
             {
-                var result = await _localAi.EnsureOllamaContainerAsync(progress, CancellationToken.None);
-                if (!result.Success)
+                // Progress<T> queues delivery to the UI context. Check ownership here,
+                // not at Report(), so a late callback cannot overwrite a terminal result
+                // or feedback belonging to a subsequent setup generation.
+                if (generation == Volatile.Read(ref _localAiSetupGeneration)
+                    && Volatile.Read(ref isAcceptingProgress) && !ct.IsCancellationRequested)
                 {
-                    LocalAiFeedback = AiFeedback.Error("Local AI setup failed", result.Message);
-                    return;
+                    LocalAiFeedback = AiFeedback.Informational("Setting up local AI", msg);
                 }
+            });
 
-                LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Waiting for Ollama to become ready…");
-                if (!await WaitForOllamaReadyAsync(endpoint, TimeSpan.FromSeconds(90), CancellationToken.None))
-                {
-                    LocalAiFeedback = AiFeedback.Error(
-                        "Local AI setup failed",
-                        "Ollama started but did not become ready in time. Check the container logs and try again.");
-                    return;
-                }
+            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Verifying the app-owned Ollama container…");
+            var result = await _localAi.EnsureOllamaContainerAsync(progress, ct);
+            Volatile.Write(ref isAcceptingProgress, false);
+            if (!result.Success || result.State is not (LocalAiContainerState.AlreadyRunning
+                or LocalAiContainerState.StartedExisting or LocalAiContainerState.CreatedWithGpu
+                or LocalAiContainerState.CreatedCpuOnly))
+            {
+                // Failure/cancellation messages include the service's recovery outcome.
+                LocalAiFeedback = result.State == LocalAiContainerState.Cancelled
+                    ? AiFeedback.Warning("Local AI setup cancelled", result.Message)
+                    : AiFeedback.Error("Local AI setup failed", result.Message);
+                return;
             }
 
-            // Download the default model (skip if it is already installed).
-            if (!await IsModelInstalledAsync(endpoint, model, CancellationToken.None))
+            ct.ThrowIfCancellationRequested();
+            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Waiting for the owned Ollama runtime API…");
+            if (!await WaitForOllamaReadyAsync(endpoint, TimeSpan.FromSeconds(90), ct))
             {
-                if (!await StreamPullModelAsync(model, endpoint, fb => LocalAiFeedback = fb))
-                {
-                    return;
-                }
+                LocalAiFeedback = AiFeedback.Error(
+                    "Local AI setup failed",
+                    "The owned container started but its API did not become ready in time. The container may still be running. Check its logs before retrying or removing it.");
+                return;
             }
 
-            // Point the app at the local engine and turn AI on. Each setter persists and the
-            // Changed event refreshes the assistant button.
-            SelectedAiProviderIndex = (int)AiProviderKind.Ollama;
+            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Reading installed model metadata…");
+            var installedModels = await ReadInstalledOllamaModelsAsync(endpoint, ct);
+            ct.ThrowIfCancellationRequested();
+            var previousModel = _settings.AiOllamaModel?.Trim();
+            var model = installedModels.FirstOrDefault(name => string.Equals(name, previousModel, StringComparison.OrdinalIgnoreCase))
+                ?? installedModels.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).FirstOrDefault()
+                ?? string.Empty;
+            // Do not acquire or warm a model, or infer capabilities from a model name.
+            // Model acquisition requires a separate, explicit digest/publication-age audit.
             AiOllamaEndpoint = endpoint.ToString().TrimEnd('/');
+            ReplaceOllamaModels(installedModels, model);
             AiOllamaModel = model;
+            _suppressProviderModelRefresh = true;
+            try
+            {
+                SelectedAiProviderIndex = (int)AiProviderKind.Ollama;
+            }
+            finally
+            {
+                _suppressProviderModelRefresh = false;
+            }
             AiFeaturesEnabled = true;
 
-            await LoadOllamaModelsAsync();
-
-            // Warm up so the model is resident in memory before the user opens the assistant.
-            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Warming up the model…");
-            await WarmUpModelAsync(endpoint, model, CancellationToken.None);
-
-            LocalAiFeedback = AiFeedback.Success("Local AI is ready", $"Using Ollama with '{model}'.");
-
-            // The warm model is now reachable — re-probe so the AI buttons appear immediately.
-            await _aiAvailability.RefreshAsync();
+            var modelMessage = string.IsNullOrEmpty(model)
+                ? "No installed model was found; the model selection has been cleared."
+                : $"Selected installed model '{model}'.";
+            LocalAiFeedback = AiFeedback.Success("Local runtime API is ready",
+                $"{result.Message} Container ID: {result.ContainerId}. {modelMessage} No model was downloaded or warmed up. " +
+                "Model readiness and tool capabilities: Unknown (not observed by setup). Runtime API readiness is not AI readiness. " +
+                "Any model pull requires a separate explicit audit of its immutable digest and publication date (at least seven days old).");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            LocalAiFeedback = AiFeedback.Warning("Local AI setup cancelled",
+                "Setup was cancelled. The owned container may still be running and model data may be retained. Check the runtime before retrying or removing local AI. No model download or warm-up was requested.");
         }
         catch (Exception ex)
         {
@@ -1119,6 +1146,7 @@ public partial class SettingsViewModel : ObservableObject
         }
         finally
         {
+            Volatile.Write(ref isAcceptingProgress, false);
             IsOllamaBusy = false;
         }
     }
@@ -1128,7 +1156,8 @@ public partial class SettingsViewModel : ObservableObject
     {
         if (!await _dialogs.ShowConfirmAsync(
                 "Remove local AI",
-                $"This stops and removes the '{_localAi.ContainerName}' container. Continue?",
+                $"This requests removal of only the ownership-verified '{_localAi.ContainerName}' container by its immutable ID. " +
+                "Native Ollama, unrelated containers, and configured remote endpoints are not removed. Model data is retained when safe deletion cannot be verified. Continue?",
                 primaryText: "Remove",
                 closeText: "Cancel"))
         {
@@ -1136,22 +1165,29 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         var removeVolume = await _dialogs.ShowConfirmAsync(
-            "Delete downloaded models?",
-            "Also delete the downloaded models? This frees disk space but a future setup will re-download them.",
-            primaryText: "Delete models",
+            "Request model data deletion?",
+            "You can request deletion, but the current engine interface cannot safely delete a volume atomically by verified ownership. " +
+            "Model data will be retained and the result will report the deletion request as unfulfilled. No disk-space recovery is promised.",
+            primaryText: "Request deletion",
             closeText: "Keep models");
 
         try
         {
             IsOllamaBusy = true;
             LocalAiFeedback = AiFeedback.Informational("Removing local AI", "Removing the local AI container…");
+            if (removeVolume)
+            {
+                _aiCapabilities.Invalidate();
+            }
             var result = await _localAi.RemoveOllamaContainerAsync(removeVolume, CancellationToken.None);
-            LocalAiFeedback = result.Success
-                ? AiFeedback.Success(
-                    "Local AI removed",
-                    removeVolume ? "Removed the local AI container and its models." : "Removed the local AI container (models kept).")
-                : AiFeedback.Error("Removal failed", $"Could not remove the local AI container: {result.ErrorText}");
-            await _aiAvailability.RefreshAsync();
+            var isRuntimeGone = result.Runtime is LocalRuntimeResourceState.Removed or LocalRuntimeResourceState.Absent;
+            var isModelDeletionUnfulfilled = removeVolume
+                && result.ModelData is not (LocalRuntimeResourceState.Removed or LocalRuntimeResourceState.Absent);
+            LocalAiFeedback = result.Success && isRuntimeGone && !isModelDeletionUnfulfilled
+                ? AiFeedback.Success("Local AI runtime removed", result.Message)
+                : isRuntimeGone
+                    ? AiFeedback.Warning("Local AI removal partially completed", result.Message)
+                    : AiFeedback.Error("Local AI removal incomplete", result.Message);
         }
         catch (Exception ex)
         {
@@ -1160,6 +1196,19 @@ public partial class SettingsViewModel : ObservableObject
         }
         finally
         {
+            if (removeVolume)
+            {
+                _aiCapabilities.Invalidate();
+            }
+            // Refresh metadata/affordances only; a failed observation must not rewrite the removal outcome.
+            try
+            {
+                await _aiAvailability.RefreshAsync();
+            }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or InvalidOperationException)
+            {
+                _logger.LogDebug("Capability refresh after runtime removal was unavailable ({FailureType}).", ex.GetType().Name);
+            }
             IsOllamaBusy = false;
         }
     }
@@ -1169,89 +1218,70 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             using var response = await _http.GetAsync(new Uri(endpoint, "api/version"), ct);
-            return response.IsSuccessStatusCode;
+            if (!response.IsSuccessStatusCode)
+                return false;
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            return body.RootElement.ValueKind == JsonValueKind.Object &&
+                body.RootElement.TryGetProperty("version", out var version) &&
+                version.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(version.GetString());
         }
-        catch
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            _logger.LogDebug("Owned Ollama runtime API is not ready ({FailureType}).", ex.GetType().Name);
             return false;
-        }
-    }
-
-    /// <summary>
-    /// Sends a tiny non-streaming chat so Ollama loads the model into memory. Failures are
-    /// non-fatal — warm-up is only a latency optimization for the first assistant message.
-    /// </summary>
-    private async Task WarmUpModelAsync(Uri endpoint, string model, CancellationToken ct)
-    {
-        try
-        {
-            // First load of a multi-GB model can take a while, so don't use the shared 20s client.
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            using var response = await client.PostAsJsonAsync(
-                new Uri(endpoint, "api/chat"),
-                new
-                {
-                    model,
-                    messages = new[] { new { role = "user", content = "Hello" } },
-                    stream = false,
-                    keep_alive = "30m",
-                },
-                ct);
-            response.EnsureSuccessStatusCode();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Ollama warm-up failed (non-fatal).");
         }
     }
 
     private async Task<bool> WaitForOllamaReadyAsync(Uri endpoint, TimeSpan timeout, CancellationToken ct)
     {
-        var deadline = DateTimeOffset.UtcNow + timeout;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            if (await IsOllamaHealthyAsync(endpoint, ct))
-            {
-                return true;
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(2), ct);
-        }
-
-        return false;
-    }
-
-    private async Task<bool> IsModelInstalledAsync(Uri endpoint, string model, CancellationToken ct)
-    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(timeout);
         try
         {
-            using var response = await _http.GetAsync(new Uri(endpoint, "api/tags"), ct);
-            if (!response.IsSuccessStatusCode)
+            while (true)
             {
-                return false;
-            }
-
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-            if (!doc.RootElement.TryGetProperty("models", out var models) || models.ValueKind != JsonValueKind.Array)
-            {
-                return false;
-            }
-
-            foreach (var m in models.EnumerateArray())
-            {
-                if (m.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String
-                    && string.Equals(name.GetString(), model, StringComparison.OrdinalIgnoreCase))
-                {
+                if (await IsOllamaHealthyAsync(endpoint, deadline.Token))
                     return true;
-                }
+                await Task.Delay(TimeSpan.FromSeconds(2), deadline.Token);
             }
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && deadline.IsCancellationRequested)
         {
-            _logger.LogDebug(ex, "Could not check installed Ollama models.");
+            return false;
+        }
+    }
+
+    private async Task<IReadOnlyCollection<string>> ReadInstalledOllamaModelsAsync(Uri endpoint, CancellationToken ct)
+    {
+        using var response = await _http.GetAsync(new Uri(endpoint, "api/tags"), ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw AiProviderException.FromHttpFailure(AiProviderKind.Ollama, "Read installed Ollama models",
+                response.StatusCode, endpoint.ToString(), null, body);
         }
 
-        return false;
+        using var doc = JsonDocument.Parse(body);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+            !doc.RootElement.TryGetProperty("models", out var models) || models.ValueKind != JsonValueKind.Array)
+        {
+            throw new JsonException("The endpoint did not return an installed-model inventory.");
+        }
+
+        var names = new List<string>();
+        foreach (var model in models.EnumerateArray())
+        {
+            if (model.ValueKind != JsonValueKind.Object || !model.TryGetProperty("name", out var name) ||
+                name.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(name.GetString()))
+                throw new JsonException("Installed-model inventory contains an incomplete entry.");
+            names.Add(name.GetString()!);
+        }
+
+        return names;
     }
 
     private void ReplaceOllamaModels(IReadOnlyCollection<string> names, string persisted)

@@ -36,4 +36,6 @@ public enum WslcFeature
     CreateHealthTimeout,
     CreateHealthStartInterval,
     CreateNoHealthcheck,
+    CreateGpus,
+    CreatePull,
 }
