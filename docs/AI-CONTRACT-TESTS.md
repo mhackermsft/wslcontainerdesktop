@@ -155,6 +155,12 @@ exhaustion explicitly omits unexamined evidence rather than allowing quadratic
 scanning or forwarding unexamined secrets. A 100,000-bracket adversarial fixture
 asserts this omission, and all three real HTTP serializers capture sanitized
 colored Secret tool results without the synthetic canary.
+Decoded JSON discriminator values (`kind`, environment `name`/`key`) and
+recognized field names are normalized before secret classification, not only
+when writing their values. First-pass and idempotence tests include CSI/OSC
+discriminators and wrapped logger/scopes, which cannot rely on a second pass.
+Original property names are preserved to avoid normalized-key collisions;
+protocol IDs, schemas and execution input are not rewritten.
 
 Real orchestration captures serialized activity at the persistence boundary,
 provider callback evidence, sanitized approval details, rejection, resolution

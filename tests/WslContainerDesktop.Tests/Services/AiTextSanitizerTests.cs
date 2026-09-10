@@ -25,6 +25,48 @@ namespace WslContainerDesktop.Tests.Services;
 
 public sealed class AiTextSanitizerTests
 {
+    public static TheoryData<string> ColoredDiscriminators => new()
+    {
+        """{"kind":"\u001b[32mSecret\u001b[0m","data":{"opaque":"synthetic-review-canary"}}""",
+        """{"name":"PASS\u001b[32mWORD\u001b[0m","value":"synthetic-review-canary"}""",
+        """{"value":"synthetic-review-canary","key":"\u001b[32mAPI_TOKEN\u001b[0m"}""",
+        """{"\u001b[32mkind\u001b[0m":"Secret","da\u001b[32mta":{"opaque":"synthetic-review-canary"}}""",
+        """{"na\u001b[32mme":"PASSWORD","val\u001b[0mue":"synthetic-review-canary"}""",
+        """{"PASS\u001b[32mWORD":"synthetic-review-canary"}""",
+        """{"environ\u001b[32mment":["PASSWORD=synthetic-review-canary\nsecond line"]}""",
+        """{"kind":"\u001b]0;title\u0007Secret","data":{"opaque":"synthetic-review-canary"}}""",
+        """{"key":"PASS\u001b]0;title\u001b\\WORD","value":"synthetic-review-canary"}""",
+    };
+
+    [Theory]
+    [MemberData(nameof(ColoredDiscriminators))]
+    public void DecodedDiscriminatorsAreClassifiedBeforeFirstPassLogging(string input)
+    {
+        var safe = AiTextSanitizer.Sanitize(input);
+        Assert.DoesNotContain("synthetic-review-canary", safe);
+        Assert.Equal(safe, AiTextSanitizer.Sanitize(safe));
+        var sink = new LogSink();
+        var logger = AiTextSanitizer.WrapLogger(sink);
+        using var scope = logger.BeginScope<string>(input);
+        logger.LogInformation("{Evidence}", input);
+        Assert.Equal(2, sink.Entries.Count);
+        Assert.All(sink.Entries, entry => Assert.DoesNotContain("synthetic-review-canary", entry));
+        Assert.Contains("synthetic-review-canary", input);
+    }
+
+    [Fact]
+    public void NormalizedFieldClassificationPreservesOriginalKeysAndProtocolSchema()
+    {
+        var input = """{"kind":"ConfigMap","\u001b[32mkind":"Secret","data":{"opaque":"synthetic-review-canary"}}""";
+        using var safe = JsonDocument.Parse(AiTextSanitizer.Sanitize(input));
+        Assert.Equal(3, safe.RootElement.EnumerateObject().Count());
+        Assert.Equal("ConfigMap", safe.RootElement.GetProperty("kind").GetString());
+        Assert.Equal("Secret", safe.RootElement.GetProperty("\u001b[32mkind").GetString());
+        Assert.Equal("<redacted>", safe.RootElement.GetProperty("data").GetString());
+        var definition = new AiToolDefinition { Name = "inspect_container", Description = "Inspect", JsonSchemaParameters = input };
+        Assert.Equal(input, AiTextSanitizer.SanitizeDefinition(definition).JsonSchemaParameters);
+    }
+
     public static TheoryData<string> TerminalEvidence => new()
     {
         "\u001b[32m{\"kind\":\"Secret\",\"data\":{\"opaque\":\"synthetic-review-canary\"}}\u001b[0m",

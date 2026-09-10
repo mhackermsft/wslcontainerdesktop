@@ -284,26 +284,28 @@ public static partial class AiTextSanitizer
         if (element.ValueKind == JsonValueKind.Object)
         {
             var secretResource = element.EnumerateObject().Any(p =>
-                p.Name.Equals("kind", StringComparison.OrdinalIgnoreCase) &&
+                TerminalControlRegex().Replace(p.Name, string.Empty).Equals("kind", StringComparison.OrdinalIgnoreCase) &&
                 p.Value.ValueKind == JsonValueKind.String &&
-                p.Value.GetString()!.Equals("Secret", StringComparison.OrdinalIgnoreCase));
+                TerminalControlRegex().Replace(p.Value.GetString()!, string.Empty).Equals("Secret", StringComparison.OrdinalIgnoreCase));
             var secretPair = element.EnumerateObject().Any(p =>
-                (p.Name.Equals("name", StringComparison.OrdinalIgnoreCase) ||
-                 p.Name.Equals("key", StringComparison.OrdinalIgnoreCase)) &&
+                (TerminalControlRegex().Replace(p.Name, string.Empty).Equals("name", StringComparison.OrdinalIgnoreCase) ||
+                 TerminalControlRegex().Replace(p.Name, string.Empty).Equals("key", StringComparison.OrdinalIgnoreCase)) &&
                 p.Value.ValueKind == JsonValueKind.String && IsSensitive(p.Value.GetString()!));
             writer.WriteStartObject();
             foreach (var property in element.EnumerateObject())
             {
+                var field = TerminalControlRegex().Replace(property.Name, string.Empty);
+                // Classify normalized evidence names, but preserve original names to avoid key collisions.
                 writer.WritePropertyName(property.Name);
-                if (IsSensitive(property.Name) ||
-                    (secretResource && property.Name.Equals("data", StringComparison.OrdinalIgnoreCase)) ||
-                    (secretPair && property.Name.Equals("value", StringComparison.OrdinalIgnoreCase)))
+                if (IsSensitive(field) ||
+                    (secretResource && field.Equals("data", StringComparison.OrdinalIgnoreCase)) ||
+                    (secretPair && field.Equals("value", StringComparison.OrdinalIgnoreCase)))
                     writer.WriteStringValue(Mask);
                 else
                     WriteJson(writer, property.Value, depth + 1,
-                        property.Name.Equals("env", StringComparison.OrdinalIgnoreCase) ||
-                        property.Name.Equals("environment", StringComparison.OrdinalIgnoreCase) ||
-                        property.Name.Equals("environmentVariables", StringComparison.OrdinalIgnoreCase));
+                        field.Equals("env", StringComparison.OrdinalIgnoreCase) ||
+                        field.Equals("environment", StringComparison.OrdinalIgnoreCase) ||
+                        field.Equals("environmentVariables", StringComparison.OrdinalIgnoreCase));
             }
             writer.WriteEndObject();
         }
@@ -330,6 +332,7 @@ public static partial class AiTextSanitizer
 
     private static bool IsSensitive(string name)
     {
+        name = TerminalControlRegex().Replace(name, string.Empty);
         var normalized = string.Concat(name.Where(char.IsLetterOrDigit)).ToLowerInvariant();
         return normalized.Contains("password", StringComparison.Ordinal) ||
             normalized.Contains("passwd", StringComparison.Ordinal) ||
