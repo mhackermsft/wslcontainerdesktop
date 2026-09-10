@@ -576,6 +576,13 @@ inventory-before-confirmation, provider/edit/rediscovery invalidation and
 endpoint-only persistence. Its help/status samples are synthetic: they are not
 proof of CLI 0.10.3 command or output compatibility.
 
+`FoundryLocalRecordedCliTests` replays the actual network-isolated 0.10.3
+version/help capture from `Fixtures/Foundry/0.10.3/help.json`. It proves the
+advertised server/status command selection, not an unrecorded status response
+or model execution. Parser regressions reject command mentions in prose and
+examples. Model help explicitly does not establish pinned acquisition/offline
+loading. The older synthetic cases remain separate negative/adapter tests.
+
 `FoundryLocalInstallerTests` exercises prepared-file size/hash checks, locked
 files during approval, fixed PowerShell script/environment arguments, one
 runtime-only consent, stale approval, failure/cancellation retention guidance,

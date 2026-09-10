@@ -201,6 +201,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Update="Fixtures\Capabilities\*.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\Foundry\**\*" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\Compose\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

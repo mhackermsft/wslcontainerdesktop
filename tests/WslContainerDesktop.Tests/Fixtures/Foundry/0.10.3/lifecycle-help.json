@@ -1,0 +1,69 @@
+{
+  "Source": "Coordinator-authorized network-blocked help capture",
+  "CapturedUtc": "2026-09-10T18:19:00.3937231Z",
+  "PackageSha256": "86A01C52265BD9C9167C1F8A04F34621A2A63EC5C8276166C2EECC8C6A56553F",
+  "PackageFullName": "Microsoft.FoundryLocal_0.10.3.0_x64__8wekyb3d8bbwe",
+  "Isolation": "Outbound blocks on installed CLI and daemon; owned jobs terminated; both rules removed",
+  "Commands": [
+    {
+      "Arguments": "--version",
+      "ExitCode": 0,
+      "Stdout": "0.10.3\r\n",
+      "Stderr": ""
+    },
+    {
+      "Arguments": "--help",
+      "ExitCode": 0,
+      "Stdout": "Description:\r\n  Run generative AI models locally, privately, and offline.\r\n  \r\n  Command groups:\r\n    Model:  model, cache\r\n    Run:    run, chat, complete, transcribe\r\n    Server: server\r\n    Setup:  config\r\n    Help:   status, report\r\n\r\nUsage:\r\n  foundry [command] [options]\r\n\r\nOptions:\r\n  -?, -h, --help         Show help and usage information\r\n  --version              Show version information\r\n  -o, --output <format>  Output format (text|json). Defaults to text. [default: Text]\r\n\r\nCommands:\r\n  model                      Discover, inspect, download, load, and unload local models\r\n  chat <model>               Start an interactive local chat session\r\n  complete <model> <prompt>  Generate one stateless text completion\r\n  run <model>                Run a model with automatic routing to chat or transcription\r\n  server                     Start, stop, restart, inspect, and troubleshoot the local Foundry daemon\r\n  cache                      Inspect and manage downloaded model cache entries\r\n  config                     View and edit persistent Foundry CLI settings\r\n  status                     Show system, service, model, and connectivity diagnostics\r\n  report                     Open a pre-filled GitHub issue with diagnostics\r\n  transcribe                 Start an interactive local speech transcription session or transcribe a file\r\n\r\n",
+      "Stderr": ""
+    },
+    {
+      "Arguments": "server --help",
+      "ExitCode": 0,
+      "Stdout": "Description:\r\n  Start, stop, restart, inspect, and troubleshoot the local Foundry daemon\r\n\r\nUsage:\r\n  foundry server [command] [options]\r\n\r\nOptions:\r\n  -?, -h, --help         Show help and usage information\r\n  -o, --output <format>  Output format (text|json). Defaults to text. [default: Text]\r\n\r\nCommands:\r\n  start    Start the Foundry daemon and OpenAI-compatible local service\r\n  stop     Stop the Foundry daemon\r\n  restart  Restart the Foundry daemon and OpenAI-compatible local service\r\n  status   Show daemon state, URLs, PID, uptime, and log location\r\n  logs     Show or follow daemon and SDK log lines\r\n\r\n",
+      "Stderr": ""
+    },
+    {
+      "Arguments": "server start --help",
+      "ExitCode": 0,
+      "Stdout": "Description:\r\n  Start the Foundry daemon and OpenAI-compatible local service\r\n\r\nUsage:\r\n  foundry server start [options]\r\n\r\nOptions:\r\n  -p, --port <port>         TCP port for the local service. Use 0 for an OS-assigned port; omit to use configuration.\r\n  --idle-timeout <minutes>  Stop after this many inactive minutes. Omit or use 0 to keep the daemon running.\r\n  -?, -h, --help            Show help and usage information\r\n  -o, --output <format>     Output format (text|json). Defaults to text. [default: Text]\r\n\r\n",
+      "Stderr": ""
+    },
+    {
+      "Arguments": "server status --help",
+      "ExitCode": 0,
+      "Stdout": "Description:\r\n  Show daemon state, URLs, PID, uptime, and log location\r\n\r\nUsage:\r\n  foundry server status [options]\r\n\r\nOptions:\r\n  -?, -h, --help         Show help and usage information\r\n  -o, --output <format>  Output format (text|json). Defaults to text. [default: Text]\r\n\r\n",
+      "Stderr": ""
+    },
+    {
+      "Arguments": "cache --help",
+      "ExitCode": 0,
+      "Stdout": "Description:\r\n  Inspect and manage downloaded model cache entries\r\n\r\nUsage:\r\n  foundry cache [command] [options]\r\n\r\nOptions:\r\n  -?, -h, --help         Show help and usage information\r\n  -o, --output <format>  Output format (text|json). Defaults to text. [default: Text]\r\n\r\nCommands:\r\n  list, ls                   List cached models and variants\r\n  location                   Show the active model cache directory\r\n  cd <path>                  Set the model cache directory\r\n  clear, remove, rm <model>  Remove one cached model, or all cached models when no model is supplied\r\n\r\n",
+      "Stderr": ""
+    },
+    {
+      "Arguments": "cache list --help",
+      "ExitCode": 0,
+      "Stdout": "Description:\r\n  List cached models and variants\r\n\r\nUsage:\r\n  foundry cache list [options]\r\n\r\nOptions:\r\n  --device <kind>        Filter by device kind (cpu|gpu|npu).\r\n  --type <task>          Filter by model task (chat|speech|embedding).\r\n  --search <query>       Substring match against alias, display name, model id, variant, or execution provider.\r\n  --limit <n>            Limit the number of rows in the output (must be > 0).\r\n  -v, --verbose          Include local cache paths.\r\n  --variants             Show one row per cached device-optimized variant.\r\n  -?, -h, --help         Show help and usage information\r\n  -o, --output <format>  Output format (text|json). Defaults to text. [default: Text]\r\n\r\n",
+      "Stderr": ""
+    },
+    {
+      "Arguments": "cache location --help",
+      "ExitCode": 0,
+      "Stdout": "Description:\r\n  Show the active model cache directory\r\n\r\nUsage:\r\n  foundry cache location [options]\r\n\r\nOptions:\r\n  -?, -h, --help         Show help and usage information\r\n  -o, --output <format>  Output format (text|json). Defaults to text. [default: Text]\r\n\r\n",
+      "Stderr": ""
+    },
+    {
+      "Arguments": "config --help",
+      "ExitCode": 0,
+      "Stdout": "Description:\r\n  View and edit persistent Foundry CLI settings\r\n\r\nUsage:\r\n  foundry config [command] [options]\r\n\r\nOptions:\r\n  -?, -h, --help         Show help and usage information\r\n  -o, --output <format>  Output format (text|json). Defaults to text. [default: Text]\r\n\r\nCommands:\r\n  show               Show all configuration values and their sources\r\n  set <key> <value>  Persist a configuration value\r\n  reset <key>        Reset one configuration key, or all keys\r\n\r\n",
+      "Stderr": ""
+    },
+    {
+      "Arguments": "config set --help",
+      "ExitCode": 0,
+      "Stdout": "Description:\r\n  Persist a configuration value\r\n\r\nUsage:\r\n  foundry config set <key> <value> [options]\r\n\r\nArguments:\r\n  <key>    Configuration key (port|cache-directory|idle-timeout-minutes|log-level).\r\n  <value>  Value to persist.\r\n\r\nOptions:\r\n  -f, --force            Apply daemon-affecting changes without an interactive restart confirmation.\r\n  -?, -h, --help         Show help and usage information\r\n  -o, --output <format>  Output format (text|json). Defaults to text. [default: Text]\r\n\r\n",
+      "Stderr": ""
+    }
+  ]
+}

@@ -24,7 +24,8 @@ namespace WslContainerDesktop.Services;
 /// Read-only standalone CLI adapter. Source:
 /// https://learn.microsoft.com/azure/foundry-local/reference/reference-cli
 /// Never calls model list (which can download EPs), start, restart, or config.
-/// Status requires positive installed-help evidence; no version-locked output schema is assumed.
+/// CLI 0.10.3 help is covered by recorded fixtures; status output remains a separate contract.
+/// Status requires positive installed-help evidence, never a command mentioned in prose.
 /// </summary>
 public sealed class FoundryLocalCli
 {
@@ -55,16 +56,30 @@ public sealed class FoundryLocalCli
         var help = await RunAsync(executable, ["--help"], ct).ConfigureAwait(false);
         // Select from the executable's advertised commands, not its version. Legacy previews
         // used 'service'; a failed status command is never retried with a different command.
-        var group = Regex.IsMatch(help, @"(?m)^\s*server(?:\s|$)") ? "server"
-            : Regex.IsMatch(help, @"(?m)^\s*service(?:\s|$)") ? "service" : null;
+        var group = AdvertisesCommand(help, "server") ? "server"
+            : AdvertisesCommand(help, "service") ? "service" : null;
         if (group is null)
             throw new InvalidDataException("This CLI does not advertise a recognized server/service status command. No fallback was attempted.");
         var groupHelp = await RunAsync(executable, [group, "--help"], ct).ConfigureAwait(false);
-        if (!Regex.IsMatch(groupHelp, @"(?m)^\s*status(?:\s|$)"))
+        if (!AdvertisesCommand(groupHelp, "status"))
             throw new InvalidDataException("The installed CLI does not advertise status in its server/service help. Enter the actual endpoint manually; no status syntax was inferred from the version.");
         progress?.Report("Reading the external server's actual endpoint; not starting or adopting it…");
         var status = await RunAsync(executable, [group, "status"], ct).ConfigureAwait(false);
         return new(AiTextSanitizer.Sanitize(version.Trim(), 256), ParseEndpoint(status));
+    }
+
+    internal static bool AdvertisesCommand(string help, string command)
+    {
+        var section = false;
+        foreach (var line in help.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        {
+            if (line == "Commands:") { section = true; continue; }
+            if (!section) continue;
+            if (line.Length > 0 && !char.IsWhiteSpace(line[0])) break;
+            if (Regex.IsMatch(line, @"^\s+" + Regex.Escape(command) + @"(?:,|\s|$)"))
+                return true;
+        }
+        return false;
     }
 
     private async Task<string> RunAsync(string executable, string[] arguments, CancellationToken ct)

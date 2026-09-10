@@ -76,6 +76,15 @@ against a real Foundry endpoint. No runtime was installed or started, no model o
 execution provider was acquired, no inference was run, and no package identity
 was deployed as part of this investigation.
 
+**Subsequent authorized registration/help observation (2026-09-10):** the
+coordinator registered the pinned Microsoft x64 MSIX 0.10.3.0 for the same user,
+preserving installed VCLibs 14.0.33728.0. Both installed executable paths were
+outbound-blocked during six successful CLI help/version calls. Owned job trees
+ended and both temporary rules were removed. The secret-free captured command
+outputs and package hash are in `tests/WslContainerDesktop.Tests/Fixtures/Foundry/0.10.3/help.json`.
+This establishes actual package registration and those help contracts, not a
+running REST endpoint, model setup, app deployment or inference compatibility.
+
 | Phase 1 question | Evidence and remaining work |
 | --- | --- |
 | Actual endpoint, model identity and endpoint lifetime | Blocked on an explicitly supplied local base URI, loaded model ID and runtime/host version. Record whether the host is the CLI or an SDK application. A restarted host can change its port. |
@@ -197,7 +206,7 @@ Read-only research identified:
 
 | Artifact | Evidence | Limitation |
 | --- | --- | --- |
-| `foundry-0.10.3-win-x64-winml.msix` | Microsoft release asset, published 2026-08-07T21:38:48Z; 29,982,055 bytes; SHA-256 `86A01C52265BD9C9167C1F8A04F34621A2A63EC5C8276166C2EECC8C6A56553F`. Microsoft winget manifest independently supplies the same hash. | Downloaded with explicit archive-inspection permission; bytes/hash/manifests inspected, never executed or installed. First-run EP behavior is not approved. |
+| `foundry-0.10.3-win-x64-winml.msix` | Microsoft release asset, published 2026-08-07T21:38:48Z; 29,982,055 bytes; SHA-256 `86A01C52265BD9C9167C1F8A04F34621A2A63EC5C8276166C2EECC8C6A56553F`. Microsoft winget manifest independently supplies the same hash. | Subsequently registered with separate permission; exact version/help captured under outbound blocking. Model initialization and EP behavior remain unverified. |
 | `Microsoft.VCLibs.Desktop.14` | Foundry winget manifest requires at least `14.0.33728.0`; the exact inspected nested x64 APPX is 6,757,465 bytes, SHA-256 `077A3D1A5D0622BD3004DCA85F5E192D6E98EC79B83D4AA06766759EA6C09C3D`. | No future version is approved by that minimum. No unpinned prerequisite acquisition or forced downgrade of a pre-existing framework. |
 | Initial model | REST catalog reports names, versions, size, license and device hints. | No approved exact model variant/file manifest with authoritative publication dates and hashes is available. No sample alias is an approved default. |
 | Dynamic EPs | CLI docs describe first-run acquisition and automatic plugin updates. | Exact prospective binaries, dependencies, dates and integrity evidence must be verified before acquisition. A cached model does not prove EP readiness. |
@@ -304,6 +313,30 @@ Enable a version-specific lifecycle adapter only after obtaining authoritative
 tagged help/schema documentation or authorized real help/status fixtures. Do not
 represent synthetic parser fixtures as that evidence.
 
+The subsequent real 0.10.3 capture now establishes the `server` command group
+and its advertised `status` command. Discovery parses only command-table rows,
+not descriptions/examples. The actual status response is **not** captured yet.
+`model download [<model>]` accepts an alias, variant ID or model ID, `--force`
+and `--output`; `model load [<model>]` has `--output` but no advertised offline
+flag. Neither help output proves a version-pinned registry download, a local
+directory import, or absence of implicit EP acquisition. Do not substitute the
+download command for app-controlled conditional staging of the audited v4 files.
+
+The second real capture, `lifecycle-help.json`, establishes `server start --port 0`
+for an OS-assigned port and `--idle-timeout <minutes>`, but no offline flag.
+`cache` advertises list/location/cd/clear, not import. Cache-directory configuration
+is persistent and may restart the daemon; it is not a harmless per-request option.
+Setup must not repoint a pre-existing user's cache or use `--force` to hide a restart.
+
+The tagged public SDK v2 [local scanner](https://github.com/microsoft/Foundry-Local/blob/da50cfea8a43d22a63214f8bd9e58949a5177fb0/sdk_v2/cpp/src/catalog/local_model_scanner.cc)
+recognizes nested leaves containing `genai_config.json`, `inference_model.json`
+with a `Name`, and no `download.tmp`. Its
+[writer](https://github.com/microsoft/Foundry-Local/blob/da50cfea8a43d22a63214f8bd9e58949a5177fb0/sdk_v2/cpp/src/download/inference_model_writer.cc)
+uses the exact model ID (including version) and catalog prompt templates.
+That is a concrete cache-layout candidate, **not evidence of binary parity with
+the installed CLI's embedded Core**. A real blocked cache observation must
+establish that contract before enabling direct registration of staged files.
+
 `foundry server start --port 0`, `foundry model download <model>`, and
 `foundry model load <model>` are mutations, available only after a valid setup
 plan and explicit confirmation. `0` requests an OS-selected port; subsequent
@@ -330,6 +363,11 @@ on September 10 returned this concrete candidate; it is **not an approved
 default model or an implemented acquisition plan**:
 
 - Asset: `azureml://registries/azureml/models/qwen2.5-0.5b-instruct-generic-cpu/versions/4`.
+- Metadata resolution on 2026-09-10 returned the exact public storage container
+  `https://amlwlrt4usc01.blob.core.windows.net/azureml-ab8fb672-187c-5c05-b028-d5004b5d5ae3`.
+  SAS query credentials are ephemeral, memory-only and excluded from fixtures.
+  Conditional acquisition must reject a different origin/container rather than
+  trusting any tenant's `blob.core.windows.net` hostname.
 - Variant: ONNX, RTN, CPU / `CPUExecutionProvider`; Microsoft optimization of
   Qwen2.5-0.5B-Instruct. Registry model creation: 2025-11-14T07:39:18.7283746Z.
 - Reported license: Apache 2.0, with the registry's

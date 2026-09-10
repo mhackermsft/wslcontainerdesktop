@@ -104,8 +104,8 @@ public sealed class FoundryLocalSetupTests
         var cli = new FoundryLocalCli(() => @"C:\Foundry\foundry.exe", (_, _) => Task.FromResult(++calls switch
         {
             1 => Ok("synthetic-version"),
-            2 => Ok("  server Server\n  service Legacy"),
-            3 => Ok("  status Display server status"),
+            2 => Ok("Commands:\n  server Server\n  service Legacy"),
+            3 => Ok("Commands:\n  status Display server status"),
             _ => new CommandResult { ExitCode = 1, StandardError = "synthetic-sensitive-process-output" },
         }));
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => cli.DiscoverAsync(null, default));
@@ -133,8 +133,8 @@ public sealed class FoundryLocalSetupTests
             return Task.FromResult(Ok(calls.Count switch
             {
                 1 => "0.10.3.0",
-                2 => "  server Server commands",
-                _ => "  start Start server\n  stop Stop server",
+                2 => "Commands:\n  server Server commands",
+                _ => "Commands:\n  start Start server\n  stop Stop server",
             }));
         });
         var error = await Assert.ThrowsAsync<InvalidDataException>(() => cli.DiscoverAsync(null, default));
@@ -345,8 +345,8 @@ public sealed class FoundryLocalSetupTests
                 return Task.FromResult(Ok(start.ArgumentList[0] switch
                 {
                     "--version" => "synthetic-cli-version",
-                    "--help" => "  server Server commands",
-                    "server" => start.ArgumentList[1] == "--help" ? "  status Display server status"
+                    "--help" => "Commands:\n  server Server commands",
+                    "server" => start.ArgumentList[1] == "--help" ? "Commands:\n  status Display server status"
                         : "Endpoint: http://127.0.0.1:54321",
                     _ => throw new Xunit.Sdk.XunitException("Unexpected command"),
                 }));
