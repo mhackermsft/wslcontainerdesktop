@@ -1,0 +1,391 @@
+// WSL Container Desktop - a WinUI 3 manager for WSL containers.
+// Copyright (C) 2026 Michael Hacker
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+using System.Net;
+using System.Text.Json;
+using WslContainerDesktop.Models;
+using WslContainerDesktop.Services;
+using Xunit;
+
+namespace WslContainerDesktop.Tests.Services;
+
+public sealed class AiProviderContractTests
+{
+    public static TheoryData<AiProviderKind> Providers => new()
+    {
+        AiProviderKind.OpenAi, AiProviderKind.AzureOpenAi, AiProviderKind.Ollama,
+    };
+
+    public static TheoryData<AiProviderKind, int, AiFailureKind> HttpFailures
+    {
+        get
+        {
+            var data = new TheoryData<AiProviderKind, int, AiFailureKind>();
+            foreach (var kind in new[] { AiProviderKind.OpenAi, AiProviderKind.AzureOpenAi, AiProviderKind.Ollama })
+            {
+                data.Add(kind, 401, AiFailureKind.Authentication);
+                data.Add(kind, 403, AiFailureKind.Authentication);
+                data.Add(kind, 404, AiFailureKind.NotFound);
+                data.Add(kind, 429, AiFailureKind.RateLimited);
+                data.Add(kind, 503, AiFailureKind.ServerError);
+            }
+            return data;
+        }
+    }
+
+    private static readonly AiChatMessage[] History =
+    [
+        new() { Role = "system", Content = "Synthetic system prompt" },
+        new() { Role = "user", Content = "Inspect the synthetic container" },
+    ];
+
+    private static readonly AiToolDefinition[] Tools =
+    [
+        new()
+        {
+            Name = "inspect_container",
+            Description = "Read synthetic inventory",
+            JsonSchemaParameters = """{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}""",
+        },
+    ];
+
+    private static IAiChatProvider Create(AiProviderKind kind, AiHttpClient http, ISettingsService settings, string? key = "synthetic-key-not-a-credential") =>
+        kind switch
+        {
+            AiProviderKind.OpenAi => new OpenAiProvider(http, settings, new AiContractHarness.Credentials(key)),
+            AiProviderKind.AzureOpenAi => new AzureOpenAiProvider(http, settings, new AiContractHarness.Credentials(key)),
+            AiProviderKind.Ollama => new OllamaProvider(http, settings),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
+    private static string Response(AiProviderKind kind, string? text = null, params AiToolCall[] calls)
+    {
+        object message = kind == AiProviderKind.Ollama
+            ? new
+            {
+                content = text,
+                tool_calls = calls.Select(c => new { function = new { name = c.Name, arguments = JsonSerializer.Deserialize<JsonElement>(c.ArgumentsJson) } }),
+            }
+            : new
+            {
+                content = text,
+                tool_calls = calls.Select(c => new { id = c.Id, type = "function", function = new { name = c.Name, arguments = c.ArgumentsJson } }),
+            };
+        return kind == AiProviderKind.Ollama
+            ? JsonSerializer.Serialize(new { message })
+            : JsonSerializer.Serialize(new { choices = new[] { new { message } } });
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task ToolCallsAndResultsRoundTripUsingProviderWireFormat(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        var first = AiContractHarness.Call("inspect_container");
+        var second = new AiToolCall { Id = "call-2", Name = "inspect_container", ArgumentsJson = """{"id":"second-id"}""" };
+        handler.Enqueue(Response(kind, null, first, second));
+        handler.Enqueue(Response(kind, "Final answer"));
+        var calls = new List<AiToolCall>();
+        var answer = await Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (call, _) =>
+        {
+            calls.Add(call);
+            return Task.FromResult($"Evidence for {call.Id}");
+        }, CancellationToken.None);
+
+        Assert.Equal("Final answer", answer);
+        Assert.Equal(2, calls.Count);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(2, History.Length);
+        Assert.Equal(first.Name, calls[0].Name);
+        Assert.Equal("approved-id", JsonSerializer.Deserialize<JsonElement>(calls[0].ArgumentsJson).GetProperty("id").GetString());
+        Assert.Equal("second-id", JsonSerializer.Deserialize<JsonElement>(calls[1].ArgumentsJson).GetProperty("id").GetString());
+        Assert.NotEqual(calls[0].Id, calls[1].Id);
+        using var request = JsonDocument.Parse(handler.Requests[1].Body);
+        var root = request.RootElement;
+        var messages = root.GetProperty("messages");
+        Assert.Equal(5, messages.GetArrayLength());
+        Assert.Equal("assistant", messages[2].GetProperty("role").GetString());
+        Assert.Equal(2, messages[2].GetProperty("tool_calls").GetArrayLength());
+        for (var i = 0; i < calls.Count; i++)
+        {
+            var result = messages[3 + i];
+            Assert.Equal("tool", result.GetProperty("role").GetString());
+            Assert.Equal($"Evidence for {calls[i].Id}", result.GetProperty("content").GetString());
+            var function = messages[2].GetProperty("tool_calls")[i].GetProperty("function");
+            Assert.Equal(calls[i].Name, function.GetProperty("name").GetString());
+            if (kind == AiProviderKind.Ollama)
+            {
+                Assert.Equal(calls[i].Name, result.GetProperty("tool_name").GetString());
+                Assert.Equal(JsonValueKind.Object, function.GetProperty("arguments").ValueKind);
+            }
+            else
+            {
+                Assert.Equal(calls[i].Id, result.GetProperty("tool_call_id").GetString());
+                Assert.Equal(calls[i].Name, result.GetProperty("name").GetString());
+                Assert.Equal(calls[i].ArgumentsJson, function.GetProperty("arguments").GetString());
+            }
+        }
+        var schema = root.GetProperty("tools")[0].GetProperty("function").GetProperty("parameters");
+        Assert.Equal("object", schema.GetProperty("type").GetString());
+        Assert.Equal("id", schema.GetProperty("required")[0].GetString());
+        Assert.All(handler.Requests, r =>
+        {
+            Assert.Equal(HttpMethod.Post, r.Method);
+            Assert.DoesNotContain("synthetic-key-not-a-credential", r.Body);
+            Assert.DoesNotContain("synthetic-key-not-a-credential", r.Uri.ToString());
+        });
+        if (kind == AiProviderKind.OpenAi)
+        {
+            Assert.Equal("https://provider.invalid/v1/chat/completions", handler.Requests[0].Uri.ToString());
+            Assert.Equal("Bearer synthetic-key-not-a-credential", handler.Requests[0].Headers["Authorization"]);
+        }
+        else if (kind == AiProviderKind.AzureOpenAi)
+        {
+            Assert.Contains("/openai/deployments/synthetic-deployment/chat/completions?api-version=", handler.Requests[0].Uri.ToString());
+            Assert.Equal("synthetic-key-not-a-credential", handler.Requests[0].Headers["api-key"]);
+        }
+        else
+        {
+            Assert.Equal("http://ollama.invalid:11434/api/chat", handler.Requests[0].Uri.ToString());
+            Assert.False(handler.Requests[0].Headers.ContainsKey("Authorization"));
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(HttpFailures))]
+    public async Task HttpFailuresAreTypedRedactedAndNotRetried(AiProviderKind kind, int status, AiFailureKind expected)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        handler.Enqueue("PASSWORD=synthetic-private-value; Bearer synthetic-bearer " + new string('x', 600), (HttpStatusCode)status);
+        var executed = 0;
+        var error = await Assert.ThrowsAsync<AiProviderException>(() =>
+            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+            {
+                executed++;
+                return Task.FromResult("must not execute");
+            }, CancellationToken.None));
+        Assert.Equal(expected, error.Kind);
+        Assert.Equal(kind, error.Provider);
+        Assert.Equal(status, error.StatusCode);
+        Assert.Equal("Assistant chat", error.Operation);
+        Assert.NotNull(error.ResponseDetail);
+        Assert.DoesNotContain("synthetic-private-value", error.ResponseDetail);
+        Assert.DoesNotContain("synthetic-bearer", error.ResponseDetail);
+        Assert.Contains("<redacted>", error.ResponseDetail);
+        Assert.True(error.ResponseDetail.Length <= 401);
+        Assert.Equal(0, executed);
+        Assert.Single(handler.Requests);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task FailureAfterCompletedToolDoesNotReplayMutation(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        handler.Enqueue(Response(kind, null, AiContractHarness.Call()));
+        handler.Enqueue("synthetic outage", HttpStatusCode.ServiceUnavailable);
+        var executed = 0;
+        await Assert.ThrowsAsync<AiProviderException>(() => Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+        {
+            executed++;
+            return Task.FromResult("Mutation completed");
+        }, CancellationToken.None));
+        Assert.Equal(1, executed);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task CancellationDuringHttpWaitStopsWithoutRetry(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        using var cancellation = new CancellationTokenSource();
+        var entered = AiContractHarness.Signal<bool>();
+        handler.Responses.Enqueue(async ct =>
+        {
+            entered.TrySetResult(true);
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new InvalidOperationException("Unreachable");
+        });
+        var executed = 0;
+        var turn = Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+        {
+            executed++;
+            return Task.FromResult("must not execute");
+        }, cancellation.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => turn.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(0, executed);
+        Assert.Single(handler.Requests);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task ToolFailureStopsRemainingCallsAndDoesNotRetry(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        handler.Enqueue(Response(kind, null, AiContractHarness.Call(), new AiToolCall { Id = "call-2", Name = "stop_container" }));
+        var executed = 0;
+        var failure = new InvalidOperationException("Synthetic partial operation failure");
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+            {
+                executed++;
+                return Task.FromException<string>(failure);
+            }, CancellationToken.None));
+        Assert.Same(failure, error);
+        Assert.Equal(1, executed);
+        Assert.Single(handler.Requests);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task InvalidResponseJsonDoesNotInvokeTools(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        handler.Enqueue("{broken response");
+        var executed = 0;
+        await Assert.ThrowsAnyAsync<JsonException>(() => Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+        {
+            executed++;
+            return Task.FromResult("must not execute");
+        }, CancellationToken.None));
+        Assert.Equal(0, executed);
+        Assert.Single(handler.Requests);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task IterationLimitBoundsRequests(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        for (var i = 0; i < 8; i++)
+        {
+            handler.Enqueue(Response(kind, null, new AiToolCall
+            {
+                Id = $"call-{i}", Name = "inspect_container", ArgumentsJson = JsonSerializer.Serialize(new { id = $"id-{i}" }),
+            }));
+        }
+        var calls = new List<string>();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (call, _) =>
+            {
+                calls.Add(call.ArgumentsJson);
+                return Task.FromResult("read-only evidence");
+            }, CancellationToken.None));
+        Assert.Contains("iteration limit", error.Message);
+        Assert.Equal(8, handler.Requests.Count);
+        Assert.Equal(8, calls.Distinct().Count());
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task DiagnosisSerializesJsonModeAndParsesStructuredResponse(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        handler.Enqueue(Response(kind, """{"summary":" synthetic diagnosis ","likelyCause":"test","confidence":0.8}"""));
+        var provider = (IAiProvider)Create(kind, http, h.Settings);
+        var diagnosis = await provider.CompleteAsync(new AiPromptRequest("system", "synthetic evidence"), CancellationToken.None);
+        Assert.Equal("synthetic diagnosis", diagnosis.Summary);
+        using var request = JsonDocument.Parse(Assert.Single(handler.Requests).Body);
+        var root = request.RootElement;
+        Assert.Equal("synthetic evidence", root.GetProperty("messages")[1].GetProperty("content").GetString());
+        Assert.Equal("system", root.GetProperty("messages")[0].GetProperty("content").GetString());
+        Assert.Equal(kind == AiProviderKind.Ollama ? "json" : "json_object",
+            kind == AiProviderKind.Ollama ? root.GetProperty("format").GetString() : root.GetProperty("response_format").GetProperty("type").GetString());
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task CancellationAfterCompletedMutationDoesNotReplayIt(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        using var cancellation = new CancellationTokenSource();
+        handler.Enqueue(Response(kind, null, AiContractHarness.Call()));
+        var executed = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+            {
+                executed++;
+                cancellation.Cancel();
+                return Task.FromResult("Mutation completed before cancellation");
+            }, cancellation.Token));
+        Assert.Equal(1, executed);
+        Assert.Single(handler.Requests);
+    }
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task MissingModelOrDeploymentFailsBeforeNetworkOrTools(AiProviderKind kind)
+    {
+        var h = new AiContractHarness();
+        h.SettingsValues[nameof(ISettingsService.AiOpenAiModel)] = "";
+        h.SettingsValues[nameof(ISettingsService.AiAzureOpenAiDeployment)] = "";
+        h.SettingsValues[nameof(ISettingsService.AiOllamaModel)] = "";
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        var error = await Assert.ThrowsAsync<AiProviderException>(() =>
+            Create(kind, http, h.Settings).RunTurnAsync(History, Tools, (_, _) =>
+                throw new InvalidOperationException("Must not execute tools"), CancellationToken.None));
+        Assert.Equal(AiFailureKind.Configuration, error.Kind);
+        Assert.Equal(kind, error.Provider);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task OpenAiCompatibleEndpointCanBeKeyless()
+    {
+        var h = new AiContractHarness();
+        using var handler = new AiContractHarness.ScriptedHttpHandler();
+        using var http = new AiHttpClient(handler);
+        handler.Enqueue(Response(AiProviderKind.OpenAi, "Local response"));
+        await Create(AiProviderKind.OpenAi, http, h.Settings, key: null).RunTurnAsync(History, [], (_, _) =>
+            throw new InvalidOperationException("No tool expected"), CancellationToken.None);
+        Assert.False(Assert.Single(handler.Requests).Headers.ContainsKey("Authorization"));
+    }
+
+    [Theory]
+    [InlineData("https://provider.invalid/v1", "https://provider.invalid/v1/chat/completions")]
+    [InlineData("https://provider.invalid/v1/chat/completions/", "https://provider.invalid/v1/chat/completions")]
+    [InlineData("http://localhost:12345/v1/", "http://localhost:12345/v1/chat/completions")]
+    public void OpenAiEndpointNormalizationDoesNotDuplicateRoute(string input, string expected) =>
+        Assert.Equal(expected, OpenAiProvider.BuildUri(input, "chat/completions").ToString());
+
+    [Theory]
+    [InlineData("file:///tmp/model")]
+    [InlineData("not a URI")]
+    public void OpenAiEndpointRejectsNonHttpAddresses(string input) =>
+        Assert.Throws<InvalidOperationException>(() => OpenAiProvider.BuildUri(input, "chat/completions"));
+}

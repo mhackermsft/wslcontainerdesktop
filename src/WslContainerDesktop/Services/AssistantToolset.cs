@@ -27,7 +27,7 @@ public sealed class AssistantToolset(
     IComposeProjectStore composeStore,
     ComposeProjectSupervisor composeSupervisor,
     ISettingsService settings,
-    IRegistryCatalogService registryCatalog)
+    IRegistryCatalogService registryCatalog) : IAssistantToolset
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -765,10 +765,3 @@ public sealed class AssistantToolset(
     }
 
 }
-
-public sealed record AssistantResolvedToolCall(
-    AiToolCall Call,
-    AssistantPermissionCategory Category,
-    string Summary,
-    string Details,
-    Func<CancellationToken, Task<string>> ExecuteAsync);

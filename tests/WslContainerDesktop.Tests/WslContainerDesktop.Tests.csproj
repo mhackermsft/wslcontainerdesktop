@@ -25,6 +25,26 @@
 
   <ItemGroup>
     <!-- Loading the packaged WinUI executable in a test host triggers package activation. -->
+    <Compile Include="..\..\src\WslContainerDesktop\Models\AssistantModels.cs" Link="Models\AssistantModels.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\AiChatModels.cs" Link="Models\AiChatModels.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ActivityEvent.cs" Link="Models\ActivityEvent.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IAssistantToolset.cs" Link="Services\IAssistantToolset.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantResolvedToolCall.cs" Link="Services\AssistantResolvedToolCall.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerAssistantService.cs" Link="Services\ContainerAssistantService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IContainerAssistant.cs" Link="Services\IContainerAssistant.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantActionGate.cs" Link="Services\AssistantActionGate.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IAssistantActionGate.cs" Link="Services\IAssistantActionGate.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IActivityLog.cs" Link="Services\IActivityLog.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IAiChatProvider.cs" Link="Services\IAiChatProvider.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IAiProvider.cs" Link="Services\IAiProvider.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IAiCredentialStore.cs" Link="Services\IAiCredentialStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AiHttpClient.cs" Link="Services\AiHttpClient.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\OpenAiProvider.cs" Link="Services\OpenAiProvider.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AzureOpenAiProvider.cs" Link="Services\AzureOpenAiProvider.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\OllamaProvider.cs" Link="Services\OllamaProvider.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AiProviderJson.cs" Link="Services\AiProviderJson.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AiProviderException.cs" Link="Services\AiProviderException.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AiTextSanitizer.cs" Link="Services\AiTextSanitizer.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerDetails.cs" Link="Models\ContainerDetails.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerMount.cs" Link="Models\ContainerMount.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerMounts.cs" Link="Models\ContainerMounts.cs" />

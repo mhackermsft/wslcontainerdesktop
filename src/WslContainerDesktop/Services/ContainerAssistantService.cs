@@ -21,7 +21,7 @@ namespace WslContainerDesktop.Services;
 public sealed class ContainerAssistantService(
     ISettingsService settings,
     IEnumerable<IAiChatProvider> providers,
-    AssistantToolset tools,
+    IAssistantToolset tools,
     IAssistantActionGate gate,
     IActivityLog activity) : IContainerAssistant
 {
