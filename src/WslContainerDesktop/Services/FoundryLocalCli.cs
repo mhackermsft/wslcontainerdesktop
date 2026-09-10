@@ -62,8 +62,56 @@ public sealed class FoundryLocalCli
         if (!AdvertisesCommand(groupHelp, "status"))
             throw new InvalidDataException("The installed CLI does not advertise status in its server/service help. Enter the actual endpoint manually; no status syntax was inferred from the version.");
         progress?.Report("Reading the external server's actual endpoint; not starting or adopting it…");
+        if (version.Trim() == "0.10.3")
+        {
+            var observed = ParseServerStatus(await RunAsync(executable, [group, "status", "--output", "json"], ct).ConfigureAwait(false));
+            if (!observed.Running)
+                throw new InvalidDataException("Foundry Local is stopped. Stale stored URLs/PIDs cannot be used; explicitly start the runtime before connecting.");
+            if (observed.Endpoints.Count != 1)
+                throw new InvalidDataException("Foundry Local reports multiple service URLs; choose the actual endpoint explicitly.");
+            return new("0.10.3", observed.Endpoints[0]);
+        }
         var status = await RunAsync(executable, [group, "status"], ct).ConfigureAwait(false);
         return new(AiTextSanitizer.Sanitize(version.Trim(), 256), ParseEndpoint(status));
+    }
+
+    public async Task<FoundryLocalServerStatus> ReadServerStatusAsync(CancellationToken ct)
+    {
+        var executable = RequireExecutable();
+        if ((await RunAsync(executable, ["--version"], ct).ConfigureAwait(false)).Trim() != "0.10.3")
+            throw new InvalidDataException("Standalone server status is supported only for observed CLI 0.10.3.");
+        return ParseServerStatus(await RunAsync(executable, ["server", "status", "--output", "json"], ct).ConfigureAwait(false));
+    }
+
+    internal static FoundryLocalServerStatus ParseServerStatus(string output)
+    {
+        using var json = JsonDocument.Parse(output, new JsonDocumentOptions { MaxDepth = 8 });
+        var root = json.RootElement;
+        if (root.ValueKind != JsonValueKind.Object
+            || root.EnumerateObject().GroupBy(p => p.Name, StringComparer.Ordinal).Any(group => group.Count() != 1)
+            || !root.TryGetProperty("running", out var running)
+            || running.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            throw new InvalidDataException("Unknown Foundry server-status schema.");
+        // A stopped 0.10.3 daemon retains previous pid/URLs/start time. Never resurrect it
+        // from those stale fields or use them to authorize inference/owned-process actions.
+        if (!running.GetBoolean()) return new(false, null, null, []);
+        if (!root.TryGetProperty("pid", out var pid) || pid.ValueKind != JsonValueKind.Number
+            || !pid.TryGetInt32(out var processId) || processId <= 0
+            || !root.TryGetProperty("startedAt", out var started) || started.ValueKind != JsonValueKind.String
+            || !started.TryGetDateTimeOffset(out var startedAt)
+            || !root.TryGetProperty("webUrls", out var urls) || urls.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Running Foundry status lacks a process/start identity or service URLs.");
+        var endpoints = new List<string>();
+        foreach (var url in urls.EnumerateArray())
+        {
+            if (url.ValueKind != JsonValueKind.String) throw new InvalidDataException("Unknown Foundry URL metadata.");
+            var endpoint = url.GetString()!;
+            FoundryLocalEndpoint.Validate(endpoint);
+            endpoints.Add(endpoint);
+        }
+        if (endpoints.Count == 0 || endpoints.Distinct(StringComparer.Ordinal).Count() != endpoints.Count)
+            throw new InvalidDataException("Foundry status has missing or duplicate service URLs.");
+        return new(true, processId, startedAt, endpoints);
     }
 
     public async Task<FoundryLocalCacheLocation> ReadCacheLocationAsync(CancellationToken ct)
@@ -177,3 +225,4 @@ public sealed class FoundryLocalCli
 
 public sealed record FoundryLocalDiscovery(string CliVersion, string Endpoint);
 public sealed record FoundryLocalCacheLocation(string Path, bool UserConfigured);
+public sealed record FoundryLocalServerStatus(bool Running, int? Pid, DateTimeOffset? StartedAt, IReadOnlyList<string> Endpoints);

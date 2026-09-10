@@ -24,11 +24,12 @@ public sealed record FoundryLocalModel(
 
 public sealed record FoundryLocalInventory(
     AiChatConfiguration Configuration, IReadOnlyList<FoundryLocalModel> Catalog,
-    IReadOnlyList<string> Cached, IReadOnlyList<string> Loaded, string RuntimeIdentity)
+    IReadOnlyList<string> Cached, IReadOnlyList<string> Loaded, string RuntimeIdentity,
+    bool CacheStateKnown = true, bool LoadStateKnown = true)
 {
     public FoundryLocalModel? Selected => Catalog.SingleOrDefault(m => m.Id == Configuration.Model);
-    public bool IsCached => Cached.Contains(Configuration.Model, StringComparer.Ordinal);
-    public bool IsLoaded => Loaded.Contains(Configuration.Model, StringComparer.Ordinal);
+    public bool IsCached => CacheStateKnown && Cached.Contains(Configuration.Model, StringComparer.Ordinal);
+    public bool IsLoaded => LoadStateKnown && Loaded.Contains(Configuration.Model, StringComparer.Ordinal);
 }
 
 public sealed record FoundryLocalMutationResult(bool IsConfirmed, LocalRuntimeResourceState Memory,

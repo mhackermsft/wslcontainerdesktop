@@ -40,10 +40,13 @@ public sealed class FoundryLocalCapabilityObserver(
                 Runtime = AiRuntimeState.Ready,
                 RuntimeIdentity = inventory.RuntimeIdentity,
                 ModelIdentity = ModelIdentity(inventory),
-                Model = inventory.Selected is { ModelType: "ONNX" } && inventory.IsCached
-                    ? AiModelState.Available : AiModelState.Missing,
-                Download = inventory.IsCached ? AiDownloadState.Downloaded : AiDownloadState.NotDownloaded,
-                Load = inventory.IsLoaded ? AiLoadState.Loaded : AiLoadState.Unloaded,
+                Model = !inventory.CacheStateKnown ? AiModelState.Unknown
+                    : inventory.Selected is { ModelType: "ONNX" } && inventory.IsCached
+                        ? AiModelState.Available : AiModelState.Missing,
+                Download = !inventory.CacheStateKnown ? AiDownloadState.Unknown
+                    : inventory.IsCached ? AiDownloadState.Downloaded : AiDownloadState.NotDownloaded,
+                Load = !inventory.LoadStateKnown ? AiLoadState.Unknown
+                    : inventory.IsLoaded ? AiLoadState.Loaded : AiLoadState.Unloaded,
                 // An advertisement alone is not verified assistant protocol support.
                 Tools = inventory.Selected?.SupportsToolCalling == false
                     ? new(AiSupport.Unsupported, AiObservationSource.Metadata) : new(),
@@ -71,7 +74,7 @@ public sealed class FoundryLocalCapabilityObserver(
     internal static string ModelIdentity(FoundryLocalInventory inventory) =>
         AiCapabilityService.HashIdentity(JsonSerializer.Serialize(new
         {
-            inventory.Selected, inventory.IsCached, inventory.IsLoaded,
+            inventory.Selected, inventory.IsCached, inventory.IsLoaded, inventory.CacheStateKnown, inventory.LoadStateKnown,
         }));
 
     public async Task<AiCapabilitySnapshot> ProbeAsync(AiCapabilitySnapshot metadata, CancellationToken ct)

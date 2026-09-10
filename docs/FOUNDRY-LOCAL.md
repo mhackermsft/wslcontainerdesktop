@@ -25,12 +25,16 @@ Default certificate validation remains enabled; no certificate-store changes
 or TLS bypass are used. No saved OpenAI key is
 used. A correctly configured loopback host must still be trusted by its operator.
 
-**Refresh metadata** reads documented server status, catalog, cached-model and
-loaded-model routes. It shows actual IDs plus reported version, size, license,
-device and execution-provider hints. Missing fields remain unknown; an
-unrecognized or failing route is not a successful empty inventory. Neither
-refresh nor construction of the settings view model starts inference or load.
-The catalog view is bounded and sanitized, not a hardware recommendation engine.
+**Selected standalone 0.10.3 adapter:** actual `/openai/status` returned 404, so
+the registered service no longer uses the legacy management endpoints. It binds
+CLI `server status --output json` process/start identity around standard
+`/v1/models` reads. A stopped status can retain stale URLs/PID/start time; those
+fields are discarded when `running` is false. PID/start/endpoint identity, not
+changing uptime/log text, binds the observation. Metadata never starts the daemon.
+The v1 listing alone does not establish cached/loaded state, model format or
+tool support: these remain **unknown**, preventing generation/probes rather than
+converting missing evidence into readiness. The legacy reference adapter and its
+synthetic route tests remain in source but are not selected by application DI.
 
 Diagnosis and assistant turns require an exact cached, loaded ONNX catalog model.
 Capability tests independently observe chat, tool calls, tool-result acceptance,
@@ -49,12 +53,9 @@ authoritatively verify that preparation. Prepare and load assets externally only
 under an independently audited, authorized procedure. A warning or checkbox
 cannot waive the acquisition policy.
 
-**Unload model** deliberately requests only the selected model's documented
-non-forced unload operation, then reads actual state. It does not override the
-runtime's TTL, stop the shared host, unload other models or delete model files.
-If memory release is not observed, the result does not claim success. Cancellation
-or timeout leaves state uncertain until refreshed. Runtime changes invalidate
-capability observations before and after the operation.
+**Unload model** is also blocked for standalone 0.10.3 until its actual lifecycle
+contract is established. The legacy adapter's tested non-forced unload route is
+not compatibility evidence for this release and is not retried after a failure.
 
 **Memory ownership policy:** the external host owns its idle TTL and allocation
 policy. The app never keeps a model alive, automatically unloads models on exit,
@@ -340,6 +341,17 @@ for an OS-assigned port and `--idle-timeout <minutes>`, but no offline flag.
 `cache` advertises list/location/cd/clear, not import. Cache-directory configuration
 is persistent and may restart the daemon; it is not a harmless per-request option.
 Setup must not repoint a pre-existing user's cache or use `--force` to hide a restart.
+
+**Observed startup caveat:** coordinator-owned, network-blocked daemon starts
+logged `Downloading and registering EPs`, including the CPU preparation attempt.
+This proves an attempted startup step, not successful acquisition. The two
+executable outbound blocks do not establish isolation of hypothetical delegated
+Windows-service acquisition. Product start remains disabled; selecting CPU does
+not bypass the EP policy. No CLI disable-EP control is established.
+The same official release lists a non-WinML x64 MSIX (28,896,573 bytes, August 7,
+2026, SHA-256 `625932ADD39CE7C73F419CC87979BE6F75655482240DA36899480DC6C246579C`),
+but it has not been acquired/audited for dependency closure or package replacement
+and is not silently substituted into the allowlist.
 
 The tagged public SDK v2 [local scanner](https://github.com/microsoft/Foundry-Local/blob/da50cfea8a43d22a63214f8bd9e58949a5177fb0/sdk_v2/cpp/src/catalog/local_model_scanner.cc)
 recognizes nested leaves containing `genai_config.json`, `inference_model.json`

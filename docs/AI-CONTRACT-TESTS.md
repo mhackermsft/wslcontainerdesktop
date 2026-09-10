@@ -593,6 +593,14 @@ Recorded cache-location tests separately establish the observed 0.10.3 JSON
 schema and reject unknown versions/fields/unsafe paths. Cache-list timeout is
 not interpreted as empty inventory.
 
+`FoundryLocalStandaloneTests` covers the DI-selected CLI-status/v1 metadata path:
+stopped-state/stale-URL rejection, process restart invalidation, unknown
+cache/load state and zero generation from mere model-list presence. Its standard
+v1 edge payloads are synthetic, not an assertion of observed loaded-state fields.
+The actual stopped-status fixture is recorded separately. Legacy route tests
+describe only the retained reference adapter; `/openai/status` returned 404 in
+the real standalone exercise and the application no longer requires it.
+
 `FoundryLocalInstallerTests` exercises prepared-file size/hash checks, locked
 files during approval, fixed PowerShell script/environment arguments, one
 runtime-only consent, stale approval, failure/cancellation retention guidance,

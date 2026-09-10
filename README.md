@@ -395,8 +395,10 @@ installations. Registration does not start Foundry or set up an initial model.
 Qwen v4 artifact with explicit license/network consent, conditional downloads,
 progress/cancellation and rehashed offline reuse. It does **not** import or load
 the model, and does not change the configured endpoint/model.
-Use an already-loaded host; explicit selected-model unload is available without
-forcing the host's memory policy. There is no cloud fallback, and assistant actions still require the existing
+The selected 0.10.3 runtime uses CLI status and `/v1/models`, not the legacy
+management routes (which returned 404 in the actual exercise). Cache/load state
+is unknown until independently established; model mutations and inference stay
+blocked rather than infer readiness from model listing. There is no cloud fallback, and assistant actions still require the existing
 capability and approval gates. **Live Foundry compatibility, signed x64 MSIX and
 hardware/offline acceptance remain unverified**; see the
 [integration scope and prerequisites](docs/FOUNDRY-LOCAL.md).

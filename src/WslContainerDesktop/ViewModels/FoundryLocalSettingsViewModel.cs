@@ -54,7 +54,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     private bool _isPreparingModelFiles;
 
     public string AcquisitionGuidance => FoundryLocalRuntimeService.AcquisitionGuidance;
-    public string MemoryPolicy => FoundryLocalRuntimeService.MemoryPolicy;
+    public string MemoryPolicy => FoundryLocalStandaloneRuntimeService.MemoryPolicy;
     public string InstallationGuidance => _setup.AvailabilityGuidance;
     public bool IsPreparingAnything => IsInstallingRuntime || IsPreparingModelFiles;
     public bool CanInstallRuntime => _setup.CanInstall && !IsPreparingAnything;
@@ -274,20 +274,20 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
                     : await _runtime.UnloadAsync(configuration, ct);
                 if (!IsCurrent(configuration)) return;
                 Status = result.Guidance;
-                if (operation == "load") return; // Always blocked; do not imply a load or readiness check occurred.
+                if (operation == "load" || !result.IsConfirmed) return;
             }
             else if (operation != "refresh") throw new ArgumentException("Unknown Foundry Local operation.");
             var inventory = await _runtime.ReadInventoryAsync(configuration, ct);
             ct.ThrowIfCancellationRequested();
             if (!IsCurrent(configuration)) return;
             var rows = inventory.Catalog.Take(100).Select(m =>
-                $"{m.Id} | cached: {inventory.Cached.Contains(m.Id)} | loaded: {inventory.Loaded.Contains(m.Id)}\n" +
+                $"{m.Id} | cached: {(inventory.CacheStateKnown ? inventory.Cached.Contains(m.Id).ToString() : "unknown")} | loaded: {(inventory.LoadStateKnown ? inventory.Loaded.Contains(m.Id).ToString() : "unknown")}\n" +
                 $"  version: {Known(m.Version)}; size MB: {m.FileSizeMb?.ToString() ?? "unknown"}; license: {Known(m.License)}\n" +
                 $"  license information: {Known(m.LicenseDescription)}; task: {Known(m.Task)}; format: {Known(m.ModelType)}\n" +
                 $"  hardware target: {Known(m.DeviceType)}; EP: {Known(m.ExecutionProvider)} (advertised, not validated); tools advertised: {m.SupportsToolCalling?.ToString() ?? "unknown"}");
             InventoryText = AiTextSanitizer.Sanitize(
-                $"Catalog: {inventory.Catalog.Count}; cached: {inventory.Cached.Count}; loaded: {inventory.Loaded.Count}.\n" +
-                $"Cached IDs: {string.Join(", ", inventory.Cached.Take(100))}\nLoaded IDs: {string.Join(", ", inventory.Loaded.Take(100))}\n" +
+                $"Catalog: {inventory.Catalog.Count}; cached: {(inventory.CacheStateKnown ? inventory.Cached.Count.ToString() : "unknown")}; loaded: {(inventory.LoadStateKnown ? inventory.Loaded.Count.ToString() : "unknown")}.\n" +
+                $"Cached IDs: {(inventory.CacheStateKnown ? string.Join(", ", inventory.Cached.Take(100)) : "unknown")}\nLoaded IDs: {(inventory.LoadStateKnown ? string.Join(", ", inventory.Loaded.Take(100)) : "unknown")}\n" +
                 "Showing up to 100 catalog entries. Registered external entries are not eligible for local inference.\n" +
                 string.Join("\n", rows), AiTextSanitizer.DiagnosticLimit);
             if (operation == "refresh") Status = "Metadata refreshed. No load, download or inference was requested.";

@@ -403,7 +403,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();
         services.AddSingleton<IAiCredentialStore, AiCredentialStore>();
         services.AddSingleton<FoundryLocalHttpClient>();
-        services.AddSingleton<IFoundryLocalRuntimeService, FoundryLocalRuntimeService>();
+        services.AddSingleton<IFoundryLocalRuntimeService, FoundryLocalStandaloneRuntimeService>();
         services.AddSingleton<FoundryLocalCli>();
         services.AddSingleton<FoundryLocalArtifactCatalog>();
         services.AddSingleton(_ => new FoundryLocalDownloader(

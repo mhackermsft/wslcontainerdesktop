@@ -42,7 +42,7 @@ public sealed class FoundryLocalRecordedCliTests
     }
 
     [Fact]
-    public async Task Recorded0103HelpSelectsServerStatusButDoesNotPretendStatusWasCaptured()
+    public async Task Recorded0103StoppedStatusNeverSelectsItsStaleEndpoint()
     {
         var capture = ReadCapture();
         var calls = new List<string>();
@@ -51,14 +51,31 @@ public sealed class FoundryLocalRecordedCliTests
             var command = string.Join(" ", start.ArgumentList);
             calls.Add(command);
             if (capture.TryGetValue(command, out var result)) return Task.FromResult(result);
-            Assert.Equal("server status", command);
-            // Actual status was not executed in the help-only capture. An unknown
-            // response must stay unknown rather than inventing a live endpoint.
-            return Task.FromResult(new CommandResult { StandardOutput = "Unrecorded status schema" });
+            Assert.Equal("server status --output json", command);
+            using var status = JsonDocument.Parse(File.ReadAllText(
+                Path.Combine(AppContext.BaseDirectory, "Fixtures", "Foundry", "0.10.3", "stopped-status.json")));
+            return Task.FromResult(new CommandResult { StandardOutput = status.RootElement.GetProperty("Stdout").GetString()! });
         });
         await Assert.ThrowsAsync<InvalidDataException>(() => cli.DiscoverAsync(null, default));
-        Assert.Equal(["--version", "--help", "server --help", "server status"], calls);
+        Assert.Equal(["--version", "--help", "server --help", "server status --output json"], calls);
     }
+
+    [Fact]
+    public void StoppedStatusDiscardsAllStaleRuntimeIdentities()
+    {
+        using var capture = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "Foundry", "0.10.3", "stopped-status.json")));
+        var status = FoundryLocalCli.ParseServerStatus(capture.RootElement.GetProperty("Stdout").GetString()!);
+        Assert.False(status.Running);
+        Assert.Null(status.Pid);
+        Assert.Null(status.StartedAt);
+        Assert.Empty(status.Endpoints);
+    }
+
+    [Fact]
+    public void StartAcknowledgementWithoutStatusIdentityCannotAuthorizeInference() =>
+        Assert.Throws<InvalidDataException>(() => FoundryLocalCli.ParseServerStatus(
+            """{"running":true,"webUrls":["http://127.0.0.1:54321"],"port":54321,"idleTimeoutMinutes":5}"""));
 
     [Fact]
     public void RecordedModelHelpDoesNotProvePinnedVersionDownloadOrOfflineLoad()

@@ -212,7 +212,7 @@ public sealed record FoundryLocalConnectionPlan(AiChatConfiguration Original,
         $"Advertised size MB: {Inventory.Selected?.FileSizeMb?.ToString() ?? "unknown"}\n" +
         $"Advertised license: {Inventory.Selected?.License ?? "unknown"}\n" +
         $"License information: {Inventory.Selected?.LicenseDescription ?? "unknown"}" +
-        $"\nCached: {Inventory.IsCached}; loaded: {Inventory.IsLoaded}.\n" +
+        $"\nCached: {(Inventory.CacheStateKnown ? Inventory.IsCached.ToString() : "unknown")}; loaded: {(Inventory.LoadStateKnown ? Inventory.IsLoaded.ToString() : "unknown")}.\n" +
         "Only this app's endpoint setting changes. Model selection is preserved. No software, model or EP " +
         "is installed/downloaded; no license is accepted. Network: later explicit metadata/inference requests " +
         "use this loopback endpoint. No runtime is started, stopped, uninstalled or adopted. " +

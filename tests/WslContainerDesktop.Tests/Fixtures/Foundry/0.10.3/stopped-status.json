@@ -1,0 +1,7 @@
+{
+  "Source": "Actual network-blocked CLI0.10.3 stopped status; username redacted, stale fields retained",
+  "Arguments": "server status --output json",
+  "ExitCode": 0,
+  "Stdout": "{\"running\":false,\"state\":\"not_running\",\"pid\":42096,\"webUrls\":[\"http://127.0.0.1:62366\"],\"startedAt\":\"2026-09-10T18:32:42.1368814+00:00\",\"uptime\":\"7m 1s\",\"logFile\":\"C:\\\\Users\\\\fixture-user\\\\.foundry\\\\logs\\\\foundrylocald-2026-09-10.log\"}\r\n",
+  "Stderr": ""
+}
