@@ -39,7 +39,7 @@ public sealed class WslcCapabilitiesServiceTests
                 ? WslcCapabilitySupport.Unsupported : WslcCapabilitySupport.Supported, snapshot[feature].Support);
         }
 
-        Assert.Equal(["--version", "network --help", "container --help", "run --help", "create --help"],
+        Assert.Equal(["--version", "network --help", "container --help", "run --help", "create --help", "remove --help"],
             fixture.Calls.Select(call => call.Arguments));
         Assert.All(fixture.Calls, call => Assert.Equal(fixture.Path, call.Path));
         Assert.Empty(fixture.Warnings);
@@ -254,7 +254,7 @@ public sealed class WslcCapabilitiesServiceTests
 
         Assert.All(results, snapshot => Assert.Same(results[0], snapshot));
         Assert.Same(results[0], await fixture.Service.GetAsync());
-        Assert.Equal(5, fixture.Calls.Count);
+        Assert.Equal(6, fixture.Calls.Count);
     }
 
     [Fact]
@@ -277,7 +277,7 @@ public sealed class WslcCapabilitiesServiceTests
         release.SetResult();
 
         Assert.True((await other).IsSupported(WslcFeature.ContainerCp));
-        Assert.Equal(5, fixture.Calls.Count);
+        Assert.Equal(6, fixture.Calls.Count);
     }
 
     [Fact]
@@ -312,8 +312,8 @@ public sealed class WslcCapabilitiesServiceTests
 
         Assert.Same(second, await first);
         Assert.Equal(fixture.Path, second.ExecutablePath);
-        Assert.Equal(5, fixture.Calls.Count(call => call.Path == original));
-        Assert.Equal(5, fixture.Calls.Count(call => call.Path == fixture.Path));
+        Assert.Equal(6, fixture.Calls.Count(call => call.Path == original));
+        Assert.Equal(6, fixture.Calls.Count(call => call.Path == fixture.Path));
     }
 
     [Fact]
@@ -326,7 +326,7 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.NotSame(first, replacement);
         fixture.Service.Invalidate();
         Assert.NotSame(replacement, await fixture.Service.GetAsync());
-        Assert.Equal(15, fixture.Calls.Count);
+        Assert.Equal(18, fixture.Calls.Count);
     }
 
     [Fact]
@@ -347,7 +347,7 @@ public sealed class WslcCapabilitiesServiceTests
 
         var result = await first;
         Assert.Same(result, await fixture.Service.GetAsync());
-        Assert.Equal(10, fixture.Calls.Count);
+        Assert.Equal(12, fixture.Calls.Count);
     }
 
     [Fact]
@@ -360,7 +360,7 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.Same(unknown, await fixture.Service.GetAsync());
         fixture.Clock.Advance(TimeSpan.FromSeconds(16));
         Assert.True((await fixture.Service.GetAsync()).IsSupported(WslcFeature.ContainerCp));
-        Assert.Equal(10, fixture.Calls.Count);
+        Assert.Equal(12, fixture.Calls.Count);
     }
 
     [Fact]
@@ -376,7 +376,7 @@ public sealed class WslcCapabilitiesServiceTests
         var snapshot = await fixture.Service.GetAsync();
         Assert.True(snapshot.HasProbeFailures);
         Assert.Same(snapshot, await fixture.Service.GetAsync());
-        Assert.Equal(5, fixture.Calls.Count);
+        Assert.Equal(6, fixture.Calls.Count);
     }
 
     [Theory]
@@ -408,14 +408,14 @@ public sealed class WslcCapabilitiesServiceTests
         var probe = Assert.IsAssignableFrom<Task>(entry.GetType().GetProperty("Task")!.GetValue(entry));
         release.SetResult();
         await probe.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(5, fixture.Calls.Count);
+        Assert.Equal(6, fixture.Calls.Count);
         fixture.Responses["container --help"] = Ok(Help("current", "container"));
         fixture.Clock.Advance(failedProbe ? TimeSpan.FromSeconds(16) : TimeSpan.FromMinutes(6));
 
         var snapshot = await fixture.Service.GetAsync();
 
         Assert.False(snapshot.HasProbeFailures);
-        Assert.Equal(10, fixture.Calls.Count);
+        Assert.Equal(12, fixture.Calls.Count);
     }
 
     [Fact]
@@ -427,7 +427,7 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.Same(first, await fixture.Service.GetAsync());
         fixture.Clock.Advance(TimeSpan.FromMinutes(2));
         Assert.NotSame(first, await fixture.Service.GetAsync());
-        Assert.Equal(10, fixture.Calls.Count);
+        Assert.Equal(12, fixture.Calls.Count);
     }
 
     [Fact]
@@ -600,6 +600,7 @@ public sealed class WslcCapabilitiesServiceTests
                 ["container --help"] = Ok(Help(variant, "container")),
                 ["run --help"] = Ok(Help(variant, "run")),
                 ["create --help"] = Ok(Help(variant, "run").Replace("Usage: wslc run ", "Usage: wslc create ")),
+                ["remove --help"] = Ok(Help(variant, "remove")),
             };
             Service = new(() => Path,
                 path => new(path, path, LastWriteTicks: Revision, Diagnostic: IdentityError),
@@ -625,3 +626,4 @@ public sealed class WslcCapabilitiesServiceTests
         internal void Advance(TimeSpan duration) => _now += duration;
     }
 }
+

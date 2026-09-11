@@ -31,6 +31,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 {
     private const int MaxInlinePreviewBytes = 65_536;
     private readonly IWslcService _wslc;
+    private readonly ContainerVolumeInspector _volumeInspector;
     private readonly StatusMonitor _monitor;
     private readonly HealthWatchdog _watchdog;
     private readonly RestartPolicyWatchdog _restartWatchdog;
@@ -41,6 +42,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private readonly IComposeProjectStore _composeStore;
     private readonly IAiDiagnosticsService _aiDiagnostics;
     private readonly IAiAvailabilityService _aiAvailability;
+    private readonly IAiCapabilityService _aiCapabilities;
+    private readonly ILocalAiSetupService _localAi;
     private readonly ILogger<ContainersViewModel> _logger;
     private readonly DispatcherQueue _dispatcher;
     private readonly LogStreamer _logStreamer;
@@ -227,7 +230,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// </summary>
     public ObservableCollection<ContainerGroup> Groups { get; } = new();
 
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, IAiDiagnosticsService aiDiagnostics, IAiAvailabilityService aiAvailability, ILogger<ContainersViewModel> logger)
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, IAiDiagnosticsService aiDiagnostics, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, ILocalAiSetupService localAi, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -240,7 +243,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         _composeStore = composeStore;
         _aiDiagnostics = aiDiagnostics;
         _aiAvailability = aiAvailability;
+        _aiCapabilities = aiCapabilities;
+        _localAi = localAi;
         _logger = logger;
+        _volumeInspector = new ContainerVolumeInspector(wslc);
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _logStreamer = new LogStreamer(settings, _dispatcher);
         _logStreamer.LineReceived += line => LogLineReceived?.Invoke(line);
@@ -1433,7 +1439,68 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        await ExecuteAsync($"Removing {row.Name}…", () => _wslc.RemoveContainerAsync(row.Id));
+        // Show exactly which volumes are at stake. A generic warning invites either careless
+        // deletion or needless retention of data the user actually wanted gone.
+        var impact = await _volumeInspector.InspectAsync(row.Id);
+        var removeAnonymous = false;
+        var namedToDelete = Array.Empty<ContainerVolumeUsage>();
+        if (impact.HasDeletableData)
+        {
+            var deletable = impact.Anonymous.Concat(impact.OrphanedNamed).ToArray();
+            var lines = deletable.Select(v => $"• {Shorten(v.Name)} → {v.Destination}");
+            var kept = impact.SharedNamed.Count > 0
+                ? "\n\nKept (still used by other containers): " +
+                  string.Join(", ", impact.SharedNamed.Select(v => $"{v.Name} [{string.Join(", ", v.OtherContainers)}]"))
+                : string.Empty;
+            var caution = impact.SharedAnonymous.Count > 0
+                ? "\n\n⚠ Some of these are mounted by other containers and would lose data too."
+                : string.Empty;
+            var partial = impact.IsComplete
+                ? string.Empty
+                : "\n\nNote: volume usage could not be fully determined, so this list may be incomplete.";
+            if (await _dialogs.ShowConfirmAsync(
+                    "Also delete this container's volumes?",
+                    $"Removing \"{row.Name}\" leaves this storage behind. Its data would be permanently deleted:\n\n" +
+                    string.Join('\n', lines) + kept + caution + partial +
+                    "\n\nIf you are unsure, keep them — you can delete volumes later from the Volumes page.",
+                    primaryText: "Delete these volumes",
+                    closeText: "Keep volumes"))
+            {
+                removeAnonymous = impact.Anonymous.Count > 0;
+                namedToDelete = impact.OrphanedNamed.ToArray();
+            }
+        }
+
+        await ExecuteAsync($"Removing {row.Name}…",
+            () => _wslc.RemoveContainerAsync(row.Id, force: true, default, removeAnonymous));
+
+        // A cached "tools supported" proof outlives the runtime that earned it, which would keep the
+        // assistant offered after its backing container is gone. Re-observe instead of trusting it.
+        await InvalidateAiCapabilitiesAsync();
+
+        // Named volumes are not covered by `remove --volumes`, so delete the approved ones after the
+        // container is gone and report any that could not be removed instead of failing silently.
+        if (namedToDelete.Length > 0)
+        {
+            var failed = new List<string>();
+            foreach (var volume in namedToDelete)
+            {
+                var result = await _wslc.RemoveVolumeAsync(volume.Name);
+                if (!result.Success)
+                {
+                    failed.Add(volume.Name);
+                }
+            }
+            if (failed.Count > 0)
+            {
+                await _dialogs.ShowMessageAsync("Some volumes were kept",
+                    $"The container was removed, but these volumes could not be deleted: {string.Join(", ", failed)}. " +
+                    "You can retry from the Volumes page.");
+            }
+        }
+
+        static string Shorten(string name) =>
+            name.Length == 64 ? name[..12] + "… (unnamed)" : name;
 
         // If we removed the currently-selected container, notify the detail page to navigate back.
         if (Selected?.Id == row.Id)
@@ -1507,6 +1574,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         await RunBulkAsync($"Removing {items.Count} container(s)…", items, r => _wslc.RemoveContainerAsync(r.Id), showConfirm: false);
+        await InvalidateAiCapabilitiesAsync();
 
         if (removingSelected)
         {
@@ -1552,6 +1620,42 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 $"{failures.Count} of {items.Count} operations failed:\n\n{BulkNames(failures)}");
         }
     }
+
+    /// <summary>
+    /// Drops any cached AI capability proof and re-observes. Removing a container can destroy the
+    /// runtime a provider points at, and a stale positive observation would keep offering the
+    /// assistant for a backend that no longer exists.
+    /// </summary>
+    private async Task InvalidateAiCapabilitiesAsync()
+    {
+        try
+        {
+            // If the configured provider was the local Ollama runtime and that runtime is now gone,
+            // leaving it selected only produces connection errors on every AI surface.
+            if (_settings.AiProvider == AiProviderKind.Ollama
+                && IsLoopbackEndpoint(_settings.AiOllamaEndpoint)
+                && !await _localAi.IsRuntimePresentAsync())
+            {
+                _settings.AiProvider = AiProviderKind.None;
+                _settings.AiOllamaModel = string.Empty;
+                _settings.Save();
+            }
+
+            _aiCapabilities.Invalidate();
+            await _aiAvailability.RefreshAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Advisory only: a failed re-observation must not surface as a removal failure.
+            _logger.LogDebug(ex, "AI capability refresh after container removal was unavailable.");
+        }
+    }
+
+    /// <summary>True when the endpoint points at this machine, so a removed local runtime explains it.
+    /// A remote Ollama must never be deselected because a local container was removed.</summary>
+    private static bool IsLoopbackEndpoint(string? endpoint) =>
+        Uri.TryCreate(endpoint?.Trim(), UriKind.Absolute, out var uri)
+        && (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase));
 
     private static string BulkNames(IEnumerable<string> names)
     {

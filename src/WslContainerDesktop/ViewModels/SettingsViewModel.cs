@@ -49,6 +49,10 @@ public partial class SettingsViewModel : ObservableObject
     private bool _suppressAiOllamaModelWrite;
     private int _localAiSetupGeneration;
 
+    /// <summary>Default quick-start model: small, widely available, and tool-capable so the
+    /// assistant works immediately after setup.</summary>
+    private const string DefaultOllamaModel = "qwen2.5:7b";
+
     [ObservableProperty]
     private string _wslcPath;
 
@@ -93,6 +97,14 @@ public partial class SettingsViewModel : ObservableObject
     private string _devContainerNpmRegistry = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowRemoveOllama))]
+    [NotifyPropertyChangedFor(nameof(ShowLocalSetupButtons))]
+    [NotifyPropertyChangedFor(nameof(CanQuickStartOllama))]
+    [NotifyPropertyChangedFor(nameof(QuickStartHint))]
+    private bool _isOllamaRuntimePresent;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveProviderDetail))]
     private bool _aiFeaturesEnabled;
 
     [ObservableProperty]
@@ -103,12 +115,18 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowOpenAiSettings))]
     [NotifyPropertyChangedFor(nameof(ShowFoundryLocalSettings))]
     [NotifyPropertyChangedFor(nameof(ShowAiSecretSettings))]
+    [NotifyPropertyChangedFor(nameof(ActiveProviderName))]
+    [NotifyPropertyChangedFor(nameof(ActiveProviderDetail))]
+    [NotifyPropertyChangedFor(nameof(CanQuickStartOllama))]
+    [NotifyPropertyChangedFor(nameof(ShowRemoveOllama))]
     private int _selectedAiProviderIndex;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveProviderDetail))]
     private string _aiOllamaEndpoint = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveProviderDetail))]
     private string _aiOllamaModel = string.Empty;
 
     [ObservableProperty]
@@ -120,6 +138,7 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(PullOllamaModelCommand))]
     [NotifyCanExecuteChangedFor(nameof(SetUpLocalAiCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveLocalAiCommand))]
+    [NotifyPropertyChangedFor(nameof(CanQuickStartOllama))]
     private bool _isOllamaBusy;
 
     [ObservableProperty]
@@ -178,6 +197,76 @@ public partial class SettingsViewModel : ObservableObject
     private AiProviderKind CurrentAiProvider => Enum.IsDefined(typeof(AiProviderKind), SelectedAiProviderIndex)
         ? (AiProviderKind)SelectedAiProviderIndex
         : AiProviderKind.None;
+
+    /// <summary>Quick start is driven by what is installed, not by the Provider list, which is for
+    /// manual configuration. Foundry Local is implemented but hidden from the UI for now.</summary>
+    public bool ShowLocalSetupButtons => !IsOllamaRuntimePresent;
+
+    public bool CanQuickStartOllama => ShowLocalSetupButtons && !IsOllamaBusy;
+
+    /// <summary>Removal is offered only for the local runtime that is actually installed.</summary>
+    public bool ShowRemoveOllama => IsOllamaRuntimePresent;
+
+    public string QuickStartHint => IsOllamaRuntimePresent
+        ? "Ollama is set up and selected as your provider."
+        : "Run a model on this machine, or use Provider below to configure a service yourself.";
+
+    /// <summary>Refreshes which local runtimes exist, so setup and removal reflect reality.</summary>
+    public async Task RefreshLocalRuntimePresenceAsync(CancellationToken ct = default)
+    {
+        var present = await _localAi.IsRuntimePresentAsync(ct);
+        if (present != IsOllamaRuntimePresent)
+            IsOllamaRuntimePresent = present;
+    }
+
+    /// <summary>Short name of the provider the app will actually use, for the always-visible header.</summary>
+    public string ActiveProviderName => CurrentAiProvider switch
+    {
+        AiProviderKind.GitHubCopilot => "GitHub Copilot",
+        AiProviderKind.Ollama => "Ollama (local container)",
+        AiProviderKind.AzureOpenAi => "Azure OpenAI",
+        AiProviderKind.OpenAi => "OpenAI-compatible",
+        AiProviderKind.FoundryLocal => "Foundry Local (on Windows)",
+        _ => "None selected",
+    };
+
+    /// <summary>Endpoint/model detail for the active provider so the page cannot be misread.</summary>
+    public string ActiveProviderDetail
+    {
+        get
+        {
+            if (!AiFeaturesEnabled)
+                return "AI features are off. Turn them on to use a provider.";
+            return CurrentAiProvider switch
+            {
+                AiProviderKind.None => "Choose a provider below, or use Quick start to run a model on this machine.",
+                AiProviderKind.GitHubCopilot => Describe("Model", AiGitHubCopilotModel),
+                AiProviderKind.Ollama => $"{Describe("Model", AiOllamaModel)} · {Describe("Endpoint", AiOllamaEndpoint)}",
+                AiProviderKind.AzureOpenAi => $"{Describe("Deployment", AiAzureOpenAiDeployment)} · {Describe("Endpoint", AiAzureOpenAiEndpoint)}",
+                AiProviderKind.OpenAi => $"{Describe("Model", AiOpenAiModel)} · {Describe("Endpoint", AiOpenAiEndpoint)}",
+                AiProviderKind.FoundryLocal => $"{Describe("Model", FoundryLocal.Model)} · {Describe("Endpoint", FoundryLocal.Endpoint)}",
+                _ => string.Empty,
+            };
+            static string Describe(string label, string value) =>
+                $"{label}: {(string.IsNullOrWhiteSpace(value) ? "not set" : value.Trim())}";
+        }
+    }
+
+    /// <summary>Quick start for Foundry Local: select the provider, then run the same
+    /// single-approval setup that installs only when needed and configures what is already there.</summary>
+    public async Task SetUpFoundryLocalAsync(Func<string, CancellationToken, Task<bool>> confirm)
+    {
+        SelectedAiProviderIndex = (int)AiProviderKind.FoundryLocal;
+        AiFeaturesEnabled = true;
+        await FoundryLocal.PrepareInitialModelAsync(confirm);
+        RefreshActiveProviderSummary();
+    }
+
+    public void RefreshActiveProviderSummary()
+    {
+        OnPropertyChanged(nameof(ActiveProviderName));
+        OnPropertyChanged(nameof(ActiveProviderDetail));
+    }
 
     /// <summary>Builds classification context for the currently selected provider.</summary>
     private AiErrorContext ProviderContext(string operation, string? endpoint = null, string? modelOrDeployment = null) =>
@@ -273,7 +362,11 @@ public partial class SettingsViewModel : ObservableObject
         _localAi = localAi;
         _aiCapabilities = aiCapabilities;
         _aiAvailability = aiAvailability;
-        _aiAvailability.Changed += (_, _) => OnPropertyChanged(nameof(AiCapabilityStatus));
+        _aiAvailability.Changed += (_, _) =>
+        {
+            OnPropertyChanged(nameof(AiCapabilityStatus));
+            OnPropertyChanged(nameof(AiCapabilityHeadline));
+        };
         _http = http;
         _logger = logger;
 
@@ -288,7 +381,11 @@ public partial class SettingsViewModel : ObservableObject
         _notifyEngineEvents = settings.NotifyEngineEvents;
         _devContainerNpmRegistry = settings.DevContainerNpmRegistry ?? string.Empty;
         _aiFeaturesEnabled = settings.AiFeaturesEnabled;
-        _selectedAiProviderIndex = (int)settings.AiProvider;
+        // Foundry Local is implemented but hidden from Settings for now. A previously saved
+        // selection must not leave the picker showing an option that no longer exists.
+        _selectedAiProviderIndex = settings.AiProvider == AiProviderKind.FoundryLocal
+            ? (int)AiProviderKind.None
+            : (int)settings.AiProvider;
         _aiOllamaEndpoint = settings.AiOllamaEndpoint;
         _aiOllamaModel = settings.AiOllamaModel;
         _aiAzureOpenAiEndpoint = settings.AiAzureOpenAiEndpoint;
@@ -647,6 +744,26 @@ public partial class SettingsViewModel : ObservableObject
 
     public string AiCapabilityStatus => _aiAvailability.Observation?.StatusText
         ?? "Enable AI and choose a provider. Capability observations are unknown until checked.";
+
+    /// <summary>Single-line headline so the full capability report can stay collapsed.</summary>
+    public string AiCapabilityHeadline
+    {
+        get
+        {
+            var observation = _aiAvailability.Observation;
+            if (observation is null)
+                return "AI capabilities: not checked yet";
+            var chat = observation.Chat.Support;
+            var tools = observation.Tools.Support;
+            return chat switch
+            {
+                AiSupport.Supported when tools == AiSupport.Supported => "AI capabilities: chat and tools ready",
+                AiSupport.Supported => "AI capabilities: chat ready, tools unconfirmed",
+                AiSupport.Unsupported => "AI capabilities: provider not usable — see details",
+                _ => "AI capabilities: unconfirmed — see details",
+            };
+        }
+    }
 
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task TestAiProviderAsync(CancellationToken ct)
@@ -1122,6 +1239,34 @@ public partial class SettingsViewModel : ObservableObject
             var model = installedModels.FirstOrDefault(name => string.Equals(name, previousModel, StringComparison.OrdinalIgnoreCase))
                 ?? installedModels.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).FirstOrDefault()
                 ?? string.Empty;
+
+            // A runtime with no model cannot answer anything, so quick start is not finished until a
+            // model is present. Offer the small tool-capable default; the user still approves the download.
+            if (string.IsNullOrEmpty(model))
+            {
+                Volatile.Write(ref isAcceptingProgress, false);
+                if (await _dialogs.ShowConfirmAsync(
+                        "Download a model?",
+                        $"The runtime is ready but has no model yet, so it cannot answer anything.\n\n" +
+                        $"Download {DefaultOllamaModel}? It is a small chat model that supports tool calling, so the AI assistant can work.\n\n" +
+                        "• About 5 GB, downloaded by the Ollama runtime\n" +
+                        "• You can pick a different model later under Provider",
+                        primaryText: $"Download {DefaultOllamaModel}",
+                        closeText: "Skip for now"))
+                {
+                    _aiCapabilities.Invalidate();
+                    if (await StreamPullModelAsync(DefaultOllamaModel, endpoint,
+                            fb => LocalAiFeedback = fb, ct))
+                    {
+                        installedModels = await ReadInstalledOllamaModelsAsync(endpoint, ct);
+                        model = installedModels.FirstOrDefault(name =>
+                            string.Equals(name, DefaultOllamaModel, StringComparison.OrdinalIgnoreCase))
+                            ?? installedModels.FirstOrDefault() ?? string.Empty;
+                    }
+                    _aiCapabilities.Invalidate();
+                }
+            }
+            ct.ThrowIfCancellationRequested();
             // Do not acquire or warm a model, or infer capabilities from a model name.
             // Model acquisition requires a separate, explicit digest/publication-age audit.
             AiOllamaEndpoint = endpoint.ToString().TrimEnd('/');
@@ -1137,14 +1282,38 @@ public partial class SettingsViewModel : ObservableObject
                 _suppressProviderModelRefresh = false;
             }
             AiFeaturesEnabled = true;
+            await RefreshLocalRuntimePresenceAsync(ct);
 
             var modelMessage = string.IsNullOrEmpty(model)
-                ? "No installed model was found; the model selection has been cleared."
-                : $"Selected installed model '{model}'.";
-            LocalAiFeedback = AiFeedback.Success("Local runtime API is ready",
-                $"{result.Message} Container ID: {result.ContainerId}. {modelMessage} No model was downloaded or warmed up. " +
-                "Model readiness and tool capabilities: Unknown (not observed by setup). Runtime API readiness is not AI readiness. " +
-                "Any model pull requires a separate explicit audit of its immutable digest and publication date (at least seven days old).");
+                ? "No model is installed yet, so the assistant stays hidden. Download one under Provider below to finish."
+                : $"Using model '{model}'.";
+            LocalAiFeedback = AiFeedback.Success("Ollama is ready",
+                string.IsNullOrEmpty(model)
+                    ? modelMessage
+                    : $"{modelMessage} Checking what this model supports…");
+
+            // Setup is only useful once capabilities are observed: the assistant button stays hidden
+            // until tool support is confirmed, so check now instead of leaving the user wondering.
+            if (!string.IsNullOrEmpty(model))
+            {
+                try
+                {
+                    await _aiAvailability.RefreshAsync(ct);
+                    var observation = _aiAvailability.Observation;
+                    LocalAiFeedback = observation?.CanUseTools == true
+                        ? AiFeedback.Success("Ollama is ready",
+                            $"Using model '{model}'. Tool calling is supported, so the AI assistant is available from the toolbar.")
+                        : AiFeedback.Warning("Ollama is ready, assistant unavailable",
+                            $"Using model '{model}', but tool calling was not confirmed, so the assistant stays hidden. " +
+                            "Try a tool-capable model such as qwen2.5:7b, or use Test capabilities for details.");
+                }
+                catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+                {
+                    _logger.LogDebug(ex, "Capability check after local AI setup was unavailable.");
+                    LocalAiFeedback = AiFeedback.Success("Ollama is ready",
+                        $"Using model '{model}'. Capabilities were not checked; use Test capabilities below.");
+                }
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1167,9 +1336,9 @@ public partial class SettingsViewModel : ObservableObject
     private async Task RemoveLocalAiAsync()
     {
         if (!await _dialogs.ShowConfirmAsync(
-                "Remove local AI",
-                $"This requests removal of only the ownership-verified '{_localAi.ContainerName}' container by its immutable ID. " +
-                "Native Ollama, unrelated containers, and configured remote endpoints are not removed. Model data is retained when safe deletion cannot be verified. Continue?",
+                "Remove Ollama",
+                $"This removes the app's '{_localAi.ContainerName}' container.\n\n" +
+                "Ollama installed outside this app, other containers, and remote endpoints are not touched.",
                 primaryText: "Remove",
                 closeText: "Cancel"))
         {
@@ -1177,10 +1346,10 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         var removeVolume = await _dialogs.ShowConfirmAsync(
-            "Request model data deletion?",
-            "You can request deletion, but the current engine interface cannot safely delete a volume atomically by verified ownership. " +
-            "Model data will be retained and the result will report the deletion request as unfulfilled. No disk-space recovery is promised.",
-            primaryText: "Request deletion",
+            "Delete downloaded models too?",
+            "Downloaded models can be several GB.\n\n" +
+            "Delete them to free the space, or keep them so setting up again is fast.",
+            primaryText: "Delete models",
             closeText: "Keep models");
 
         try
@@ -1195,11 +1364,21 @@ public partial class SettingsViewModel : ObservableObject
             var isRuntimeGone = result.Runtime is LocalRuntimeResourceState.Removed or LocalRuntimeResourceState.Absent;
             var isModelDeletionUnfulfilled = removeVolume
                 && result.ModelData is not (LocalRuntimeResourceState.Removed or LocalRuntimeResourceState.Absent);
+            if (isRuntimeGone && CurrentAiProvider == AiProviderKind.Ollama)
+            {
+                // The runtime it pointed at is gone; leaving it selected would fail on every request.
+                ReplaceOllamaModels([], string.Empty);
+                AiOllamaModel = string.Empty;
+                SelectedAiProviderIndex = (int)AiProviderKind.None;
+                _settings.AiProvider = AiProviderKind.None;
+                _settings.AiOllamaModel = string.Empty;
+                _settings.Save();
+            }
             LocalAiFeedback = result.Success && isRuntimeGone && !isModelDeletionUnfulfilled
-                ? AiFeedback.Success("Local AI runtime removed", result.Message)
+                ? AiFeedback.Success("Ollama removed", result.Message)
                 : isRuntimeGone
-                    ? AiFeedback.Warning("Local AI removal partially completed", result.Message)
-                    : AiFeedback.Error("Local AI removal incomplete", result.Message);
+                    ? AiFeedback.Warning("Ollama removed, models kept", result.Message)
+                    : AiFeedback.Error("Could not remove Ollama", result.Message);
         }
         catch (Exception ex)
         {
@@ -1215,6 +1394,7 @@ public partial class SettingsViewModel : ObservableObject
             // Refresh metadata/affordances only; a failed observation must not rewrite the removal outcome.
             try
             {
+                await RefreshLocalRuntimePresenceAsync();
                 await _aiAvailability.RefreshAsync();
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or InvalidOperationException)

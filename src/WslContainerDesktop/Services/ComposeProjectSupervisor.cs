@@ -428,7 +428,11 @@ public sealed partial class ComposeProjectSupervisor
         }
 
         var result = await ExistingCoreAsync(project,
-            new ComposeOperationRequest { Operation = ComposeLifecycleOperation.Down }, long.MaxValue, ct).ConfigureAwait(false);
+            new ComposeOperationRequest
+            {
+                Operation = ComposeLifecycleOperation.Down,
+                RemoveAnonymousVolumes = removeVolumes,
+            }, long.MaxValue, ct).ConfigureAwait(false);
         if (!result.AllSucceeded)
             throw new InvalidOperationException(string.Join("; ", result.Services.Where(s => !s.Success).Select(s => s.Detail)));
 

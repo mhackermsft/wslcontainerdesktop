@@ -1,0 +1,19 @@
+Copyright (c) Microsoft Corporation. All rights reserved.
+For privacy information about this product please visit https://aka.ms/privacy.
+
+Removes containers.
+
+Usage: wslc remove [<options>] <container-id>...
+
+Aliases:
+  wslc container remove, wslc container delete, wslc container rm, wslc remove, wslc delete, wslc rm
+
+Arguments:
+  container-id  Container ID
+
+Options:
+  -f  --force    Delete containers even if they are running
+  -?  --help     Shows help about the selected command
+
+Global Options:
+      --session  Specify the session to use

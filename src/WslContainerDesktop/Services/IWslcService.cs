@@ -57,7 +57,11 @@ public interface IWslcService
     Task<CommandResult> StopContainerAsync(string id, int? timeSeconds, string? signal, CancellationToken ct = default);
     Task<CommandResult> RestartContainerAsync(string id, CancellationToken ct = default);
     Task<CommandResult> KillContainerAsync(string id, CancellationToken ct = default);
-    Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default);
+    /// <summary>Removes a container. When <paramref name="removeAnonymousVolumes"/> is true and the
+    /// engine advertises <c>remove --volumes</c>, anonymous volumes created for the container are
+    /// deleted with it. Named volumes are never removed by this flag.</summary>
+    Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default,
+        bool removeAnonymousVolumes = false);
     Task<CommandResult> PruneContainersAsync(CancellationToken ct = default);
     Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default,
         long maximumStopVersion = long.MaxValue);

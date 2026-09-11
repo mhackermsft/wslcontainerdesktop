@@ -175,6 +175,7 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
             (WslcFeature.CreateGpus, "--gpus"),
             (WslcFeature.CreatePull, "--pull"),
         ]).ConfigureAwait(false);
+        await ProbeHelpAsync("remove", true, [(WslcFeature.RemoveVolumes, "--volumes")]).ConfigureAwait(false);
         return new(identity.ExecutablePath, version, features, versionDiagnostic);
 
         async Task ProbeHelpAsync(string command, bool options, (WslcFeature Feature, string Token)[] expected)

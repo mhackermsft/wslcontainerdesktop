@@ -160,21 +160,53 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
             runtime = existing is null ? LocalRuntimeResourceState.Absent : LocalRuntimeResourceState.Retained;
             if (existing is not null)
             {
-                Require(volume is not null, "Model volume ownership is unavailable. Runtime removal was not attempted.");
-                await RecheckAsync(existing, volume!, ct).ConfigureAwait(false);
+                // Removal only needs confirmed ownership and an immutable ID. Mount/port checks guard
+                // starting a workload; requiring them here would block the very recovery action a user
+                // needs when a runtime is misconfigured.
+                var current = await ReadContainerAsync(existing.Id, ct).ConfigureAwait(false);
+                Require(current.Id == existing.Id, "Runtime identity changed. Nothing was removed.");
                 aiCapabilities.Invalidate();
                 runtime = LocalRuntimeResourceState.Unknown;
                 Check(await wslc.RemoveContainerAsync(existing.Id, force: true, ct).ConfigureAwait(false), "Runtime removal");
                 Require(!await ContainsIdAsync(existing.Id, ct).ConfigureAwait(false), "Runtime removal is not confirmed.");
                 runtime = LocalRuntimeResourceState.Removed;
             }
-            // WSLC exposes only a mutable volume name, not an immutable target or compare-and-delete.
-            // Even a fresh inspect cannot make a subsequent name-based deletion safe against replacement.
-            var retained = removeModelVolume && data != LocalRuntimeResourceState.Absent;
-            return new(!retained, runtime, data, retained
-                ? $"Runtime: {runtime}. Models retained: automatic model deletion is unavailable because WSLC only deletes volumes by mutable name. " +
-                  "Review volume ownership and users in Volumes before separately deleting data."
-                : $"Runtime: {runtime}. Model data: {data}. No model data was deleted.");
+            // Delete the app's own model volume when asked. The engine deletes volumes by name, and
+            // this name is app-specific, so re-inspect immediately before deleting and accept that
+            // narrow window rather than stranding gigabytes of model data on every removal.
+            if (removeModelVolume && volume is not null)
+            {
+                data = LocalRuntimeResourceState.Unknown;
+                var confirmed = await FindVolumeAsync(ct).ConfigureAwait(false);
+                if (confirmed is null)
+                {
+                    data = LocalRuntimeResourceState.Absent;
+                }
+                else if (confirmed != volume)
+                {
+                    // A different volume now holds this name; deleting it would destroy data this
+                    // operation never inspected.
+                    return new(false, runtime, LocalRuntimeResourceState.Retained,
+                        $"Runtime: {runtime}. The model volume changed during removal, so it could not be deleted. " +
+                        "Inspect 'wslcd-ollama' in Volumes before deleting it.");
+                }
+                else
+                {
+                    var removal = await wslc.RemoveVolumeAsync(ModelVolumeName, ct).ConfigureAwait(false);
+                    var stillPresent = await FindVolumeAsync(ct).ConfigureAwait(false) is not null;
+                    if (!removal.Success || stillPresent)
+                    {
+                        return new(false, runtime, LocalRuntimeResourceState.Retained,
+                            $"Runtime: {runtime}. The model data could not be deleted" +
+                            (stillPresent ? " and is still present." : ".") +
+                            " Remove the 'wslcd-ollama' volume from the Volumes page if you want that space back.");
+                    }
+                    data = LocalRuntimeResourceState.Removed;
+                }
+            }
+            return new(true, runtime, data, removeModelVolume
+                ? $"Removed the Ollama container and its downloaded models."
+                : $"Removed the Ollama container. Downloaded models were kept and will be reused if you set it up again.");
         }
         catch (Exception ex) when (IsLifecycleFailure(ex))
         {
@@ -186,6 +218,22 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
         {
             aiCapabilities.Invalidate();
             _gate.Release();
+        }
+    }
+
+    public async Task<bool> IsRuntimePresentAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+            return containers.Any(c => string.Equals(c.Name, ManagedContainerName, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Presence only drives whether a Remove affordance is offered; an unreadable inventory
+            // must not surface as an error here.
+            logger.LogDebug(ex, "Local AI runtime presence check failed.");
+            return false;
         }
     }
 
@@ -207,9 +255,8 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
         var image = images.FirstOrDefault(i => i.Repository is ImageReference or "docker.io/ollama/ollama"
             && i.Tag == "latest" && IsImageId(i.Id));
         Require(image is not null,
-            "No cached immutable Ollama image is available. Setup never pulls a mutable tag. " +
-            "Explicitly acquire ollama/ollama by verified digest after checking authoritative publication is at least seven days old, " +
-            "tag that audited local image ollama/ollama:latest, then retry. Image build time is not publication evidence.");
+            "The Ollama image is not on this machine yet. Pull ollama/ollama:latest from the Images page, then run setup again. " +
+            "Setup does not download images on your behalf.");
         return image!.Id;
     }
 
@@ -234,8 +281,14 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
         if (labels.ValueKind == JsonValueKind.Undefined)
             labels = Property(root, "Labels");
         var operation = Text(labels, OperationLabel);
-        Require(Text(labels, OwnerLabel) == "local-ai" && Guid.TryParseExact(operation, "N", out _),
-            "The same-name runtime lacks verified ownership/operation labels. It was not adopted, started, or deleted.");
+        // The owner label is written only by this app, so it is the ownership anchor. Runtimes created
+        // before per-operation IDs carry no operation label; they are still ours and are adopted after the
+        // loopback port and model mount are verified below. Anything without the owner label stays foreign.
+        Require(Text(labels, OwnerLabel) == "local-ai",
+            $"A container named {ManagedContainerName} exists but was not created by this app, so it was not adopted, started, or deleted. " +
+            "Remove or rename that container, then retry.");
+        Require(operation.Length == 0 || Guid.TryParseExact(operation, "N", out _),
+            "The runtime's ownership operation label is malformed. It was not adopted, started, or deleted.");
         var state = Property(root, "State");
         var running = Property(state, "Running");
         var status = state.ValueKind == JsonValueKind.String ? state.GetString() : Text(state, "Status");
@@ -263,10 +316,16 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
         var operation = Text(labels, OperationLabel);
         var created = Text(root, "CreatedAt");
         var mountpoint = Text(root, "Mountpoint");
-        Require(Text(root, "Name") == ModelVolumeName && Text(labels, OwnerLabel) == "local-ai" &&
-            Guid.TryParseExact(operation, "N", out _) && DateTimeOffset.TryParse(created, out _) &&
+        var owner = Text(labels, OwnerLabel);
+        // Volumes created before ownership labels carry none at all; the owning container's verified mount
+        // is what ties this volume to the app. Reject only a volume explicitly owned by something else.
+        Require(owner is "local-ai" or "",
+            $"A volume named {ModelVolumeName} is owned by something else. Data was not adopted or deleted.");
+        Require(operation.Length == 0 || Guid.TryParseExact(operation, "N", out _),
+            "The model volume's ownership operation label is malformed. Data was not adopted or deleted.");
+        Require(Text(root, "Name") == ModelVolumeName && DateTimeOffset.TryParse(created, out _) &&
             !string.IsNullOrWhiteSpace(mountpoint),
-            "The same-name model volume lacks verified ownership/creation identity. Data was not adopted or deleted.");
+            "The same-name model volume lacks verified creation identity. Data was not adopted or deleted.");
         return new(operation, created, mountpoint);
     }
 
@@ -286,8 +345,11 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
             ports[0].Protocol == 6 && ports[0].BindingAddress == "127.0.0.1",
             "Runtime endpoint is not the verified loopback-only Ollama port. Configure external runtimes separately.");
         var mounts = ContainerMounts.Parse(container.Inspect);
+        // Inspect schemas differ: some report the volume name as the source, others the host mountpoint.
+        // Both identify the same named volume, so accept either rather than refusing a valid runtime.
         Require(mounts.IsComplete && mounts.Items.Count == 1 && mounts.Items[0].VolumeName == ModelVolumeName &&
-            mounts.Items[0].Destination == "/root/.ollama" && mounts.Items[0].Source == volume.Mountpoint,
+            mounts.Items[0].Destination == "/root/.ollama" &&
+            (mounts.Items[0].Source == volume.Mountpoint || mounts.Items[0].Source == ModelVolumeName),
             "Runtime model mount identity is missing or unexpected. It was not started or adopted.");
         Require(await FindVolumeAsync(ct).ConfigureAwait(false) == volume,
             "Model volume was replaced during the operation. No workload will be started.");
@@ -351,7 +413,15 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
 
     private static JsonElement Property(JsonElement root, string name) => ContainerInfoJsonConverter.Property(root, name);
     private static string Text(JsonElement root, string name) => ContainerInfoJsonConverter.ReadString(root, name);
-    private static bool IsImageId(string id) => id.StartsWith("sha256:", StringComparison.Ordinal) && IsHash(id[7..]) || IsHash(id);
+    private static bool IsImageId(string id) => id.StartsWith("sha256:", StringComparison.Ordinal)
+        ? IsImageDigest(id[7..])
+        : IsImageDigest(id);
+
+    // Image listings report the engine's short content-addressed ID (12 hex digits), while inspect
+    // returns the full digest. Accept either; requiring only the long form makes cached images invisible.
+    private static bool IsImageDigest(string id) =>
+        id.Length is >= 12 and <= 64 && id.All(char.IsAsciiHexDigit);
+
     private static bool IsContainerId(string id) => IsHash(id) || Guid.TryParse(id, out _);
     private static bool IsHash(string id) => id.Length == 64 && id.All(char.IsAsciiHexDigit);
     private static void Check(CommandResult result, string operation) =>

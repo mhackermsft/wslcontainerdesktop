@@ -38,4 +38,7 @@ public enum WslcFeature
     CreateNoHealthcheck,
     CreateGpus,
     CreatePull,
+
+    /// <summary>`remove --volumes`: deletes anonymous volumes along with the container.</summary>
+    RemoveVolumes,
 }

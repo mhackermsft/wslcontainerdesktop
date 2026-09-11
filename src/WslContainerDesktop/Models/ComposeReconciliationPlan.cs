@@ -31,6 +31,10 @@ public sealed record ComposeOperationRequest
     public bool Build { get; init; }
     public bool ForceRecreate { get; init; }
     public IReadOnlyDictionary<string, int> Replicas { get; init; } = new Dictionary<string, int>();
+
+    /// <summary>Delete anonymous volumes along with each removed container, like
+    /// <c>docker compose down --volumes</c>. Named and external volumes are unaffected.</summary>
+    public bool RemoveAnonymousVolumes { get; init; }
 }
 
 public sealed record ComposeServicePlan(

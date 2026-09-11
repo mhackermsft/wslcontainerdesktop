@@ -45,6 +45,16 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
     public bool CanStageModelFiles => modelArtifacts is not null;
     public string ModelCacheLocation => modelArtifacts?.CacheLocation ?? "Unavailable";
 
+    /// <summary>True when the standalone runtime is installed, so the UI can offer removal instead of setup.</summary>
+    public bool IsRuntimeInstalled => cli.IsInstalled;
+
+    /// <summary>Removes only the Foundry Local package; models and shared prerequisites are kept.</summary>
+    public Task<FoundryLocalInstallResult> UninstallRuntimeAsync(CancellationToken ct) =>
+        installer is null
+            ? Task.FromResult(new FoundryLocalInstallResult(FoundryLocalInstallState.Blocked,
+                "Runtime removal is unavailable in this configuration."))
+            : installer.UninstallRuntimeAsync(ct);
+
     public async Task<FoundryLocalModelPreparationResult> StageModelFilesAsync(AiChatConfiguration original,
         Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent,
         IProgress<string>? progress, CancellationToken ct)

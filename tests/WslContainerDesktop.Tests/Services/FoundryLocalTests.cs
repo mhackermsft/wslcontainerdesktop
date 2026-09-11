@@ -917,11 +917,12 @@ public sealed class FoundryLocalTests
             .Select(line => line.Trim()).First(line => line.Length > 0);
         Assert.Equal("AiApiKey = string.Empty;", firstStatement);
         var page = System.Xml.Linq.XDocument.Load(Path.Combine(source, "Views", "SettingsPage.xaml"));
-        var load = Assert.Single(page.Descendants(), e => e.Name.LocalName == "Button" &&
-            e.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId" && a.Value == "FoundryLocalLoadButton"));
-        Assert.Contains("CanPrepareInitialModel", load.Attribute("IsEnabled")?.Value);
-        Assert.Equal("PrepareFoundryInitialModel_Click", load.Attribute("Click")?.Value);
-        Assert.Null(load.Attribute("Command"));
+        // Foundry Local is implemented but intentionally not exposed in Settings yet. If it is
+        // re-exposed, restore the consent wiring this asserted: a Click handler that routes through
+        // the preparation dialog, never a bare Command binding that could load without approval.
+        Assert.DoesNotContain(page.Descendants(), e =>
+            e.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId"
+                && a.Value.StartsWith("FoundryLocal", StringComparison.Ordinal)));
     }
 
     private const string Endpoint = "http://127.0.0.1:43210";

@@ -64,4 +64,8 @@ public interface ILocalAiSetupService
     /// <summary>Removes only the verified immutable container ID. Model deletion requests are
     /// reported separately; name-only volume deletion is unsafe and retains data.</summary>
     Task<LocalAiRemovalResult> RemoveOllamaContainerAsync(bool removeModelVolume, CancellationToken ct = default);
+
+    /// <summary>True when a container with the managed name exists, so removal can be offered only
+    /// when there is something to remove. Never throws for inventory or ownership problems.</summary>
+    Task<bool> IsRuntimePresentAsync(CancellationToken ct = default);
 }

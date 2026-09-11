@@ -277,7 +277,8 @@ public sealed partial class ComposeProjectSupervisor
                         if (!stopped.Success) throw new InvalidOperationException(Summarize(stopped));
                         if (request.Operation == ComposeLifecycleOperation.Down)
                         {
-                            var removed = await _wslc.RemoveContainerAsync(entry.ContainerId, force: true, ct).ConfigureAwait(false);
+                            var removed = await _wslc.RemoveContainerAsync(entry.ContainerId, force: true, ct,
+                                request.RemoveAnonymousVolumes).ConfigureAwait(false);
                             if (!removed.Success) throw new InvalidOperationException(Summarize(removed));
                             project.AppliedServices.Remove(entry.InstanceKey);
                             _store.Save(project);

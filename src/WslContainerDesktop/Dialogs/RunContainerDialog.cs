@@ -41,6 +41,9 @@ public sealed class RunContainerDialog : ContentDialog
     private readonly TextBox _portsBox;
     private readonly TextBox _envBox;
     private readonly TextBox _volumesBox;
+    private readonly ComboBox _existingVolumeBox;
+    private readonly TextBox _volumeMountPathBox;
+    private readonly Button _addVolumeButton;
     private readonly TextBox _commandBox;
     private readonly CheckBox _detached;
     private readonly CheckBox _removeOnExit;
@@ -140,6 +143,42 @@ public sealed class RunContainerDialog : ContentDialog
             MinHeight = 50,
         };
 
+        // Attaching existing storage is common and easy to get wrong by hand, so offer the engine's
+        // actual volume list instead of requiring the user to recall exact names.
+        _existingVolumeBox = new ComboBox
+        {
+            Header = "Attach an existing volume",
+            PlaceholderText = "Select a volume…",
+            MinWidth = 220,
+        };
+        _volumeMountPathBox = new TextBox
+        {
+            Header = "Mount at",
+            PlaceholderText = "/var/lib/data",
+            MinWidth = 180,
+        };
+        _addVolumeButton = new Button { Content = "Add", VerticalAlignment = VerticalAlignment.Bottom };
+        _addVolumeButton.Click += (_, _) =>
+        {
+            if (_existingVolumeBox.SelectedItem is not string volume || string.IsNullOrWhiteSpace(volume))
+                return;
+            var path = _volumeMountPathBox.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                _volumeMountPathBox.PlaceholderText = "Enter the path inside the container";
+                return;
+            }
+            var entry = $"{volume}:{path}";
+            var existing = SplitLines(_volumesBox.Text);
+            if (!existing.Contains(entry, StringComparer.OrdinalIgnoreCase))
+            {
+                _volumesBox.Text = existing.Count == 0
+                    ? entry
+                    : _volumesBox.Text.TrimEnd('\n', '\r') + "\n" + entry;
+            }
+            _volumeMountPathBox.Text = string.Empty;
+        };
+
         _commandBox = new TextBox
         {
             Header = "Command / arguments (optional)",
@@ -235,6 +274,12 @@ public sealed class RunContainerDialog : ContentDialog
                 _portsBox,
                 _envBox,
                 _volumesBox,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children = { _existingVolumeBox, _volumeMountPathBox, _addVolumeButton },
+                },
                 _commandBox,
             },
         };
@@ -428,6 +473,19 @@ public sealed class RunContainerDialog : ContentDialog
         catch
         {
             // Non-fatal; the user can still type a network name or use the default.
+        }
+
+        try
+        {
+            var volumes = await _wslc.ListVolumesAsync();
+            foreach (var name in volumes.Select(v => v.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct())
+            {
+                _existingVolumeBox.Items.Add(name);
+            }
+        }
+        catch
+        {
+            // Non-fatal; volumes can still be typed directly in the volumes box.
         }
 
         // Now that the editable combos are loaded, apply any pending docker-run prefill.

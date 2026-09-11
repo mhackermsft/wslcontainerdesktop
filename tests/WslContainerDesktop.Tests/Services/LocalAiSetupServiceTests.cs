@@ -58,9 +58,29 @@ public sealed class LocalAiSetupServiceTests
         h.AssertSafe();
     }
 
+    /// <summary>
+    /// Containers created before per-operation identity labels carry only the owner label. They are
+    /// still this app's runtime, so setup adopts them once the port and model mount verify; refusing
+    /// would leave the user with a runtime they can neither start nor remove from the app.
+    /// </summary>
+    [Fact]
+    public async Task LegacyOwnedRuntimeWithoutOperationLabelIsAdopted()
+    {
+        var h = new Harness { Container = Runtime(running: true), Volume = Models(), InventoryId = Id };
+        h.Container!["Config"]!["Labels"]!.AsObject().Remove(Op);
+
+        var result = await h.Service.EnsureOllamaContainerAsync(null);
+
+        Assert.True(result.Success);
+        Assert.Equal(LocalAiContainerState.AlreadyRunning, result.State);
+        Assert.NotNull(h.Container);
+        Assert.Empty(h.Created);
+        h.AssertNoVolumeDeletion();
+        h.AssertSafe();
+    }
+
     [Theory]
     [InlineData("owner")]
-    [InlineData("operation")]
     [InlineData("malformed-operation")]
     [InlineData("labels")]
     [InlineData("id")]
@@ -124,10 +144,28 @@ public sealed class LocalAiSetupServiceTests
         Assert.NotNull(h.Volume);
     }
 
+    /// <summary>
+    /// A model volume created before ownership labels carries none at all. The owning container's
+    /// verified mount is what ties it to this app, so setup reuses it instead of stranding the data.
+    /// </summary>
+    [Fact]
+    public async Task LegacyModelVolumeWithoutLabelsIsReused()
+    {
+        var h = new Harness { Volume = Models() };
+        h.Volume!.Remove("Labels");
+
+        var result = await h.Service.EnsureOllamaContainerAsync(null);
+
+        Assert.True(result.Success);
+        Assert.Equal(0, h.Count(nameof(IWslcService.CreateVolumeAsync)));
+        Assert.NotNull(h.Volume);
+        h.AssertNoVolumeDeletion();
+        h.AssertSafe();
+    }
+
     [Theory]
     [InlineData("owner")]
     [InlineData("operation")]
-    [InlineData("labels")]
     [InlineData("created")]
     [InlineData("mountpoint")]
     public async Task UnownedOrUnverifiableSameNameVolumeIsNeverAdopted(string damage)
@@ -137,7 +175,6 @@ public sealed class LocalAiSetupServiceTests
         {
             case "owner": h.Volume["Labels"]![Owner] = "other"; break;
             case "operation": h.Volume["Labels"]![Op] = "invalid"; break;
-            case "labels": h.Volume.Remove("Labels"); break;
             case "created": h.Volume["CreatedAt"] = "unknown"; break;
             case "mountpoint": h.Volume.Remove("Mountpoint"); break;
         }
@@ -256,7 +293,8 @@ public sealed class LocalAiSetupServiceTests
         };
         var result = await h.Service.EnsureOllamaContainerAsync(null);
         Assert.False(result.Success);
-        Assert.Contains("never pulls", result.Message);
+        Assert.Contains("not on this machine", result.Message);
+        Assert.Contains("does not download images", result.Message);
         h.AssertNoMutations();
     }
 
@@ -406,7 +444,7 @@ public sealed class LocalAiSetupServiceTests
         Assert.False(result.Success);
         Assert.Equal(LocalRuntimeResourceState.Absent, result.Runtime);
         Assert.Equal(existingModels ? LocalRuntimeResourceState.Retained : LocalRuntimeResourceState.Absent, result.ModelData);
-        Assert.DoesNotContain("No cached immutable", result.Message);
+        Assert.DoesNotContain("not on this machine", result.Message);
         h.AssertNoMutations();
     }
 
@@ -609,17 +647,42 @@ public sealed class LocalAiSetupServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task RemovalDeletesOnlyRuntimeAndReportsRequestedModelDeletionAsPartial(bool deleteModels)
+    public async Task RemovalDeletesRuntimeAndOnlyDeletesModelsWhenRequested(bool deleteModels)
     {
         var h = new Harness { Container = Runtime(running: true), Volume = Models() };
         var result = await h.Service.RemoveOllamaContainerAsync(deleteModels);
-        Assert.Equal(!deleteModels, result.Success);
+        Assert.True(result.Success);
+        Assert.Equal(LocalRuntimeResourceState.Removed, result.Runtime);
+        Assert.Equal(deleteModels ? LocalRuntimeResourceState.Removed : LocalRuntimeResourceState.Retained,
+            result.ModelData);
+        Assert.Equal(Id, Assert.Single(h.Deleted));
+        Assert.Null(h.Container);
+        if (deleteModels)
+        {
+            Assert.Null(h.Volume);
+        }
+        else
+        {
+            Assert.NotNull(h.Volume);
+            h.AssertNoVolumeDeletion();
+        }
+        Assert.Empty(h.Created);
+        h.AssertSafe();
+    }
+
+    [Fact]
+    public async Task RequestedModelDeletionFailureKeepsDataAndReportsIt()
+    {
+        var h = new Harness
+        {
+            Container = Runtime(running: true), Volume = Models(), VolumeRemoveFailure = "volume busy",
+        };
+        var result = await h.Service.RemoveOllamaContainerAsync(true);
+        Assert.False(result.Success);
         Assert.Equal(LocalRuntimeResourceState.Removed, result.Runtime);
         Assert.Equal(LocalRuntimeResourceState.Retained, result.ModelData);
-        Assert.Equal(Id, Assert.Single(h.Deleted));
         Assert.NotNull(h.Volume);
-        Assert.Null(h.Container);
-        Assert.Empty(h.Created);
+        Assert.Contains("could not be deleted", result.Message);
         h.AssertSafe();
     }
 
@@ -628,28 +691,41 @@ public sealed class LocalAiSetupServiceTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task RemovalWithoutRuntimeHandlesAbsentOrRetainedModels(bool hasVolume, bool deleteModels)
+    public async Task RemovalWithoutRuntimeStillDeletesRequestedModels(bool hasVolume, bool deleteModels)
     {
         var h = new Harness { Volume = hasVolume ? Models() : null };
         var result = await h.Service.RemoveOllamaContainerAsync(deleteModels);
-        Assert.Equal(!(hasVolume && deleteModels), result.Success);
+        Assert.True(result.Success);
         Assert.Equal(LocalRuntimeResourceState.Absent, result.Runtime);
-        Assert.Equal(hasVolume ? LocalRuntimeResourceState.Retained : LocalRuntimeResourceState.Absent, result.ModelData);
-        h.AssertNoMutations();
+        Assert.Equal(hasVolume && !deleteModels ? LocalRuntimeResourceState.Retained
+            : hasVolume ? LocalRuntimeResourceState.Removed : LocalRuntimeResourceState.Absent,
+            result.ModelData);
+        if (hasVolume && deleteModels)
+        {
+            Assert.Null(h.Volume);
+        }
+        h.AssertSafe();
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task RuntimeWithMissingVolumeCannotBeStartedOrRemoved(bool remove)
+    public async Task RuntimeWithMissingVolumeCannotBeStartedButCanBeRemoved(bool remove)
     {
         var h = new Harness { Container = Runtime() };
         if (remove)
-            Assert.False((await h.Service.RemoveOllamaContainerAsync(true)).Success);
+        {
+            // Removal must not depend on model-volume metadata; that check guards starting a
+            // workload, and requiring it here would block recovery from a broken runtime.
+            Assert.True((await h.Service.RemoveOllamaContainerAsync(true)).Success);
+            Assert.Null(h.Container);
+        }
         else
+        {
             Assert.False((await h.Service.EnsureOllamaContainerAsync(null)).Success);
-        h.AssertNoMutations();
-        Assert.NotNull(h.Container);
+            h.AssertNoMutations();
+            Assert.NotNull(h.Container);
+        }
     }
 
     [Theory]
@@ -688,7 +764,7 @@ public sealed class LocalAiSetupServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task RemovalRecheckRetainsContainerOrVolumeReplacement(bool replaceVolume)
+    public async Task RemovalRetainsReplacedContainerOrVolume(bool replaceVolume)
     {
         var h = new Harness { Container = Runtime(), Volume = Models() };
         h.Before = (method, _) =>
@@ -700,9 +776,20 @@ public sealed class LocalAiSetupServiceTests
             }
         };
         Assert.False((await h.Service.RemoveOllamaContainerAsync(true)).Success);
-        h.AssertNoMutations();
-        Assert.NotNull(h.Container);
+        // Replacement data is never deleted. A replaced container aborts before any mutation; a
+        // volume swapped after the container is gone keeps its data instead of deleting a stranger's.
         Assert.NotNull(h.Volume);
+        h.AssertNoVolumeDeletion();
+        if (replaceVolume)
+        {
+            Assert.Null(h.Container);
+            h.AssertSafe();
+        }
+        else
+        {
+            Assert.NotNull(h.Container);
+            h.AssertNoMutations();
+        }
     }
 
     [Fact]
@@ -777,8 +864,10 @@ public sealed class LocalAiSetupServiceTests
         public string? CreateFailure { get; set; }
         public string? StartFailure { get; set; }
         public string? RemoveFailure { get; set; }
+        public string? VolumeRemoveFailure { get; set; }
         public bool ReturnCreatedId { get; set; } = true;
         public bool KeepRemoved { get; set; }
+        public bool KeepRemovedVolume { get; set; }
         public Action<string, object?[]>? Before { get; set; }
         public Dictionary<string, Func<object?[], object>> Overrides { get; } = [];
         public List<string> Events { get; } = [];
@@ -885,6 +974,11 @@ public sealed class LocalAiSetupServiceTests
                     if (RemoveFailure is not null) return Task.FromResult(Fail(RemoveFailure));
                     if (!KeepRemoved && Container?["Id"]?.GetValue<string>() == (string)args[0]!) Container = null;
                     return Task.FromResult(Ok());
+                case nameof(IWslcService.RemoveVolumeAsync):
+                    Assert.Equal(Name, args[0]);
+                    if (VolumeRemoveFailure is not null) return Task.FromResult(Fail(VolumeRemoveFailure));
+                    if (!KeepRemovedVolume) Volume = null;
+                    return Task.FromResult(Ok());
                 default:
                     throw Unexpected(name);
             }
@@ -898,20 +992,26 @@ public sealed class LocalAiSetupServiceTests
             return new XunitException($"Unexpected external operation: {name}; no real process/network fallback exists.");
         }
 
+        /// <summary>Volume deletion is a real, user-approved outcome, so it is asserted per test via
+        /// <see cref="AssertNoVolumeDeletion"/> rather than banned outright here.</summary>
         public void AssertSafe()
         {
             Assert.Empty(_unexpected);
             Assert.Equal(0, Count(nameof(IWslcService.PullImageAsync)));
             Assert.Equal(0, Count(nameof(IWslcService.RunContainerAsync)));
             Assert.Equal(0, Count(nameof(IWslcService.ExecAsync)));
-            Assert.Equal(0, Count(nameof(IWslcService.RemoveVolumeAsync)));
             Assert.Equal("invalidate", Events[^1]);
         }
+
+        public void AssertNoVolumeDeletion() =>
+            Assert.Equal(0, Count(nameof(IWslcService.RemoveVolumeAsync)));
 
         public void AssertNoMutations()
         {
             Assert.Empty(_mutations);
+            AssertNoVolumeDeletion();
             AssertSafe();
         }
     }
 }
+

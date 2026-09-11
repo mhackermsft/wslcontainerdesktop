@@ -73,6 +73,28 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     public string SetupCacheLocation => "Setup cache: " + _setup.CacheLocation;
     public string ModelStagingLocation => "Model-file staging (not the Foundry runtime cache): " + _setup.ModelCacheLocation;
 
+    /// <summary>Whether the standalone runtime is installed on this PC, for setup-versus-remove affordances.</summary>
+    public bool IsRuntimeInstalled => _setup.IsRuntimeInstalled;
+
+    public void RefreshInstalledState() => OnPropertyChanged(nameof(IsRuntimeInstalled));
+
+    /// <summary>Removes only the Foundry Local package after explicit confirmation.</summary>
+    public async Task<string> UninstallRuntimeAsync(CancellationToken ct = default)
+    {
+        IsInstallingRuntime = true;
+        try
+        {
+            var result = await _setup.UninstallRuntimeAsync(ct);
+            SetupStatus = result.Guidance;
+            return result.Guidance;
+        }
+        finally
+        {
+            IsInstallingRuntime = false;
+            RefreshInstalledState();
+        }
+    }
+
     public FoundryLocalSettingsViewModel(ISettingsService settings,
         IFoundryLocalRuntimeService runtime, IAiCapabilityService capabilities,
         ILogger<FoundryLocalSettingsViewModel> logger, FoundryLocalSetupService? setup = null,

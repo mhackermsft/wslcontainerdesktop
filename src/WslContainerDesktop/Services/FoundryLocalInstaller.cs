@@ -112,6 +112,58 @@ public sealed class FoundryLocalInstaller
         return new(false, false, "", "Unrecognized prerequisite state; nothing downloaded.");
     }
 
+    internal const string UninstallScript = """
+        $ErrorActionPreference = 'Stop'
+        $package = Get-AppxPackage -Name 'Microsoft.FoundryLocal' | Where-Object { $_.PackageFamilyName -eq 'Microsoft.FoundryLocal_8wekyb3d8bbwe' }
+        if (-not $package) { Write-Output '@@WSLCD_FOUNDRY_ABSENT'; exit 0 }
+        if (@($package).Count -ne 1) { throw 'Multiple Foundry packages; nothing removed.' }
+        Get-Process -Name 'foundry','foundrylocald' -ErrorAction SilentlyContinue | ForEach-Object { $_.CloseMainWindow() | Out-Null }
+        Remove-AppxPackage -Package $package.PackageFullName -ErrorAction Stop
+        if (Get-AppxPackage -Name 'Microsoft.FoundryLocal') { throw 'Removal not confirmed.' }
+        Write-Output '@@WSLCD_FOUNDRY_REMOVED'
+        """;
+
+    /// <summary>Removes only the Foundry Local package. The shared VCLibs prerequisite and any
+    /// downloaded models are deliberately retained; other packages are never touched.</summary>
+    public async Task<FoundryLocalInstallResult> UninstallRuntimeAsync(CancellationToken ct)
+    {
+        var entered = false;
+        var mutationAttempted = false;
+        try
+        {
+            await _gate.WaitAsync(ct);
+            entered = true;
+            _invalidateCapabilities();
+            mutationAttempted = true;
+            var result = await _run(BuildProcess(UninstallScript), ct);
+            ct.ThrowIfCancellationRequested();
+            var lines = result.StandardOutput.Split('\n').Select(line => line.Trim()).ToArray();
+            if (lines.Any(line => line == "@@WSLCD_FOUNDRY_ABSENT"))
+                return new(FoundryLocalInstallState.Installed, "Foundry Local was already absent. Nothing was removed.");
+            if (!result.Success || !lines.Any(line => line == "@@WSLCD_FOUNDRY_REMOVED"))
+                return new(FoundryLocalInstallState.Failed,
+                    "Windows did not confirm removal. Nothing else was changed; inspect installed packages before retrying.");
+            return new(FoundryLocalInstallState.Installed,
+                "Foundry Local was removed for this user. Downloaded models and the shared Microsoft VCLibs prerequisite were kept, " +
+                "and execution-provider packages installed by Windows are not removed.");
+        }
+        catch (OperationCanceledException)
+        {
+            return new(FoundryLocalInstallState.Cancelled, mutationAttempted
+                ? "Removal cancelled; Windows may still complete it. Inspect installed packages."
+                : "Removal cancelled. Nothing was changed.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return new(FoundryLocalInstallState.Failed, $"Removal failed ({ex.GetType().Name}). Nothing else was changed.");
+        }
+        finally
+        {
+            if (entered) _gate.Release();
+            if (mutationAttempted) _invalidateCapabilities();
+        }
+    }
+
     public async Task<FoundryLocalInstallResult> InstallRuntimeOnlyAsync(string approvedPackageSet,
         string runtimePath, string? dependencyPath, AiChatConfiguration original,
         Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent, IProgress<string>? progress, CancellationToken ct)

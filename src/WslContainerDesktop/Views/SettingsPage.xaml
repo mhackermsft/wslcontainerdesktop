@@ -326,18 +326,32 @@
                             MinWidth="0"
                             IsOn="{x:Bind ViewModel.AiFeaturesEnabled, Mode=TwoWay}" />
                     </Grid>
-                    <ComboBox
-                        AutomationProperties.AutomationId="AiProviderComboBox"
-                        Header="Provider"
-                        MinWidth="260"
-                        SelectedIndex="{x:Bind ViewModel.SelectedAiProviderIndex, Mode=TwoWay}">
-                        <ComboBoxItem Content="None" />
-                        <ComboBoxItem Content="GitHub Copilot (recommended)" />
-                        <ComboBoxItem Content="Ollama (local)" />
-                        <ComboBoxItem Content="Azure OpenAI" />
-                        <ComboBoxItem Content="OpenAI-compatible" />
-                        <ComboBoxItem AutomationProperties.AutomationId="FoundryLocalProviderOption" Content="Foundry Local (local REST)" />
-                    </ComboBox>
+                    <Border
+                        Padding="12"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <FontIcon
+                                VerticalAlignment="Center"
+                                FontSize="16"
+                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                Glyph="&#xE9D9;" />
+                            <StackPanel Spacing="2">
+                                <TextBlock
+                                    AutomationProperties.AutomationId="ActiveAiProviderText"
+                                    FontWeight="SemiBold"
+                                    Text="{x:Bind ViewModel.ActiveProviderName, Mode=OneWay}" />
+                                <TextBlock
+                                    AutomationProperties.AutomationId="ActiveAiProviderDetailText"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{x:Bind ViewModel.ActiveProviderDetail, Mode=OneWay}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                     <Border
                         Padding="14"
                         Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
@@ -350,17 +364,36 @@
                                 <TextBlock
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="Set up only the app-owned Ollama container at 127.0.0.1 using an already acquired, immutable image. Setup never adopts native or unrelated runtimes and never downloads images or models or warms a model. If the image is missing, acquire it separately after auditing its digest and publication age (at least seven days). Select an installed model or explicitly request an audited model pull below. GPU acceleration and model capabilities are not assumed."
+                                    Text="One click sets up Ollama in an app-managed container on the WSLC engine and selects it as your provider."
                                     TextWrapping="Wrap" />
+                                <Expander
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch"
+                                    Header="What setup does">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="Setup manages only the app's own container on 127.0.0.1 and reuses an image already on this machine. It never adopts unrelated runtimes, downloads images or models, or warms a model. Choose an installed model below, or request a pull explicitly."
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="GPU acceleration and model capabilities are never assumed; check capabilities after setup."
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Expander>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button
                                     AutomationProperties.AutomationId="SetUpLocalAiButton"
                                     Command="{x:Bind ViewModel.SetUpLocalAiCommand}"
-                                    Style="{ThemeResource AccentButtonStyle}">
+                                    IsEnabled="{x:Bind ViewModel.CanQuickStartOllama, Mode=OneWay}"
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    Visibility="{x:Bind ViewModel.ShowLocalSetupButtons, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <FontIcon FontSize="13" Glyph="&#xE945;" />
-                                        <TextBlock Text="Set up local AI" />
+                                        <TextBlock Text="Set up Ollama" />
                                     </StackPanel>
                                 </Button>
                                 <Button
@@ -371,8 +404,24 @@
                                 <Button
                                     AutomationProperties.AutomationId="RemoveLocalAiButton"
                                     Command="{x:Bind ViewModel.RemoveLocalAiCommand}"
-                                    Content="Remove local AI" />
+                                    Content="Remove Ollama"
+                                    Visibility="{x:Bind ViewModel.ShowRemoveOllama, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                             </StackPanel>
+                            <TextBlock
+                                AutomationProperties.AutomationId="QuickStartHintText"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind ViewModel.QuickStartHint, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                            <ProgressBar
+                                IsIndeterminate="True"
+                                Visibility="{x:Bind ViewModel.FoundryLocal.IsPreparingAnything, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind ViewModel.FoundryLocal.SetupStatus, Mode=OneWay}"
+                                TextWrapping="Wrap"
+                                Visibility="{x:Bind ViewModel.FoundryLocal.IsPreparingAnything, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                             <ProgressBar
                                 IsIndeterminate="True"
                                 Visibility="{x:Bind ViewModel.IsOllamaBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
@@ -406,12 +455,28 @@
                             </Expander>
                         </StackPanel>
                     </Border>
-                    <InfoBar
-                        IsOpen="True"
-                        Severity="Informational"
-                        Title="Data sharing notice"
-                        Message="Recognized sensitive fields and credential patterns are masked before AI evidence and assistant audit details are shortened. Detection is not perfect: unlabelled or encoded secrets may remain. Review diagnosis previews and do not paste secrets into chat. The selected provider receives chat and tool evidence; local inference requires a local endpoint. Diagnosis fixes are copy-only; assistant mutations follow the app's approval settings."
-                        Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                    <ComboBox
+                        AutomationProperties.AutomationId="AiProviderComboBox"
+                        Header="Provider"
+                        MinWidth="260"
+                        SelectedIndex="{x:Bind ViewModel.SelectedAiProviderIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="None" />
+                        <ComboBoxItem Content="GitHub Copilot (recommended)" />
+                        <ComboBoxItem Content="Ollama (local)" />
+                        <ComboBoxItem Content="Azure OpenAI" />
+                        <ComboBoxItem Content="OpenAI-compatible" />
+                    </ComboBox>
+                    <Expander
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="Data sharing and privacy"
+                        Visibility="{x:Bind ViewModel.ShowAiProviderSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        <TextBlock
+                            FontSize="12"
+                            IsTextSelectionEnabled="True"
+                            Text="Recognized sensitive fields and credential patterns are masked before AI evidence and assistant audit details are shortened. Detection is not perfect: unlabelled or encoded secrets may remain. Review diagnosis previews and do not paste secrets into chat. The selected provider receives chat and tool evidence; local inference requires a local endpoint. Diagnosis fixes are copy-only; assistant mutations follow the app's approval settings."
+                            TextWrapping="Wrap" />
+                    </Expander>
                     <Expander
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Stretch"
@@ -531,73 +596,6 @@
                                         Content="Refresh" />
                                 </Grid>
                             </StackPanel>
-                            <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.ShowFoundryLocalSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                <Button AutomationProperties.AutomationId="FoundryLocalInitialSetupButton"
-                                    Content="Set up Foundry Local and initial CPU model…"
-                                    IsEnabled="{x:Bind ViewModel.FoundryLocal.CanPrepareInitialModel, Mode=OneWay}"
-                                    Click="PrepareFoundryInitialModel_Click" />
-                                <TextBlock Text="{x:Bind ViewModel.FoundryLocal.InstallationGuidance}" TextWrapping="Wrap" />
-                                <TextBlock Text="{x:Bind ViewModel.FoundryLocal.SetupCacheLocation}" TextWrapping="Wrap"
-                                    IsTextSelectionEnabled="True" />
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button AutomationProperties.AutomationId="FoundryLocalInstallRuntimeButton"
-                                        Content="Install runtime only…"
-                                        IsEnabled="{x:Bind ViewModel.FoundryLocal.CanInstallRuntime, Mode=OneWay}"
-                                        Click="InstallFoundryRuntime_Click" />
-                                    <Button AutomationProperties.AutomationId="FoundryLocalCancelRuntimeSetupButton"
-                                        Content="Cancel preparation"
-                                        IsEnabled="{x:Bind ViewModel.FoundryLocal.IsPreparingAnything, Mode=OneWay}"
-                                        Command="{x:Bind ViewModel.FoundryLocal.CancelRuntimeSetupCommand}" />
-                                </StackPanel>
-                                <TextBlock Text="{x:Bind ViewModel.FoundryLocal.ModelStagingLocation}" TextWrapping="Wrap"
-                                    IsTextSelectionEnabled="True" />
-                                <Button AutomationProperties.AutomationId="FoundryLocalStageModelFilesButton"
-                                    Content="Download pinned CPU model files only…"
-                                    IsEnabled="{x:Bind ViewModel.FoundryLocal.CanStageModelFiles, Mode=OneWay}"
-                                    Click="StageFoundryModelFiles_Click" />
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button AutomationProperties.AutomationId="FoundryLocalDiscoverButton"
-                                        Content="Discover existing server" Command="{x:Bind ViewModel.FoundryLocal.DiscoverCommand}" />
-                                    <Button AutomationProperties.AutomationId="FoundryLocalUseEndpointButton"
-                                        Content="Review connection" IsEnabled="{x:Bind ViewModel.FoundryLocal.CanUseDiscoveredEndpoint, Mode=OneWay}"
-                                        Click="UseFoundryEndpoint_Click" />
-                                    <Button AutomationProperties.AutomationId="FoundryLocalCancelDiscoveryButton"
-                                        Content="Cancel discovery" Command="{x:Bind ViewModel.FoundryLocal.DiscoverCancelCommand}" />
-                                </StackPanel>
-                                <TextBlock AutomationProperties.AutomationId="FoundryLocalSetupStatusText"
-                                    Text="{x:Bind ViewModel.FoundryLocal.SetupStatus, Mode=OneWay}" TextWrapping="Wrap" />
-                                <TextBox AutomationProperties.AutomationId="FoundryLocalEndpointTextBox"
-                                    Header="Foundry Local URL (explicit loopback host and port)"
-                                    Text="{x:Bind ViewModel.FoundryLocal.Endpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                <TextBox AutomationProperties.AutomationId="FoundryLocalModelTextBox"
-                                    Header="Actual model ID (not an alias)"
-                                    Text="{x:Bind ViewModel.FoundryLocal.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                <InfoBar AutomationProperties.AutomationId="FoundryLocalAcquisitionInfoBar"
-                                    IsOpen="True" IsClosable="False" Severity="Warning"
-                                    Title="Local inference — setup and catalog access use the network"
-                                    Message="{x:Bind ViewModel.FoundryLocal.AcquisitionGuidance}" />
-                                <TextBlock Text="{x:Bind ViewModel.FoundryLocal.MemoryPolicy}" TextWrapping="Wrap" />
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button AutomationProperties.AutomationId="FoundryLocalRefreshButton"
-                                        Content="Refresh metadata" Command="{x:Bind ViewModel.FoundryLocal.RunOperationCommand}" CommandParameter="refresh" />
-                                    <Button AutomationProperties.AutomationId="FoundryLocalLoadButton"
-                                        Content="Prepare / reload CPU model…"
-                                        IsEnabled="{x:Bind ViewModel.FoundryLocal.CanPrepareInitialModel, Mode=OneWay}"
-                                        Click="PrepareFoundryInitialModel_Click" />
-                                    <Button AutomationProperties.AutomationId="FoundryLocalUnloadButton"
-                                        Content="Unload model" Command="{x:Bind ViewModel.FoundryLocal.RunOperationCommand}" CommandParameter="unload" />
-                                    <Button AutomationProperties.AutomationId="FoundryLocalCancelButton"
-                                        Content="Cancel request" Command="{x:Bind ViewModel.FoundryLocal.RunOperationCancelCommand}" />
-                                    <Button AutomationProperties.AutomationId="FoundryLocalStopServerButton"
-                                        Content="Stop shared server…"
-                                        IsEnabled="{x:Bind ViewModel.FoundryLocal.CanPrepareInitialModel, Mode=OneWay}"
-                                        Click="StopFoundryServer_Click" />
-                                </StackPanel>
-                                <TextBlock AutomationProperties.AutomationId="FoundryLocalStatusText"
-                                    Text="{x:Bind ViewModel.FoundryLocal.Status, Mode=OneWay}" TextWrapping="Wrap" />
-                                <TextBlock AutomationProperties.AutomationId="FoundryLocalInventoryText"
-                                    Text="{x:Bind ViewModel.FoundryLocal.InventoryText, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-                            </StackPanel>
                             <Grid ColumnSpacing="8" Visibility="{x:Bind ViewModel.ShowAiSecretSettings, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -638,13 +636,18 @@
                                 Content="Cancel test" />
                         </StackPanel>
                     </Grid>
-                    <InfoBar
-                        AutomationProperties.AutomationId="AiCapabilityStatusInfoBar"
-                        IsClosable="False"
-                        IsOpen="True"
-                        Message="{x:Bind ViewModel.AiCapabilityStatus, Mode=OneWay}"
-                        Severity="Informational"
-                        Title="Current AI capabilities" />
+                    <Expander
+                        AutomationProperties.AutomationId="AiCapabilityStatusExpander"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch"
+                        Header="{x:Bind ViewModel.AiCapabilityHeadline, Mode=OneWay}">
+                        <TextBlock
+                            AutomationProperties.AutomationId="AiCapabilityStatusText"
+                            FontSize="12"
+                            IsTextSelectionEnabled="True"
+                            Text="{x:Bind ViewModel.AiCapabilityStatus, Mode=OneWay}"
+                            TextWrapping="Wrap" />
+                    </Expander>
                     <InfoBar
                         x:Name="ProviderFeedbackBar"
                         AutomationProperties.AutomationId="ProviderFeedbackInfoBar"

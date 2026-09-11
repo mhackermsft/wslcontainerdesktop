@@ -229,12 +229,24 @@ public sealed class WslcService(
     public Task<CommandResult> KillContainerAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["kill", id], ct);
 
-    public async Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default)
+    public async Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default,
+        bool removeAnonymousVolumes = false)
     {
         var args = new List<string> { "remove" };
         if (force)
         {
             args.Add("--force");
+        }
+
+        if (removeAnonymousVolumes)
+        {
+            // Optional flag: only pass it when the engine advertises it, so an older engine keeps
+            // removing the container instead of failing on an unknown argument.
+            var support = await _capabilities.GetAsync(ct).ConfigureAwait(false);
+            if (support[WslcFeature.RemoveVolumes].Support == WslcCapabilitySupport.Supported)
+            {
+                args.Add("--volumes");
+            }
         }
 
         args.Add(id);
