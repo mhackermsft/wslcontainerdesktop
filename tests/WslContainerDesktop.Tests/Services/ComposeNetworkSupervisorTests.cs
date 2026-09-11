@@ -326,6 +326,65 @@ public sealed class ComposeNetworkSupervisorTests
         Assert.Empty(fixture.Engine.Mutations);
     }
 
+    /// <summary>
+    /// A project can attach a container it does not own (for example a reused runtime). That
+    /// endpoint keeps the project network alive, and previously blocked teardown outright and
+    /// skipped an explicitly requested volume deletion.
+    /// </summary>
+    [Fact]
+    public async Task DownDetachesForeignEndpointsAndStillDeletesRequestedVolumes()
+    {
+        var fixture = new Fixture();
+        fixture.Project.Networks = [new() { Name = "ours" }];
+        fixture.Project.Volumes = [new() { Name = "data" }];
+        fixture.Engine.Networks["ours"] = "demo";
+        fixture.Engine.Volumes["data"] = "demo";
+        fixture.Project.Services[0].Options.Network = "ours";
+        fixture.Project.Services[0].Options.Networks = ["ours"];
+        fixture.Project.Services[0].Options.NetworkAttachments.Clear();
+        // A container this project attached but does not own is still on the network at teardown.
+        var reused = Options("reused");
+        reused.Labels.Clear();
+        fixture.Engine.Add(reused);
+        fixture.Engine.NetworkInspectionOverrides["ours"] = JsonSerializer.Serialize(new
+        {
+            Labels = new Dictionary<string, string?> { [ComposeProject.ProjectLabel] = "demo" },
+            Containers = new Dictionary<string, object> { ["reused"] = new { Name = "reused" } },
+        });
+
+        await fixture.Supervisor.DownAsync("demo", removeVolumes: true);
+
+        Assert.Contains("disconnect:ours", fixture.Engine.Mutations);
+        Assert.Contains("network-remove:ours", fixture.Engine.Mutations);
+        // The explicit volume request must not be skipped by anything that happens to networks.
+        Assert.Contains("volume-remove:data", fixture.Engine.Mutations);
+        Assert.False(fixture.Engine.Volumes.ContainsKey("data"));
+        // The reused container itself is untouched; only its endpoint on our network is removed.
+        Assert.True(fixture.Engine.Containers.ContainsKey("reused"));
+    }
+
+    /// <summary>Unreadable resource metadata must preserve that resource without crashing teardown
+    /// or cancelling the rest of it.</summary>
+    [Fact]
+    public async Task DownPreservesUnreadableResourcesAndStillDeletesRequestedVolumes()
+    {
+        var fixture = new Fixture();
+        fixture.Project.Networks = [new() { Name = "ours" }];
+        fixture.Project.Volumes = [new() { Name = "data" }];
+        fixture.Engine.Networks["ours"] = "demo";
+        fixture.Engine.Volumes["data"] = "demo";
+        fixture.Project.Services[0].Options.Network = "ours";
+        fixture.Project.Services[0].Options.Networks = ["ours"];
+        fixture.Project.Services[0].Options.NetworkAttachments.Clear();
+        fixture.Engine.NetworkInspectionOverrides["ours"] = "not-json";
+
+        await fixture.Supervisor.DownAsync("demo", removeVolumes: true);
+
+        Assert.DoesNotContain("network-remove:ours", fixture.Engine.Mutations);
+        Assert.True(fixture.Engine.Networks.ContainsKey("ours"));
+        Assert.Contains("volume-remove:data", fixture.Engine.Mutations);
+    }
+
     [Fact]
     public async Task DownPreservesExternalAndUnownedNetworks()
     {

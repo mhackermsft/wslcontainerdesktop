@@ -6,6 +6,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:WslContainerDesktop.Models"
+    xmlns:converters="using:WslContainerDesktop.Helpers"
     AutomationProperties.AutomationId="ComposePreviewDialog"
     Title="{x:Bind ViewModel.Title}"
     PrimaryButtonText="{x:Bind ViewModel.ApplyLabel}"
@@ -14,33 +15,77 @@
     DefaultButton="Close">
     <ContentDialog.Resources>
         <x:Double x:Key="ContentDialogMaxWidth">880</x:Double>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
     </ContentDialog.Resources>
-    <Grid RowSpacing="12" MinWidth="480" MaxWidth="800">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-        <InfoBar
-            AutomationProperties.AutomationId="ComposePreviewStatus"
-            IsOpen="True"
-            IsClosable="False"
-            Severity="{x:Bind Severity}"
-            Message="{x:Bind ViewModel.Summary}" />
-        <ListView
-            AutomationProperties.AutomationId="ComposePreviewSettings"
-            AutomationProperties.Name="Resolved Compose settings and compatibility"
-            Grid.Row="1"
-            MaxHeight="480"
-            SelectionMode="None"
-            ItemsSource="{x:Bind ViewModel.Settings}">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="models:ComposeCompatibilitySetting">
-                    <StackPanel Spacing="4" Padding="4,8">
-                        <TextBlock Text="{x:Bind Summary}" TextWrapping="Wrap" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock Text="{x:Bind Detail}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
-    </Grid>
+    <!-- One ScrollViewer owns scrolling for the whole body. A ListView here sizes to its content
+         inside a dialog, so its own scrollbar renders but never scrolls. -->
+    <ScrollViewer
+        MinWidth="480"
+        MaxWidth="800"
+        MaxHeight="520"
+        VerticalScrollBarVisibility="Auto"
+        VerticalScrollMode="Enabled"
+        HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12">
+            <InfoBar
+                AutomationProperties.AutomationId="ComposePreviewStatus"
+                IsOpen="True"
+                IsClosable="False"
+                Severity="{x:Bind Severity}"
+                Message="{x:Bind ViewModel.Summary}" />
+            <StackPanel Spacing="4">
+                <TextBlock Text="What this does" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <TextBlock
+                    AutomationProperties.AutomationId="ComposePreviewOutcome"
+                    Text="{x:Bind ViewModel.Outcome}"
+                    TextWrapping="Wrap"
+                    IsTextSelectionEnabled="True" />
+            </StackPanel>
+            <!-- Blocked, approximated and ignored settings are the only ones that need a decision. -->
+            <StackPanel
+                Spacing="8"
+                Visibility="{x:Bind ViewModel.HasAttention, Converter={StaticResource BoolToVis}}">
+                <TextBlock
+                    AutomationProperties.AutomationId="ComposePreviewAttentionHeader"
+                    Text="{x:Bind ViewModel.AttentionHeader}"
+                    Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <ItemsControl
+                    AutomationProperties.AutomationId="ComposePreviewAttention"
+                    ItemsSource="{x:Bind ViewModel.Attention}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:ComposeCompatibilitySetting">
+                            <StackPanel Spacing="4" Padding="0,6">
+                                <TextBlock Text="{x:Bind Summary}" TextWrapping="Wrap" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="{x:Bind Detail}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+            <Expander
+                AutomationProperties.AutomationId="ComposePreviewAllSettings"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                Header="{x:Bind ViewModel.AllSettingsHeader}">
+                <ItemsControl
+                    AutomationProperties.AutomationId="ComposePreviewSettings"
+                    AutomationProperties.Name="Resolved Compose settings and compatibility"
+                    ItemsSource="{x:Bind ViewModel.Settings}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:ComposeCompatibilitySetting">
+                            <StackPanel Spacing="4" Padding="0,6">
+                                <TextBlock Text="{x:Bind Summary}" TextWrapping="Wrap" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock
+                                    Text="{x:Bind Detail}"
+                                    TextWrapping="Wrap"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    IsTextSelectionEnabled="True" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Expander>
+        </StackPanel>
+    </ScrollViewer>
 </ContentDialog>

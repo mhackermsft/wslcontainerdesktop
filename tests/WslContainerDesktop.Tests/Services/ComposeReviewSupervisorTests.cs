@@ -537,7 +537,8 @@ public sealed class ComposeReviewSupervisorTests
         var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
         Assert.True(review.Preview.CanApply);
         Assert.Contains("Recreate", Row(review, "instances").EffectiveValue);
-        Assert.Contains("writable layer", Row(review, "instances").Explanation);
+        // A replacement must still say plainly that container contents are lost.
+        Assert.Contains("discards anything written inside it", Row(review, "instances").Explanation);
         fixture.Engine.Mounts["demo_web"] = [new { Type = "volume", Name = "new-anonymous", Source = "/new", Destination = "/data", RW = true }];
         Assert.Equal(ComposeReviewOutcomeKind.Stale, (await fixture.Supervisor.ApplyReviewedAsync(review, true)).Kind);
         Assert.Empty(fixture.Engine.Mutations);

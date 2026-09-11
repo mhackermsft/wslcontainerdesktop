@@ -366,7 +366,7 @@ public sealed partial class ComposeProjectSupervisor
             }
 
             if (network.External ||
-                !existing.ErrorText.Contains("WSLC_E_NETWORK_NOT_FOUND", StringComparison.Ordinal))
+                !ComposeResourceErrors.IsNetworkNotFound(existing.ErrorText))
             {
                 throw new InvalidOperationException($"Network '{network.Name}': {existing.ErrorText}");
             }
@@ -388,7 +388,7 @@ public sealed partial class ComposeProjectSupervisor
         {
             var existing = await _wslc.InspectVolumeAsync(volume.Name, ct).ConfigureAwait(false);
             if (existing.Success) continue;
-            if (volume.External || !existing.ErrorText.Contains("WSLC_E_VOLUME_NOT_FOUND", StringComparison.Ordinal))
+            if (volume.External || !ComposeResourceErrors.IsVolumeNotFound(existing.ErrorText))
                 throw new InvalidOperationException($"Volume '{volume.Name}': {existing.ErrorText}");
             var labels = new Dictionary<string, string>(volume.Labels, StringComparer.Ordinal)
             {
@@ -438,17 +438,21 @@ public sealed partial class ComposeProjectSupervisor
 
         // Remove project-created networks (like `docker compose down`). Volumes are preserved
         // unless the caller requested their removal (like `docker compose down --volumes`).
+        // Failures are collected rather than thrown immediately: aborting here would silently skip
+        // an explicitly requested volume deletion further down.
+        var failures = new List<string>();
         foreach (var network in project.Networks.Where(n => !n.External && !string.IsNullOrWhiteSpace(n.Name)))
         {
             var inspect = await _wslc.InspectNetworkAsync(network.Name, ct).ConfigureAwait(false);
             if (!inspect.Success)
             {
-                if (inspect.ErrorText.Contains("WSLC_E_NETWORK_NOT_FOUND", StringComparison.Ordinal))
+                if (ComposeResourceErrors.IsNetworkNotFound(inspect.ErrorText))
                 {
                     continue;
                 }
 
-                throw new InvalidOperationException($"Inspect network '{network.Name}': {inspect.ErrorText}");
+                failures.Add($"Inspect network '{network.Name}': {inspect.ErrorText}");
+                continue;
             }
 
             if (!NetworkIsOwned(inspect.StandardOutput, project.Name))
@@ -457,10 +461,22 @@ public sealed partial class ComposeProjectSupervisor
                 continue;
             }
 
+            // Endpoints left on a project-owned network block its removal. They belong to containers
+            // this project attached but may not own, so detach them from this network only: the
+            // containers themselves are untouched and keep every other network they are on.
+            foreach (var endpoint in NetworkEndpointIds(inspect.StandardOutput))
+            {
+                var disconnected = await _wslc.DisconnectNetworkAsync(network.Name, endpoint, ct).ConfigureAwait(false);
+                if (!disconnected.Success)
+                {
+                    failures.Add($"Disconnect from network '{network.Name}': {disconnected.ErrorText}");
+                }
+            }
+
             var removed = await _wslc.RemoveNetworkAsync(network.Name, ct).ConfigureAwait(false);
             if (!removed.Success)
             {
-                throw new InvalidOperationException($"Remove network '{network.Name}': {removed.ErrorText}");
+                failures.Add($"Remove network '{network.Name}': {removed.ErrorText}");
             }
         }
 
@@ -469,17 +485,29 @@ public sealed partial class ComposeProjectSupervisor
             foreach (var volume in project.Volumes.Where(v => !v.External && !string.IsNullOrWhiteSpace(v.Name)))
             {
                 var inspect = await _wslc.InspectVolumeAsync(volume.Name, ct).ConfigureAwait(false);
-                if (!inspect.Success && inspect.ErrorText.Contains("WSLC_E_VOLUME_NOT_FOUND", StringComparison.Ordinal))
+                if (!inspect.Success && ComposeResourceErrors.IsVolumeNotFound(inspect.ErrorText))
                     continue;
-                if (!inspect.Success) throw new InvalidOperationException(inspect.ErrorText);
+                if (!inspect.Success)
+                {
+                    failures.Add($"Inspect volume '{volume.Name}': {inspect.ErrorText}");
+                    continue;
+                }
                 if (!NetworkIsOwned(inspect.StandardOutput, project.Name))
                 {
                     _logger.LogWarning("Preserving volume {Volume}: project ownership could not be verified.", volume.Name);
                     continue;
                 }
                 var removed = await _wslc.RemoveVolumeAsync(volume.Name, ct).ConfigureAwait(false);
-                if (!removed.Success) throw new InvalidOperationException(removed.ErrorText);
+                if (!removed.Success)
+                {
+                    failures.Add($"Remove volume '{volume.Name}': {removed.ErrorText}");
+                }
             }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new InvalidOperationException(string.Join("; ", failures));
         }
     }
 
@@ -1000,19 +1028,62 @@ public sealed partial class ComposeProjectSupervisor
     private static ComposeProject ProjectWithServices(ComposeProject project, IEnumerable<ComposeService> services) =>
         new() { Name = project.Name, ActiveProfiles = ["*"], Services = services.ToList() };
 
+    /// <summary>
+    /// Container IDs still attached to a network. A project can attach a container it does not own
+    /// (a reused runtime), and those endpoints keep the network alive after teardown removes the
+    /// project's own containers.
+    /// </summary>
+    private static IReadOnlyList<string> NetworkEndpointIds(string json)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind == System.Text.Json.JsonValueKind.Array && root.GetArrayLength() == 1)
+            {
+                root = root[0];
+            }
+
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                !root.TryGetProperty("Containers", out var containers) ||
+                containers.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return [];
+            }
+
+            return containers.EnumerateObject()
+                .Select(c => c.Name)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .ToArray();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
     private static bool NetworkIsOwned(string json, string project)
     {
-        using var document = System.Text.Json.JsonDocument.Parse(json);
-        var root = document.RootElement;
-        if (root.ValueKind == System.Text.Json.JsonValueKind.Array && root.GetArrayLength() == 1)
+        try
         {
-            root = root[0];
-        }
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind == System.Text.Json.JsonValueKind.Array && root.GetArrayLength() == 1)
+            {
+                root = root[0];
+            }
 
-        return root.ValueKind == System.Text.Json.JsonValueKind.Object &&
-            root.TryGetProperty("Labels", out var labels) && labels.ValueKind == System.Text.Json.JsonValueKind.Object &&
-            labels.TryGetProperty(ComposeProject.ProjectLabel, out var owner) &&
-            owner.ValueKind == System.Text.Json.JsonValueKind.String && owner.GetString() == project;
+            return root.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                root.TryGetProperty("Labels", out var labels) && labels.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                labels.TryGetProperty(ComposeProject.ProjectLabel, out var owner) &&
+                owner.ValueKind == System.Text.Json.JsonValueKind.String && owner.GetString() == project;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Unreadable metadata is not proof of ownership, so the resource is preserved rather
+            // than deleted or allowed to abort the rest of the teardown.
+            return false;
+        }
     }
 
     /// <summary>
@@ -1351,3 +1422,4 @@ public sealed partial class ComposeProjectSupervisor
             || (lower.Contains("creating mount source path") && lower.Contains("read-only file system"));
     }
 }
+

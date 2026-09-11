@@ -198,8 +198,10 @@ public sealed class AssistantComposeContractTests
         var approval = await requested.Task.WaitAsync(Deadline);
         Assert.Empty(f.Engine.Mutations);
         Assert.Empty(f.SavedSnapshots);
+        // This scenario creates fresh containers, so it must disclose creation rather than the
+        // replacement warning, which would describe a consequence that cannot occur here.
         foreach (var text in new[] { backend, "8080:80", "/scratch:ro", "demo_data", "import diagnostic",
-                     "Ignored", "restart", "application", "healthcheck", "writable", "web", "image" })
+                     "Ignored", "restart", "application", "healthcheck", "created", "web", "image" })
             Assert.Contains(text, approval.Details);
         Assert.DoesNotContain("synthetic-private", approval.Details);
         Assert.DoesNotContain("synthetic-private", approval.Summary);
@@ -424,7 +426,8 @@ public sealed class AssistantComposeContractTests
         Assert.Empty(f.Engine.Mutations);
         var replacement = await tools.ResolveAsync(Call(false, BasicYaml + "    command: changed\n"), default);
         Assert.Contains("Recreate", replacement.Details);
-        Assert.Contains("writable", replacement.Details);
+        // Replacing an existing container must disclose that its contents are lost.
+        Assert.Contains("discards anything written inside it", replacement.Details);
         Assert.Empty(f.Engine.Mutations);
         AssertKind(await replacement.ExecuteAsync(default), "Applied");
         Assert.Contains(f.Engine.Mutations, mutation => mutation.StartsWith("remove:", StringComparison.Ordinal));

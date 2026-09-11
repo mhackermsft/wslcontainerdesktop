@@ -317,8 +317,7 @@ public sealed partial class ComposeProjectSupervisor
 
         Task ResourceAsync(string kind, string name, bool external, CommandResult result, string? driver, string declaration)
         {
-            var missing = !result.Success && result.ErrorText.Contains(
-                kind == "network" ? "WSLC_E_NETWORK_NOT_FOUND" : "WSLC_E_VOLUME_NOT_FOUND", StringComparison.Ordinal);
+            var missing = ComposeResourceErrors.IsNotFound(kind, result.ErrorText);
             if (!result.Success && (!missing || external))
                 Block(kind, external && missing ? "A required external resource is missing." : "Resource inventory is unavailable (Unknown), not empty.");
             if (result.Success)

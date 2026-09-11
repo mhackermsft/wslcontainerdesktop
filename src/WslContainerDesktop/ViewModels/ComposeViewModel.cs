@@ -404,14 +404,27 @@ public partial class ComposeViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Reports per-service outcomes when there is something to act on. A clean run needs no modal:
+    /// the status line already reports it, and planner reasoning shown after the fact reads like a
+    /// problem rather than an explanation.
+    /// </summary>
     private Task ShowServiceOutcomesAsync(string title, ComposeUpResult result, ComposeProject project)
     {
+        var needsAttention = result.Services.Any(s => !s.Success || !string.IsNullOrWhiteSpace(s.Warning));
+        if (!needsAttention && result.Services.Count > 0)
+        {
+            return Task.CompletedTask;
+        }
+
         var safe = new ComposePreviewProjection(project);
         return _dialogs.ShowMessageAsync(safe.Redact(title), result.Services.Count == 0
             ? "No service actions were performed."
             : string.Join("\n", result.Services.Select(service =>
             {
-                var reason = result.Plan?.Services.FirstOrDefault(entry =>
+                // The planner's reason explains why an action was chosen; it is only worth showing
+                // when that action did not succeed.
+                var reason = service.Success ? null : result.Plan?.Services.FirstOrDefault(entry =>
                     string.Equals(entry.InstanceKey, service.InstanceKey, StringComparison.Ordinal))?.Reason;
                 return safe.Redact($"• {service.InstanceKey}: {service.Action}{(service.Success ? "" : " (failed)")} — {service.Detail}" +
                     (string.IsNullOrWhiteSpace(reason) || reason == service.Detail ? "" : $"\n  Reason: {reason}") +

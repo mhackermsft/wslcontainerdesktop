@@ -109,7 +109,8 @@ public sealed class ComposeCompatibilityPreviewTests
         Assert.Contains("shared", Row("volumes").Explanation);
         Assert.Equal(ComposeSettingDisposition.Approximated, Row("healthcheck").Disposition);
         Assert.Contains("application", Row("restart").EffectiveValue);
-        Assert.Contains("desktop closes", Row("restart").Explanation);
+        // The divergence that matters: app-owned supervision pauses while the app is not running.
+        Assert.Contains("app is closed", Row("restart").Explanation);
         Assert.All(preview.Settings, row => Assert.NotEmpty(row.Source));
 
         ComposeCompatibilitySetting Row(string setting) => Assert.Single(preview.Settings, s => s.Setting == setting);

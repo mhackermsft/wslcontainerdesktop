@@ -66,7 +66,7 @@ public sealed class ComposePreviewProjection
             ComposeSettingDisposition disposition = ComposeSettingDisposition.Supported,
             WslcCapabilitySupport? capability = null, string? source = null) =>
             rows.Add(new(Redact(service), key, disposition, Redact(value), Redact(explanation),
-                Redact(source ?? $"Resolved model: services.{service}.{key} (original line unavailable)"), capability));
+                Redact(source ?? $"Resolved model: services.{service}.{key}"), capability));
 
         foreach (var group in plan.Services.GroupBy(p => p.Service.Name))
         {
@@ -77,15 +77,33 @@ public sealed class ComposePreviewProjection
                 group.Any(p => p.Action != ComposeServiceAction.Remove && !(p.Action == ComposeServiceAction.Keep && p.ContainerId is null));
             Add(service.Name, "replicas", entry.DesiredReplicas.ToString(),
                 "Request override > saved operator override > imported scale/deploy.replicas > one. All dependency instances must be ready.");
+            // Warnings about losing a container are only true when one is actually being replaced.
+            // Stating them on a first-time create makes a routine launch look destructive.
+            var blockedInstances = group.Any(p => p.Action == ComposeServiceAction.Blocked);
+            var replacing = group.Any(p => p.Action is ComposeServiceAction.Recreate or ComposeServiceAction.Remove);
+            var creating = group.Any(p => p.Action == ComposeServiceAction.Create);
             Add(service.Name, "instances", string.Join("\n", group.Select(p =>
                 $"{p.InstanceKey} · {p.ContainerName} · {p.Action} · {Redact(p.Reason)}")),
-                "Recreate/remove destroys the container writable layer. Mounted volumes are retained; there is no atomic project rollback.",
-                group.Any(p => p.Action == ComposeServiceAction.Blocked) ? ComposeSettingDisposition.Blocked :
-                group.Any(p => p.Action is ComposeServiceAction.Recreate or ComposeServiceAction.Remove) ?
-                    ComposeSettingDisposition.Approximated : ComposeSettingDisposition.Supported);
+                replacing
+                    ? "Replacing a container discards anything written inside it. Mounted volumes are kept. There is no atomic rollback across the project."
+                    : creating
+                        ? "New containers are created. Nothing existing is replaced."
+                        : "Existing containers are reused as they are.",
+                blockedInstances ? ComposeSettingDisposition.Blocked :
+                replacing ? ComposeSettingDisposition.Approximated : ComposeSettingDisposition.Supported);
             Add(service.Name, "image", options.Image,
-                $"Image work: {entry.ImageAction}. A pull can require destructive recreation after resolving its immutable image ID.",
-                entry.ImageAction == ComposeImageAction.Pull ? ComposeSettingDisposition.Approximated : ComposeSettingDisposition.Supported);
+                entry.ImageAction switch
+                {
+                    // A download is ordinary. It only carries a consequence when an existing
+                    // container has to be replaced to pick up the newly resolved image.
+                    ComposeImageAction.Pull when replacing =>
+                        "Downloads this image. Because a tag can move, the existing container is replaced to use it.",
+                    ComposeImageAction.Pull => "Downloads this image; it is not on this machine yet.",
+                    ComposeImageAction.Build => "Builds this image from its build context.",
+                    _ => "Already on this machine; nothing is downloaded.",
+                },
+                entry.ImageAction == ComposeImageAction.Pull && replacing
+                    ? ComposeSettingDisposition.Approximated : ComposeSettingDisposition.Supported);
             Add(service.Name, "depends_on", string.Join("\n", ComposeReconciliationPlanner.Dependencies(service)
                 .Select(d => $"{d.ServiceName}: {d.Condition}, required={d.Required}, restart={d.Restart}")),
                 "Selected active dependency closure; readiness/completion applies to every replica.");
@@ -94,7 +112,9 @@ public sealed class ComposePreviewProjection
                 ? "Published host bindings are checked against selected services and observed inventory. Host processes outside WSLC are not inspected."
                 : "Existing applied bindings; this operation does not change published ports.");
             Add(service.Name, "volumes", string.Join("\n", options.Volumes),
-                entry.StorageWarning ?? "Named and anonymous volumes are preserved on recreation; bind contents are not copied.",
+                entry.StorageWarning ?? (replacing
+                    ? "Named and anonymous volumes are kept when the container is replaced; bind-mount contents are not copied."
+                    : "Storage is mounted as declared."),
                 entry.StorageWarning is null ? ComposeSettingDisposition.Supported : ComposeSettingDisposition.Approximated);
             List<NetworkAttachment> endpoints;
             try { endpoints = options.GetNetworkAttachments(); }
@@ -127,11 +147,15 @@ public sealed class ComposePreviewProjection
             if (options.HasSpecialNetworkMode)
                 Add(service.Name, "network_mode", options.NetworkMode ?? options.Network ?? "", "Namespace mode replaces ordinary network endpoints.");
             Add(service.Name, "healthcheck", $"Probe owner: {entry.HealthOwner}; auto-heal owner: application",
-                "Probe command/arguments are withheld. App probes and auto-heal require the desktop to remain open. Inherited image checks, if present, are engine-owned.",
+                entry.HealthOwner == ComposePolicyOwner.Application
+                    ? "This app runs the health probe and auto-heal, so both pause while the app is closed. Probe details are withheld."
+                    : "Health checks come from the image or engine. Probe details are withheld.",
                 entry.HealthOwner == ComposePolicyOwner.Unknown && needsStartupSettings ? ComposeSettingDisposition.Blocked :
                 entry.HealthOwner == ComposePolicyOwner.Application ? ComposeSettingDisposition.Approximated : ComposeSettingDisposition.Supported);
             Add(service.Name, "restart", $"{service.Restart}; owner: {(service.Restart == RestartPolicyKind.No ? "none" : "application")}",
-                "No native restart-policy flag. App supervision pauses when the desktop closes; manual-stop intent is preserved.",
+                service.Restart == RestartPolicyKind.No
+                    ? "No restart policy is requested."
+                    : "The engine has no restart-policy flag, so this app restarts the container and pauses while the app is closed. Stopping it yourself is remembered.",
                 service.Restart == RestartPolicyKind.No ? ComposeSettingDisposition.Supported : ComposeSettingDisposition.Approximated);
             if (!string.IsNullOrWhiteSpace(entry.CompatibilityWarning))
                 Add(service.Name, "compatibility", entry.CompatibilityWarning, "Backend-specific limitations.", ComposeSettingDisposition.Approximated);

@@ -55,12 +55,11 @@ public sealed class ComposeViewModelBusyTests
         var navigation = fixture.ViewModel.RefreshAsync();
         AssertBusy(fixture.ViewModel, true);
         nestedInventory.SetResult([]);
-        await fixture.Dialogs.MessageShown.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        AssertBusy(fixture.ViewModel, true);
-        Assert.Equal(2, fixture.Compose.Engine.Containers.Count);
-        fixture.Dialogs.DismissMessage.SetResult();
+        // A clean scale-up reports through the status line, not a modal, so the completed operation
+        // is the synchronization point here.
         await scaling;
         AssertBusy(fixture.ViewModel, true);
+        Assert.Equal(2, fixture.Compose.Engine.Containers.Count);
         navigationInventory.SetResult([]);
         await navigation;
         AssertBusy(fixture.ViewModel, false);
