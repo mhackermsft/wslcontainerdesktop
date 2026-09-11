@@ -1,18 +1,11 @@
-# Merged into the project two ways:
-#   * via `include:` in docker-compose.yml  → the "logs" service is added to the project
-#   * via `extends:` on the web service     → "web-base" supplies shared env + labels
+# Merged into the project via `include:` in docker-compose.yml, which adds the "logs"
+# service to the project.
 #
-# "web-base" has no image, so it never starts on its own — it exists only as an
-# extends target (services without an image or build are skipped at import).
+# The `extends:` base used by the web service lives in web-base.yml instead, because an
+# included file becomes part of the project and every project service must have an image
+# or a build section.
 
 services:
-  web-base:
-    environment:
-      - SERVICE_TIER=web
-      - LOG_LEVEL=info
-    labels:
-      com.example.role: frontend
-
   logs:
     image: busybox:1.36
     command: ["sh", "-c", "while true; do echo 'tailing logs...'; sleep 60; done"]

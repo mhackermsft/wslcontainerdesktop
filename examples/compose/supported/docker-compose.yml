@@ -9,7 +9,7 @@
 # WHAT IT EXERCISES (newest features first)
 #   * include:                     pulls in common.yml (adds the "logs" helper service)
 #   * docker-compose.override.yml  auto-merged over this file (adds OVERRIDDEN=yes to web)
-#   * extends:                     web extends "web-base" from common.yml
+#   * extends:                     web extends "web-base" from web-base.yml
 #   * profiles:                    "debug" service only starts because .env sets
 #                                  COMPOSE_PROFILES=debug
 #   * extra_hosts:                 appended to /etc/hosts after start (incl. host-gateway)
@@ -79,7 +79,7 @@ services:
   # migrate (completed), loads an env_file (long form), and adds /etc/hosts entries.
   web:
     extends:
-      file: common.yml
+      file: web-base.yml
       service: web-base
     image: nginx:${NGINX_TAG:-alpine}
     networks:

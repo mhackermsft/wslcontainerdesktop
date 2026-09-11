@@ -1,0 +1,14 @@
+# Pure `extends:` target — referenced by docker-compose.yml, never included.
+#
+# It deliberately has no image: an extends base only supplies shared settings, and the
+# service that extends it (web) provides the image. Keep this file OUT of `include:`
+# — an included file becomes part of the project, and a real project service must have
+# an image or a build section (Compose rejects one that has neither).
+
+services:
+  web-base:
+    environment:
+      - SERVICE_TIER=web
+      - LOG_LEVEL=info
+    labels:
+      com.example.role: frontend

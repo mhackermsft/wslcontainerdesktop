@@ -7,17 +7,25 @@
 #   2. A dialog lists the dropped/limited features (see the expected list below) and
 #      offers "Import anyway". Cancel to abort, or import to continue.
 #   3. If you import + bring up, the containers still run — just WITHOUT the unsupported
-#      behavior (no privileges, single network, one instance, etc.).
+#      behavior (no privileges, no custom devices/sysctls, etc.).
 #
 # EXPECTED WARNINGS
 #   Service 'app':   privileged, cap_add, cap_drop, read_only, init, devices, sysctls,
 #                    logging, mac_address, pid, ipc, security_opt      (each "not supported")
-#   Service 'app':   attached to only the first of 2 networks           (single-network limit)
-#   Service 'app':   deploy.replicas: 3 is not supported                (no scaling)
-#   Service 'worker': group_add, userns_mode, cgroup_parent             (each "not supported")
-#   Top-level 'unknown-top-level:' is not supported                     (unrecognized key)
+#   Service 'app':   multiple networks need engine connect support     (see note below)
+#   Service 'worker': group_add, userns_mode, cgroup_parent            (each "not supported")
+#   Top-level 'unknown-top-level:' is not supported                    (unrecognized key)
 #
-# NOTE: `x-notes` (extension) and `version` are deliberately NOT flagged.
+# NOT flagged, because they ARE supported:
+#   * deploy.replicas: 3           — local scaling starts 3 instances
+#   * deploy.resources.limits      — cpus/memory are applied
+#   * multiple networks            — on an engine with native network connect, the service
+#                                    is attached to BOTH networks. The warning above only
+#                                    means older engines fall back to the first network;
+#                                    the desired endpoints are kept either way.
+#   * `x-notes` (extension) and `version`
+#
+# See the "What is not supported" section of the README for the authoritative list.
 
 version: "3.9"
 
@@ -52,11 +60,11 @@ services:
     ipc: host
     security_opt:
       - "no-new-privileges:true"
-    # multi-network: wslc attaches only the FIRST network
+    # multi-network: attached to both where the engine supports connect
     networks:
       - net1
       - net2
-    # scaling: only a single instance is started
+    # scaling: 3 instances are started
     deploy:
       replicas: 3
       resources:
