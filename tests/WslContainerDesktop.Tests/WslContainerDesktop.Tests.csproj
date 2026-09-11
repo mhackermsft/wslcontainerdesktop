@@ -205,6 +205,11 @@
     <None Update="Fixtures\Capabilities\*.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\Foundry\**\*" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\Compose\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The shipped Compose examples are documentation users follow literally, so they are
+         copied here and imported by ShippedComposeExampleTests to catch silent drift.
+         Copied Always, not PreserveNewest: an edit that lands an older timestamp would
+         otherwise leave a stale copy in the output and test the wrong content. -->
+    <None Include="..\..\examples\compose\**\*" LinkBase="Examples\compose" CopyToOutputDirectory="Always" />
   </ItemGroup>
 </Project>
 
