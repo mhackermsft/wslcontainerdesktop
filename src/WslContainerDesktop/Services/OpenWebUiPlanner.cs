@@ -23,7 +23,7 @@ namespace WslContainerDesktop.Services;
 /// several GB of models and take the same port, so an existing runtime is reused when one is
 /// present and only the web UI is deployed against it.
 /// </summary>
-public sealed class OpenWebUiPlanner(IWslcService wslc)
+public sealed class OpenWebUiPlanner(IWslcService wslc, IWslcCapabilitiesService capabilities)
 {
     public const string TemplateId = "open-webui";
 
@@ -32,9 +32,41 @@ public sealed class OpenWebUiPlanner(IWslcService wslc)
     public const string OllamaAlias = "ollama";
     private const string Image = "ollama/ollama";
 
+    /// <summary>Container the bundled stack creates, used to install a model into it.</summary>
+    public const string BundledOllamaContainer = "openwebui_ollama";
+
+    /// <summary>Default suggestion: a small, widely used chat model that is quick to download.</summary>
+    public const string RecommendedModel = "llama3.2:3b";
+
+    /// <summary>Suggestions offered alongside free entry. Any Ollama model name is accepted.</summary>
+    public static IReadOnlyList<string> SuggestedModels { get; } =
+        ["llama3.2:3b", "qwen2.5:7b", "gemma3:4b", "phi4-mini:latest"];
+
+    /// <summary>
+    /// Accepts only an ordinary Ollama model reference. The value reaches a shell through
+    /// <c>exec … sh -c</c>, so anything that could terminate or extend that command is rejected
+    /// rather than escaped.
+    /// </summary>
+    public static bool IsValidModelName(string? model) =>
+        !string.IsNullOrWhiteSpace(model) && model.Length <= 200 &&
+        System.Text.RegularExpressions.Regex.IsMatch(model.Trim(),
+            @"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$");
+
+    /// <summary>
+    /// Installs a model into the Ollama container this template deployed, so the web UI has
+    /// something to talk to. Only ever targets the bundled container, never a reused runtime.
+    /// </summary>
+    public async Task<CommandResult> InstallModelAsync(string model, CancellationToken ct = default)
+    {
+        if (!IsValidModelName(model))
+            throw new ArgumentException("Unsupported Ollama model name.", nameof(model));
+        return await wslc.ExecAsync(BundledOllamaContainer, $"ollama pull {model.Trim()}", ct).ConfigureAwait(false);
+    }
+
     /// <param name="ExistingOllamaId">Immutable ID of the runtime to reuse, or null to deploy one.</param>
     /// <param name="ExistingOllamaName">Display name for messages and confirmation text.</param>
-    public sealed record Plan(string Yaml, string? ExistingOllamaId, string? ExistingOllamaName)
+    /// <param name="UsesGpu">Whether a newly deployed runtime requests GPU passthrough.</param>
+    public sealed record Plan(string Yaml, string? ExistingOllamaId, string? ExistingOllamaName, bool UsesGpu = false)
     {
         public bool ReusesExistingRuntime => ExistingOllamaId is not null;
     }
@@ -42,9 +74,32 @@ public sealed class OpenWebUiPlanner(IWslcService wslc)
     public async Task<Plan> PlanAsync(CancellationToken ct = default)
     {
         var existing = await FindOllamaAsync(ct).ConfigureAwait(false);
-        return existing is null
-            ? new(BundledYaml, null, null)
-            : new(ReuseYaml, existing.Value.Id, existing.Value.Name);
+        if (existing is not null)
+        {
+            // A reused runtime keeps whatever access it was created with; this template never
+            // recreates someone else's container to change it.
+            return new(ReuseYaml, existing.Value.Id, existing.Value.Name);
+        }
+
+        // CPU-only inference is dramatically slower, so request GPU passthrough when the engine
+        // definitively supports it. Unsupported or unknown support stays on CPU rather than
+        // risking a deployment that fails on an unrecognized flag.
+        var gpu = await SupportsGpuAsync(ct).ConfigureAwait(false);
+        return new(gpu ? BundledGpuYaml : BundledYaml, null, null, gpu);
+    }
+
+    private async Task<bool> SupportsGpuAsync(CancellationToken ct)
+    {
+        try
+        {
+            var snapshot = await capabilities.GetAsync(ct).ConfigureAwait(false);
+            return snapshot[WslcFeature.CreateGpus].Support == WslcCapabilitySupport.Supported;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Without evidence of support, deploy for CPU instead of failing the launch.
+            return false;
+        }
     }
 
     /// <summary>
@@ -163,6 +218,55 @@ public sealed class OpenWebUiPlanner(IWslcService wslc)
         networks:
           webui:
             name: openwebui-net
+        """;
+
+    /// <summary>
+    /// The bundled stack with GPU passthrough requested for the runtime. Selected only when the
+    /// engine advertises GPU creation; requesting all GPUs is not by itself proof of acceleration.
+    /// </summary>
+    internal const string BundledGpuYaml = """
+        services:
+          ollama:
+            image: ollama/ollama:latest
+            volumes:
+              - openwebui-ollama:/root/.ollama
+            networks:
+              webui:
+                aliases:
+                  - ollama
+            deploy:
+              resources:
+                reservations:
+                  devices:
+                    - capabilities: [gpu]
+          open-webui:
+            image: ghcr.io/open-webui/open-webui:main
+            depends_on:
+              - ollama
+            ports:
+              - "8084:8080"
+            environment:
+              OLLAMA_BASE_URL: http://ollama:11434
+            volumes:
+              - openwebui-data:/app/backend/data
+            networks:
+              - webui
+        volumes:
+          openwebui-ollama:
+          openwebui-data:
+        networks:
+          webui:
+            name: openwebui-net
+        """;
+
+    /// <summary>The GPU reservation inserted into <see cref="BundledGpuYaml"/>; kept here so a
+    /// test can prove the two stacks differ by nothing else.</summary>
+    internal const string GpuReservationBlock = """
+            deploy:
+              resources:
+                reservations:
+                  devices:
+                    - capabilities: [gpu]
         """;
 
     /// <summary>An Ollama runtime already exists: deploy only the web UI and point it at that

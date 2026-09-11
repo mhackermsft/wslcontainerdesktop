@@ -84,7 +84,8 @@ public partial class TemplatesViewModel : ObservableObject
         ITemplateConfigStore configs,
         IUserTemplateStore userTemplates,
         ITemplateVisibilityStore visibility,
-        ComposeViewModel compose)
+        ComposeViewModel compose,
+        IWslcCapabilitiesService capabilities)
     {
         _catalog = catalog;
         _wslc = wslc;
@@ -97,7 +98,7 @@ public partial class TemplatesViewModel : ObservableObject
         _userTemplates = userTemplates;
         _visibility = visibility;
         _compose = compose;
-        _openWebUi = new OpenWebUiPlanner(wslc);
+        _openWebUi = new OpenWebUiPlanner(wslc, capabilities);
 
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         RebuildGroups();
@@ -721,6 +722,11 @@ public partial class TemplatesViewModel : ObservableObject
         return (yaml, name);
     }
 
+    /// <summary>Notes GPU passthrough when the deployed runtime asked for it. The container's GPU
+    /// badge confirms the access itself; this only reports what was requested.</summary>
+    private static string Acceleration(OpenWebUiPlanner.Plan? plan) =>
+        plan is { UsesGpu: true } ? " using your GPU" : string.Empty;
+
     private async Task LaunchComposeAsync(StackTemplate template)
     {
         var (yaml, name) = ResolveComposeConfig(template);
@@ -733,12 +739,26 @@ public partial class TemplatesViewModel : ObservableObject
         // when one is present. Only applies to the built-in template with its default YAML: an
         // edited or user-saved configuration is deployed exactly as written.
         OpenWebUiPlanner.Plan? plan = null;
+        var model = string.Empty;
         if (template.Id == OpenWebUiPlanner.TemplateId
             && template.Source == TemplateSource.BuiltIn
             && yaml == OpenWebUiPlanner.BundledYaml)
         {
             plan = await _openWebUi.PlanAsync();
             yaml = plan.Yaml;
+            if (!plan.ReusesExistingRuntime)
+            {
+                // A fresh Ollama has no models, so the chat UI would open with nothing usable.
+                // Ask before deploying rather than leaving setup half-finished.
+                var chooser = new OllamaModelDialog();
+                var choice = await _dialogs.ShowDialogAsync(chooser);
+                if (choice == ContentDialogResult.None)
+                {
+                    StatusMessage = "Launch cancelled.";
+                    return;
+                }
+                model = choice == ContentDialogResult.Primary ? chooser.Model : string.Empty;
+            }
         }
 
         IsBusy = true;
@@ -762,9 +782,20 @@ public partial class TemplatesViewModel : ObservableObject
                     : $"{template.Name} started, but \"{plan.ExistingOllamaName}\" could not join the "
                       + $"{OpenWebUiPlanner.NetworkName} network, so no models will appear. Connect it from the Networks page.";
             }
+            else if (!string.IsNullOrEmpty(model))
+            {
+                StatusMessage = $"Downloading {model}… this can take several minutes.";
+                var pull = await _openWebUi.InstallModelAsync(model);
+                StatusMessage = pull.Success
+                    ? $"{template.Name} is ready with {model}{Acceleration(plan)}{note}"
+                    : $"{template.Name} started, but {model} could not be downloaded. "
+                      + "Open the web UI and pull a model there, or retry from the container's terminal.";
+            }
             else
             {
-                StatusMessage = $"{template.Name} launched{note}. See it in the Containers view.";
+                StatusMessage = plan is null
+                    ? $"{template.Name} launched{note}. See it in the Containers view."
+                    : $"{template.Name} launched without a model{Acceleration(plan)}{note}. Add one from the web UI before chatting.";
             }
             _monitor.RequestRefresh();
         }
