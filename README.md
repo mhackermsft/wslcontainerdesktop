@@ -22,6 +22,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - [Feature tour](#feature-tour)
 - [Docker Compose compatibility](#docker-compose-compatibility)
 - [Architecture](#architecture)
+- [Releasing (maintainers)](#releasing-maintainers)
 - [Notes on the WSL container preview](#notes-on-the-wsl-container-preview)
 - [Disclaimer & no warranty](#-disclaimer--no-warranty)
 - [License](#license)
@@ -39,7 +40,8 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Bulk actions** — a **Select** mode on the Containers, Images, Volumes, and Networks lists lets you multi-select rows and start, stop, or remove many at once.
 - **Activity feed** — a persisted, filterable timeline of engine, container, and image events (start/stop/create/remove, pull/build, engine up/down) so you can see what happened and when.
 - **Built-in Kubernetes** — install a single-node **k3s** cluster into WSL and manage nodes, deployments, pods, services, and more, with port-forwarding and "Apply YAML".
-- **AI assistant & diagnostics** *(optional, off by default)* — an in-app **Container AI Assistant** that manages containers, Compose, and k3s through approved, permissioned tools, plus one-click **Diagnose** on any container to explain failures and suggest fixes. Bring your own provider — **GitHub Copilot, Azure OpenAI, or any OpenAI-compatible endpoint** — or run **fully local via Ollama with explicitly prepared images/models** (no account, no API key). Recognized sensitive fields and credential patterns are masked before evidence is shortened; detection is not perfect. Diagnosis suggestions are copy-only; assistant actions follow approval settings.
+- **WSL engine control** — restart the WSL session or shut it down, check for and install WSL updates (including the pre-release channel that carries the container preview), and see your kernel, `.wslconfig` limits, and installed distributions.
+- **AI assistant & diagnostics** *(optional, off by default)* — an in-app **Container AI Assistant** that manages containers, Compose, and k3s through approved, permissioned tools, plus one-click **Diagnose** on any container to explain failures and suggest fixes. Bring your own provider — **GitHub Copilot, Azure OpenAI, or any OpenAI-compatible endpoint** — or run **fully local via Ollama** (no account, no API key). Recognized sensitive fields and credential patterns are masked before evidence is shortened; detection is not perfect. Diagnosis suggestions are copy-only; assistant actions follow approval settings.
 - **Registry management** — add public and private registries, and add an **Azure Container Registry with one click** using your existing Azure sign-in (no admin keys, tokens refreshed automatically).
 - **Live everywhere** — a background monitor drives per-container performance meters, the tray icon, and the status indicators without you lifting a finger.
 - **Lives in the tray** — minimize to a system-tray icon whose color reflects engine health, with a live running-container count and quick start/stop actions.
@@ -93,7 +95,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
     </td>
     <td width="50%" valign="top">
       <img src="docs/screenshots/ai-settings.png" alt="AI settings"><br>
-      <sub><b>AI settings</b> <i>(opt-in)</i> — choose GitHub Copilot, Azure OpenAI, an OpenAI-compatible endpoint, or prepared local Ollama; recognized secrets are masked, but review shared data for unrecognized sensitive content.</sub>
+      <sub><b>AI settings</b> <i>(opt-in)</i> — choose GitHub Copilot, Ollama, Azure OpenAI, or any OpenAI-compatible endpoint; recognized secrets are masked, but review shared data for unrecognized sensitive content.</sub>
     </td>
   </tr>
 </table>
@@ -227,8 +229,8 @@ Unblock-File -Path .\*
 | **.NET 10 SDK** | Needed to build and run from source. |
 | **Windows App SDK** tooling | Installed with recent Visual Studio workloads. |
 | **Azure CLI** *(optional)* | Only for the "Add from Azure" registry feature. |
-| **AI provider** *(optional)* | Only for the AI assistant & diagnostics (off by default). Use **GitHub Copilot CLI** (signed in), an **Azure OpenAI** endpoint + API key, any **OpenAI-compatible** endpoint (configurable base URL; API key optional for local servers), or run locally with **Ollama** (**Set up local AI** after explicit image/model preparation). |
-| **GPU** *(optional)* | Ollama setup requests GPU access when WSLC create help advertises it. CPU selection occurs only when that flag is definitively unsupported, never after a failed mutation; actual acceleration is not inferred. |
+| **AI provider** *(optional)* | Only for the AI assistant & diagnostics (off by default). Use **GitHub Copilot CLI** (signed in), an **Azure OpenAI** endpoint + API key, any **OpenAI-compatible** endpoint (configurable base URL; API key optional for local servers), or run locally with **Ollama** (**Set up Ollama** after pulling `ollama/ollama:latest`). |
+| **GPU** *(optional)* | Used automatically where it helps: Ollama setup and the Open WebUI template request GPU access when the engine advertises the `--gpus` flag, and fall back to CPU when it doesn't. Requesting GPU access is not by itself proof of acceleration. |
 
 Install or update the WSL container preview from an elevated PowerShell prompt:
 
@@ -279,7 +281,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 3. Go to **Containers → Run a container**, pick the image, map a port, and click **Run**.
 4. *(Optional)* Open **Kubernetes** and click **Install** to spin up a local k3s cluster.
 5. *(Optional)* Open **Registries** to add a private registry or an Azure Container Registry.
-6. *(Optional)* Prepare age-audited Ollama assets as described below, then open **Settings → AI diagnostics** and click **Set up local AI**. Select an installed model and test its capabilities before using **Diagnose** or the **Assistant**.
+6. *(Optional)* Pull `ollama/ollama:latest` from the **Images** page, then open **Settings → AI diagnostics** and click **Set up Ollama** to run AI entirely on your own machine.
 
 ---
 
@@ -360,11 +362,12 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - Credentials are handed to the container engine's own credential store — the app never persists your passwords.
 
 ### Templates
-- A gallery of curated **one-click stacks**, reachable from the **Templates** entry in the navigation pane, grouped into **Databases** (PostgreSQL, MySQL, MongoDB, Redis), **Web &amp; tools** (Nginx, Adminer, MinIO, RabbitMQ), **Developer** sandboxes, and multi-service **Stacks**.
+- A gallery of curated **one-click stacks**, reachable from the **Templates** entry in the navigation pane, grouped into **Databases** (PostgreSQL, MySQL, MongoDB, Redis, SQL Server 2025, Azurite), **Web &amp; tools** (Nginx, Adminer, MinIO, RabbitMQ), **Developer** sandboxes, and multi-service **Stacks**.
 - **Launch** starts a template **immediately with sensible defaults — no dialog**. If a container from a previous launch already exists, Launch offers to **replace** it with the current configuration (data in named volumes is preserved).
 - A per-card **⚙️ Settings** button lets you **configure before starting**: single-container templates open the full **Run a container** dialog prefilled; Compose stacks open an editable **project name + YAML** editor. Saving both **starts the template and remembers your configuration**, so the next Launch reuses it. Saved configs persist across restarts (`template-configs.json`).
 - **Developer sandboxes** — keep-alive **Python, Node.js, .NET SDK, Java, Go, and Rust** environments (latest supported versions) with a persistent `/workspace` volume; open the container's **Terminal** action for a shell.
 - **Compose stacks** — templates like **WordPress + MySQL** and **PostgreSQL + pgAdmin** resolve a multi-service project and show compatibility review before applying it. Saved template defaults change only after successful reviewed deployment.
+- **Open WebUI + Ollama** — if an Ollama container already exists (for example the one behind the local AI assistant), the template deploys only the web UI and points it at that runtime by network alias; removing the template leaves that runtime alone. Otherwise it deploys its own Ollama, asks which model to download so the chat UI works immediately, and **requests GPU passthrough when the engine advertises it**, falling back to CPU when GPU support is unsupported or unknown.
 
 ### Kubernetes
 - **Install / uninstall** a single-node **k3s** cluster inside your WSL distro, with streaming progress.
@@ -373,65 +376,49 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - **Row quick actions** (scale, restart, run-now, delete) and a **full detail view** per object with Summary / **Kube** (editable YAML you can apply back) / Describe / Logs tabs.
 - **Apply YAML** manifests and **port-forward** services or pods to `localhost`.
 
+### WSL engine
+- A dedicated **WSL engine** page for the platform underneath the containers.
+- **Restart WSL session** and **Shut down WSL** — the quickest recovery when the engine gets into a bad state.
+- **WSL updates** — shows your installed version against the latest available, with **Update now** and a toggle to include **pre-release** builds (the channel that carries the container preview).
+- **Platform info** — WSL version and kernel, plus the memory and processor limits currently in effect from `.wslconfig`.
+- **Distributions** — every installed distro with its state and version.
+
 ### AI features *(optional — off by default)*
 AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, until you turn it on in **Settings → AI diagnostics** and pick a provider.
 
-**Foundry Local (experimental)** has separate endpoint/model
-settings for an explicitly prepared local host; inference does not require an
-Ollama container or the WSLC engine. Supply the host's actual loopback URL and
-exact model ID, not a sample port or guessed model. Catalog metadata does not
-prove tool support, hardware acceleration or offline readiness.
-The setup direction is a separately installed Microsoft Foundry Local runtime,
-not a bundled SDK or inference broker.
-**Discover existing server** uses installed CLI help/status and REST metadata,
-then offers explicit confirmation before saving the discovered endpoint.
-**Install runtime only** offers one confirmation before downloading the pinned
-Microsoft CLI 0.10.3 MSIX and, if needed, its audited prerequisite. It verifies
-sizes/hashes, reuses verified setup cache, and preserves existing Foundry
-installations. Registration does not start Foundry or set up an initial model.
-**Download pinned CPU model files only** separately stages the audited nine-file
-Qwen v4 artifact with explicit license/network consent, conditional downloads,
-progress/cancellation and rehashed offline reuse. It does **not** import or load
-the model, and does not change the configured endpoint/model.
-**Set up Foundry Local and initial CPU model** combines those stages with one
-confirmation, ownership-safe cache registration, daemon discovery/start, exact
-Qwen CPU v4 loading and one synthetic local readiness response. It updates only
-Foundry endpoint/model settings after success. Existing runtime installations and
-other models are preserved; cancellation retains partial work rather than
-promising rollback. Reload uses the same verified cache path. Unload targets the
-app-verified model; stopping the shared server requires separate confirmation.
-The selected 0.10.3 runtime uses CLI status and `/v1/models`, not the legacy
-management routes (which returned 404 in the actual exercise). Cache/load state
-is unknown until a verified load/completion establishes it. The model-list ID
-omits `:4`; only the audited CPU model's observed mapping is normalized.
-**Network is required for the 0.10.3 catalog endpoint even with cached files.**
-Starting Foundry may also cause Windows to install Microsoft-selected execution
-providers; this app does not choose, pin or audit those vendor-managed versions.
-Inference runs locally with no cloud fallback. Assistant tools still require
-positive capability observations and original approval.
-The real standalone CPU load/completion/unload/stop sequence was exercised;
-**signed app-MSIX and representative GPU/NPU acceptance remain unverified**. See the
-[integration scope and prerequisites](docs/FOUNDRY-LOCAL.md).
-
+#### Providers
 - **Choose your provider** — **GitHub Copilot** (uses your Copilot CLI sign-in), **Azure OpenAI**, any **OpenAI-compatible** endpoint, or **Ollama** for fully local inference. API keys are stored in **Windows Credential Manager**, never in plain text.
-- **Any OpenAI-compatible host, local or remote** — the **OpenAI-compatible** provider lets you set the **base URL** yourself (default `https://api.openai.com/v1`), so you can point the app at a server running on your own PC or anywhere else: Ollama's OpenAI API (`http://localhost:11434/v1`), LM Studio (`http://localhost:1234/v1`), llama.cpp / vLLM (`http://localhost:8000/v1`), or an internal gateway. `/chat/completions` is appended automatically. The **API key is optional** for servers that do not require one, and **Refresh** lists the models the endpoint actually serves (you can still type any model id).
-- **Ownership-safe local AI** — **Set up local AI** creates or reuses only an ownership-verified Ollama container at `127.0.0.1:11434`. It never adopts a native/remote server just because the endpoint answers, downloads a default model, or warms one automatically. Existing provider endpoints remain separately configurable. Running a container does not prove chat/tool readiness.
-- **Explicit preparation, no hidden downloads** — before first setup, verify an Ollama image's immutable digest and authoritative publication date (at least seven days old), acquire it explicitly, and tag that local image `ollama/ollama:latest`. Setup resolves the cached full image ID and requires detected `create --pull` support to enforce `--pull never`; missing assets or unknown support stop with preparation guidance. Image build timestamps are not publication evidence. Acquire models separately under the same policy; mutable model names alone do not establish age or capabilities.
-- **Runtime removal and data retention** — removal targets only the verified full container ID. Same-name unowned or legacy incompletely labelled resources are conflicts, not silently migrated. Failed setup may clean up only the current operation's labelled container; images and model data are retained. **Automatic model-volume deletion is unavailable:** WSLC deletes volumes by mutable name and offers no atomic ownership check. A deletion request reports partial completion/retained data rather than success. Review ownership and users in **Volumes** before separately deleting data. Cancellation can leave partial resources; inspect the reported identity/labels before retrying.
+- **Any OpenAI-compatible host, local or remote** — set the **base URL** yourself (default `https://api.openai.com/v1`) to point at LM Studio (`http://localhost:1234/v1`), llama.cpp / vLLM (`http://localhost:8000/v1`), Ollama's OpenAI API, or an internal gateway. `/chat/completions` is appended automatically, the **API key is optional** for servers that don't need one, and **Refresh** lists the models the endpoint actually serves.
+- **Quick start: run AI locally** — **Set up Ollama** creates an app-managed container on `127.0.0.1:11434`, offers to download a model if you don't have one, selects it as your provider, and reports what the model actually supports. It manages only its own container and never adopts an unrelated Ollama just because the endpoint answers. Pull `ollama/ollama:latest` from the **Images** page first — setup doesn't download images for you. **Remove Ollama** deletes the container, and optionally its model volume.
+
+#### What it can do
 - **Diagnose-and-fix** — a **Diagnose** button on any container's detail view gathers its logs, inspect JSON, filesystem-diff entries, and recent activity, **redacts and truncates** them into a preview you can review first, then asks the model what went wrong and how to fix it. Suggested fixes are **copy-only and never run automatically**.
-- **Container AI Assistant** — a side-panel chat that can actually *do* things through a scoped, permissioned toolset: list/run/stop containers, deploy Compose templates, and take scoped k3s actions. **Read-only tools run automatically; anything that changes state prompts for approval** (per-tool auto-approve is configurable), so you stay in control. The assistant entry point and provider badge require positively observed chat **and tool support**, not just successful connectivity.
-- **Informed Compose approval** — generated YAML and Compose templates always require one explicit review of active instances, ports, mounts, warnings, health/restart ownership, replacements and native-versus-legacy behavior. Blocked or oversized previews cannot authorize deployment. The exact reviewed plan expires after ten minutes and is revalidated against inventory, capabilities and saved state before mutation; template changes require a new review. Structured per-instance results distinguish started, reused, skipped, failed and cancelled work, with retained-resource attention rather than unconditional success after partial startup. Generated YAML is withheld from echoed tool history. See the [shared review contract](docs/COMPOSE-COMPATIBILITY.md).
-- **Assistant progress** — loading/generation, approval waiting, execution, and actual tool outcomes are separate from model narration. Safe complete plain-prose sentences appear incrementally; structured, quoted, code, and credential-shaped content is held for complete-input sanitization instead of displaying raw tokens. Cancel stops further work where supported; completed actions are **not rolled back**, and partial/unknown outcomes remain visible. Failed streams are not reconnected or replayed automatically.
-- **Current engine evidence** — diagnosis and chat share detected WSLC capability guidance. The assistant can query current Supported/Unsupported/Unknown evidence, cached native/app health with freshness, and volume mount users (including stopped containers). Unknown, stale, partial or estimated data is not proof of health or safe deletion. Cluster status remains queryable when unavailable; missing cluster tools do not prove absence.
-- **Saved Compose projects** — start/reconcile, stop, restart and down operate on one exact saved project through the shared supervisor, not independent container calls. Each requires explicit review even with auto-approval enabled, revalidates the captured target and engine evidence, and preserves dependency ordering, ownership and manual-stop supervision. Down retains volumes. Blocked, stale, cancelled and partial outcomes never imply success or authorize a retry.
-- **Independent capability status** — Settings shows chat, tool calling, structured JSON, streaming and context observations separately from endpoint, authentication, runtime, model download and loading state. Unknown means unverified, not supported. Startup reads metadata only; **Test capabilities** runs bounded synthetic checks (no container data or app actions), with a 90-second deadline and **Cancel test**. Generation checks are cached for up to ten minutes, or one minute when chat is not ready; there is no automatic generation retry or model download. If a cold model is still loading, wait for the runtime, then test again. JSON-mode rejection does not make usable chat offline: diagnosis omits unsupported/unproven JSON options and still validates the prompted JSON answer. Streaming remains unverified by these non-streaming tests. The default conversation ceiling is 32,768 accounted UTF-8 JSON bytes for every model; observed token windows are reported separately, never treated as byte budgets.
-- **Privacy boundary** — assistant text, tool arguments echoed to providers, tool evidence (including failures and partial outcomes), approval display details, and assistant activity details use shared sanitization. Sensitive JSON fields, environment assignments, YAML sensitive blocks, authentication headers, connection strings, URL credentials, and private-key blocks are masked **before** truncation. Tool-call IDs and parameter schemas stay intact; only the original validated, approved arguments are executed, never redacted copies.
-- **Conversation ownership** — follow-up questions retain sanitized tool calls and outcomes, not just the model's summary. History is bounded and held only in memory. Changing the provider, endpoint, or model starts a fresh conversation on the next send; local history is not silently sent to a newly selected cloud destination. A running turn keeps its original destination and model. Reset cancels its generation and prevents late approvals or responses from entering the new conversation. Older complete turns are removed together when the input budget fills, with an explicit truncation notice; an oversized active request stops rather than dropping live evidence and repeating an action. Failed or cancelled actions may have unknown effects: inspect current state before a fresh approved action.
+- **Container AI Assistant** — a side-panel chat that can actually *do* things through a scoped, permissioned toolset: list/run/stop containers, deploy Compose templates, manage saved Compose projects, and take scoped k3s actions. **Read-only tools run automatically; anything that changes state prompts for approval** (per-tool auto-approve is configurable). The assistant appears only once chat **and** tool support are positively observed, not merely on successful connectivity.
+- **Knows the current date and time** — every turn carries this PC's local and UTC clock and time zone, so the assistant can answer "today"/"now" and reason about container ages and uptimes instead of guessing a date from training data.
+- **Reads live engine evidence** — the assistant can query current capability evidence, cached native/app health with freshness, and volume mount users (including stopped containers). Unknown, stale or estimated data is reported as such, never as proof of health or safe deletion.
+- **Inline feedback** — every AI operation reports progress and failures in a banner next to the control you used, with a concise explanation (e.g. "Authentication required — save an API key in Settings") and optional **Technical details** + **Copy details**. API keys, tokens, and Authorization headers are stripped before anything is shown or copied.
 
-AI sanitization is a best-effort rule-based filter, **not arbitrary secret detection**. Unlabelled passwords, encoded/obfuscated values outside recognized fields, custom formats, and personal or proprietary content can remain. YAML filtering is conservative (including literal `value` fields); it is not a full YAML interpreter and does not resolve aliases. Review diagnosis previews and do not paste secrets into chat. Assistant chat sends sanitized text and tool evidence during a turn without a separate evidence-preview step; approval settings govern mutations, not data sharing. Logs and configuration remain untrusted evidence, not instructions or approval.
+#### Guardrails
+- **Mutations always need approval** — Compose deployments and saved-project operations require one explicit review even with auto-approve enabled. Reviews expire after ten minutes and are revalidated against live inventory before anything runs. Results distinguish started, reused, skipped, failed and cancelled work rather than reporting blanket success. See the [shared review contract](docs/COMPOSE-COMPATIBILITY.md).
+- **Honest outcomes** — completed actions are **not rolled back** on cancel, partial and unknown outcomes stay visible, and truncated evidence marks what was omitted. Failed or cancelled actions may have had partial effect: check current state before retrying.
+- **Conversation ownership** — follow-ups retain sanitized tool calls and outcomes, not just the model's summary. History is bounded and held only in memory. Changing provider, endpoint, or model starts a fresh conversation, so local history is never silently sent to a newly selected cloud destination.
+- **Capability status is measured, not assumed** — Settings reports chat, tool calling, structured JSON, streaming and context observations separately. Unknown means unverified. **Test capabilities** runs bounded synthetic checks (no container data, no app actions) with a 90-second deadline and a **Cancel test** button.
 
-Raw approved values are retained in execution memory and may be passed to workload services; existing workload configuration storage (such as saved Compose projects) is not an assistant transcript and is not encrypted or scrubbed by this boundary. Provider authentication still uses the configured credential through the provider's authentication mechanism. Historical activity already on disk is not retroactively scrubbed. Truncated structured evidence explicitly marks omitted content and may omit target outcomes; never infer a complete result from an omission marker. Local inference stays local only when the configured endpoint/runtime is actually local; remote endpoint and provider retention policies still apply.
-- **Inline, professional feedback** — every AI operation (provider test, model refresh/pull, local AI setup/removal, diagnosis, and the Assistant) reports progress, success, and failures with an inline banner right next to the control you used, not a generic status line. Failures get a concise, provider-aware explanation (e.g. "Authentication required — save an API key in Settings") plus an optional **Technical details** section with **Copy details**, so you can share diagnostics without exposing API keys, tokens, or Authorization headers — those are always stripped before anything is shown or copied.
+> [!IMPORTANT]
+> **Sanitization is a best-effort rule-based filter, not arbitrary secret detection.** Recognized sensitive JSON fields, environment assignments, YAML blocks, auth headers, connection strings, URL credentials, and private-key blocks are masked *before* truncation — but unlabelled passwords, encoded values, and custom formats can still get through. Review diagnosis previews, and don't paste secrets into chat. Local inference stays local only when the configured endpoint is actually local.
+
+<details>
+<summary>Additional AI details — sanitization limits, retention, and Foundry Local</summary>
+
+<br>
+
+Assistant chat sends sanitized text and tool evidence during a turn without a separate evidence-preview step; approval settings govern mutations, not data sharing. Logs and configuration are untrusted evidence, not instructions or approval. YAML filtering is conservative and is not a full YAML interpreter.
+
+Raw approved values stay in execution memory and may be passed to workload services. Existing workload configuration (such as saved Compose projects) is not an assistant transcript and is not scrubbed by this boundary, and historical activity already on disk is not retroactively scrubbed. Remote endpoint and provider retention policies still apply. The default conversation ceiling is 32,768 accounted UTF-8 JSON bytes for every model; observed token windows are reported separately, never treated as byte budgets.
+
+**Foundry Local** support exists in the codebase but is **not currently exposed in the UI** — the provider picker offers Copilot, Ollama, Azure OpenAI, and OpenAI-compatible only. See [integration scope and prerequisites](docs/FOUNDRY-LOCAL.md) for what was implemented and what remains unverified.
+
+</details>
 
 ### Notifications
 - **Windows toast notifications** for noteworthy events: image pull/build completed or failed, a container that stopped running, and the engine going down or recovering.
@@ -449,7 +436,7 @@ Raw approved values are retained in execution memory and may be passed to worklo
 - Close-to-tray and start-minimized toggles.
 - **Notification toggles** — master switch plus per-category (images, containers, engine).
 - Auto-refresh interval.
-- **AI diagnostics** *(off by default)* — enable AI, choose a provider (GitHub Copilot / Azure OpenAI / OpenAI-compatible / local Ollama), set the OpenAI-compatible base URL for a local or self-hosted server, prepare and set up an owned local runtime, and configure per-tool Assistant permissions.
+- **AI diagnostics** *(off by default)* — enable AI, choose a provider (GitHub Copilot / Ollama / Azure OpenAI / OpenAI-compatible), set the OpenAI-compatible base URL for a local or self-hosted server, set up or remove an app-managed local Ollama, and configure per-tool Assistant permissions.
 - Light / Dark / System theme, applied instantly.
 
 ---
@@ -458,14 +445,7 @@ Raw approved values are retained in execution memory and may be passed to worklo
 
 WSL Container Desktop can import a `docker-compose.yml` and run the whole stack, but it is **not** a drop-in replacement for the `docker compose` CLI. Understanding the model below will tell you what to expect.
 
-The [versioned configuration corpus](docs/COMPOSE-CONFORMANCE.md) records tested subsets and known
-differences. Empty environment values, later `env_file` precedence, sequence/resource overrides and
-required-variable errors now have spec-expected regressions. Strict local include/extends graphs
-and required-file failures have focused offline coverage. Its 21 cases have **captured Docker Compose v2.39.4 config output**
-compared with spec-derived expectations. The separate opt-in WSLC runtime harness is not run by
-normal tests; configuration comparisons are not runtime certification.
-Captured differences remain explicit: unused nested required expressions, duplicate DNS entries,
-and equivalent mixed short/long port bindings do not exactly match the pinned CLI.
+The [versioned configuration corpus](docs/COMPOSE-CONFORMANCE.md) records tested subsets and known differences. Its 21 cases compare **captured Docker Compose v2.39.4 `config` output** against spec-derived expectations; a few differences remain explicit (unused nested required expressions, duplicate DNS entries, and equivalent mixed short/long port bindings). Configuration comparisons are not runtime certification, and the separate opt-in WSLC runtime harness is not run by normal tests.
 
 ### Purpose & model — "desktop-as-daemon"
 
@@ -486,11 +466,17 @@ A large subset of the Compose spec is honored on **up**:
 - **Networking & storage** — `ports` (short and long form), `volumes` (short and long form), top-level `networks:` / `volumes:` creation, service DNS aliases, `secrets:` / `configs:` (file-backed, best-effort), `extra_hosts` (best-effort), `tmpfs`, `dns*`. With detected native network support, multi-network services are created, connected to every required network, then started; per-network aliases and static IPv4 settings are retained (one IPAM subnet configuration).
 - **Config** — `environment`, `env_file`, nested Compose interpolation (default/required/alternative operators, unset versus empty and `$$`), YAML quoting/anchors/aliases/`<<` merge keys, folded/literal block scalars and chomping, sibling override merging with `!reset` / `!override`, and strict local `include:` / `extends:` graphs within the subset below.
 - **Resources** — `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`.
+- **GPU** — `deploy.resources.reservations.devices` entries requesting the `gpu` capability map to all-GPU passthrough. A narrower `count` or `device_ids` still passes all GPUs and warns, because per-device selection isn't available.
 - **Lifecycle** — `depends_on` (including `condition: service_healthy` / `service_completed_successfully`), `healthcheck`, `restart:` (`no`/`always`/`on-failure`/`unless-stopped`), `profiles:`, and project `up` / `down` / `restart` with re-adoption on relaunch.
 
 Some of these are **best-effort** — e.g. `secrets`/`configs` are bind-mounted rather than stored in an engine secret store, `extra_hosts` is applied via `exec` after start, and `restart` backoff timing is not byte-for-byte identical to Docker.
 
 ### Configuration semantics
+
+<details>
+<summary>Merge, interpolation, include/extends, and failure rules in detail</summary>
+
+<br>
 
 - **Exact within the documented subset:** mappings merge recursively; ordinary sequences append;
   ports merge by host IP/target/published/protocol, mounts and secret/config references by target.
@@ -524,6 +510,8 @@ Some of these are **best-effort** — e.g. `secrets`/`configs` are bind-mounted 
   There is no CLI `--env-file`/PWD selection emulation. The saved
   command representation distinguishes null/empty, but clearing image defaults at engine runtime
   is not certified. See [parser limits, audit and contracts](docs/COMPOSE-PARSER.md).
+
+</details>
 
 ### What is *not* supported
 
@@ -586,16 +574,22 @@ Signing details and how to rotate the certificate are documented in [`build/READ
 
 `wslc` mirrors the Docker CLI, so commands map cleanly (`list`, `images`, `run`, `pull`, `push`, `logs`, `exec`, `stats`, `volume`, `network`, `build`, `login`, …). A few preview-specific details this app accounts for:
 
-- Container inventory supports legacy arrays and object streams (including the WSLC 2.9.9 baseline), numeric states (`1 = Created`, `2 = Running`, `3 = Stopped`), and WSLC 2.9.11 text states (`exited` = Stopped). Unrecognized states remain Unknown. `Name`/`Names` and numeric/formatted dates are normalized; unavailable dates fall back safely to the Unix epoch (state-change dates fall back to creation).
-- Empty or ambiguous display-string ports mean **unknown**, not no published ports. Read-only inspect enrichment resolves configured ports, including stopped containers, with at most four sequential lookups per inventory request. Results expire after five minutes (failures retry after 30 seconds), invalidate on observed state/name/creation changes, and are pruned when containers disappear. Until resolved, container rows show Unknown. Malformed inventory fails as a whole and surfaces an engine error rather than a successful empty/partial list.
+- Container inventory supports legacy arrays and object streams (including the WSLC 2.9.9 baseline), numeric states (`1 = Created`, `2 = Running`, `3 = Stopped`), and WSLC 2.9.11 text states (`exited` = Stopped). Unrecognized states remain Unknown. `Name`/`Names` and numeric/formatted dates are normalized; unavailable dates fall back safely to the Unix epoch.
+- Empty or ambiguous display-string ports mean **unknown**, not "no published ports" — read-only inspect enrichment resolves them, including for stopped containers, and caches the result for five minutes. Malformed inventory fails as a whole and surfaces an engine error rather than a successful empty list.
+- Inventory reports a container's image as a bare **image ID** as often as a name, and `images` reports **12-character short IDs** rather than full digests. Mount sources may be a volume *name* or a host path. The app matches on all of these rather than assuming one shape.
 - `prune` subcommands do **not** accept `--force`; `volume prune` needs `--all` to include named volumes.
-- Current inspect schemas can report named-volume and bind mounts. The app uses typed mount metadata for volume usage and saved profiles; older/missing metadata remains unknown or explicitly estimated. Saved profiles preserve recoverable named volumes and Windows/UNC binds, including read-only mounts, with pre-save warnings for omitted anonymous, internal or ambiguous mounts.
+- Current inspect schemas can report named-volume and bind mounts. The app uses typed mount metadata for volume usage and saved profiles; older or missing metadata is reported as unknown rather than empty.
 - There is no `pause` command; **Kill** serves as a force-stop.
 
 New engine capabilities do not automatically become app features: each requires explicit integration,
 capability detection and compatibility handling. The **2.9.9.0 minimum is unchanged**; optional
 features are detected independently rather than inferred from the version. Probe failures remain
 unknown, and a failed native operation is never retried through a legacy backend.
+
+<details>
+<summary>Per-capability behavior on current versus legacy engines</summary>
+
+<br>
 
 | Feature | Detected current capability and app behavior | Legacy / missing capability |
 |---|---|---|
@@ -609,6 +603,8 @@ unknown, and a failed native operation is never retried through a legacy backend
 Unknown probe results are not permission to emit optional flags. New settings are additive and retained
 when switching engines. Capability tests include **synthetic** legacy help fixtures; they are not
 recordings or runtime certification of a separate installed 2.9.9 binary.
+
+</details>
 
 ---
 

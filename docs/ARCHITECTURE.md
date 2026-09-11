@@ -359,7 +359,7 @@ For fuller compose support the app acts as the **orchestration layer above `wslc
 labels), `container_name`, `command`, `entrypoint`, `ports` (short and long form), `environment`
 (list/map), `env_file`, `volumes` (short and long form), `networks`/`network_mode` (multiple networks
 per service), `user`, `working_dir`, `hostname`, `domainname`, `labels`,
-`cpus`/`mem_limit`/`deploy.resources.limits`, `tmpfs`, `ulimits`, `shm_size`, `stop_signal`,
+`cpus`/`mem_limit`/`deploy.resources.limits`, `deploy.resources.reservations.devices` (GPU), `tmpfs`, `ulimits`, `shm_size`, `stop_signal`,
 `dns`/`dns_search`/`dns_opt`, `secrets`/`configs` refs, `restart`, `stop_grace_period`, `profiles`,
 `extra_hosts`, `depends_on` (list and `condition:` form, including `service_completed_successfully`),
 and `healthcheck`. Top-level `networks:`, `volumes:`, `secrets:` and
@@ -505,6 +505,7 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 | `$VAR`, `${VAR}`, `-`/`:-`, `?`/`:?`, `+`/`:+`, nesting, `$$` | **Supported subset** — per-file/value-only, unset versus empty, explicit > process > `.env`; required/malformed errors are secret-safe; no shell substitution or pattern replacement. Lazy unused nested required evaluation differs from pinned CLI rejection |
 | YAML quoting, flow/block collections, anchors/aliases, `<<`, `\|`/`>` folding/chomping | **Supported within bounded single-document Compose YAML** via maintained parser; invalid syntax/duplicates/cycles reject; no arbitrary tagged types or full Compose schema validation |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
+| `deploy.resources.reservations.devices` requesting the `gpu` capability | **Supported** — mapped to all-GPU passthrough; `count`/`device_ids` narrower than all warn, since per-device selection is unavailable |
 | `healthcheck` | **Capability-gated** — native shell checks when required run/create flags are supported; complete app backend for `CMD` argv or unsupported flags; unknown support is surfaced |
 | `depends_on` incl. conditions, `required`, `restart` | **Supported subset** — deterministic closure/order, required health/exit gates, optional dependencies and explicit dependency restart propagation; unchanged running peers are not disrupted by failed updates |
 | `restart:` (`no`/`always`/`on-failure`/`unless-stopped`) | **Supported (best-effort)** while the app runs; restart backoff timing is not byte-for-byte identical to Docker |
