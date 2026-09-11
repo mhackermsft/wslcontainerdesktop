@@ -942,7 +942,7 @@ public partial class SettingsViewModel : ObservableObject
 
             ReplaceOllamaModels(names, persisted);
             ProviderFeedback = names.Count == 0
-                ? AiFeedback.Warning("No models installed", "No Ollama models installed. Before pulling one below, audit its immutable digest and authoritative publication date (at least seven days old).")
+                ? AiFeedback.Warning("No models installed", "No Ollama models are installed. Download one below to use this provider.")
                 : AiFeedback.Success("Models loaded", $"Loaded {names.Count} installed Ollama model(s).");
         }
         catch (Exception ex)
@@ -1074,14 +1074,13 @@ public partial class SettingsViewModel : ObservableObject
             IsOllamaBusy = true;
             endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
             if (!await _dialogs.ShowConfirmAsync(
-                    "Confirm audited model download",
-                    $"Download '{name}' at '{endpoint}'? This may download several GB on that server. " +
-                    "Continue only if you have audited the immutable model digest and verified from authoritative publication metadata that it is at least seven days old. " +
-                    "A mutable tag or model name alone is not proof. The app cannot verify this audit; cancel if the digest or publication date is unknown.",
-                    primaryText: "I audited it — pull",
+                    "Download model",
+                    $"Download '{name}' to {endpoint}?\n\n" +
+                    "Models can be several GB and are downloaded by the Ollama runtime.",
+                    primaryText: "Download",
                     closeText: "Cancel"))
             {
-                ProviderFeedback = AiFeedback.Informational("Model pull cancelled", "No model download was requested.");
+                ProviderFeedback = AiFeedback.Informational("Download cancelled", "No model was downloaded.");
                 return;
             }
 
@@ -1112,7 +1111,7 @@ public partial class SettingsViewModel : ObservableObject
 
     /// <summary>
     /// Streams an Ollama <c>/api/pull</c> for <paramref name="name"/>, reporting progress through
-    /// <paramref name="report"/> for the explicitly confirmed, audited "Pull a model" action.
+    /// <paramref name="report"/> for the explicitly confirmed "Pull a model" action.
     /// Runtime setup never calls this method. Returns true when the model
     /// finished downloading, false on a reported error. Callers own <see cref="IsOllamaBusy"/> and
     /// any follow-up (model list refresh, selection).

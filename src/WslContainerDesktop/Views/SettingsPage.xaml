@@ -364,7 +364,7 @@
                                 <TextBlock
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="One click sets up Ollama in an app-managed container on the WSLC engine and selects it as your provider."
+                                    Text="One click sets up Ollama in an app-managed container, downloads a model if you need one, and selects it as your provider."
                                     TextWrapping="Wrap" />
                                 <Expander
                                     HorizontalAlignment="Stretch"
@@ -374,12 +374,17 @@
                                         <TextBlock
                                             FontSize="12"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Text="Setup manages only the app's own container on 127.0.0.1 and reuses an image already on this machine. It never adopts unrelated runtimes, downloads images or models, or warms a model. Choose an installed model below, or request a pull explicitly."
+                                            Text="Setup manages only the app's own container on 127.0.0.1 and reuses an Ollama image already on this machine. It never adopts unrelated runtimes."
                                             TextWrapping="Wrap" />
                                         <TextBlock
                                             FontSize="12"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Text="GPU acceleration and model capabilities are never assumed; check capabilities after setup."
+                                            Text="If no model is installed, setup offers to download one and asks first. You can pick a different model below at any time."
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="GPU acceleration and model capabilities are never assumed; setup checks what the model supports and tells you the result."
                                             TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Expander>
@@ -533,7 +538,7 @@
                                         Content="Refresh" />
                                 </Grid>
                                 <TextBlock
-                                    Text="Pull downloads a model on the configured endpoint, which may be remote. You must confirm that you audited its immutable digest and authoritative publication date (at least seven days old). The app cannot verify that audit; a model name or mutable tag is not evidence of age or tool support."
+                                    Text="Downloads a model on the configured endpoint, which may be remote. Model names and tags can change over time, so a name alone does not tell you what you will get or whether it supports tool calling."
                                     TextWrapping="Wrap"
                                     Style="{StaticResource CaptionTextBlockStyle}" />
                                 <Grid ColumnSpacing="8">

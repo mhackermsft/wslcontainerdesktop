@@ -315,6 +315,49 @@ public sealed class TemplateCatalog : ITemplateCatalog
                 },
             },
 
+            new()
+            {
+                Id = "sqlserver",
+                Name = "SQL Server 2025",
+                Category = "Databases",
+                Description = "SQL Server 2025 Developer edition on port 1433.",
+                Glyph = "\uE7B8",
+                Note = "Sign in as \"sa\" with password \"Str0ng!Passw0rd\". Change it for anything "
+                    + "beyond local development. Accepts the Microsoft EULA on your behalf when launched.",
+                RunOptions = new RunContainerOptions
+                {
+                    Image = "mcr.microsoft.com/mssql/server:2025-latest",
+                    Name = "sqlserver",
+                    PortMappings = { "1433:1433" },
+                    EnvironmentVariables =
+                    {
+                        "ACCEPT_EULA=Y",
+                        "MSSQL_SA_PASSWORD=Str0ng!Passw0rd",
+                        "MSSQL_PID=Developer",
+                    },
+                    Volumes = { "sqlserver-data:/var/opt/mssql" },
+                },
+            },
+            new()
+            {
+                Id = "azurite",
+                Name = "Azurite (Azure Storage)",
+                Category = "Databases",
+                Description = "Azure Storage emulator: blob 10000, queue 10001, table 10002.",
+                Glyph = "\uE7B8",
+                Note = "Use the standard development connection string \"UseDevelopmentStorage=true\", "
+                    + "or connect Azure Storage Explorer to the local emulator ports.",
+                RunOptions = new RunContainerOptions
+                {
+                    Image = "mcr.microsoft.com/azure-storage/azurite:latest",
+                    Name = "azurite",
+                    PortMappings = { "10000:10000", "10001:10001", "10002:10002" },
+                    Volumes = { "azurite-data:/data" },
+                    // Azurite binds loopback by default, which is unreachable from outside the container.
+                    Command = "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /data",
+                },
+            },
+
             // ---- Stacks (multi-service compose) ----
             new()
             {
@@ -340,6 +383,20 @@ public sealed class TemplateCatalog : ITemplateCatalog
                 Note = "pgAdmin: http://localhost:8083 — login admin@example.com / admin. "
                     + "Add a server for host \"db\", user/password postgres.",
                 ComposeYaml = PostgresPgAdminYaml,
+            },
+            new()
+            {
+                Id = OpenWebUiPlanner.TemplateId,
+                Name = "Open WebUI + Ollama",
+                Category = "Stacks",
+                Description = "Chat UI for local models on http://localhost:8084.",
+                Glyph = "\uE909",
+                Kind = StackTemplateKind.Compose,
+                ComposeProjectName = "openwebui",
+                Note = "Open WebUI: http://localhost:8084 — create the admin account on first run. "
+                    + "If an Ollama runtime already exists it is reused, and only the web UI is deployed; "
+                    + "otherwise one is deployed alongside. Download models from the UI or the Settings page.",
+                ComposeYaml = OpenWebUiPlanner.BundledYaml,
             },
         };
     }

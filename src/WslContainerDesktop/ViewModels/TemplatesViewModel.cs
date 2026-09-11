@@ -49,6 +49,7 @@ public partial class TemplatesViewModel : ObservableObject
 {
     private readonly ITemplateCatalog _catalog;
     private readonly IWslcService _wslc;
+    private readonly OpenWebUiPlanner _openWebUi;
     private readonly StatusMonitor _monitor;
     private readonly DialogService _dialogs;
     private readonly ISettingsService _settings;
@@ -96,6 +97,7 @@ public partial class TemplatesViewModel : ObservableObject
         _userTemplates = userTemplates;
         _visibility = visibility;
         _compose = compose;
+        _openWebUi = new OpenWebUiPlanner(wslc);
 
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         RebuildGroups();
@@ -727,6 +729,18 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
+        // Deploying a second Ollama would duplicate multi-GB models, so reuse an existing runtime
+        // when one is present. Only applies to the built-in template with its default YAML: an
+        // edited or user-saved configuration is deployed exactly as written.
+        OpenWebUiPlanner.Plan? plan = null;
+        if (template.Id == OpenWebUiPlanner.TemplateId
+            && template.Source == TemplateSource.BuiltIn
+            && yaml == OpenWebUiPlanner.BundledYaml)
+        {
+            plan = await _openWebUi.PlanAsync();
+            yaml = plan.Yaml;
+        }
+
         IsBusy = true;
         StatusMessage = $"Reviewing {template.Name}… no images or services are changed before confirmation.";
         try
@@ -737,7 +751,21 @@ public partial class TemplatesViewModel : ObservableObject
                 return;
             }
             var note = string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note}";
-            StatusMessage = $"{template.Name} launched{note}. See it in the Containers view.";
+            if (plan is { ReusesExistingRuntime: true })
+            {
+                // The web UI resolves Ollama by alias, so the reused runtime joins this project's
+                // network after it exists. Report an attach failure instead of leaving a UI that
+                // silently lists no models.
+                var attach = await _openWebUi.AttachExistingAsync(plan.ExistingOllamaId!);
+                StatusMessage = attach.Success
+                    ? $"{template.Name} launched using the existing \"{plan.ExistingOllamaName}\" runtime{note}"
+                    : $"{template.Name} started, but \"{plan.ExistingOllamaName}\" could not join the "
+                      + $"{OpenWebUiPlanner.NetworkName} network, so no models will appear. Connect it from the Networks page.";
+            }
+            else
+            {
+                StatusMessage = $"{template.Name} launched{note}. See it in the Containers view.";
+            }
             _monitor.RequestRefresh();
         }
         finally
