@@ -257,6 +257,22 @@ public static partial class ComposeImporter
             {
                 warnings.Add($"Service '{name}': 'deploy.{key}' is not supported and was ignored; local scaling does not implement Swarm.");
             }
+
+            // A GPU reservation is honoured, but only as all-or-nothing passthrough.
+            if (deploy.Child("resources") is MappingNode deployResources &&
+                deployResources.Child("reservations") is MappingNode reservations &&
+                reservations.Child("devices") is SequenceNode devices)
+            {
+                foreach (var device in devices.Items.OfType<MappingNode>().Where(RequestsGpu))
+                {
+                    var count = Unquote(device.Scalar("count") ?? string.Empty).Trim();
+                    if (device.Child("device_ids") is not null ||
+                        (count.Length > 0 && !count.Equals("all", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        warnings.Add($"Service '{name}': GPU reservation imported as all GPUs (per-device selection isn't supported).");
+                    }
+                }
+            }
         }
 
         foreach (var field in new[] { "ports", "volumes", "secrets", "configs" })
@@ -1129,20 +1145,39 @@ public static partial class ComposeImporter
 
         // Long form: deploy.resources.limits.{cpus,memory}. Only fills gaps left by the short form.
         if (svc.Child("deploy") is MappingNode deploy &&
-            deploy.Child("resources") is MappingNode resources &&
-            resources.Child("limits") is MappingNode limits)
+            deploy.Child("resources") is MappingNode resources)
         {
-            if (string.IsNullOrWhiteSpace(options.CpuLimit) && limits.Scalar("cpus") is { } c && !string.IsNullOrWhiteSpace(c))
+            if (resources.Child("limits") is MappingNode limits)
             {
-                options.CpuLimit = c.Trim();
+                if (string.IsNullOrWhiteSpace(options.CpuLimit) && limits.Scalar("cpus") is { } c && !string.IsNullOrWhiteSpace(c))
+                {
+                    options.CpuLimit = c.Trim();
+                }
+
+                if (string.IsNullOrWhiteSpace(options.MemoryLimit) && limits.Scalar("memory") is { } m && !string.IsNullOrWhiteSpace(m))
+                {
+                    options.MemoryLimit = m.Trim();
+                }
             }
 
-            if (string.IsNullOrWhiteSpace(options.MemoryLimit) && limits.Scalar("memory") is { } m && !string.IsNullOrWhiteSpace(m))
+            // deploy.resources.reservations.devices is Compose's standard way to request GPU
+            // access. The engine only offers all-or-nothing passthrough, so any GPU request maps
+            // to --gpus all; narrower selections are reported as warnings rather than silently
+            // honoured as written.
+            if (resources.Child("reservations") is MappingNode reservations &&
+                reservations.Child("devices") is SequenceNode devices &&
+                devices.Items.OfType<MappingNode>().Any(RequestsGpu))
             {
-                options.MemoryLimit = m.Trim();
+                options.AllGpus = true;
             }
         }
     }
+
+    /// <summary>True when a Compose device reservation asks for the <c>gpu</c> capability.</summary>
+    private static bool RequestsGpu(MappingNode device) =>
+        device.Child("capabilities") is SequenceNode capabilities &&
+        capabilities.Items.OfType<ScalarNode>()
+            .Any(c => Unquote(c.Value ?? string.Empty).Trim().Equals("gpu", StringComparison.OrdinalIgnoreCase));
 
     private static RestartPolicyKind ParseRestart(string? value)
     {

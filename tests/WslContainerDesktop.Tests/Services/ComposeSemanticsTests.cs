@@ -81,6 +81,56 @@ public sealed class ComposeSemanticsTests
         Assert.Contains("Swarm", Assert.Single(project.Warnings));
     }
 
+    /// <summary>
+    /// Compose's device reservation is the standard way to ask for a GPU. The engine only offers
+    /// all-or-nothing passthrough, so a GPU request must reach the run options rather than being
+    /// silently dropped as a Swarm-only setting.
+    /// </summary>
+    [Theory]
+    [InlineData("capabilities: [gpu]")]
+    [InlineData("capabilities: ['gpu']")]
+    [InlineData("capabilities: [GPU]")]
+    [InlineData("driver: nvidia, count: all, capabilities: [gpu]")]
+    [InlineData("capabilities: [gpu, compute]")]
+    public void GpuReservationRequestsAllGpus(string device)
+    {
+        var project = ComposeImporter.ParseProject(
+            $"services: {{web: {{image: fixture, deploy: {{resources: {{reservations: {{devices: [{{{device}}}]}}}}}}}}}}");
+
+        Assert.True(Assert.Single(project.Services).Options.AllGpus);
+        Assert.Empty(project.Warnings);
+    }
+
+    [Theory]
+    [InlineData("capabilities: [compute]")]
+    [InlineData("driver: nvidia")]
+    public void ReservationsWithoutTheGpuCapabilityDoNotRequestGpus(string device)
+    {
+        var project = ComposeImporter.ParseProject(
+            $"services: {{web: {{image: fixture, deploy: {{resources: {{reservations: {{devices: [{{{device}}}]}}}}}}}}}}");
+
+        Assert.False(Assert.Single(project.Services).Options.AllGpus);
+    }
+
+    [Fact]
+    public void ServicesWithoutAReservationDoNotRequestGpus() =>
+        Assert.False(Assert.Single(ComposeImporter.ParseProject(
+            "services: {web: {image: fixture, deploy: {resources: {limits: {cpus: '1.5'}}}}}").Services).Options.AllGpus);
+
+    /// <summary>Only all-or-nothing passthrough exists, so a narrower request is honoured as all
+    /// GPUs and says so rather than pretending the selection was applied.</summary>
+    [Theory]
+    [InlineData("count: 1, capabilities: [gpu]")]
+    [InlineData("device_ids: ['0'], capabilities: [gpu]")]
+    public void NarrowerGpuSelectionWarnsThatAllGpusArePassed(string device)
+    {
+        var project = ComposeImporter.ParseProject(
+            $"services: {{web: {{image: fixture, deploy: {{resources: {{reservations: {{devices: [{{{device}}}]}}}}}}}}}}");
+
+        Assert.True(Assert.Single(project.Services).Options.AllGpus);
+        Assert.Contains("all GPUs", Assert.Single(project.Warnings));
+    }
+
     private static readonly Dictionary<string, string> Variables = new(StringComparer.Ordinal)
     {
         ["WCD_SET"] = "value",
