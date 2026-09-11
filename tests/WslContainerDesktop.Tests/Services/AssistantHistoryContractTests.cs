@@ -25,6 +25,42 @@ public sealed class AssistantHistoryContractTests
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// A model that answers "what is today" from training data is confidently wrong, and it also
+    /// cannot judge a container's age. Every turn must carry this PC's clock.
+    /// </summary>
+    [Fact]
+    public async Task EveryTurnCarriesTheCurrentDateAndTimeInTheSystemPrompt()
+    {
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        var h = new AiContractHarness(timeProvider: new FrozenClock(
+            new DateTimeOffset(2026, 9, 11, 17, 49, 47, TimeSpan.Zero), zone));
+        h.Provider.Turns.Enqueue((_, _) => Task.FromResult("first"));
+        h.Provider.Turns.Enqueue((_, _) => Task.FromResult("second"));
+
+        await h.Assistant.SendAsync("what day is it?");
+        await h.Assistant.SendAsync("and now?");
+
+        Assert.Equal(2, h.Provider.Requests.Count);
+        foreach (var request in h.Provider.Requests)
+        {
+            var system = request.Single(m => m.Role == "system").Content;
+            // 17:49 UTC is 13:49 Eastern daylight time; sending UTC as local would shift every age.
+            Assert.Contains("2026-09-11 13:49:47", system);
+            Assert.Contains("Friday", system);
+            Assert.Contains("UTC 2026-09-11 17:49:47Z", system);
+            Assert.Contains("Eastern Standard Time", system);
+        }
+    }
+
+    /// <summary>A clock frozen at a known instant in a fixed zone, so the sent time is asserted
+    /// rather than compared against the machine's own wall clock.</summary>
+    private sealed class FrozenClock(DateTimeOffset utcNow, TimeZoneInfo zone) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+        public override TimeZoneInfo LocalTimeZone => zone;
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

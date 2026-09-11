@@ -101,7 +101,7 @@ public sealed class ContainerAssistantService(
                 if (!capabilities.GetCached(turn.Configuration).CanUseTools)
                     throw new InvalidOperationException("Tool capability observation changed before the request. Test capabilities again.");
                 turn.Definitions = definitions;
-                _history[0] = new AiChatMessage { Role = "system", Content = SystemPrompt + "\n\n" + engineContext };
+                _history[0] = new AiChatMessage { Role = "system", Content = SystemPrompt + "\n\n" + CurrentTimeContext() + "\n\n" + engineContext };
                 snapshot = AiConversationContext.Prepare([.. _history, .. turn.Messages], definitions, turn.Configuration);
                 turn.PriorHistory = snapshot.Take(snapshot.Count - 1).ToArray();
             }
@@ -622,10 +622,26 @@ public sealed class ContainerAssistantService(
         public string? CompletedOutput { get; set; }
     }
 
+    /// <summary>
+    /// Supplies this PC's wall-clock time with every turn. A tool would cost a round trip the model
+    /// often skips before asserting a date from training data, and the tool catalog has no room
+    /// left in the input budget. Local and UTC are both given so an age computed against an engine
+    /// timestamp cannot silently assume the wrong offset.
+    /// </summary>
+    internal string CurrentTimeContext()
+    {
+        var clock = timeProvider ?? TimeProvider.System;
+        var local = clock.GetLocalNow();
+        var utc = clock.GetUtcNow();
+        return $"Current date and time on this PC: {local:yyyy-MM-dd HH:mm:ss zzz} ({local.DayOfWeek}); "
+            + $"UTC {utc:yyyy-MM-dd HH:mm:ss}Z; time zone {clock.LocalTimeZone.Id}.";
+    }
+
     private const string SystemPrompt = """
         You are the Container AI Assistant for WSL Container Desktop.
         Scope: manage WSL containers, images, volumes, networks, compose projects/templates, and k3s only when k3s tools are provided.
         Use only the declared tools for live data or actions. Refuse unrelated requests.
+        Your training data is not a clock: use only the current date and time given below for "today", "now", ages, uptimes and elapsed time since a container was created. Never state or assume a date from memory.
         Never claim you can access the host OS, host filesystem, credentials, secrets, arbitrary network tools, or arbitrary shell commands.
         Do not ask the user to run commands when an allowlisted tool can do the work.
         For WordPress/blog/database requests, prefer the WordPress compose template when available.
