@@ -174,7 +174,7 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
             }
         }
 
-        throw new InvalidOperationException("Stopped because the assistant reached the tool-iteration limit.");
+        throw new AssistantIterationLimitException("Stopped because the assistant reached the tool-iteration limit.");
     }
 
     private static AiProviderException ConfigurationError(string operation, string message) => new(

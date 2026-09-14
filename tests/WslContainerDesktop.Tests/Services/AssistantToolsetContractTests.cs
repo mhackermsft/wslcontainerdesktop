@@ -270,6 +270,26 @@ public sealed class AssistantToolsetContractTests
     }
 
     /// <summary>
+    /// Running out of tool iterations is the safety stop working, not a configuration fault. It was
+    /// reported as "Configuration needed", which sends the user hunting for a setting that cannot
+    /// help — the actual cause is the model retrying a call that keeps failing the same way.
+    /// </summary>
+    [Fact]
+    public void IterationLimitIsReportedAsAnUnfinishedTurnNotAConfigurationProblem()
+    {
+        var error = new AssistantIterationLimitException(
+            "Stopped because the assistant reached the tool-iteration limit.");
+
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
+        var feedback = AiErrorClassifier.Classify(error,
+            new AiErrorContext(AiProviderKind.Ollama, "Ollama", "Assistant chat"));
+        Assert.DoesNotContain("Configuration needed", feedback.Title);
+        Assert.Contains("did not finish", feedback.Title, StringComparison.OrdinalIgnoreCase);
+        // Completed calls are not rolled back, so the user must be told to check before retrying.
+        Assert.Contains("recorded", feedback.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// A clashing name or port is moved aside at resolve time, so the approval prompt and the
     /// activity record must describe the deployment that actually runs. Resolving inside the
     /// executor meant approving "sqlserver on 1433" and silently getting "sqlserver-2 on 1434".

@@ -192,7 +192,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
             }
         }
 
-        throw new InvalidOperationException("Stopped because the assistant reached the tool-iteration limit.");
+        throw new AssistantIterationLimitException("Stopped because the assistant reached the tool-iteration limit.");
     }
 
     private void ApplyAuthorization(HttpRequestMessage message)

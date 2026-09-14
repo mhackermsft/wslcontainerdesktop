@@ -652,12 +652,13 @@ public sealed class FoundryLocalTests
         for (var i = 0; i < 8; i++)
             f.Handler.Completions.Enqueue(JsonReply(null, new() { Id = "call" + i, Name = "stop_container" }));
         var calls = new HashSet<string>();
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var error = await Assert.ThrowsAsync<AssistantIterationLimitException>(() =>
             f.Provider.RunTurnAsync(f.Request, Tools, (call, _) =>
             {
                 Assert.True(calls.Add(call.Id));
                 return Task.FromResult("completed");
             }, default));
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
         Assert.Contains("iteration", error.Message);
         Assert.Equal(8, calls.Count);
         Assert.Equal(8, f.Handler.Requests.Count(r => r.Method == HttpMethod.Post));

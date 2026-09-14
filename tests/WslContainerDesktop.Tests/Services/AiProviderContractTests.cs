@@ -781,12 +781,15 @@ public sealed class AiProviderContractTests
             }));
         }
         var calls = new List<string>();
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var error = await Assert.ThrowsAsync<AssistantIterationLimitException>(() =>
             Create(kind, http, h.Settings).RunTurnAsync(Request(h, kind, History), Tools, (call, _) =>
             {
                 calls.Add(call.ArgumentsJson);
                 return Task.FromResult("read-only evidence");
             }, CancellationToken.None));
+        // Still an InvalidOperationException, so existing turn-failure handling is unchanged; the
+        // distinct type only keeps it from being presented as a configuration problem.
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
         Assert.Contains("iteration limit", error.Message);
         Assert.Equal(8, handler.Requests.Count);
         Assert.Equal(8, calls.Distinct().Count());

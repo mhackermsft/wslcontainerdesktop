@@ -86,6 +86,16 @@ public static class AiErrorClassifier
                     AiTextSanitizer.Sanitize(ex.Message) +
                     " Nothing was run. Ask it to try again; it is told which fields the tool accepts.");
 
+            // Also before InvalidOperationException. The limit is a safety stop doing its job, not
+            // a configuration fault; the usual cause is the model retrying a call that keeps
+            // failing the same way.
+            case AssistantIterationLimitException:
+                return AiFeedback.Warning(
+                    "The assistant did not finish",
+                    AiTextSanitizer.Sanitize(ex.Message) +
+                    " Any tool calls it already completed still happened and were recorded; review " +
+                    "them before retrying, and try narrowing the request into a single step.");
+
             case InvalidOperationException:
                 return AiFeedback.Warning("Configuration needed", AiTextSanitizer.Sanitize(ex.Message));
 

@@ -166,7 +166,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
             }
         }
 
-        throw new InvalidOperationException("Stopped because the assistant reached the tool-iteration limit.");
+        throw new AssistantIterationLimitException("Stopped because the assistant reached the tool-iteration limit.");
     }
 
     private static AiProviderException MissingModel(string operation) => new(
