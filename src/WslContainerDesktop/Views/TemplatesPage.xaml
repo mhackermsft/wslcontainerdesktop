@@ -217,6 +217,12 @@
                                                 FontSize="11"
                                                 Foreground="{ThemeResource SystemFillColorSuccessBrush}"
                                                 Text="Deployed" />
+                                            <TextBlock
+                                                FontSize="11"
+                                                FontWeight="SemiBold"
+                                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                                Text="{x:Bind DeploymentSummary, Mode=OneWay}"
+                                                Visibility="{x:Bind HasMultipleDeployments, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>

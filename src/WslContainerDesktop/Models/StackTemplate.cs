@@ -128,6 +128,24 @@ public sealed partial class StackTemplate : ObservableObject
     private bool _isDeployed;
 
     /// <summary>
+    /// How many separate deployments of this template exist. Repeat launches step aside onto
+    /// <c>name-2</c>, <c>name-3</c> instead of disturbing what is running, so a card can stand for
+    /// several deployments and needs to say so rather than implying a single one.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DeploymentSummary))]
+    [NotifyPropertyChangedFor(nameof(HasMultipleDeployments))]
+    [property: System.Text.Json.Serialization.JsonIgnore]
+    private int _deploymentCount;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasMultipleDeployments => DeploymentCount > 1;
+
+    /// <summary>Badge text; empty for the ordinary single-deployment case.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DeploymentSummary => DeploymentCount > 1 ? $"{DeploymentCount} deployments" : string.Empty;
+
+    /// <summary>
     /// True when the user has hidden this template from the gallery. Recomputed from the visibility
     /// store; drives filtering and the "Show hidden" dimmed presentation. Not persisted on the
     /// template itself (the hidden-Id set lives in <c>template-visibility.json</c>).

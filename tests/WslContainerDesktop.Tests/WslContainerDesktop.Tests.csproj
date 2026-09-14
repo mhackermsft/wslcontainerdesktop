@@ -73,6 +73,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\AssistantTurnDispatch.cs" Link="Helpers\AssistantTurnDispatch.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiDiagnosticsService.cs" Link="Services\AiDiagnosticsService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantArgumentException.cs" Link="Services\AssistantArgumentException.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\TemplateDeploymentNaming.cs" Link="Services\TemplateDeploymentNaming.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiErrorClassifier.cs" Link="Services\AiErrorClassifier.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\AiFeedback.cs" Link="Models\AiFeedback.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerDetails.cs" Link="Models\ContainerDetails.cs" />
@@ -157,6 +158,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcService.cs" Link="Services\IWslcService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\OpenWebUiPlanner.cs" Link="Services\OpenWebUiPlanner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeResourceErrors.cs" Link="Services\ComposeResourceErrors.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\DeploymentConflictResolver.cs" Link="Services\DeploymentConflictResolver.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeProjectStore.cs" Link="Services\IComposeProjectStore.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectStore.cs" Link="Services\ComposeProjectStore.cs" />
   </ItemGroup>

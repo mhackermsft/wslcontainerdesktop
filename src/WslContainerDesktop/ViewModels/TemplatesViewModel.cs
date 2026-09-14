@@ -164,7 +164,7 @@ public partial class TemplatesViewModel : ObservableObject
         }
     }
 
-    /// <summary>Recomputes each template's <see cref="StackTemplate.IsDeployed"/> from the live snapshot.</summary>
+    /// <summary>Recomputes each template's live deployment state from the snapshot.</summary>
     private void UpdateDeploymentState(EngineStatusSnapshot snapshot)
     {
         var containers = snapshot.Containers;
@@ -172,34 +172,95 @@ public partial class TemplatesViewModel : ObservableObject
         {
             foreach (var template in group)
             {
-                template.IsDeployed = IsTemplateDeployed(template, containers);
+                var deployments = FindDeployments(template, containers);
+                template.DeploymentCount = deployments.Count;
+                template.IsDeployed = deployments.Count > 0;
             }
         }
     }
 
     /// <summary>
-    /// A compose template is deployed when any container is named <c>{project}_*</c> (the supervisor's
-    /// naming); a single-container template is deployed when a container with its configured name exists.
+    /// One deployment of a template. A template can be launched repeatedly — deployments step aside
+    /// onto <c>name-2</c>, <c>name-3</c> rather than disturbing what is already running — so the
+    /// gallery has to talk about a specific one rather than "the" deployment.
     /// </summary>
-    private bool IsTemplateDeployed(StackTemplate template, IReadOnlyList<ContainerInfo> containers)
+    /// <param name="Label">What the user sees, e.g. "sqlserver-2".</param>
+    /// <param name="Target">Container name, or Compose project name.</param>
+    public sealed record TemplateDeployment(string Label, string Target, bool IsCompose);
+
+    /// <summary>
+    /// Finds every deployment of a template: the configured name plus the <c>-N</c> variants the
+    /// conflict resolver assigns when the original name is taken.
+    /// </summary>
+    /// <summary>
+    /// Project names that actually own containers: the base name and any of its numbered repeats
+    /// that own at least one <c>{project}_</c> container. Derived by testing candidates against the
+    /// inventory rather than splitting container names, which mis-attributes services whose own
+    /// name contains an underscore.
+    /// </summary>
+    private static IEnumerable<string> CandidateProjectNames(string baseName, IReadOnlyList<string> containerNames)
     {
+        for (var i = 1; i < 200; i++)
+        {
+            var candidate = i == 1 ? baseName : $"{baseName}-{i}";
+            if (containerNames.Any(n => n.StartsWith(candidate + "_", StringComparison.OrdinalIgnoreCase)))
+                yield return candidate;
+        }
+    }
+
+    /// <summary>True for the base name itself or a <c>base-N</c> repeat deployment.</summary>
+    private List<TemplateDeployment> FindDeployments(StackTemplate template, IReadOnlyList<ContainerInfo> containers)
+    {
+        var found = new List<TemplateDeployment>();
         if (template.Kind == StackTemplateKind.Compose)
         {
-            var (_, name) = ResolveComposeConfig(template);
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return false;
-            }
+            var (_, project) = ResolveComposeConfig(template);
+            if (string.IsNullOrWhiteSpace(project))
+                return found;
 
-            var prefix = name + "_";
-            return containers.Any(c => c.Name.TrimStart('/').StartsWith(prefix, StringComparison.Ordinal));
+            // Compose names containers "{project}_{service}"; a repeat launch uses "{project}-2".
+            // Match candidate project names against the prefix rather than splitting the container
+            // name: a service whose own name contains "_" would otherwise be attributed to the
+            // wrong project and its deployment would never appear on the card.
+            var names = containers.Select(c => c.Name.TrimStart('/')).ToArray();
+            foreach (var candidate in CandidateProjectNames(project!, names))
+            {
+                if (!found.Any(d => d.Target == candidate))
+                    found.Add(new(candidate, candidate, IsCompose: true));
+            }
+        }
+        else
+        {
+            var configured = ResolveContainerOptions(template)?.Name;
+            if (string.IsNullOrWhiteSpace(configured))
+                return found;
+
+            foreach (var name in containers.Select(c => c.Name.TrimStart('/')))
+            {
+                if (TemplateDeploymentNaming.IsBaseOrSuffixed(name, configured) && !found.Any(d => d.Target == name))
+                    found.Add(new(name, name, IsCompose: false));
+            }
         }
 
-        var containerName = ResolveContainerOptions(template)?.Name;
-        return !string.IsNullOrWhiteSpace(containerName)
-            && containers.Any(c => string.Equals(
-                c.Name.TrimStart('/'), containerName, StringComparison.OrdinalIgnoreCase));
+        // Base name first, then numerically, so "name-10" does not sort above "name-2".
+        return [.. found.OrderBy(d => SuffixOf(d.Target, template))];
     }
+
+    private int SuffixOf(string target, StackTemplate template)
+    {
+        var baseName = template.Kind == StackTemplateKind.Compose
+            ? ResolveComposeConfig(template).Name
+            : ResolveContainerOptions(template)?.Name;
+        return TemplateDeploymentNaming.SuffixOf(target, baseName);
+    }
+
+    /// <summary>
+    /// A compose template is deployed when any container is named <c>{project}_*</c> (the supervisor's
+    /// naming); a single-container template is deployed when a container with its configured name exists.
+    /// Repeat launches add <c>-N</c> variants, which count too.
+    /// </summary>
+    private bool IsTemplateDeployed(StackTemplate template, IReadOnlyList<ContainerInfo> containers) =>
+        FindDeployments(template, containers).Count > 0;
 
     /// <summary>
     /// One-click launch: starts the template immediately using the user's saved configuration (from
@@ -279,6 +340,59 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
+        var deployments = FindDeployments(template, _monitor.Latest?.Containers ?? []);
+        if (deployments.Count == 0)
+        {
+            return;
+        }
+
+        // With several deployments the old dialog silently removed whichever matched the configured
+        // name, leaving the rest with no way to reach them. Make the target an explicit choice.
+        TemplateDeployment target;
+        if (deployments.Count == 1)
+        {
+            target = deployments[0];
+        }
+        else
+        {
+            var chooser = new ComboBox
+            {
+                Header = "Which deployment?",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                MinWidth = 320,
+                ItemsSource = deployments.Select(d => d.Label).ToList(),
+                SelectedIndex = 0,
+            };
+            var pick = new ContentDialog
+            {
+                Title = $"Remove a {template.Name} deployment",
+                Content = new StackPanel
+                {
+                    Spacing = 12,
+                    Width = 420,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = $"There are {deployments.Count} separate {template.Name} deployments. "
+                                + "Choose the one to remove; the others are left running.",
+                            TextWrapping = TextWrapping.Wrap,
+                        },
+                        chooser,
+                    },
+                },
+                PrimaryButtonText = "Continue",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+            };
+            if (await _dialogs.ShowDialogAsync(pick) != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            target = deployments[Math.Max(0, chooser.SelectedIndex)];
+        }
+
         var volumesCheck = new CheckBox
         {
             Content = "Also delete data volumes (permanently deletes stored data)",
@@ -286,7 +400,7 @@ public partial class TemplatesViewModel : ObservableObject
         };
         var dialog = new ContentDialog
         {
-            Title = $"Remove {template.Name}?",
+            Title = $"Remove {target.Label}?",
             Content = new StackPanel
             {
                 Spacing = 12,
@@ -295,8 +409,8 @@ public partial class TemplatesViewModel : ObservableObject
                     new TextBlock
                     {
                         Text = template.Kind == StackTemplateKind.Compose
-                            ? "Stops and removes this stack's containers and its network."
-                            : "Stops and removes this container.",
+                            ? $"Stops and removes the \"{target.Label}\" stack's containers and its network."
+                            : $"Stops and removes the \"{target.Label}\" container.",
                         TextWrapping = TextWrapping.Wrap,
                     },
                     volumesCheck,
@@ -320,15 +434,15 @@ public partial class TemplatesViewModel : ObservableObject
         {
             if (template.Kind == StackTemplateKind.Compose)
             {
-                await RemoveComposeAsync(template, removeVolumes);
+                await RemoveComposeAsync(target, removeVolumes);
             }
             else
             {
-                await RemoveContainerAsync(template, removeVolumes);
+                await RemoveContainerAsync(target, removeVolumes);
             }
 
             var volumeNote = removeVolumes ? " and its data volumes" : string.Empty;
-            StatusMessage = $"{template.Name}{volumeNote} removed.";
+            StatusMessage = $"{target.Label}{volumeNote} removed.";
             _monitor.RequestRefresh();
         }
         catch (Exception ex)
@@ -543,19 +657,39 @@ public partial class TemplatesViewModel : ObservableObject
         return candidate;
     }
 
-    private async Task RemoveComposeAsync(StackTemplate template, bool removeVolumes)
+    /// <summary>
+    /// Reads the named volumes actually mounted by the container being removed, so a repeat
+    /// deployment deletes its own data rather than the template's configured volume names, which
+    /// may belong to a different deployment that is still running.
+    /// </summary>
+    private async Task<RunContainerOptions?> ResolveDeployedVolumesAsync(string containerId)
     {
-        var (_, name) = ResolveComposeConfig(template);
-        if (!string.IsNullOrWhiteSpace(name))
+        try
         {
-            await _compose.RemoveProjectAsync(name!, removeVolumes);
+            var inspect = await _wslc.InspectContainerAsync(containerId);
+            if (!inspect.Success)
+                return null;
+            var mounts = ContainerMounts.Parse(inspect.StandardOutput);
+            if (!mounts.IsComplete)
+                return null;
+            var options = new RunContainerOptions { Image = string.Empty };
+            foreach (var item in mounts.Items.Where(m => !string.IsNullOrWhiteSpace(m.VolumeName)))
+                options.Volumes.Add($"{item.VolumeName}:{item.Destination}");
+            return options;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Unknown mounts mean we cannot prove which volumes are this deployment's; keep them.
+            return null;
         }
     }
 
-    private async Task RemoveContainerAsync(StackTemplate template, bool removeVolumes)
+    private Task RemoveComposeAsync(TemplateDeployment deployment, bool removeVolumes) =>
+        _compose.RemoveProjectAsync(deployment.Target, removeVolumes);
+
+    private async Task RemoveContainerAsync(TemplateDeployment deployment, bool removeVolumes)
     {
-        var options = ResolveContainerOptions(template);
-        var name = options?.Name;
+        var name = deployment.Target;
         if (string.IsNullOrWhiteSpace(name))
         {
             return;
@@ -564,8 +698,13 @@ public partial class TemplatesViewModel : ObservableObject
         var existing = (await _wslc.ListContainersAsync(all: true))
             .FirstOrDefault(c => string.Equals(
                 c.Name.TrimStart('/'), name, StringComparison.OrdinalIgnoreCase));
+        RunContainerOptions? options = null;
         if (existing is not null)
         {
+            // Read the mounts off the container actually being removed: a repeat deployment has its
+            // own "-N" volumes, and deleting the template's configured ones would destroy the data
+            // belonging to a different deployment that is still running.
+            options = await ResolveDeployedVolumesAsync(existing.Id);
             await _wslc.RemoveContainerAsync(existing.Id, force: true);
         }
 

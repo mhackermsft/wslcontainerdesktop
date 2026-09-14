@@ -300,8 +300,19 @@ public partial class ComposeViewModel : ObservableObject
             return false;
         }
 
+        // Step around anything already deployed before namespacing locks in the project name:
+        // a repeat launch becomes its own project with its own network and free host ports, rather
+        // than colliding with (or quietly adopting) the deployment already running.
+        var adjustment = await new DeploymentConflictResolver(_wslc).ResolveProjectAsync(project);
+
         project.ApplyProjectNamespacing();
-        return await BringUpAsync(project);
+        var launched = await BringUpAsync(project);
+        if (launched && adjustment.Adjusted)
+        {
+            StatusMessage = adjustment.Summary;
+        }
+
+        return launched;
     }
 
     /// <summary>
