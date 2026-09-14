@@ -12,7 +12,11 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
-Slated for **1.8.0**. The largest set of changes so far. The **Container AI Assistant** grows from a
+Nothing yet.
+
+## [1.8.0] — 2026-09-14
+
+The largest set of changes so far. The **Container AI Assistant** grows from a
 chat box into a permissioned tool-calling agent, **Docker Compose** support becomes substantially
 more faithful to the spec, and the **Templates** gallery gains a set of Azure emulators.
 
@@ -207,6 +211,7 @@ rather than assuming one schema or flag set.
 Older versions (1.0.0 – 1.5.3) predate this changelog. Their tags remain in the repository, and
 their changes can be reviewed with `git log v1.5.2..v1.5.3` and similar.
 
-[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v1.7.0...main
+[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v1.8.0...main
+[1.8.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.8.0
 [1.7.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.7.0
 [1.6.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.6.0
