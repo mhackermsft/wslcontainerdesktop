@@ -18,6 +18,20 @@ more faithful to the spec, and the **Templates** gallery gains a set of Azure em
 
 ### Added
 
+- **Deployments no longer disturb what is already running.** Launching a template or asking the
+  assistant to run something takes a free container name (`sqlserver-2`), free host ports, and its
+  own named volumes instead of colliding. Compose repeat launches become their own project, with
+  their own network and any pinned `container_name` moved too. Previously a name clash was an error
+  the assistant tried to resolve by stopping and removing the container in its way.
+- **Assistant permissions are now a capability, not just a prompt.** *Allow the assistant to delete
+  things* is off by default: until it is on, removing containers, volumes, networks, Kubernetes
+  resources, or bringing a Compose project down is refused outright, and those tools are not even
+  offered to the model. A separate *act without asking* switch waives approval prompts without
+  granting deletion.
+- **Multiple deployments of one template are managed individually.** The gallery counts them and
+  Remove asks which one, leaving the others running. Deleting its data volumes reads the mounts of
+  the container being removed, so a repeat deployment cannot destroy the first one's data.
+
 - **Compose compatibility review before deployment.** Generated and template Compose stacks now show
   exactly what will be created, reused, approximated, or blocked — active instances, ports, mounts,
   networks, limits, and who owns health and restart behavior — before anything runs. Blockers can't
@@ -61,6 +75,19 @@ more faithful to the spec, and the **Templates** gallery gains a set of Azure em
 
 ### Changed
 
+- **Tool activity is collapsed in the chat.** Tool requests, executions and results now appear as a
+  single expandable line rather than raw container ids and JSON interrupting the conversation. The
+  evidence is still there — it is what proves what happened — just one click away.
+- **The context budget follows the model.** Rather than a fixed ceiling for every provider, a
+  reported context window now raises it through a deliberately pessimistic conversion (a measured
+  byte limit still wins). Combined with a smaller tool catalog, a conversation has roughly eight
+  times the room it had before hitting "context budget exceeded".
+- **Truncated history is summarized, not just announced.** When older turns no longer fit, they are
+  replaced by a short factual digest of what was asked and which tools ran with what outcome.
+- **Invalid tool calls explain themselves.** A rejected call now names the fields the tool actually
+  accepts, so the assistant can correct itself instead of retrying the same shape, and it is
+  reported as an assistant mistake rather than a configuration problem you need to fix.
+
 - **Compose parsing is far closer to the spec** — interpolation operators, YAML anchors, aliases and
   merge keys, block scalars, sibling override merging with `!reset` / `!override`, and strict local
   `include:` / `extends:` graphs. Invalid configuration now fails the import instead of producing a
@@ -86,6 +113,15 @@ more faithful to the spec, and the **Templates** gallery gains a set of Azure em
 
 ### Fixed
 
+- **The assistant crashed once you had opened the Activity page.** Recording an action wrote to a
+  collection bound to that page from a background thread, which surfaced as an unexplained
+  `COMException` that killed the turn — and because the write happened immediately before the
+  approval prompt was raised, the prompt never appeared, leaving the assistant explaining that it
+  needed authorization it had never asked for.
+- **The Compose review dialog would not scroll.** An `Expander` nested inside the scroll region
+  reported its collapsed size, so the scrollbar appeared but had nothing to scroll.
+- **Container targets given with a leading slash were not found.** The engine reports names as
+  `/sqlserver` in its own error messages, but matching required the bare form.
 - **First-time Compose deployments were blocked** whenever the project declared a new network or
   volume. The engine reports a missing resource as plain text (`Network not found: '…'`), which was
   treated as an unreadable-inventory error rather than the normal "does not exist yet" case.
