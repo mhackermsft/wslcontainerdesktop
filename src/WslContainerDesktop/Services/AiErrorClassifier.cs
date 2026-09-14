@@ -78,6 +78,14 @@ public static class AiErrorClassifier
                     $"{context.ProviderDisplayName} did not return a response in the expected OpenAI, Azure OpenAI, or Ollama shape.",
                     BuildTechnicalDetails(ex, context, null, null));
 
+            // Checked before InvalidOperationException, which it derives from: the assistant chose
+            // an argument shape the tool does not accept, so there is nothing for the user to fix.
+            case AssistantArgumentException:
+                return AiFeedback.Warning(
+                    "The assistant sent an invalid request",
+                    AiTextSanitizer.Sanitize(ex.Message) +
+                    " Nothing was run. Ask it to try again; it is told which fields the tool accepts.");
+
             case InvalidOperationException:
                 return AiFeedback.Warning("Configuration needed", AiTextSanitizer.Sanitize(ex.Message));
 
