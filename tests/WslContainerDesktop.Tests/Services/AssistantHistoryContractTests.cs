@@ -26,6 +26,43 @@ public sealed class AssistantHistoryContractTests
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
 
     /// <summary>
+    /// Recording an assistant action to the activity timeline happens immediately before the
+    /// approval prompt is raised. When that recording threw — which it did whenever the Activity
+    /// page was open, because the bound collection rejected the assistant's off-thread write — the
+    /// prompt was never raised and the whole chat turn died with a message-free COMException,
+    /// leaving "Not run: invocation did not reach execution" in the transcript. The user's action
+    /// must survive a failure to write its own history entry.
+    /// </summary>
+    [Fact]
+    public async Task ActivityRecordingFailureStillPromptsForApprovalAndRunsTheAction()
+    {
+        var h = new AiContractHarness { FailActivityRecording = true };
+        var executed = false;
+        h.Tools.Resolve = (call, _) => Task.FromResult(new AssistantResolvedToolCall(
+            call, AssistantPermissionCategory.Lifecycle, "Stop app-one", "app-one",
+            _ => { executed = true; return Task.FromResult("stopped"); }));
+        h.Provider.Turns.Enqueue(async (invoke, ct) =>
+        {
+            await invoke(AiContractHarness.Call(), ct);
+            return "done";
+        });
+
+        var prompted = AiContractHarness.Signal<AssistantApprovalRequest>();
+        h.Assistant.ApprovalChanged += (_, approval) =>
+        {
+            if (approval is not null) prompted.TrySetResult(approval);
+        };
+
+        var turn = h.Assistant.SendAsync("stop app-one");
+        var request = await prompted.Task.WaitAsync(Deadline);
+        await h.Assistant.ApproveAsync(request);
+        await turn.WaitAsync(Deadline);
+
+        Assert.True(executed, "The approved action must still run when its audit entry could not be written.");
+        Assert.Empty(h.Activity);
+    }
+
+    /// <summary>
     /// A model that answers "what is today" from training data is confidently wrong, and it also
     /// cannot judge a container's age. Every turn must carry this PC's clock.
     /// </summary>
@@ -596,7 +633,11 @@ public sealed class AssistantHistoryContractTests
         var prepared = AiConversationContext.Prepare(messages, [], config);
         AssertPaired(prepared);
         Assert.True(AiConversationContext.Measure(prepared, []) <= AiConversationContext.InputByteLimit(config));
-        Assert.Contains(prepared, m => m.Content == AiConversationContext.TruncationNotice);
+        Assert.Contains(prepared, m => m.Role == "system" && AiConversationContext.IsDigest(m.Content));
+        // The dropped turns are summarized, not merely announced: their tool activity survives.
+        var digest = Assert.Single(prepared, m => m.Role == "system" && AiConversationContext.IsDigest(m.Content));
+        Assert.Contains("asked:", digest.Content);
+        Assert.Contains(AiContractHarness.Call().Name, digest.Content);
         Assert.Equal("latest", prepared[^1].Content);
         Assert.Equal("trusted instructions", prepared[0].Content);
         var hugeTool = new AiToolDefinition { Name = "tool", Description = "", JsonSchemaParameters = new string('x', 40000) };

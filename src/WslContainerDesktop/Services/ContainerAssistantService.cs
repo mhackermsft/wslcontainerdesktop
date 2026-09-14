@@ -104,6 +104,9 @@ public sealed class ContainerAssistantService(
                 _history[0] = new AiChatMessage { Role = "system", Content = SystemPrompt + "\n\n" + CurrentTimeContext() + "\n\n" + engineContext };
                 snapshot = AiConversationContext.Prepare([.. _history, .. turn.Messages], definitions, turn.Configuration);
                 turn.PriorHistory = snapshot.Take(snapshot.Count - 1).ToArray();
+                // The model receives a factual digest of the dropped turns; the user just needs to
+                // know their history no longer fits, so record that it happened.
+                turn.HistorySummarized |= snapshot.Any(m => m.Role == "system" && AiConversationContext.IsDigest(m.Content));
             }
 
             var request = new AiChatRequest(turn.Configuration, snapshot)
@@ -131,7 +134,7 @@ public sealed class ContainerAssistantService(
                 turn.Messages.Add(new AiChatMessage { Role = "assistant", Content = finalText });
                 Commit(turn);
                 turn.Committed = true;
-                if (_history.Any(m => m.Content == AiConversationContext.TruncationNotice))
+                if (turn.HistorySummarized || _history.Any(m => AiConversationContext.IsDigest(m.Content)))
                     finalText += "\n\n" + AiConversationContext.TruncationNotice;
                 if (turn.ConfigurationChanged)
                     finalText += "\n\nProvider configuration changed. This is a fresh conversation; previous history was not sent.";
@@ -408,7 +411,11 @@ public sealed class ContainerAssistantService(
             if (safe == ex.Message && ex.InnerException is null)
                 throw;
             // Do not retain the raw exception as InnerException: callers may persist technical details.
-            throw new InvalidOperationException($"Assistant tool failed: {safe}");
+            // Preserve an argument failure's type though, or the UI falls back to telling the user to
+            // fix their configuration for what is actually the assistant calling a tool wrongly.
+            throw ex is AssistantArgumentException
+                ? new AssistantArgumentException($"Assistant tool failed: {safe}")
+                : new InvalidOperationException($"Assistant tool failed: {safe}");
         }
     }
 
@@ -436,7 +443,17 @@ public sealed class ContainerAssistantService(
             Audit(ActivityKind.AssistantToolInvoked, $"Blocked: {call.Name}", resolved.Details);
             return resolved.BlockedResult;
         }
-        if (!resolved.RequiresExplicitApproval && !gate.RequiresApproval(resolved.Call.Name, resolved.Category))
+        if (!gate.IsPermitted(resolved.Call.Name, resolved.Category))
+        {
+            // A capability the user has not granted is refused outright rather than prompted for:
+            // offering an approval button here would turn a Settings decision into a reflex click.
+            Audit(ActivityKind.AssistantToolInvoked, $"Not permitted: {call.Name}", resolved.Details);
+            return "Destructive actions are turned off for the assistant. This action was not performed and nothing "
+                + "was changed. Tell the user they can allow destructive actions under Settings > AI diagnostics > "
+                + "Container AI Assistant permissions, then ask again. Do not retry until they confirm they enabled it.";
+        }
+
+        if (!gate.RequiresApproval(resolved.Call.Name, resolved.Category, resolved.RequiresExplicitApproval))
         {
             return await ExecuteToolAsync(turn, invocation, resolved, ct).ConfigureAwait(false);
         }
@@ -566,14 +583,31 @@ public sealed class ContainerAssistantService(
         }
     }
 
-    private void Audit(ActivityKind kind, string title, string detail) =>
-        activity.Record(new ActivityEvent
+    /// <summary>
+    /// Records an assistant action to the activity timeline. Auditing is best-effort and must never
+    /// throw: it runs immediately before the approval prompt is raised, so a logging failure that
+    /// escaped here would skip the prompt entirely and fail the turn, leaving the user asking why
+    /// they were never asked to approve anything.
+    /// </summary>
+    private void Audit(ActivityKind kind, string title, string detail)
+    {
+        try
         {
-            Category = ActivityCategory.Assistant,
-            Kind = kind,
-            Title = AiTextSanitizer.Sanitize(title),
-            Detail = AiTextSanitizer.Sanitize(detail),
-        });
+            activity.Record(new ActivityEvent
+            {
+                Category = ActivityCategory.Assistant,
+                Kind = kind,
+                Title = AiTextSanitizer.Sanitize(title),
+                Detail = AiTextSanitizer.Sanitize(detail),
+            });
+        }
+        catch (Exception)
+        {
+            // Deliberately silent: the activity log is a timeline convenience, and it already logs
+            // its own persistence failures. Failing the user's action because we could not write a
+            // history entry would trade a cosmetic problem for a functional one.
+        }
+    }
 
     private static AssistantChatMessage AssistantMessage(AssistantMessageRole role, string text) => new()
     {
@@ -599,6 +633,8 @@ public sealed class ContainerAssistantService(
         public CancellationToken Token { get; } = cancellation.Token;
         public CancellationToken CallerToken { get; set; }
         public List<AiChatMessage> Messages { get; } = [];
+        /// <summary>Older turns were replaced by a digest to fit the budget.</summary>
+        public bool HistorySummarized { get; set; }
         public HashSet<string> CallIds { get; } = new(StringComparer.Ordinal);
         public IReadOnlyList<AiChatMessage>? PriorHistory { get; set; }
         public IReadOnlyList<AiToolDefinition> Definitions { get; set; } = [];
@@ -641,6 +677,7 @@ public sealed class ContainerAssistantService(
         You are the Container AI Assistant for WSL Container Desktop.
         Scope: manage WSL containers, images, volumes, networks, compose projects/templates, and k3s only when k3s tools are provided.
         Use only the declared tools for live data or actions. Refuse unrelated requests.
+        Never stop, remove or reconfigure an existing container to make room for a deployment; the app already gives a new deployment a free name, free ports and its own volumes. Report any remaining conflict and let the user decide.
         Your training data is not a clock: use only the current date and time given below for "today", "now", ages, uptimes and elapsed time since a container was created. Never state or assume a date from memory.
         Never claim you can access the host OS, host filesystem, credentials, secrets, arbitrary network tools, or arbitrary shell commands.
         Do not ask the user to run commands when an allowlisted tool can do the work.

@@ -25,10 +25,10 @@ namespace WslContainerDesktop.Services;
 /// <summary>
 /// File-backed <see cref="IActivityLog"/>. Events live in
 /// <c>%LOCALAPPDATA%\WslContainerDesktop\activity.json</c> next to the other app state and are
-/// capped to the most recent <see cref="MaxEvents"/> entries. All mutation happens on the UI
-/// thread: <see cref="Attach"/> subscribes to <see cref="StatusMonitor.StatusChanged"/> (which the
-/// monitor already raises on the dispatcher) and the images view model records pull/build outcomes
-/// from UI-thread command handlers. Load/persist failures never crash the app.
+/// capped to the most recent <see cref="MaxEvents"/> entries. <see cref="Events"/> is bound to the
+/// Activity page, so every mutation is marshalled to the UI thread by <see cref="Record"/> itself —
+/// background callers such as the assistant's tool callback do not need to marshal first.
+/// Load/persist failures never crash the app.
 /// </summary>
 public sealed class ActivityLog : IActivityLog
 {
@@ -91,6 +91,28 @@ public sealed class ActivityLog : IActivityLog
             return;
         }
 
+        // Events is bound directly to the Activity page, so mutating it off the UI thread raises
+        // CollectionChanged into XAML on the wrong thread and throws a message-free COMException.
+        // The assistant records tool approvals and outcomes from its background tool callback, so
+        // marshal here rather than relying on every caller to remember.
+        var dispatcher = _monitor.Dispatcher;
+        if (dispatcher is not null && !dispatcher.HasThreadAccess)
+        {
+            if (dispatcher.TryEnqueue(() => RecordOnDispatcher(evt)))
+            {
+                return;
+            }
+
+            // The UI is gone (shutting down); keep the event out of the bound collection.
+            _logger.LogDebug("Activity event dropped: the UI dispatcher is no longer accepting work.");
+            return;
+        }
+
+        RecordOnDispatcher(evt);
+    }
+
+    private void RecordOnDispatcher(ActivityEvent evt)
+    {
         Events.Insert(0, evt);
         while (Events.Count > MaxEvents)
         {
