@@ -561,9 +561,10 @@ remaining contract gaps, and opt-in runtime smoke prerequisites, see
 
 Releases are cut by manually running the **Build & Release (MSIX)** workflow:
 
-1. Go to **Actions → Build & Release (MSIX) → Run workflow**.
-2. Enter a **version** (SemVer `X.Y.Z`, e.g. `1.2.0`). Leave it blank to auto-derive `0.1.<run-number>`. Optionally tick **pre-release**.
-3. The workflow stamps the version into the package manifest, builds a **self-contained** MSIX (x64), signs it with the repository's signing certificate, and publishes a GitHub Release tagged `v<version>` with the `.msix`, the `.cer`, and `Install.ps1` attached.
+1. Update [`CHANGELOG.md`](CHANGELOG.md) with the new version's user-facing changes and commit it **before** cutting the release — the generated release notes link to the changelog at that release's tag.
+2. Go to **Actions → Build & Release (MSIX) → Run workflow**.
+3. Enter a **version** (SemVer `X.Y.Z`, e.g. `1.2.0`). Leave it blank to auto-derive `0.1.<run-number>`. Optionally tick **pre-release**.
+4. The workflow stamps the version into the package manifest, builds a **self-contained** MSIX (x64), signs it with the repository's signing certificate, and publishes a GitHub Release tagged `v<version>` with the `.msix`, the `.cer`, and `Install.ps1` attached.
 
 **Versioning:** the version you supply becomes the MSIX identity version `X.Y.Z.0` and the app's displayed version (read at runtime from the package identity, so it always matches the installed build). Bump it each release — the workflow refuses to reuse an existing tag, and Windows only treats a package as an in-place update when the version increases. The manifest version committed in source is just a placeholder; the release version overrides it at build time.
 

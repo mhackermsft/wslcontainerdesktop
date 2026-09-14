@@ -180,6 +180,8 @@ jobs:
           @"
           ## WSL Container Desktop ${{ steps.ver.outputs.version }}
 
+          **[What's new in this version](https://github.com/${{ github.repository }}/blob/${{ steps.ver.outputs.tag }}/CHANGELOG.md)** — full changelog.
+
           ### Install (recommended: two commands, no script)
 
           Downloaded files are flagged "from the internet" (Mark of the Web), so Windows' default
