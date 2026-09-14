@@ -23,4 +23,16 @@ public interface IAssistantActionGate
     AssistantActionRisk Classify(AssistantPermissionCategory category);
 
     bool RequiresApproval(string toolName, AssistantPermissionCategory category);
+
+    /// <summary>
+    /// Decides approval including tools that demand an explicit consequence review regardless of
+    /// per-tool auto-approve. Implementations must keep this the single source of that policy.
+    /// </summary>
+    bool RequiresApproval(string toolName, AssistantPermissionCategory category, bool requiresExplicitApproval);
+
+    /// <summary>Whether this action destroys state the app cannot restore.</summary>
+    bool IsDestructive(string toolName, AssistantPermissionCategory category);
+
+    /// <summary>Whether the assistant is permitted to attempt this action at all.</summary>
+    bool IsPermitted(string toolName, AssistantPermissionCategory category);
 }

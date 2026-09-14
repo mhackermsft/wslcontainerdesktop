@@ -35,11 +35,22 @@ internal sealed class AiContractHarness
         [nameof(ISettingsService.AiOllamaEndpoint)] = "http://ollama.invalid:11434",
         [nameof(ISettingsService.AiOllamaModel)] = "synthetic-model",
         [nameof(ISettingsService.AiGitHubCopilotModel)] = "synthetic-model",
+        // These contract tests exercise removal flows, so they model a user who has granted the
+        // capability. That destructive actions are *not* granted on a fresh install is pinned
+        // separately by AssistantActionGateTests.
+        [nameof(ISettingsService.AiAssistantAllowDestructive)] = true,
+        [nameof(ISettingsService.AiAssistantApproveEverything)] = false,
     };
 
     public HashSet<string> AutoApproved { get; } = new(StringComparer.Ordinal);
     public List<ActivityEvent> Activity { get; } = [];
     public List<string> PersistedActivity { get; } = [];
+
+    /// <summary>
+    /// Makes activity recording throw. Recording runs immediately before the approval prompt is
+    /// raised, so a failure that escapes there would skip the prompt and fail the whole turn.
+    /// </summary>
+    public bool FailActivityRecording { get; set; }
     public ISettingsService Settings { get; }
     public ScriptedProvider Provider { get; } = new();
     public ScriptedTools Tools { get; } = new();
@@ -74,6 +85,13 @@ internal sealed class AiContractHarness
             }
 
             var item = (ActivityEvent)args[0]!;
+            if (FailActivityRecording)
+            {
+                // Stands in for the real failure mode: the bound collection rejecting an off-thread
+                // mutation, which surfaces as a message-free COMException.
+                throw new System.Runtime.InteropServices.COMException();
+            }
+
             Activity.Add(item);
             PersistedActivity.Add(JsonSerializer.Serialize(item));
             return null;

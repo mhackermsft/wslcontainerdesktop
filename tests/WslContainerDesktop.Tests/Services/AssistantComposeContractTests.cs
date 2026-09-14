@@ -85,7 +85,7 @@ public sealed class AssistantComposeContractTests
         foreach (var args in new[] { "{}", """{"projectName":7}""",
                      """{"projectName":"demo","confirmed":true}""", """{"projectName":"demo","services":["web"]}""",
                      """{"projectName":"demo","removeVolumes":true}""" })
-            await Assert.ThrowsAsync<InvalidOperationException>(() => tools.ResolveAsync(AiContractHarness.Call(name, args), default));
+            await Assert.ThrowsAnyAsync<InvalidOperationException>(() => tools.ResolveAsync(AiContractHarness.Call(name, args), default));
         var missing = await tools.ResolveAsync(AiContractHarness.Call(name, """{"projectName":"dem"}"""), default);
         Assert.NotNull(missing.BlockedResult);
         var resolved = await tools.ResolveAsync(AiContractHarness.Call(name, """{"projectName":"demo"}"""), default);
@@ -556,7 +556,7 @@ public sealed class AssistantComposeContractTests
             var args = name == "deploy_compose" ? new Dictionary<string, object> { ["yaml"] = BasicYaml }
                 : new Dictionary<string, object> { ["idOrName"] = "demo" };
             args["confirmed"] = true;
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
                 tools.ResolveAsync(AiContractHarness.Call(name, JsonSerializer.Serialize(args)), default));
         }
     }
@@ -604,6 +604,10 @@ public sealed class AssistantComposeContractTests
                 ? new List<ComposeProject> { f.SavedProject ?? f.Project }
                 : throw new InvalidOperationException("Assistant must not save before review")),
             f.Supervisor,
-            settings ?? NetworkTestProxy.Create<ISettingsService>((_, _) => new List<RegistryEntry>()),
+            settings ?? NetworkTestProxy.Create<ISettingsService>((method, _) => method.Name switch
+            {
+                "get_AiAssistantAllowDestructive" => true,
+                _ => new List<RegistryEntry>(),
+            }),
             NetworkTestProxy.Create<IRegistryCatalogService>((_, _) => throw new InvalidOperationException("Unexpected registry access")));
 }

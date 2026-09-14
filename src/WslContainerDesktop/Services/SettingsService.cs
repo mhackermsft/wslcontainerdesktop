@@ -64,6 +64,8 @@ public sealed class SettingsService : ISettingsService
     public bool AiAssistantAutoLifecycle { get; set; }
     public bool AiAssistantAutoComposeTemplate { get; set; }
     public bool AiAssistantAutoKubernetes { get; set; }
+    public bool AiAssistantApproveEverything { get; set; }
+    public bool AiAssistantAllowDestructive { get; set; }
     public string? WslDistro { get; set; }
     public bool WslUpdatePreRelease { get; set; }
     public string? DevContainerNpmRegistry { get; set; }
@@ -143,6 +145,8 @@ public sealed class SettingsService : ISettingsService
             AiAssistantAutoLifecycle = dto.AiAssistantAutoLifecycle;
             AiAssistantAutoComposeTemplate = dto.AiAssistantAutoComposeTemplate;
             AiAssistantAutoKubernetes = dto.AiAssistantAutoKubernetes;
+            AiAssistantApproveEverything = dto.AiAssistantApproveEverything;
+            AiAssistantAllowDestructive = dto.AiAssistantAllowDestructive;
             _autoApprovedTools = dto.AiAssistantAutoApprovedTools is { } approvedTools
                 ? new HashSet<string>(approvedTools.Where(t => !string.IsNullOrWhiteSpace(t)), StringComparer.Ordinal)
                 : MigrateLegacyToolApprovals(dto);
@@ -280,6 +284,8 @@ public sealed class SettingsService : ISettingsService
                 AiAssistantAutoLifecycle = AiAssistantAutoLifecycle,
                 AiAssistantAutoComposeTemplate = AiAssistantAutoComposeTemplate,
                 AiAssistantAutoKubernetes = AiAssistantAutoKubernetes,
+                AiAssistantApproveEverything = AiAssistantApproveEverything,
+                AiAssistantAllowDestructive = AiAssistantAllowDestructive,
                 AiAssistantAutoApprovedTools = _autoApprovedTools.ToList(),
                 WslDistro = WslDistro,
                 WslUpdatePreRelease = WslUpdatePreRelease,
@@ -399,6 +405,8 @@ public sealed class SettingsService : ISettingsService
         public bool AiAssistantAutoLifecycle { get; set; }
         public bool AiAssistantAutoComposeTemplate { get; set; }
         public bool AiAssistantAutoKubernetes { get; set; }
+        public bool AiAssistantApproveEverything { get; set; }
+        public bool AiAssistantAllowDestructive { get; set; }
         public List<string>? AiAssistantAutoApprovedTools { get; set; }
         public string? WslDistro { get; set; }
         public bool WslUpdatePreRelease { get; set; }

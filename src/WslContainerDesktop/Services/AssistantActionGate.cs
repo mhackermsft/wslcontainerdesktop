@@ -20,6 +20,14 @@ namespace WslContainerDesktop.Services;
 
 public sealed class AssistantActionGate(ISettingsService settings) : IAssistantActionGate
 {
+    /// <summary>
+    /// Tools that destroy state the app cannot bring back. <c>delete_resource</c> is included
+    /// explicitly: it is categorized as Kubernetes work, but deleting a cluster resource is as
+    /// unrecoverable as removing a volume.
+    /// </summary>
+    private static readonly HashSet<string> AlwaysDestructiveTools =
+        new(["delete_resource"], StringComparer.Ordinal);
+
     public AssistantActionRisk Classify(AssistantPermissionCategory category) => category switch
     {
         AssistantPermissionCategory.ReadOnly => AssistantActionRisk.ReadOnly,
@@ -27,15 +35,47 @@ public sealed class AssistantActionGate(ISettingsService settings) : IAssistantA
         _ => AssistantActionRisk.StateChanging,
     };
 
-    public bool RequiresApproval(string toolName, AssistantPermissionCategory category)
+    public bool IsDestructive(string toolName, AssistantPermissionCategory category) =>
+        category is AssistantPermissionCategory.Destructive or AssistantPermissionCategory.ContainerExec
+        || (!string.IsNullOrWhiteSpace(toolName) && AlwaysDestructiveTools.Contains(toolName));
+
+    /// <summary>
+    /// Whether the assistant may attempt this action at all. Destructive actions are a capability
+    /// the user grants in Settings, deliberately separate from approving one: an approval prompt is
+    /// answered in the flow of a conversation and is easy to accept by reflex, so it is the wrong
+    /// place to decide whether an agent may delete things in the first place.
+    /// </summary>
+    public bool IsPermitted(string toolName, AssistantPermissionCategory category) =>
+        !IsDestructive(toolName, category) || settings.AiAssistantAllowDestructive;
+
+    public bool RequiresApproval(string toolName, AssistantPermissionCategory category) =>
+        RequiresApproval(toolName, category, requiresExplicitApproval: false);
+
+    /// <summary>
+    /// Single place the approval policy is decided.
+    /// </summary>
+    /// <param name="requiresExplicitApproval">
+    /// Set by tools whose consequences cannot be summarized by a tool name alone — Compose
+    /// deployment, which applies model-authored multi-service YAML including ports, mounts and
+    /// volumes. These ignore per-tool auto-approve, because approving "deploy a Compose stack" once
+    /// is not informed consent for every future stack.
+    /// </param>
+    public bool RequiresApproval(string toolName, AssistantPermissionCategory category, bool requiresExplicitApproval)
     {
-        // Read-only tools never prompt. Every state-changing tool is gated by its own
-        // per-tool auto-approve setting (default: require approval).
+        // Read-only tools never prompt.
         if (category == AssistantPermissionCategory.ReadOnly)
         {
             return false;
         }
 
-        return !settings.IsAssistantToolAutoApproved(toolName);
+        // Opting out of approvals entirely is a single deliberate choice, so it also waives the
+        // reviews that per-tool toggles cannot. It waives the prompt only: blocked plans stay
+        // blocked, and every action is still recorded in the activity timeline.
+        if (settings.AiAssistantApproveEverything)
+        {
+            return false;
+        }
+
+        return requiresExplicitApproval || !settings.IsAssistantToolAutoApproved(toolName);
     }
 }

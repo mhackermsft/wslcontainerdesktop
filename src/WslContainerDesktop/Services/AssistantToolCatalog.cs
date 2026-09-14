@@ -17,7 +17,7 @@
 namespace WslContainerDesktop.Services;
 
 /// <summary>A single state-changing assistant tool as shown in the permission settings.</summary>
-public sealed record AssistantToolInfo(string Name, string DisplayName);
+public sealed record AssistantToolInfo(string Name, string DisplayName, bool IsDestructive = false);
 
 /// <summary>A named group of related assistant tools for the permission settings UI.</summary>
 public sealed record AssistantToolGroup(string Header, IReadOnlyList<AssistantToolInfo> Tools);
@@ -45,18 +45,18 @@ public static class AssistantToolCatalog
         ]),
         new("Containers — remove (destructive)",
         [
-            new("remove_container", "Remove a container"),
-            new("remove_all_containers", "Remove all / multiple containers"),
+            new("remove_container", "Remove a container", IsDestructive: true),
+            new("remove_all_containers", "Remove all / multiple containers", IsDestructive: true),
         ]),
         new("Volumes",
         [
             new("create_volume", "Create a volume"),
-            new("remove_volume", "Remove a volume (destructive)"),
+            new("remove_volume", "Remove a volume — deletes its data", IsDestructive: true),
         ]),
         new("Networks",
         [
             new("create_network", "Create a network"),
-            new("remove_network", "Remove a network (destructive)"),
+            new("remove_network", "Remove a network", IsDestructive: true),
         ]),
         new("Templates",
         [
@@ -67,7 +67,7 @@ public static class AssistantToolCatalog
             new("apply_yaml", "Apply a manifest"),
             new("scale_deployment", "Scale a deployment"),
             new("restart_deployment", "Restart a deployment"),
-            new("delete_resource", "Delete a resource (destructive)"),
+            new("delete_resource", "Delete a resource", IsDestructive: true),
             new("cluster_start", "Start the cluster"),
             new("cluster_stop", "Stop the cluster"),
         ]),

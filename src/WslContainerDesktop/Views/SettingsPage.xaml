@@ -692,6 +692,41 @@
                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                 Text="Read-only tools always run automatically. For every other tool, turn its switch on to let the assistant run it without asking. Anything left off will prompt you for approval each time."
                                 TextWrapping="Wrap" />
+                            <Border
+                                Padding="12"
+                                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6">
+                                <StackPanel Spacing="14">
+                                    <StackPanel Spacing="6">
+                                        <ToggleSwitch
+                                            AutomationProperties.AutomationId="AssistantAllowDestructiveToggle"
+                                            Header="Allow the assistant to delete things"
+                                            IsOn="{x:Bind ViewModel.AssistantAllowDestructive, Mode=TwoWay}"
+                                            OffContent="Off — it cannot delete"
+                                            OnContent="On" />
+                                        <TextBlock
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="Off by default. Until you turn this on, the assistant cannot remove containers, volumes or networks, or delete Kubernetes resources — it will say the action is turned off instead of asking. Removing a volume destroys the data in it."
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="6">
+                                        <ToggleSwitch
+                                            AutomationProperties.AutomationId="AssistantApproveEverythingToggle"
+                                            Header="Let the assistant act without asking"
+                                            IsOn="{x:Bind ViewModel.AssistantApproveEverything, Mode=TwoWay}"
+                                            OffContent="Ask me first (recommended)"
+                                            OnContent="Never ask" />
+                                        <TextBlock
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="Skips every prompt, including the Compose review that the switches below cannot turn off. It only waives asking — it does not grant deleting, and plans the app cannot apply safely are still refused. Everything still appears in Activity."
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                             <ItemsControl ItemsSource="{x:Bind ViewModel.AssistantToolPermissions, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:AssistantToolPermissionGroup">
@@ -704,6 +739,7 @@
                                                     <DataTemplate x:DataType="vm:AssistantToolPermission">
                                                         <ToggleSwitch
                                                             Header="{x:Bind DisplayName}"
+                                                            IsEnabled="{x:Bind IsEnabled, Mode=OneWay}"
                                                             IsOn="{x:Bind AutoApprove, Mode=TwoWay}"
                                                             OffContent="Require approval"
                                                             OnContent="Run automatically" />

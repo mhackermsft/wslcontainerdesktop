@@ -87,6 +87,22 @@ public interface ISettingsService
     /// <summary>Names of assistant tools the user has opted to run automatically (no approval prompt).</summary>
     System.Collections.Generic.IReadOnlyCollection<string> AiAssistantAutoApprovedTools { get; }
 
+    /// <summary>
+    /// Runs every assistant action without asking, including Compose deployment, which is otherwise
+    /// always reviewed. Off by default and deliberately all-or-nothing so enabling it is a conscious
+    /// choice rather than something that accumulates one toggle at a time. Blocked plans are still
+    /// blocked: this waives the prompt, never the validation.
+    /// </summary>
+    bool AiAssistantApproveEverything { get; set; }
+
+    /// <summary>
+    /// Whether the assistant may perform destructive actions at all — removing containers, volumes
+    /// and networks, or deleting Kubernetes resources. Off by default: these are not merely
+    /// state-changing but unrecoverable, so they require a deliberate visit to Settings rather than
+    /// a single in-conversation click that is easy to make by reflex.
+    /// </summary>
+    bool AiAssistantAllowDestructive { get; set; }
+
     /// <summary>Whether the given assistant tool runs automatically without an approval prompt.</summary>
     bool IsAssistantToolAutoApproved(string toolName);
 

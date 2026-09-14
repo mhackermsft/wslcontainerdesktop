@@ -35,6 +35,17 @@ public partial class AssistantToolPermission : ObservableObject
 
     public string DisplayName { get; }
 
+    /// <summary>True when this action destroys state the app cannot restore.</summary>
+    public bool IsDestructive { get; init; }
+
+    /// <summary>
+    /// False when this row cannot currently govern anything — either every action is auto-approved,
+    /// or this is a destructive action the assistant is not permitted to take at all. The stored
+    /// preference is preserved either way, so it returns as it was when the capability comes back.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isEnabled = true;
+
     [ObservableProperty]
     private bool _autoApprove;
 

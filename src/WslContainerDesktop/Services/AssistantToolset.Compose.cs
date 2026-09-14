@@ -124,7 +124,13 @@ public sealed partial class AssistantToolset
             return ComposeBlocked(call, details, ComposeResult(blocked, preview));
         }
 
-        return Resolved(call, AssistantPermissionCategory.ComposeTemplate,
+        // Down removes the project's containers, which is as unrecoverable as removing one directly.
+        // Category it accordingly so the destructive capability gate applies to it.
+        var category = review.Request.Operation == ComposeLifecycleOperation.Down
+            ? AssistantPermissionCategory.Destructive
+            : AssistantPermissionCategory.ComposeTemplate;
+
+        return Resolved(call, category,
             $"Review Compose project '{preview.Project}'", details, async token =>
             {
                 if (token.IsCancellationRequested)

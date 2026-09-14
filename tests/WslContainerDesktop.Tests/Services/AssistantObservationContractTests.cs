@@ -173,7 +173,7 @@ public sealed class AssistantObservationContractTests
     {
         var f = new Fixture();
         var tools = f.Tools();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => tools.ResolveAsync(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => tools.ResolveAsync(
             AiContractHarness.Call(name, """{"confirmed":true}"""), default));
         var resolved = await tools.ResolveAsync(AiContractHarness.Call(name, "{}"), default);
         Assert.Equal(AssistantPermissionCategory.ReadOnly, resolved.Category);
@@ -233,6 +233,8 @@ public sealed class AssistantObservationContractTests
                 null!, settings ?? NetworkTestProxy.Create<ISettingsService>((method, _) => method.Name switch
                 {
                     "get_WslcPath" => Engine, "get_Registries" => new List<RegistryEntry>(),
+                    // These cases assert which mutation tools are exposed, so grant the capability.
+                    "get_AiAssistantAllowDestructive" => true,
                     _ => throw new InvalidOperationException(method.Name),
                 }),
                 NetworkTestProxy.Create<IRegistryCatalogService>((_, _) => throw new InvalidOperationException("No registry access")),

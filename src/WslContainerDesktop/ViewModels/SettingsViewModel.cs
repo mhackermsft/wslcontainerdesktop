@@ -331,6 +331,123 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<AssistantToolPermissionGroup> AssistantToolPermissions { get; }
 
+    /// <summary>
+    /// Per-tool switches are meaningless while every action is auto-approved, so they grey out
+    /// rather than appearing to still govern anything.
+    /// </summary>
+    public bool AssistantPerToolPermissionsEnabled => !AssistantApproveEverything;
+
+    /// <summary>
+    /// Waives every assistant approval prompt. Turning it on asks once, because the setting
+    /// persists and its whole purpose is that nothing will ask again.
+    /// </summary>
+    public bool AssistantApproveEverything
+    {
+        get => _settings.AiAssistantApproveEverything;
+        set
+        {
+            if (_settings.AiAssistantApproveEverything == value)
+            {
+                return;
+            }
+
+            if (!value)
+            {
+                Apply(false);
+                return;
+            }
+
+            // Re-assert the current (off) state until the user confirms, so a stray tap cannot
+            // leave approvals disabled. The dialog is async; the setter is not.
+            OnPropertyChanged();
+            Helpers.UiSafe.Run(async () =>
+            {
+                var confirmed = await _dialogs.ShowConfirmAsync(
+                    "Let the assistant act without asking?",
+                    "The assistant will carry out every action immediately — including removing containers and "
+                        + "volumes, and deploying Compose stacks it wrote itself.\n\n"
+                        + "You will not be asked again until you turn this back off. Actions still appear in "
+                        + "Activity, and plans the app cannot apply safely are still refused.",
+                    "Don't ask me again",
+                    "Keep asking");
+                if (confirmed)
+                {
+                    Apply(true);
+                }
+            });
+
+            void Apply(bool enabled)
+            {
+                _settings.AiAssistantApproveEverything = enabled;
+                _settings.Save();
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(AssistantPerToolPermissionsEnabled));
+                RefreshAssistantToolPermissionState();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Grants the assistant the ability to destroy things at all. Separate from the auto-approve
+    /// switches below it, which only decide whether an action it is already allowed to take needs a
+    /// prompt. Turning it on asks once.
+    /// </summary>
+    public bool AssistantAllowDestructive
+    {
+        get => _settings.AiAssistantAllowDestructive;
+        set
+        {
+            if (_settings.AiAssistantAllowDestructive == value)
+            {
+                return;
+            }
+
+            if (!value)
+            {
+                Apply(false);
+                return;
+            }
+
+            OnPropertyChanged();
+            Helpers.UiSafe.Run(async () =>
+            {
+                var confirmed = await _dialogs.ShowConfirmAsync(
+                    "Allow the assistant to delete things?",
+                    "The assistant will be able to remove containers, volumes and networks, and delete Kubernetes "
+                        + "resources. Removing a volume destroys the data in it, and none of this can be undone by "
+                        + "the app.\n\n"
+                        + "It will still ask before each one unless you also auto-approve that action below.",
+                    "Allow deleting",
+                    "Keep it off");
+                if (confirmed)
+                {
+                    Apply(true);
+                }
+            });
+
+            void Apply(bool enabled)
+            {
+                _settings.AiAssistantAllowDestructive = enabled;
+                _settings.Save();
+                OnPropertyChanged();
+                RefreshAssistantToolPermissionState();
+            }
+        }
+    }
+
+    /// <summary>Keeps each row's enabled state in step with the two capability switches above it.</summary>
+    private void RefreshAssistantToolPermissionState()
+    {
+        foreach (var group in AssistantToolPermissions)
+        {
+            foreach (var tool in group.Tools)
+            {
+                tool.IsEnabled = !AssistantApproveEverything
+                    && (!tool.IsDestructive || AssistantAllowDestructive);
+            }
+        }
+    }
+
     private ObservableCollection<AssistantToolPermissionGroup> BuildAssistantToolPermissions()
     {
         var groups = new ObservableCollection<AssistantToolPermissionGroup>();
@@ -341,7 +458,12 @@ public partial class SettingsViewModel : ObservableObject
                     tool.Name,
                     tool.DisplayName,
                     _settings.IsAssistantToolAutoApproved(tool.Name),
-                    (name, autoApprove) => _settings.SetAssistantToolAutoApproved(name, autoApprove)))
+                    (name, autoApprove) => _settings.SetAssistantToolAutoApproved(name, autoApprove))
+                {
+                    IsDestructive = tool.IsDestructive,
+                    IsEnabled = !_settings.AiAssistantApproveEverything
+                        && (!tool.IsDestructive || _settings.AiAssistantAllowDestructive),
+                })
                 .ToList();
             groups.Add(new AssistantToolPermissionGroup { Header = group.Header, Tools = tools });
         }
