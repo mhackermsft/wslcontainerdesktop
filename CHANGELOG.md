@@ -117,6 +117,15 @@ more faithful to the spec, and the **Templates** gallery gains a set of Azure em
 
 ### Fixed
 
+- **The dashboard's live performance table never reported anything.** Total CPU sat at 0% and the
+  table read "No running containers" regardless of what was running: the stats poll was cross-checked
+  against the container inventory by exact ID, but `wslc stats` reports the full 64-character ID
+  while `wslc list` reports the 12-character short form, so every row was discarded.
+- **Icon-only buttons now have accessible names.** Seventy-four buttons across eleven views carried
+  only a tooltip, which a screen reader does not announce, so Stop, Restart, Remove and Kill were all
+  read as an unnamed "button".
+- **Container creation times are shown as dates**, not the raw Unix seconds the engine reports, in
+  the assistant's approval prompt and the activity timeline.
 - **The assistant crashed once you had opened the Activity page.** Recording an action wrote to a
   collection bound to that page from a background thread, which surfaced as an unexplained
   `COMException` that killed the turn — and because the write happened immediately before the
