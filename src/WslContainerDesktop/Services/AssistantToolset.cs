@@ -752,7 +752,29 @@ public sealed partial class AssistantToolset(
     private static string BulkTargetDetails(IReadOnlyList<ContainerTarget> targets) =>
         targets.Count == 0
             ? "No matching containers."
-            : "Targets:\n" + string.Join(Environment.NewLine, targets.Select(t => $"{t.Name} (ID: {t.Id}, image: {t.Image}, created: {(t.CreatedAtKnown ? t.CreatedAt.ToString(System.Globalization.CultureInfo.InvariantCulture) : "unknown")})"));
+            : "Targets:\n" + string.Join(Environment.NewLine, targets.Select(t =>
+                $"{t.Name} (ID: {t.Id}, image: {t.Image}, created: {DescribeCreated(t)})"));
+
+    /// <summary>
+    /// The creation time for display. The engine reports Unix seconds, and this text is read by a
+    /// person — in the approval prompt and afterwards in the activity timeline — so a raw epoch
+    /// tells them nothing about the container they are being asked to approve an action on.
+    /// Never throws: this only describes an action, and must not be able to fail one.
+    /// </summary>
+    private static string DescribeCreated(ContainerTarget target)
+    {
+        if (!target.CreatedAtKnown)
+            return "unknown";
+        try
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(target.CreatedAt).ToLocalTime()
+                .ToString("g", System.Globalization.CultureInfo.CurrentCulture);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return "unknown";
+        }
+    }
 
     private static AssistantResolvedToolCall Resolved(
         AiToolCall call,
