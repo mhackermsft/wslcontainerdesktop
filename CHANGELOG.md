@@ -131,6 +131,12 @@ more faithful to the spec, and the **Templates** gallery gains a set of Azure em
 - **The status dot now explains itself on hover**, naming the first unmet condition — endpoint
   unreachable, runtime not running, model missing, still loading, or a model that cannot call tools
   — instead of leaving you to guess which of those it meant.
+- **The Compose review no longer masks the names it exists to show.** Secret masking worked by value
+  match, so an environment value that equalled a project, service, network, or volume name blanked
+  that name throughout the dialog — routine for a WordPress file that sets `MYSQL_DATABASE=wordpress`
+  in a `wordpress` project. Because the summary counted distinct service names, two masked services
+  also collapsed into one, so a two-service project announced "1 service" on the screen you approve
+  from. Those identifiers are no longer masked; every other value still is.
 - **Running out of tool iterations is no longer reported as "Configuration needed".** The limit is a
   safety stop working as designed, usually because the model kept retrying a call that failed the
   same way; nothing is misconfigured, and the message now says so and points at the recorded
