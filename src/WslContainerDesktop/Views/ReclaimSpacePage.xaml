@@ -106,6 +106,12 @@
                                 <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ViewModel.DanglingImageCount, Mode=OneWay}" />
                                 <Run Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="dangling" />
                             </TextBlock>
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{x:Bind ViewModel.RetainedDanglingNote, Mode=OneWay}"
+                                TextWrapping="Wrap"
+                                Visibility="{x:Bind ViewModel.HasRetainedDanglingImages, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                             <Button
                                 HorizontalAlignment="Stretch"
                                 Command="{x:Bind ViewModel.PruneImagesCommand}"
@@ -230,13 +236,19 @@
                                             <ColumnDefinition Width="*" MinWidth="160" />
                                             <ColumnDefinition Width="100" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock
-                                            Grid.Column="0"
-                                            VerticalAlignment="Center"
-                                            FontFamily="Consolas"
-                                            FontSize="13"
-                                            Text="{x:Bind ShortId}"
-                                            TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <TextBlock
+                                                FontFamily="Consolas"
+                                                FontSize="13"
+                                                Text="{x:Bind ShortId}"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                FontSize="12"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{x:Bind UsedByCaption, Mode=OneWay}"
+                                                TextTrimming="CharacterEllipsis"
+                                                Visibility="{x:Bind IsInUse, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                                        </StackPanel>
                                         <TextBlock
                                             Grid.Column="1"
                                             HorizontalAlignment="Right"

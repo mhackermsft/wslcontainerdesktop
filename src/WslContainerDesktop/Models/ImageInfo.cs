@@ -63,6 +63,24 @@ public sealed partial class ImageInfo : ObservableObject
     [JsonConverter(typeof(WslcByteSizeJsonConverter))]
     public long Size { get; set; }
 
+    /// <summary>
+    /// Containers currently holding this image, as a display string; empty when nothing uses it.
+    /// Set by the disk-usage refresh. An image a container references cannot be pruned, so a
+    /// dangling image that is in use is not reclaimable space no matter how large it is.
+    /// </summary>
+    [JsonIgnore]
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsInUse))]
+    [NotifyPropertyChangedFor(nameof(UsedByCaption))]
+    private string _usedBy = string.Empty;
+
+    [JsonIgnore]
+    public bool IsInUse => !string.IsNullOrEmpty(UsedBy);
+
+    /// <summary>Why this image is still here, for a row that would otherwise only say "&lt;none&gt;".</summary>
+    [JsonIgnore]
+    public string UsedByCaption => IsInUse ? $"In use by {UsedBy}" : string.Empty;
+
     /// <summary>Live result of the upstream update check for this image's tag (not persisted).</summary>
     [JsonIgnore]
     [ObservableProperty]

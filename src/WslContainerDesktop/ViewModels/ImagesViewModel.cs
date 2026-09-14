@@ -84,6 +84,20 @@ public partial class ImagesViewModel : ObservableObject
         try
         {
             var images = await _wslc.ListImagesAsync();
+
+            // Which container holds each image. A dangling row otherwise reads "<none> <none>",
+            // which says an image is untagged but not why it is still on disk or why removing it
+            // fails — and the answer is almost always a container still referencing it.
+            try
+            {
+                ImageUsageResolver.Apply(images, await _wslc.ListContainersAsync(all: true));
+            }
+            catch (Exception)
+            {
+                // Deliberately silent: usage is an annotation on the listing, not the listing
+                // itself, and the rows are still correct and actionable without it.
+            }
+
             Images.Clear();
             foreach (var image in images.OrderBy(i => i.Repository).ThenBy(i => i.Tag))
             {

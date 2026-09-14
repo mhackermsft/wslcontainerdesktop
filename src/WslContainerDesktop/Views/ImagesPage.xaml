@@ -214,13 +214,20 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock
-                                        Grid.Column="0"
-                                        Margin="0,0,8,0"
-                                        VerticalAlignment="Center"
-                                        FontWeight="SemiBold"
-                                        Text="{x:Bind Repository}"
-                                        TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Grid.Column="0" Margin="0,0,8,0" VerticalAlignment="Center">
+                                        <TextBlock
+                                            FontWeight="SemiBold"
+                                            Text="{x:Bind Repository}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <!--  An untagged image reads "<none>", which says nothing about why it is still here.  -->
+                                        <TextBlock
+                                            FontSize="12"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind UsedByCaption, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{x:Bind UsedByCaption, Mode=OneWay}"
+                                            Visibility="{x:Bind IsInUse, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                                    </StackPanel>
                                     <Border
                                         Grid.Column="1"
                                         Padding="7,1"

@@ -12,7 +12,18 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Disk usage offered space it could not free.** Every untagged image counted as reclaimable, but
+  an image a container still holds cannot be pruned — and pulling a newer tag leaves the previous
+  image untagged, so an image is routinely dangling *and* in use at the same time. "Remove dangling
+  images" then freed nothing and the row stayed put, which looks exactly like a page refusing to
+  refresh. Those images are still listed, but no longer counted as reclaimable, and the card says how
+  many are being held back.
+- **Images now say which container is using them.** A dangling row read `<none>` in both the
+  repository and tag columns, which says an image is untagged but not why it is still on disk or why
+  removing it fails. Rows in the Images list and the disk-usage dangling list now show "In use by
+  &lt;container&gt;".
 
 ## [1.8.0] — 2026-09-14
 

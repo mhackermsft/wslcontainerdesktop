@@ -54,6 +54,22 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     [ObservableProperty]
     private int _danglingImageCount;
 
+    /// <summary>
+    /// Dangling images a container still holds. They are listed, because they are real untagged
+    /// images taking real space, but they are not counted as reclaimable: nothing can remove them
+    /// until whatever is using them goes.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRetainedDanglingImages))]
+    [NotifyPropertyChangedFor(nameof(RetainedDanglingNote))]
+    private int _retainedDanglingImageCount;
+
+    public bool HasRetainedDanglingImages => RetainedDanglingImageCount > 0;
+
+    public string RetainedDanglingNote => RetainedDanglingImageCount == 1
+        ? "1 dangling image is still used by a container and cannot be removed yet."
+        : $"{RetainedDanglingImageCount} dangling images are still used by containers and cannot be removed yet.";
+
     [ObservableProperty]
     private string _imagesTotalSize = "0 B";
 
@@ -135,12 +151,20 @@ public partial class ReclaimSpaceViewModel : ObservableObject
 
             // Images. Sizes are per-image and may share layers, so the totals are an upper
             // bound (matching how `df`-style views typically present them).
+            //
+            // An image a container still references cannot be pruned, and a pull that moves a tag
+            // leaves the previous image untagged, so an image can be dangling *and* in use at once.
+            // Counting those as reclaimable promised space that no prune could free: the prune
+            // reported nothing reclaimed and the row stayed, which reads as a broken refresh.
+            ImageUsageResolver.Apply(images, containers);
             var dangling = images.Where(IsDangling).ToList();
+            var reclaimable = dangling.Where(i => !i.IsInUse).ToList();
             _imagesTotalBytes = images.Sum(i => i.Size);
-            _imagesReclaimableBytes = dangling.Sum(i => i.Size);
+            _imagesReclaimableBytes = reclaimable.Sum(i => i.Size);
 
             ImageCount = images.Count;
-            DanglingImageCount = dangling.Count;
+            DanglingImageCount = reclaimable.Count;
+            RetainedDanglingImageCount = dangling.Count - reclaimable.Count;
             ImagesTotalSize = FormatHelpers.HumanSize(_imagesTotalBytes);
             ImagesReclaimableSize = FormatHelpers.HumanSize(_imagesReclaimableBytes);
 
