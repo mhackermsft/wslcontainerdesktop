@@ -18,24 +18,23 @@ more faithful to the spec, and the **Templates** gallery gains a set of Azure em
 
 ### Added
 
-- **Deployments no longer disturb what is already running.** Launching a template, asking the
-  assistant to run a container, and repeat Compose launches all take a free container name
-  (`sqlserver-2`), free host ports, and their own named volumes instead of colliding. A repeat
-  Compose launch becomes its own project, with its own network and any pinned `container_name` moved
-  too. Previously a name clash was either an error the assistant resolved by stopping and removing
-  the container in its way, or a prompt to "Replace" the running deployment.
-- **A template can be deployed more than once from the gallery.** Launch stays available after the
-  first deployment and confirms what the repeat will run before starting it. The card counts the
-  deployments, and Remove asks which one — leaving the others running.
+- **Deployments no longer disturb what is already running.** Launching a template, and asking the
+  assistant to run a container or deploy a container template, take a free container name
+  (`sqlserver-2`), free host ports, and their own named volumes instead of colliding. A repeat launch
+  of a Compose template becomes its own project, with its own network and any pinned
+  `container_name` moved too. Previously a name clash was either an error the assistant resolved by
+  stopping and removing the container in its way, or a prompt to "Replace" the running deployment.
+  (Importing a Compose file by hand still asks you to name the project, and assistant-deployed
+  Compose stacks show what they will create or reuse in the compatibility review.)
+- **A template can be deployed more than once.** Launch stays available after the first deployment
+  and confirms what the repeat will run before starting it. The card counts the deployments, and
+  Remove asks which one — leaving the others running. Deleting a deployment's data volumes reads the
+  mounts of the container actually being removed, so a repeat cannot destroy the first one's data.
 - **Assistant permissions are now a capability, not just a prompt.** *Allow the assistant to delete
   things* is off by default: until it is on, removing containers, volumes, networks, Kubernetes
   resources, or bringing a Compose project down is refused outright, and those tools are not even
   offered to the model. A separate *act without asking* switch waives approval prompts without
   granting deletion.
-- **Multiple deployments of one template are managed individually.** The gallery counts them and
-  Remove asks which one, leaving the others running. Deleting its data volumes reads the mounts of
-  the container being removed, so a repeat deployment cannot destroy the first one's data.
-
 - **Compose compatibility review before deployment.** Generated and template Compose stacks now show
   exactly what will be created, reused, approximated, or blocked — active instances, ports, mounts,
   networks, limits, and who owns health and restart behavior — before anything runs. Blockers can't
@@ -91,7 +90,6 @@ more faithful to the spec, and the **Templates** gallery gains a set of Azure em
 - **Invalid tool calls explain themselves.** A rejected call now names the fields the tool actually
   accepts, so the assistant can correct itself instead of retrying the same shape, and it is
   reported as an assistant mistake rather than a configuration problem you need to fix.
-
 - **Compose parsing is far closer to the spec** — interpolation operators, YAML anchors, aliases and
   merge keys, block scalars, sibling override merging with `!reset` / `!override`, and strict local
   `include:` / `extends:` graphs. Invalid configuration now fails the import instead of producing a
