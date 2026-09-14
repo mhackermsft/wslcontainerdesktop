@@ -55,6 +55,7 @@
                         </StackPanel>
                     </Button>
                     <Button
+                        AutomationProperties.Name="Import from docker run"
                         Command="{x:Bind ViewModel.ImportDockerRunCommand}"
                         ToolTipService.ToolTip="Prefill the Run dialog from a pasted docker run command">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -74,7 +75,7 @@
                             <TextBlock Text="Prune stopped" />
                         </StackPanel>
                     </Button>
-                    <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" ToolTipService.ToolTip="Select multiple containers">
+                    <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" AutomationProperties.Name="Select multiple containers" ToolTipService.ToolTip="Select multiple containers">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon FontSize="14" Glyph="&#xE762;" />
                             <TextBlock Text="Select" />
@@ -367,6 +368,7 @@
                                         Width="34"
                                         Height="34"
                                         Padding="0"
+                                        AutomationProperties.Name="Start"
                                         Background="Transparent"
                                         BorderThickness="0"
                                         Click="StartButton_Click"
@@ -378,6 +380,7 @@
                                         Width="34"
                                         Height="34"
                                         Padding="0"
+                                        AutomationProperties.Name="Stop"
                                         Background="Transparent"
                                         BorderThickness="0"
                                         Click="StopButton_Click"
@@ -389,6 +392,7 @@
                                         Width="34"
                                         Height="34"
                                         Padding="0"
+                                        AutomationProperties.Name="Restart"
                                         Background="Transparent"
                                         BorderThickness="0"
                                         Click="RestartButton_Click"
@@ -412,6 +416,7 @@
                                         Width="34"
                                         Height="34"
                                         Padding="0"
+                                        AutomationProperties.Name="More actions"
                                         Background="Transparent"
                                         BorderThickness="0"
                                         ToolTipService.ToolTip="More">
@@ -539,6 +544,7 @@
                                             Width="34"
                                             Height="34"
                                             Padding="0"
+                                            AutomationProperties.Name="Start"
                                             Background="Transparent"
                                             BorderThickness="0"
                                             Click="StartButton_Click"
@@ -550,6 +556,7 @@
                                             Width="34"
                                             Height="34"
                                             Padding="0"
+                                            AutomationProperties.Name="Stop"
                                             Background="Transparent"
                                             BorderThickness="0"
                                             Click="StopButton_Click"
@@ -561,6 +568,7 @@
                                             Width="34"
                                             Height="34"
                                             Padding="0"
+                                            AutomationProperties.Name="Restart"
                                             Background="Transparent"
                                             BorderThickness="0"
                                             Click="RestartButton_Click"
@@ -584,6 +592,7 @@
                                             Width="34"
                                             Height="34"
                                             Padding="0"
+                                            AutomationProperties.Name="More actions"
                                             Background="Transparent"
                                             BorderThickness="0"
                                             ToolTipService.ToolTip="More">

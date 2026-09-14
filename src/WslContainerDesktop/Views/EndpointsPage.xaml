@@ -181,6 +181,7 @@
                                             Grid.Column="3"
                                             Margin="-4,0,0,0"
                                             VerticalAlignment="Center"
+                                            AutomationProperties.Name="Open in browser"
                                             Click="Open_Click"
                                             Content="{x:Bind HostAddress}"
                                             IsEnabled="{x:Bind IsHttp}"
@@ -194,6 +195,7 @@
                                             Spacing="4">
                                             <Button
                                                 Padding="7,5"
+                                                AutomationProperties.Name="Open in browser"
                                                 Click="Open_Click"
                                                 IsEnabled="{x:Bind IsHttp}"
                                                 ToolTipService.ToolTip="Open in browser">
@@ -201,6 +203,7 @@
                                             </Button>
                                             <Button
                                                 Padding="7,5"
+                                                AutomationProperties.Name="Copy address"
                                                 Click="Copy_Click"
                                                 ToolTipService.ToolTip="Copy address">
                                                 <FontIcon FontSize="14" Glyph="&#xE8C8;" />
@@ -230,14 +233,14 @@
                                             <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="CONTAINER" />
                                             <TextBlock Grid.Row="1" Grid.Column="1" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind PortDisplay}" />
                                             <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="ADDRESS" />
-                                            <HyperlinkButton Grid.Row="2" Grid.Column="1" Margin="-4,0,0,0" Click="Open_Click" Content="{x:Bind HostAddress}" IsEnabled="{x:Bind IsHttp}" ToolTipService.ToolTip="Open in browser" />
+                                            <HyperlinkButton Grid.Row="2" Grid.Column="1" Margin="-4,0,0,0" Click="Open_Click" Content="{x:Bind HostAddress}" IsEnabled="{x:Bind IsHttp}" AutomationProperties.Name="Open in browser" ToolTipService.ToolTip="Open in browser" />
                                         </Grid>
 
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <Button Padding="7,5" Click="Open_Click" IsEnabled="{x:Bind IsHttp}" ToolTipService.ToolTip="Open in browser">
+                                            <Button Padding="7,5" Click="Open_Click" IsEnabled="{x:Bind IsHttp}" AutomationProperties.Name="Open in browser" ToolTipService.ToolTip="Open in browser">
                                                 <FontIcon FontSize="14" Glyph="&#xE774;" />
                                             </Button>
-                                            <Button Padding="7,5" Click="Copy_Click" ToolTipService.ToolTip="Copy address">
+                                            <Button Padding="7,5" Click="Copy_Click" AutomationProperties.Name="Copy address" ToolTipService.ToolTip="Copy address">
                                                 <FontIcon FontSize="14" Glyph="&#xE8C8;" />
                                             </Button>
                                         </StackPanel>

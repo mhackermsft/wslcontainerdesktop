@@ -56,7 +56,7 @@
                     <TextBlock Text="Refresh" />
                 </StackPanel>
             </Button>
-            <Button Command="{x:Bind ViewModel.CheckUpdatesCommand}" ToolTipService.ToolTip="Compare local images against their registry for newer versions">
+            <Button Command="{x:Bind ViewModel.CheckUpdatesCommand}" AutomationProperties.Name="Check for image updates" ToolTipService.ToolTip="Compare local images against their registry for newer versions">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE895;" />
                     <TextBlock Text="Check for updates" />
@@ -68,7 +68,7 @@
                     <TextBlock Text="Prune" />
                 </StackPanel>
             </Button>
-            <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" ToolTipService.ToolTip="Select multiple images">
+            <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" AutomationProperties.Name="Select multiple images" ToolTipService.ToolTip="Select multiple images">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE762;" />
                     <TextBlock Text="Select" />
@@ -276,11 +276,12 @@
                                     Spacing="4">
                                     <Button
                                         Padding="7,5"
+                                        AutomationProperties.Name="Run"
                                         Click="RunButton_Click"
                                         ToolTipService.ToolTip="Run">
                                         <FontIcon FontSize="14" Glyph="&#xE768;" />
                                     </Button>
-                                    <Button Padding="7,5" ToolTipService.ToolTip="More">
+                                    <Button Padding="7,5" AutomationProperties.Name="More actions" ToolTipService.ToolTip="More">
                                         <FontIcon FontSize="14" Glyph="&#xE712;" />
                                         <Button.Flyout>
                                             <MenuFlyout Opening="MoreFlyout_Opening">
@@ -343,10 +344,10 @@
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Button Padding="7,5" Click="RunButton_Click" ToolTipService.ToolTip="Run">
+                                        <Button Padding="7,5" Click="RunButton_Click" AutomationProperties.Name="Run" ToolTipService.ToolTip="Run">
                                             <FontIcon FontSize="14" Glyph="&#xE768;" />
                                         </Button>
-                                        <Button Padding="7,5" ToolTipService.ToolTip="More">
+                                        <Button Padding="7,5" AutomationProperties.Name="More actions" ToolTipService.ToolTip="More">
                                             <FontIcon FontSize="14" Glyph="&#xE712;" />
                                             <Button.Flyout>
                                                 <MenuFlyout Opening="MoreFlyout_Opening">

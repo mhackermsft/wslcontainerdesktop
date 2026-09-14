@@ -78,6 +78,7 @@
                 Orientation="Horizontal"
                 Spacing="6">
                 <Button
+                    AutomationProperties.Name="Scale"
                     Command="{x:Bind ViewModel.ScaleCommand}"
                     ToolTipService.ToolTip="Scale"
                     Visibility="{x:Bind ViewModel.SupportsScale, Converter={StaticResource BoolToVis}}">
@@ -94,6 +95,7 @@
                     <FontIcon FontSize="14" Glyph="&#xE72C;" />
                 </Button>
                 <Button
+                    AutomationProperties.Name="Run now"
                     Command="{x:Bind ViewModel.TriggerCronCommand}"
                     ToolTipService.ToolTip="Run now"
                     Visibility="{x:Bind ViewModel.SupportsCron, Converter={StaticResource BoolToVis}}">

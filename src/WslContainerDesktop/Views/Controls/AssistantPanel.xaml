@@ -284,6 +284,7 @@
                 AutomationProperties.AutomationId="AssistantCancelButton"
                 Grid.Row="2"
                 Grid.Column="2"
+                AutomationProperties.Name="Cancel the assistant turn"
                 Command="{x:Bind ViewModel.CancelCommand}"
                 Content="Cancel"
                 ToolTipService.ToolTip="Request cancellation. Completed actions are not rolled back." />

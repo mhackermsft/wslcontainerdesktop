@@ -29,6 +29,7 @@
             <Button
                 Grid.Row="0"
                 Grid.Column="0"
+                AutomationProperties.Name="View nodes"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Nodes"
@@ -54,6 +55,7 @@
             <Button
                 Grid.Row="0"
                 Grid.Column="1"
+                AutomationProperties.Name="View deployments"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Deployments"
@@ -79,6 +81,7 @@
             <Button
                 Grid.Row="0"
                 Grid.Column="2"
+                AutomationProperties.Name="View pods"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Pods"
@@ -95,6 +98,7 @@
             <Button
                 Grid.Row="0"
                 Grid.Column="3"
+                AutomationProperties.Name="View services"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Services"
@@ -111,6 +115,7 @@
             <Button
                 Grid.Row="1"
                 Grid.Column="0"
+                AutomationProperties.Name="View ingresses"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Ingresses"
@@ -123,6 +128,7 @@
             <Button
                 Grid.Row="1"
                 Grid.Column="1"
+                AutomationProperties.Name="View persistent volume claims"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Persistent Volume Claims"
@@ -135,6 +141,7 @@
             <Button
                 Grid.Row="1"
                 Grid.Column="2"
+                AutomationProperties.Name="View config maps"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="ConfigMaps"
@@ -147,6 +154,7 @@
             <Button
                 Grid.Row="1"
                 Grid.Column="3"
+                AutomationProperties.Name="View secrets"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Secrets"
@@ -160,6 +168,7 @@
             <Button
                 Grid.Row="2"
                 Grid.Column="0"
+                AutomationProperties.Name="View jobs"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Jobs"
@@ -172,6 +181,7 @@
             <Button
                 Grid.Row="2"
                 Grid.Column="1"
+                AutomationProperties.Name="View cronjobs"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="CronJobs"
@@ -184,6 +194,7 @@
             <Button
                 Grid.Row="2"
                 Grid.Column="2"
+                AutomationProperties.Name="View port forwarding"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Port Forwarding"

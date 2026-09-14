@@ -49,6 +49,7 @@
             </Button>
             <Button
                 AutomationProperties.AutomationId="ComposeRestartSession"
+                AutomationProperties.Name="Restart WSL session"
                 Command="{x:Bind ViewModel.RestartSessionCommand}"
                 ToolTipService.ToolTip="Release wslc's leaked bind-mount slots (needed when config/secret mounts start failing). Stops all running containers.">
                 <StackPanel Orientation="Horizontal" Spacing="8">

@@ -41,6 +41,7 @@
                 Height="40"
                 Padding="0"
                 VerticalAlignment="Center"
+                AutomationProperties.Name="Back to containers"
                 Click="Back_Click"
                 ToolTipService.ToolTip="Back to containers">
                 <FontIcon FontSize="15" Glyph="&#xE72B;" />
@@ -111,6 +112,7 @@
                 Orientation="Horizontal"
                 Spacing="6">
                 <Button
+                    AutomationProperties.Name="Start"
                     Command="{x:Bind ViewModel.StartCommand}"
                     CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
                     Style="{ThemeResource AccentButtonStyle}"
@@ -119,6 +121,7 @@
                     <FontIcon FontSize="14" Glyph="&#xE768;" />
                 </Button>
                 <Button
+                    AutomationProperties.Name="Stop"
                     Command="{x:Bind ViewModel.StopCommand}"
                     CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
                     ToolTipService.ToolTip="Stop"
@@ -126,6 +129,7 @@
                     <FontIcon FontSize="14" Glyph="&#xE71A;" />
                 </Button>
                 <Button
+                    AutomationProperties.Name="Restart"
                     Command="{x:Bind ViewModel.RestartCommand}"
                     CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
                     ToolTipService.ToolTip="Restart"
@@ -133,6 +137,7 @@
                     <FontIcon FontSize="14" Glyph="&#xE72C;" />
                 </Button>
                 <Button
+                    AutomationProperties.Name="Kill (force stop)"
                     Command="{x:Bind ViewModel.KillCommand}"
                     CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
                     ToolTipService.ToolTip="Kill (force stop)"
@@ -140,6 +145,7 @@
                     <FontIcon FontSize="14" Glyph="&#xE8BB;" />
                 </Button>
                 <Button
+                    AutomationProperties.Name="Open terminal"
                     Command="{x:Bind ViewModel.TerminalCommand}"
                     CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
                     ToolTipService.ToolTip="Open terminal"
@@ -147,12 +153,14 @@
                     <FontIcon FontSize="14" Glyph="&#xE756;" />
                 </Button>
                 <Button
+                    AutomationProperties.Name="Open published port in browser"
                     Command="{x:Bind ViewModel.OpenPortCommand}"
                     CommandParameter="{x:Bind ViewModel.Selected, Mode=OneWay}"
                     ToolTipService.ToolTip="Open published port in browser">
                     <FontIcon FontSize="14" Glyph="&#xE774;" />
                 </Button>
                 <Button
+                    AutomationProperties.Name="Build a redacted AI diagnosis preview"
                     Command="{x:Bind ViewModel.PrepareAiDiagnosisCommand}"
                     Visibility="{x:Bind local:ContainerDetailPage.BoolToVisibility(ViewModel.IsAiAvailable), Mode=OneWay}"
                     ToolTipService.ToolTip="Build a redacted AI diagnosis preview">
@@ -161,7 +169,7 @@
                         <TextBlock Text="Diagnose" />
                     </StackPanel>
                 </Button>
-                <Button ToolTipService.ToolTip="Remove" Click="Remove_Click">
+                <Button AutomationProperties.Name="Remove" ToolTipService.ToolTip="Remove" Click="Remove_Click">
                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
                 </Button>
             </StackPanel>
@@ -431,6 +439,7 @@
                         <Button
                             x:Name="PrevMatchButton"
                             Padding="7,5"
+                            AutomationProperties.Name="Previous match"
                             Click="PrevMatch_Click"
                             IsEnabled="False"
                             ToolTipService.ToolTip="Previous match">
@@ -439,6 +448,7 @@
                         <Button
                             x:Name="NextMatchButton"
                             Padding="7,5"
+                            AutomationProperties.Name="Next match"
                             Click="NextMatch_Click"
                             IsEnabled="False"
                             ToolTipService.ToolTip="Next match">
@@ -447,12 +457,14 @@
                         <ToggleButton
                             x:Name="CaseToggle"
                             Padding="9,5"
+                            AutomationProperties.Name="Match case"
                             Click="SearchOption_Click"
                             Content="Aa"
                             ToolTipService.ToolTip="Match case" />
                         <ToggleButton
                             x:Name="FilterToggle"
                             Padding="8,5"
+                            AutomationProperties.Name="Show only lines that match the search"
                             Click="SearchOption_Click"
                             ToolTipService.ToolTip="Show only lines that match the search">
                             <FontIcon FontSize="14" Glyph="&#xE71C;" />
@@ -466,6 +478,7 @@
                         <ToggleButton
                             x:Name="HighlightErrorsToggle"
                             Padding="8,5"
+                            AutomationProperties.Name="Highlight error and warning lines"
                             Click="HighlightErrors_Click"
                             ToolTipService.ToolTip="Highlight error and warning lines">
                             <FontIcon FontSize="14" Glyph="&#xE7BA;" />
@@ -473,12 +486,14 @@
                         <ToggleButton
                             x:Name="WrapToggle"
                             Padding="8,5"
+                            AutomationProperties.Name="Wrap long lines"
                             Click="WrapToggle_Click"
                             ToolTipService.ToolTip="Wrap long lines">
                             <FontIcon FontSize="14" Glyph="&#xE751;" />
                         </ToggleButton>
                         <AppBarSeparator Margin="0" Padding="0" />
                         <Button
+                            AutomationProperties.Name="Save the visible log to a text file"
                             Click="ExportLogs_Click"
                             ToolTipService.ToolTip="Save the visible log to a text file">
                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -487,6 +502,7 @@
                             </StackPanel>
                         </Button>
                         <Button
+                            AutomationProperties.Name="Clear the log view"
                             Click="ClearLogs_Click"
                             ToolTipService.ToolTip="Clear the log view">
                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -823,6 +839,7 @@
                         Grid.Column="0"
                         Height="32"
                         Padding="10,0"
+                        AutomationProperties.Name="Navigate up"
                         Click="FilesUp_Click"
                         IsEnabled="{x:Bind ViewModel.CanNavigateUp, Mode=OneWay}"
                         ToolTipService.ToolTip="Navigate up">
@@ -832,6 +849,7 @@
                         Grid.Column="1"
                         Height="32"
                         Padding="10,0"
+                        AutomationProperties.Name="Refresh"
                         Click="FilesRefresh_Click"
                         ToolTipService.ToolTip="Refresh">
                         <FontIcon FontSize="13" Glyph="&#xE72C;" />
@@ -856,6 +874,7 @@
                         Grid.Column="3"
                         Height="32"
                         Padding="10,0"
+                        AutomationProperties.Name="New folder"
                         Click="FilesNewFolder_Click"
                         ToolTipService.ToolTip="New folder">
                         <StackPanel Orientation="Horizontal" Spacing="4">
@@ -870,6 +889,7 @@
                         Grid.Column="4"
                         Height="32"
                         Padding="10,0"
+                        AutomationProperties.Name="Upload files from host to current directory"
                         Click="CopyInFile_Click"
                         ToolTipService.ToolTip="Upload files from host to current directory">
                         <StackPanel Orientation="Horizontal" Spacing="4">
@@ -884,6 +904,7 @@
                         Grid.Column="5"
                         Height="32"
                         Padding="10,0"
+                        AutomationProperties.Name="Upload folder from host to current directory"
                         Click="CopyInFolder_Click"
                         ToolTipService.ToolTip="Upload folder from host to current directory">
                         <FontIcon FontSize="13" Glyph="&#xE8DA;" />
@@ -893,6 +914,7 @@
                         AutomationProperties.AutomationId="DownloadContainerPath"
                         MinHeight="32"
                         Content="Download path"
+                        AutomationProperties.Name="Download a path"
                         Click="DownloadPath_Click"
                         ToolTipService.ToolTip="Download a known path without browsing; stopped containers require native copy support" />
                 </Grid>
@@ -1118,6 +1140,7 @@
                         Grid.Column="0"
                         Height="32"
                         Padding="10,0"
+                        AutomationProperties.Name="Recompute changes"
                         Click="ChangesRefresh_Click"
                         ToolTipService.ToolTip="Recompute changes">
                         <StackPanel Orientation="Horizontal" Spacing="6">

@@ -339,6 +339,7 @@
                             </StackPanel>
                             <Button
                                 VerticalAlignment="Center"
+                                AutomationProperties.Name="Deploy a Kubernetes YAML manifest"
                                 Command="{x:Bind ViewModel.ApplyYamlCommand}"
                                 Style="{ThemeResource AccentButtonStyle}"
                                 ToolTipService.ToolTip="Deploy a Kubernetes YAML manifest">
@@ -1034,12 +1035,14 @@
                                                         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
                                                             <Button
                                                                 Padding="7,5"
+                                                                AutomationProperties.Name="Open in browser"
                                                                 Click="OpenForward_Click"
                                                                 ToolTipService.ToolTip="Open in browser">
                                                                 <FontIcon FontSize="14" Glyph="&#xE774;" />
                                                             </Button>
                                                             <Button
                                                                 Padding="7,5"
+                                                                AutomationProperties.Name="Stop"
                                                                 Click="StopForward_Click"
                                                                 ToolTipService.ToolTip="Stop">
                                                                 <FontIcon FontSize="14" Glyph="&#xE71A;" />

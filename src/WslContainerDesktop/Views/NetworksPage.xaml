@@ -54,7 +54,7 @@
                     <TextBlock Text="Prune" />
                 </StackPanel>
             </Button>
-            <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" ToolTipService.ToolTip="Select multiple networks">
+            <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" AutomationProperties.Name="Select multiple networks" ToolTipService.ToolTip="Select multiple networks">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE762;" />
                     <TextBlock Text="Select" />
@@ -237,12 +237,14 @@
                                     Visibility="{x:Bind CanModify, Converter={StaticResource BoolToVis}}">
                                     <Button
                                         Padding="7,5"
+                                        AutomationProperties.Name="Inspect"
                                         Click="InspectButton_Click"
                                         ToolTipService.ToolTip="Inspect">
                                         <FontIcon FontSize="14" Glyph="&#xE946;" />
                                     </Button>
                                     <Button
                                         Padding="7,5"
+                                        AutomationProperties.Name="Remove"
                                         Click="RemoveButton_Click"
                                         ToolTipService.ToolTip="Remove">
                                         <FontIcon FontSize="14" Glyph="&#xE74D;" />
@@ -276,10 +278,10 @@
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="4" Visibility="{x:Bind CanModify, Converter={StaticResource BoolToVis}}">
-                                        <Button Padding="7,5" Click="InspectButton_Click" ToolTipService.ToolTip="Inspect">
+                                        <Button Padding="7,5" Click="InspectButton_Click" AutomationProperties.Name="Inspect" ToolTipService.ToolTip="Inspect">
                                             <FontIcon FontSize="14" Glyph="&#xE946;" />
                                         </Button>
-                                        <Button Padding="7,5" Click="RemoveButton_Click" ToolTipService.ToolTip="Remove">
+                                        <Button Padding="7,5" Click="RemoveButton_Click" AutomationProperties.Name="Remove" ToolTipService.ToolTip="Remove">
                                             <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                         </Button>
                                     </StackPanel>
