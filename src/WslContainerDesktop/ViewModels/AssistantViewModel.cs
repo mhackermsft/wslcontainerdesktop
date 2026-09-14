@@ -77,6 +77,12 @@ public partial class AssistantViewModel : ObservableObject
     [ObservableProperty]
     private bool _isProviderAvailable;
 
+    /// <summary>Explains the status dot on hover. A caution dot says only that actions are
+    /// unavailable, which leaves the user guessing between a stopped runtime, a missing model and a
+    /// model that cannot call tools at all; those need different remedies.</summary>
+    [ObservableProperty]
+    private string _providerStatusDetail = string.Empty;
+
     /// <summary>Typed feedback for provider/tool failures during a turn. Cancellation is
     /// informational; real failures are Error with expandable/copyable technical details. Cleared
     /// at the start of each new turn and whenever the provider changes; the transcript is left
@@ -175,8 +181,39 @@ public partial class AssistantViewModel : ObservableObject
             && _settings.AiProvider != AiProviderKind.None
             && _availability.CanUseTools;
 
+        ProviderStatusDetail = !_settings.AiFeaturesEnabled
+            ? "AI features are turned off.\n\nTurn them on in Settings > AI."
+            : _settings.AiProvider == AiProviderKind.None
+            ? "No AI provider is configured.\n\nChoose one in Settings > AI."
+            : _availability.Observation is not { } observation
+            ? "The provider has not been checked yet.\n\nUse Test capabilities in Settings > AI diagnostics."
+            : observation.CanUseTools
+            ? "Tool support observed. Every action still passes through the approval gate."
+            : observation.Blocker + "\n\n" + observation.NextStep;
+
         static string Format(string provider, string? model) =>
             string.IsNullOrWhiteSpace(model) ? provider : $"{provider} · {AiTextSanitizer.Sanitize(model.Trim(), 160)}";
+    }
+
+    /// <summary>
+    /// Re-reads provider metadata when the panel is opened. The cached observation expires and
+    /// nothing re-reads it on a timer, so a panel opened later would otherwise show caution for a
+    /// provider that is fine. Metadata only: no generation, download or model load is started.
+    /// </summary>
+    public void BeginRefreshAvailability() => _ = RefreshAvailabilityAsync();
+
+    private async Task RefreshAvailabilityAsync()
+    {
+        try
+        {
+            await _availability.RefreshAsync().ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Never log provider evidence or the exception object from a background observation.
+            // The dot keeps its last state and the tooltip says how to check explicitly.
+            _logger.LogDebug("Provider availability refresh could not complete.");
+        }
     }
 
     private bool CanSend() => !IsBusy && !string.IsNullOrWhiteSpace(Draft);

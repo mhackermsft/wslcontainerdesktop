@@ -37,8 +37,18 @@
                 <Border
                     Padding="8,4"
                     HorizontalAlignment="Left"
+                    AutomationProperties.Name="AI provider status"
+                    AutomationProperties.HelpText="{x:Bind ViewModel.ProviderStatusDetail, Mode=OneWay}"
                     Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                     CornerRadius="{StaticResource ControlCornerRadius}">
+                    <ToolTipService.ToolTip>
+                        <ToolTip>
+                            <TextBlock
+                                MaxWidth="320"
+                                Text="{x:Bind ViewModel.ProviderStatusDetail, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                        </ToolTip>
+                    </ToolTipService.ToolTip>
                     <StackPanel
                         VerticalAlignment="Center"
                         Orientation="Horizontal"

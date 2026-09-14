@@ -245,6 +245,73 @@ public sealed class AiCapabilityContractTests
     }
 
     [Fact]
+    public async Task ObservationChangesAreAnnouncedSoStatusCannotShowStaleEvidence()
+    {
+        var observer = new FakeObserver();
+        var clock = new FakeClock();
+        var service = new AiCapabilityService([observer], new AiContractHarness.Credentials(), clock);
+        var config = Configuration();
+        var raised = 0;
+        service.Changed += (_, _) => raised++;
+
+        // First observation is a change: nothing was known before it.
+        await service.GetAsync(config);
+        Assert.Equal(1, raised);
+
+        // A re-read that observes the same thing must not churn the UI.
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await service.GetAsync(config);
+        Assert.Equal(1, raised);
+
+        // A turn that observes tool support announces it, so a caution badge cannot outlive the
+        // evidence that contradicts it.
+        await service.GetAsync(config, true);
+        Assert.Equal(2, raised);
+        Assert.True(service.GetCached(config).CanUseTools);
+
+        service.Invalidate();
+        Assert.Equal(3, raised);
+        service.Invalidate();
+        Assert.Equal(3, raised); // nothing left to drop
+    }
+
+    [Theory]
+    [InlineData(AiEndpointState.Unreachable, AiSupport.Supported, "endpoint could not be reached")]
+    [InlineData(AiEndpointState.Unknown, AiSupport.Supported, "not been checked recently")]
+    [InlineData(AiEndpointState.Reachable, AiSupport.Unsupported, "tool calling")]
+    [InlineData(AiEndpointState.Reachable, AiSupport.Unknown, "not been observed yet")]
+    public void BlockerNamesTheFirstUnmetConditionInFixedVocabulary(
+        AiEndpointState endpoint, AiSupport tools, string expected)
+    {
+        var snapshot = new AiCapabilitySnapshot(Configuration())
+        {
+            Endpoint = endpoint,
+            Chat = new(AiSupport.Supported, AiObservationSource.Metadata),
+            Tools = new(tools, AiObservationSource.Metadata),
+        };
+
+        Assert.False(snapshot.CanUseTools);
+        Assert.Contains(expected, snapshot.Blocker);
+        // Status vocabulary is app-owned: never the endpoint, model or any server evidence.
+        Assert.DoesNotContain(Configuration().Endpoint, snapshot.Blocker);
+        Assert.DoesNotContain(Configuration().Model, snapshot.Blocker);
+    }
+
+    [Fact]
+    public void BlockerIsEmptyWhenActionsAreActuallyAvailable()
+    {
+        var snapshot = new AiCapabilitySnapshot(Configuration())
+        {
+            Endpoint = AiEndpointState.Reachable,
+            Chat = new(AiSupport.Supported, AiObservationSource.Metadata),
+            Tools = new(AiSupport.Supported, AiObservationSource.Metadata),
+        };
+
+        Assert.True(snapshot.CanUseTools);
+        Assert.Equal("", snapshot.Blocker);
+    }
+
+    [Fact]
     public async Task ConfigurationCredentialRuntimeAndModelRevisionChangesInvalidateEvidence()
     {
         var observer = new FakeObserver();

@@ -1011,6 +1011,7 @@ public sealed class FoundryLocalTests
         public Task<AiCapabilitySnapshot> GetAsync(AiChatConfiguration configuration, bool probe = false, CancellationToken ct = default) =>
             Task.FromResult(GetCached(configuration));
         public void Invalidate() => Snapshot = null;
+        public event EventHandler? Changed { add { } remove { } }
     }
 
     private sealed class TestLogger : ILogger<FoundryLocalSettingsViewModel>

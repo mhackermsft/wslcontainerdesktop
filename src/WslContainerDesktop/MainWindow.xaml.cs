@@ -107,6 +107,7 @@ public sealed partial class MainWindow : Window
         if (AssistantOverlay.Visibility != Visibility.Visible)
         {
             AssistantPanel.ViewModel.RefreshProviderLabel();
+            AssistantPanel.ViewModel.BeginRefreshAvailability();
         }
 
         AssistantOverlay.Visibility = AssistantOverlay.Visibility == Visibility.Visible

@@ -45,6 +45,9 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         _logger = logger;
 
         _settings.Changed += OnSettingsChanged;
+        // The cache is also refreshed by an assistant turn, which never routes through this service.
+        // Without this the badge could show caution while a turn had just observed tool support.
+        _capabilities.Changed += OnCapabilitiesChanged;
 
         // Startup reads metadata only. Generation/warm-up is an explicit Settings operation.
         ScheduleRefresh();
@@ -56,6 +59,9 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         ? _capabilities.GetCached(AiConversationContext.Capture(_settings, _settings.AiProvider)) : null;
 
     public event EventHandler? Changed;
+
+    private void OnCapabilitiesChanged(object? sender, EventArgs e) =>
+        _dispatcher.TryEnqueue(() => Changed?.Invoke(this, EventArgs.Empty));
 
     private void OnSettingsChanged(object? sender, EventArgs e)
     {
@@ -121,6 +127,7 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
     public void Dispose()
     {
         _settings.Changed -= OnSettingsChanged;
+        _capabilities.Changed -= OnCapabilitiesChanged;
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
         // An in-flight refresh may still release the semaphore after cancellation.

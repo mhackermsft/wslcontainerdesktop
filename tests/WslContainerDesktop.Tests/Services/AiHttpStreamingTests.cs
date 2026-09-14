@@ -571,6 +571,7 @@ public sealed class AiHttpStreamingTests
         public Task<AiCapabilitySnapshot> GetAsync(AiChatConfiguration configuration, bool probe = false, CancellationToken ct = default) =>
             throw new InvalidOperationException("Generation must not probe or alter capability observations.");
         public void Invalidate() => throw new InvalidOperationException("Generation must not alter capability observations.");
+        public event EventHandler? Changed { add { } remove { } }
     }
 
     private sealed class StreamingHandler(params FragmentStream[] streams) : HttpMessageHandler

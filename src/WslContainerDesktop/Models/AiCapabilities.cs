@@ -75,6 +75,32 @@ public sealed record AiCapabilitySnapshot(AiChatConfiguration Configuration)
             && Download == AiDownloadState.Downloaded && Load == AiLoadState.Loaded);
     public bool CanUseTools => CanChat && Tools.Support == AiSupport.Supported;
 
+    /// <summary>
+    /// The first unmet condition preventing assistant actions, as one sentence; empty when tools
+    /// are usable. Ordered like <see cref="CanChat"/> so the reason shown is the one to fix first.
+    /// Fixed app-owned vocabulary only: no endpoint, model name, body or error detail.
+    /// </summary>
+    public string Blocker =>
+        CanUseTools ? ""
+        : Endpoint == AiEndpointState.InvalidConfiguration ? "The configured endpoint is not a usable URL."
+        : Endpoint == AiEndpointState.Unreachable ? "The configured endpoint could not be reached."
+        : Endpoint == AiEndpointState.Unknown ? "The provider has not been checked recently."
+        : Authentication == AiAuthenticationState.RequiredOrRejected ? "The provider required or rejected credentials."
+        : Runtime == AiRuntimeState.Unavailable ? "The configured runtime is not running."
+        : Model == AiModelState.Missing ? "The configured model is not available to the runtime."
+        : Download == AiDownloadState.Downloading ? "The model is still downloading."
+        : Load == AiLoadState.Loading ? "The model is still loading."
+        : ProbeTimedOut ? "The capability check timed out before the runtime answered."
+        : Configuration.Kind == AiProviderKind.FoundryLocal
+            && (Runtime != AiRuntimeState.Ready || Model != AiModelState.Available
+                || Download != AiDownloadState.Downloaded || Load != AiLoadState.Loaded)
+            ? "Foundry Local has not shown that the pinned model is prepared and loaded."
+        : Chat.Support == AiSupport.Unsupported ? "This provider did not show chat support."
+        : Chat.Support == AiSupport.Unknown ? "Chat support has not been observed yet."
+        : Tools.Support == AiSupport.Unsupported
+            ? "This model did not show support for tool calling, so the assistant cannot take actions."
+        : "Tool support has not been observed yet, so actions stay unavailable.";
+
     // Only fixed app-owned vocabulary enters status. No endpoint, model name, body or error detail.
     public string StatusText =>
         $"Endpoint: {Endpoint}; authentication: {Authentication}; runtime: {Runtime}; " +

@@ -68,40 +68,64 @@ public sealed class AiCapabilityService(
 
     public void Invalidate()
     {
+        bool dropped;
         lock (_stateGate)
         {
-            if (_cached is not null) AiConversationContext.ForgetObservedLimit(_cached.Configuration);
-            _cached = null;
-            _metadataAt = _probeAt = default;
-            _generation++;
-            _inFlight?.Cancel();
+            dropped = _cached is not null;
+            InvalidateCore();
         }
+        // Raised outside the lock: a handler that reads back the cache would otherwise re-enter it.
+        if (dropped) Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public event EventHandler? Changed;
+
+    /// <summary>Drops the cached observation. Callers must hold <c>_stateGate</c>.</summary>
+    private void InvalidateCore()
+    {
+        if (_cached is not null) AiConversationContext.ForgetObservedLimit(_cached.Configuration);
+        _cached = null;
+        _metadataAt = _probeAt = default;
+        _generation++;
+        _inFlight?.Cancel();
     }
 
     public async Task<AiCapabilitySnapshot> GetAsync(AiChatConfiguration configuration,
         bool probe = false, CancellationToken ct = default)
+    {
+        var (result, changed) = await ObserveAsync(configuration, probe, ct).ConfigureAwait(false);
+        // Raised after the observation gate is released: a handler that reads capabilities back
+        // would otherwise wait on a semaphore this call is still holding.
+        if (changed) Changed?.Invoke(this, EventArgs.Empty);
+        return result;
+    }
+
+    private async Task<(AiCapabilitySnapshot Snapshot, bool Changed)> ObserveAsync(
+        AiChatConfiguration configuration, bool probe, CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         CancellationTokenSource? timeout = null;
         try
         {
             AiCapabilitySnapshot? previous;
+            AiCapabilitySnapshot onEntry;
             long generation;
             var identity = CredentialIdentity(configuration);
             lock (_stateGate)
             {
                 ct.ThrowIfCancellationRequested();
+                onEntry = GetCached(configuration);
                 if (_cached?.Configuration != configuration || identity != _credentialIdentity)
-                    Invalidate();
+                    InvalidateCore();
                 previous = _cached;
                 generation = _generation;
                 if (previous is not null && _clock.GetUtcNow() - _metadataAt < MetadataLifetime
                     && (!probe || _clock.GetUtcNow() - _probeAt < ProbeCooldown(previous)))
-                    return GetCached(configuration);
+                    return (GetCached(configuration), false);
             }
 
             var observer = observers.FirstOrDefault(p => p.Kind == configuration.Kind);
-            if (observer is null) return new(configuration);
+            if (observer is null) return (new(configuration), false);
             timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             lock (_stateGate)
             {
@@ -169,7 +193,11 @@ public sealed class AiCapabilityService(
                     (snapshot.Context.Source == AiObservationSource.HarmlessProbe ? _probeAt : snapshot.ObservedAt) + ProbeLifetime,
                     snapshot.Context.ContextTokens);
             }
-            return GetCached(configuration);
+            var result = GetCached(configuration);
+            // Compare the evidence, not the reading: a metadata refresh that observes exactly the
+            // same state carries a fresh ObservedAt, and announcing that would churn the UI on a
+            // timer for no visible reason.
+            return (result, result with { ObservedAt = default } != onEntry with { ObservedAt = default });
         }
         finally
         {

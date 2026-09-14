@@ -24,6 +24,13 @@ public interface IAiCapabilityService
     Task<AiCapabilitySnapshot> GetAsync(AiChatConfiguration configuration,
         bool probe = false, CancellationToken ct = default);
     void Invalidate();
+
+    /// <summary>
+    /// Raised when the cached observation changes, so status shown in the UI reflects what the app
+    /// has actually observed. Without it a turn could observe tool support and act on it while the
+    /// assistant badge still showed the stale caution state that preceded it.
+    /// </summary>
+    event EventHandler? Changed;
 }
 
 /// <summary>

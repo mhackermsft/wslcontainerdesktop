@@ -120,6 +120,14 @@ more faithful to the spec, and the **Templates** gallery gains a set of Azure em
   needed authorization it had never asked for.
 - **The Compose review dialog would not scroll.** An `Expander` nested inside the scroll region
   reported its collapsed size, so the scrollbar appeared but had nothing to scroll.
+- **The assistant status dot could show caution while the assistant was working.** The dot reflects
+  a cached capability observation that expires, and a chat turn refreshing that cache never told the
+  badge — so the app could observe tool support, use it, and still show a caution dot for the rest
+  of the session. Capability changes are now announced, and opening the panel re-reads provider
+  metadata (metadata only: no generation, download, or model load is started).
+- **The status dot now explains itself on hover**, naming the first unmet condition — endpoint
+  unreachable, runtime not running, model missing, still loading, or a model that cannot call tools
+  — instead of leaving you to guess which of those it meant.
 - **Container targets given with a leading slash were not found.** The engine reports names as
   `/sqlserver` in its own error messages, but matching required the bare form.
 - **First-time Compose deployments were blocked** whenever the project declared a new network or

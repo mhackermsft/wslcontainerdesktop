@@ -232,5 +232,6 @@ internal sealed class AiContractHarness
             return Task.FromResult(GetCached(configuration));
         }
         public void Invalidate() { Chat = Tools = Json = AiSupport.Unknown; }
+        public event EventHandler? Changed { add { } remove { } }
     }
 }
