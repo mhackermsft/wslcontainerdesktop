@@ -26,6 +26,21 @@ public sealed class ComposePreviewProjection
 
     public ComposePreviewProjection(ComposeProject project)
     {
+        // Structural identifiers are not secrets. They are chosen by whoever wrote the file, and the
+        // app already shows them in the Compose list, container names and engine inventory, so
+        // masking them buys nothing — while costing the user the review itself. It is routine for an
+        // environment value to equal one ("MYSQL_DATABASE=wordpress" in a project named wordpress
+        // with a wordpress service), and masking by value match then blanks the project name, the
+        // service names and every source breadcrumb that contains them.
+        var identifiers = new HashSet<string>(StringComparer.Ordinal) { project.Name };
+        foreach (var name in project.Services.Select(s => s.Name)
+            .Concat(project.AppliedServices.Values.Select(a => a.Service.Name))
+            .Concat(project.Networks.Select(n => n.Name))
+            .Concat(project.Volumes.Select(v => v.Name)))
+        {
+            identifiers.Add(name);
+        }
+
         // Even innocently named variables can hold secrets. Mask their values everywhere, including
         // names, image references, diagnostics and logical source breadcrumbs, not only env rows.
         _privateValues = project.Services.Concat(project.AppliedServices.Values.Select(a => a.Service))
@@ -43,7 +58,8 @@ public sealed class ComposePreviewProjection
             .Concat(project.Volumes.SelectMany(v => v.Labels.Values))
             .Concat(project.Networks.SelectMany(n => n.DriverOpts).Concat(project.Volumes.SelectMany(v => v.DriverOpts))
                 .Select(v => v.Contains('=') ? v[(v.IndexOf('=') + 1)..] : v))
-            .Where(v => !string.IsNullOrEmpty(v)).Distinct(StringComparer.Ordinal)
+            .Where(v => !string.IsNullOrEmpty(v) && !identifiers.Contains(v))
+            .Distinct(StringComparer.Ordinal)
             .OrderByDescending(v => v.Length).ToArray();
     }
 

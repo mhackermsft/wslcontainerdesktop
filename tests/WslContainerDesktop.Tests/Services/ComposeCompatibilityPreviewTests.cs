@@ -158,6 +158,41 @@ public sealed class ComposeCompatibilityPreviewTests
         Assert.Contains("redacted", serialized);
     }
 
+    /// <summary>
+    /// Compose files routinely set an environment value to a service or project name
+    /// ("MYSQL_DATABASE=wordpress"), and masking by value match then blanked the identifiers the
+    /// review exists to show: the title, the service names and every source breadcrumb containing
+    /// them. Worse, the headline counts distinct service names, so two services that both masked to
+    /// the same placeholder were reported as one — under-stating what was about to be created on the
+    /// screen the user approves from.
+    /// </summary>
+    [Fact]
+    public void StructuralIdentifiersSurviveMaskingSoTheReviewStaysReadableAndCountsRight()
+    {
+        const string secret = "s3cret-value-4417";
+        ComposeService Service(string name, params string[] environment) => new()
+        {
+            Name = name,
+            Options = new() { Image = name + ":latest", EnvironmentVariables = [.. environment] },
+        };
+        // Every value here is also an identifier, exactly as a stock WordPress compose file is.
+        var db = Service("db", "MYSQL_DATABASE=wordpress", "MYSQL_USER=wordpress");
+        var web = Service("wordpress", "WORDPRESS_DB_HOST=db", "WORDPRESS_DB_PASSWORD=" + secret);
+        var project = new ComposeProject { Name = "wordpress", Services = [db, web] };
+
+        var preview = new ComposePreviewProjection(project)
+            .Create(project, new(), new([Entry(db), Entry(web)]));
+
+        Assert.Contains(preview.Settings, row => row.Service == "db");
+        Assert.Contains(preview.Settings, row => row.Service == "wordpress");
+        // A genuine secret is still masked even though it sits beside identifiers that are not.
+        Assert.DoesNotContain(secret, JsonSerializer.Serialize(preview));
+
+        var model = new ComposePreviewViewModel(preview);
+        Assert.Contains("2 services", model.Outcome);
+        Assert.DoesNotContain("<redacted>", model.Outcome);
+    }
+
     [Fact]
     public void ProjectionSettingsCannotBeMutatedThroughCollectionInterface()
     {
