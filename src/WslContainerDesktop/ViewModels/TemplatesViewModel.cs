@@ -796,33 +796,26 @@ public partial class TemplatesViewModel : ObservableObject
         await RunContainerDirectAsync(template, dialog.Options);
     }
 
-    /// <summary>Runs a single-container template with the given options, handling name conflicts.</summary>
+    /// <summary>Runs a single-container template, stepping around anything already deployed.</summary>
     private async Task RunContainerDirectAsync(StackTemplate template, RunContainerOptions options)
     {
-        // If a named container from a previous launch already exists, offer to replace it so the
-        // relaunch reflects the current configuration (named volumes keep the data).
-        if (!string.IsNullOrWhiteSpace(options.Name))
+        // A repeat launch used to offer to replace the existing container, which removed a running
+        // deployment to make room. Deploying something new must never cost the user what is already
+        // running, so the repeat moves onto a free name, free ports and its own named volumes.
+        var adjustment = await new DeploymentConflictResolver(_wslc).ResolveAsync(options);
+        if (adjustment.Adjusted)
         {
-            var existing = (await _wslc.ListContainersAsync(all: true))
-                .FirstOrDefault(c => string.Equals(c.Name, options.Name, StringComparison.OrdinalIgnoreCase));
-            if (existing is not null)
+            var again = await _dialogs.ShowConfirmAsync(
+                $"{template.Name} is already deployed",
+                $"Launch another one? It runs alongside the existing deployment as \"{options.Name}\", "
+                    + "with its own ports and its own data volumes, so neither can affect the other's data."
+                    + $"\n\n{adjustment.Summary}"
+                    + "\n\nTo replace the existing deployment instead, remove it first.",
+                "Launch another");
+            if (!again)
             {
-                var replace = await _dialogs.ShowConfirmAsync(
-                    $"{template.Name} already exists",
-                    $"A container named \"{options.Name}\" is already present. Replace it with the "
-                        + "template's current configuration? Data in named volumes is preserved.",
-                    "Replace");
-                if (!replace)
-                {
-                    return;
-                }
-
-                var removed = await _wslc.RemoveContainerAsync(existing.Id, force: true);
-                if (!removed.Success)
-                {
-                    await _dialogs.ShowMessageAsync("Couldn't replace container", removed.ErrorText);
-                    return;
-                }
+                StatusMessage = "Launch cancelled.";
+                return;
             }
         }
 
@@ -841,8 +834,11 @@ public partial class TemplatesViewModel : ObservableObject
             }
             else
             {
-                var note = string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note}";
-                StatusMessage = $"{template.Name} started{note}. See it in the Containers view.";
+                var note = NoteClause(template);
+                // Name the deployment that actually started; "MySQL started" would be ambiguous once
+                // more than one exists.
+                var started = adjustment.Adjusted ? $"{template.Name} started as \"{options.Name}\"" : $"{template.Name} started";
+                StatusMessage = $"{started}{note}. See it in the Containers view.";
                 _monitor.RequestRefresh();
             }
         }
@@ -851,6 +847,14 @@ public partial class TemplatesViewModel : ObservableObject
             IsBusy = false;
         }
     }
+
+    /// <summary>
+    /// The template's note as a clause that can be composed into a longer sentence. Notes are
+    /// authored as sentences and usually end in a period, which produced "…password "mysql".. See it
+    /// in the Containers view." once a status line continued after one.
+    /// </summary>
+    private static string NoteClause(StackTemplate template) =>
+        string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note.TrimEnd('.', ' ')}";
 
     /// <summary>Resolves the compose YAML/name to use: the saved config if present, else defaults.</summary>
     private (string Yaml, string? Name) ResolveComposeConfig(StackTemplate template)
@@ -909,7 +913,7 @@ public partial class TemplatesViewModel : ObservableObject
                 StatusMessage = "Compose launch was cancelled, blocked, or incomplete. Check Compose details and refresh actual state before retrying.";
                 return;
             }
-            var note = string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note}";
+            var note = NoteClause(template);
             if (plan is { ReusesExistingRuntime: true })
             {
                 // The web UI resolves Ollama by alias, so the reused runtime joins this project's
@@ -917,7 +921,7 @@ public partial class TemplatesViewModel : ObservableObject
                 // silently lists no models.
                 var attach = await _openWebUi.AttachExistingAsync(plan.ExistingOllamaId!);
                 StatusMessage = attach.Success
-                    ? $"{template.Name} launched using the existing \"{plan.ExistingOllamaName}\" runtime{note}"
+                    ? $"{template.Name} launched using the existing \"{plan.ExistingOllamaName}\" runtime{note}."
                     : $"{template.Name} started, but \"{plan.ExistingOllamaName}\" could not join the "
                       + $"{OpenWebUiPlanner.NetworkName} network, so no models will appear. Connect it from the Networks page.";
             }
@@ -926,7 +930,7 @@ public partial class TemplatesViewModel : ObservableObject
                 StatusMessage = $"Downloading {model}… this can take several minutes.";
                 var pull = await _openWebUi.InstallModelAsync(model);
                 StatusMessage = pull.Success
-                    ? $"{template.Name} is ready with {model}{Acceleration(plan)}{note}"
+                    ? $"{template.Name} is ready with {model}{Acceleration(plan)}{note}."
                     : $"{template.Name} started, but {model} could not be downloaded. "
                       + "Open the web UI and pull a model there, or retry from the container's terminal.";
             }

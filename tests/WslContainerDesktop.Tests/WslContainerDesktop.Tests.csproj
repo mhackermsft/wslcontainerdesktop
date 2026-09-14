@@ -193,6 +193,7 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <Compile Remove="Services\ComposeRuntime*.cs" />
     <Compile Remove="ViewModels\ComposeViewModelBusyTests.cs" />
+    <Compile Remove="ViewModels\TemplateCardStateTests.cs" />
     <Compile Remove="ViewModels\ComposeDialogDoubles.cs" />
     <Compile Remove="Services\AssistantToolsetContractTests.cs" />
     <Compile Remove="Services\AssistantComposeContractTests.cs" />

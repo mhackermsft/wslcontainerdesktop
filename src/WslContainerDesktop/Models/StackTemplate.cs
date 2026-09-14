@@ -164,9 +164,10 @@ public sealed partial class StackTemplate : ObservableObject
     public bool IsBusyCard => IsLaunching || IsRemoving;
 
     /// <summary>
-    /// True when the Launch button should be enabled: not busy and not already deployed. A deployed
-    /// template must be removed before it can be launched again, so Launch is visibly disabled.
+    /// True when the Launch button should be enabled: whenever the card is not busy. A template that
+    /// is already deployed can be launched again — the repeat steps aside onto its own name, ports
+    /// and volumes rather than disturbing the deployment already running.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool CanLaunch => !IsBusyCard && !IsDeployed;
+    public bool CanLaunch => !IsBusyCard;
 }
