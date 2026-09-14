@@ -705,7 +705,7 @@
                                             Header="Allow the assistant to delete things"
                                             IsOn="{x:Bind ViewModel.AssistantAllowDestructive, Mode=TwoWay}"
                                             OffContent="Off — it cannot delete"
-                                            OnContent="On" />
+                                            OnContent="On — it can delete" />
                                         <TextBlock
                                             FontSize="12"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
