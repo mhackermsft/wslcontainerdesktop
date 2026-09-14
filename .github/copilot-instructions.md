@@ -6,12 +6,27 @@ It is a packaged (MSIX-identity) app that minimizes to the system tray.
 
 For deep design detail read `docs/ARCHITECTURE.md`; user-facing features live in `README.md`.
 
+## Dependency policy (supply-chain security)
+
+**Never add or upgrade to a dependency version published less than 7 days ago.** A just-released
+version is exactly when a compromised, hijacked, or typosquatted package is most likely to be live
+and least likely to have been reported and pulled. Age is therefore treated as a security control
+in its own right, independent of how reputable the publisher is or how badly a fix is wanted.
+
+- **Scope is every dependency**, not just NuGet: direct, transitive, and build/test-only packages,
+  plus GitHub Actions, CLI tools, container images, and scripts the build or tests fetch.
+- **Verify the publication date from an authoritative source** — the nuget.org registration index
+  or the upstream release feed — *before* restoring it. "Looks established" is not evidence, and a
+  package's own build timestamp is not its publication date.
+- **If the date cannot be verified, stop and say so.** Never assume compliance. Waiting a few days
+  is always cheaper than tracing a compromised dependency through a shipped build.
+- **Prefer what is already referenced.** Adding a package needs the same justification as any other
+  change; it is not a free shortcut. Most feature work here needs no new dependency at all.
+- A version that is otherwise required but too new is a **blocker to raise**, not a judgment call to
+  make silently. (This mirrors the MSIT dependency-age requirement.)
+
 ## Environment & build
 
-- **MSIT dependency-age policy:** Do not install or upgrade to a NuGet package or other dependency
-  version published less than **7 days** ago. Check authoritative publication dates before
-  restoring new versions, including transitive and build/test dependencies. If a date cannot be
-  verified, stop rather than assuming compliance.
 - **Requires Windows 11** with the WSL container preview (`wslc.exe`, default
   `C:\Program Files\WSL\wslc.exe`) and the **.NET 10 SDK**. The app cannot fully build on Linux —
   the WindowsAppSDK XAML compiler step requires Windows.
