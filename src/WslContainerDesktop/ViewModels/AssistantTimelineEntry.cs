@@ -18,5 +18,24 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <param name="Label">Row heading; for activity rows this is the collapsed summary line.</param>
+/// <param name="Text">Full detail, shown inline for conversation and on expand for activity.</param>
 public sealed record AssistantTimelineEntry(
-    int Generation, AiChatProgressKind? Kind, string? ToolCallId, string Label, string Text);
+    int Generation, AiChatProgressKind? Kind, string? ToolCallId, string Label, string Text)
+{
+    /// <summary>
+    /// Tool machinery rather than conversation. Raw container ids and JSON evidence are proof of
+    /// what happened, but they are not something the user is reading, so these rows collapse to
+    /// their heading and open only when someone wants to check.
+    /// </summary>
+    public bool IsActivity => Kind is AiChatProgressKind.ToolRequested
+        or AiChatProgressKind.AwaitingApproval
+        or AiChatProgressKind.ExecutingTool
+        or AiChatProgressKind.ToolResult;
+
+    /// <summary>Conversation rows stay fully visible: they are what the user came to read.</summary>
+    public bool IsConversation => !IsActivity;
+
+    /// <summary>True when expanding would actually reveal something.</summary>
+    public bool HasDetail => !string.IsNullOrWhiteSpace(Text);
+}

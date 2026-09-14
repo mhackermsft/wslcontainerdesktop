@@ -15,14 +15,19 @@
     DefaultButton="Close">
     <ContentDialog.Resources>
         <x:Double x:Key="ContentDialogMaxWidth">880</x:Double>
+        <!-- Without a height cap the dialog grows to fit its content, so its built-in scroll viewer
+             never has anything to scroll and the review simply runs off the screen. -->
+        <x:Double x:Key="ContentDialogMaxHeight">680</x:Double>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
     </ContentDialog.Resources>
-    <!-- One ScrollViewer owns scrolling for the whole body. A ListView here sizes to its content
-         inside a dialog, so its own scrollbar renders but never scrolls. -->
+    <!-- Two bounded scroll regions, not one unbounded pair. The inner one (in the Expander) gives
+         that section a finite extent, which is what the outer one needs in order to measure the
+         dialog correctly; previously the Expander reported its collapsed size and the outer
+         scrollbar rendered with nothing to scroll. -->
     <ScrollViewer
         MinWidth="480"
         MaxWidth="800"
-        MaxHeight="520"
+        MaxHeight="560"
         VerticalScrollBarVisibility="Auto"
         VerticalScrollMode="Enabled"
         HorizontalScrollBarVisibility="Disabled">
@@ -67,24 +72,34 @@
                 HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Stretch"
                 Header="{x:Bind ViewModel.AllSettingsHeader}">
-                <ItemsControl
-                    AutomationProperties.AutomationId="ComposePreviewSettings"
-                    AutomationProperties.Name="Resolved Compose settings and compatibility"
-                    ItemsSource="{x:Bind ViewModel.Settings}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="models:ComposeCompatibilitySetting">
-                            <StackPanel Spacing="4" Padding="0,6">
-                                <TextBlock Text="{x:Bind Summary}" TextWrapping="Wrap" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="{x:Bind Detail}"
-                                    TextWrapping="Wrap"
-                                    FontSize="12"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    IsTextSelectionEnabled="True" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <!-- Scroll the long list itself rather than the whole dialog. An Expander nested
+                     inside a ScrollViewer reports its collapsed extent, so the outer scrollbar
+                     appeared but had nothing to scroll; keeping the scroll region here also means
+                     the dialog stays short while the section is collapsed. -->
+                <ScrollViewer
+                    MaxHeight="380"
+                    VerticalScrollBarVisibility="Auto"
+                    VerticalScrollMode="Enabled"
+                    HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl
+                        AutomationProperties.AutomationId="ComposePreviewSettings"
+                        AutomationProperties.Name="Resolved Compose settings and compatibility"
+                        ItemsSource="{x:Bind ViewModel.Settings}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:ComposeCompatibilitySetting">
+                                <StackPanel Spacing="4" Padding="0,6">
+                                    <TextBlock Text="{x:Bind Summary}" TextWrapping="Wrap" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock
+                                        Text="{x:Bind Detail}"
+                                        TextWrapping="Wrap"
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        IsTextSelectionEnabled="True" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
             </Expander>
         </StackPanel>
     </ScrollViewer>

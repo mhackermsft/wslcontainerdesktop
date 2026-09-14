@@ -9,6 +9,9 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
+    <UserControl.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
     <Grid
         MinWidth="380"
         Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
@@ -138,21 +141,57 @@
             </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="viewmodels:AssistantTimelineEntry">
-                    <Border
-                        Margin="0,0,0,8"
-                        Padding="12"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1"
-                        CornerRadius="{StaticResource ControlCornerRadius}">
-                        <StackPanel Spacing="4">
+                    <Grid Margin="0,0,0,8">
+                        <!--  Conversation: shown in full, this is what the user is reading.  -->
+                        <Border
+                            Padding="12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
+                            Visibility="{x:Bind IsConversation, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Spacing="4">
+                                <TextBlock
+                                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                                    Text="{x:Bind Label}"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    IsTextSelectionEnabled="True"
+                                    Text="{x:Bind Text}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <!--  Tool activity: collapsed to its heading, with the evidence one click away.  -->
+                        <Expander
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch"
+                            IsExpanded="False"
+                            Visibility="{x:Bind IsActivity, Converter={StaticResource BoolToVis}}">
+                            <Expander.Header>
+                                <StackPanel
+                                    Orientation="Horizontal"
+                                    Spacing="8"
+                                    ToolTipService.ToolTip="Tool activity — expand to see exactly what ran and what it returned">
+                                    <FontIcon
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Glyph="&#xE9F5;" />
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind Label}"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Expander.Header>
                             <TextBlock
-                                Style="{StaticResource BodyStrongTextBlockStyle}"
-                                Text="{x:Bind Label}"
+                                FontFamily="Consolas"
+                                FontSize="12"
+                                IsTextSelectionEnabled="True"
+                                Text="{x:Bind Text}"
                                 TextWrapping="Wrap" />
-                            <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind Text}" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
+                        </Expander>
+                    </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>

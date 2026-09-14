@@ -318,7 +318,7 @@ public partial class AssistantViewModel : ObservableObject
                     else if (!Messages.Any(entry => entry.Generation == generation &&
                         entry.Kind == AiChatProgressKind.ToolResult && entry.Text == message.Text))
                     {
-                        AddEntry(new(generation, AiChatProgressKind.ToolResult, null, "Tool result · recorded outcome",
+                        AddEntry(new(generation, AiChatProgressKind.ToolResult, null, "Tool finished — show what it returned",
                             AiTextSanitizer.Sanitize(message.Text, MaxEntryCharacters)));
                     }
                 }
@@ -391,10 +391,12 @@ public partial class AssistantViewModel : ObservableObject
         {
             var label = progress.Kind switch
             {
-                AiChatProgressKind.ToolRequested => "Tool request · not executed",
-                AiChatProgressKind.AwaitingApproval => "Tool request · awaiting your approval",
-                AiChatProgressKind.ExecutingTool => "Tool execution · outcome pending",
-                _ => "Tool result · recorded outcome",
+                AiChatProgressKind.ToolRequested => "Checking a tool request",
+                AiChatProgressKind.AwaitingApproval => "Waiting for your approval",
+                AiChatProgressKind.ExecutingTool => "Running a tool…",
+                // Collapsed rows are read at a glance, so lead with the outcome rather than a
+                // category the reader has to open the row to interpret.
+                _ => "Tool finished — show what it returned",
             };
             var entry = new AssistantTimelineEntry(generation, progress.Kind, progress.ToolCallId, label,
                 AiTextSanitizer.Sanitize(progress.Text, MaxEntryCharacters));
