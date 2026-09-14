@@ -34,7 +34,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Full container lifecycle** — run, start, stop, restart, kill, remove, prune, logs, exec terminal, inspect, and live stats.
 - **Docker Compose** — import a `docker-compose.yml` and bring a whole multi-service stack **up / down / restart as a unit**, with dependency ordering, health/exit gating, and auto-heal. The desktop app acts as the orchestration layer above `wslc` — see [Docker Compose compatibility](#docker-compose-compatibility) for exactly what is and isn't supported.
 - **Images, volumes, networks** — pull, build, tag, push, inspect, and prune, all from a clean Fluent UI.
-- **Templates gallery** — a catalog of curated stacks (databases, web tools, developer sandboxes, and multi-service Compose projects). **Launch** uses sensible defaults; Compose stacks show a compatibility review before deployment. A per-card **Settings** button lets you configure first, and your choices are remembered for next time.
+- **Templates gallery** — a catalog of curated stacks: databases, web tools, **Azure emulators** (Azurite, Cosmos DB, Service Bus, Event Hubs), developer sandboxes, and multi-service Compose projects. **Launch** uses sensible defaults; Compose stacks show a compatibility review before deployment. A per-card **Settings** button lets you configure first, and your choices are remembered for next time.
 - **Image update badges** — **Check for updates** compares your local image digests against the registry and flags out-of-date images with an **↓ Update** badge, so you can pull the newer version in one click.
 - **Endpoints dashboard** — every published port across all running containers in one list, with clickable `localhost` links that open in your browser or copy to the clipboard.
 - **Bulk actions** — a **Select** mode on the Containers, Images, Volumes, and Networks lists lets you multi-select rows and start, stop, or remove many at once.
@@ -71,7 +71,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
   <tr>
     <td width="50%" valign="top">
       <img src="docs/screenshots/templates.png" alt="Templates"><br>
-      <sub><b>Templates</b> — one-click stacks for databases, web tools, developer sandboxes, and multi-service projects.</sub>
+      <sub><b>Templates</b> — curated one-click stacks, grouped by category and configurable before launch.</sub>
     </td>
     <td width="50%" valign="top">
       <img src="docs/screenshots/images.png" alt="Images"><br>
