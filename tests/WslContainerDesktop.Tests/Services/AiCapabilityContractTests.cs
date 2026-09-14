@@ -339,6 +339,38 @@ public sealed class AiCapabilityContractTests
         finally { service.Invalidate(); }
     }
 
+    /// <summary>
+    /// A large context window now raises the ceiling, because capping a 32k-token model at the
+    /// small-model default left almost nothing for the conversation once tool definitions were
+    /// counted. The conversion stays deliberately pessimistic and a measured byte ceiling still wins.
+    /// </summary>
+    [Fact]
+    public async Task AReportedContextWindowRaisesTheCeilingConservatively()
+    {
+        var config = Configuration() with { Model = "context-window-" + Guid.NewGuid() };
+        // qwen2.5:7b reports 32768 tokens; 75% of the window at 2.5 bytes/token.
+        var observer = new FakeObserver { Context = new(AiSupport.Supported, 32768, null, AiObservationSource.Metadata) };
+        var service = new AiCapabilityService([observer], new AiContractHarness.Credentials());
+        try
+        {
+            await service.GetAsync(config);
+
+            var limit = AiConversationContext.InputByteLimit(config);
+            Assert.Equal(61_440, limit);
+            // Still far below what 32k tokens of text would really encode to, by design.
+            Assert.True(limit < 32768 * 4);
+        }
+        finally { service.Invalidate(); }
+    }
+
+    [Theory]
+    [InlineData(0, 32_768)]
+    [InlineData(-5, 32_768)]
+    [InlineData(4096, 32_768)]       // small windows never lower the default
+    [InlineData(32768, 61_440)]
+    [InlineData(1_000_000, 262_144)] // implausible reports are clamped
+    public void ContextWindowConversionIsBoundedAtBothEnds(long tokens, int expected) =>
+        Assert.Equal(expected, AiConversationContext.DeriveByteLimitFromContextTokens(tokens));
     [Theory]
     [MemberData(nameof(Providers))]
     public async Task DiagnosisOmitsUnprovenJsonModeButStillParsesJsonAndChatOmitsToolOptions(AiProviderKind kind)

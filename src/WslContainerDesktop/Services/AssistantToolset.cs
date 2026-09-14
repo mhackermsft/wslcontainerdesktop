@@ -45,39 +45,63 @@ public sealed partial class AssistantToolset(
             Tool("list_volumes", "List volumes."),
             Tool("list_networks", "List networks."),
             Tool("engine_status", "Check WSL container engine availability and version."),
-            Tool("engine_capabilities", "Read configured-engine Supported/Unsupported/Unknown evidence. Partial/unavailable is not permission; never infer flags from versions."),
-            Tool("get_health_observations", "Read cached native/app health, timestamps and staleness; no probes or auto-heal. Health, supervision and process state differ."),
-            Tool("get_volume_usage", "Scan mount users including stopped containers. Exact/Partial/Estimated/Unknown/Unused; not disk consumption or deletion permission."),
-            Tool("k8s_status", "Read cluster NotInstalled/Unknown/unavailable evidence; missing tools do not prove absence."),
+            Tool("engine_capabilities", "Read Supported/Unsupported/Unknown engine evidence. Unknown is not permission; never infer flags from versions."),
+            Tool("get_health_observations", "Read cached native/app health and staleness. No probes or auto-heal."),
+            Tool("get_volume_usage", "Scan mount users including stopped containers. Not disk usage or deletion permission."),
+            Tool("k8s_status", "Read cluster state. Missing tools do not prove absence."),
             Tool("list_compose_projects", "List saved compose projects."),
-            Tool("start_compose_project", "Explicitly review one saved project Up via supervisor; may create/reconcile instances and dependencies."),
-            Tool("stop_compose_project", "Explicitly review one saved project Stop via supervisor; dependency order and manual-stop suppression apply."),
-            Tool("restart_compose_project", "Explicitly review one saved project Restart via supervisor; ownership and supervision apply."),
-            Tool("down_compose_project", "Explicitly review one saved project Down via supervisor; removes owned containers, retains volumes."),
-            Tool("run_container", "Run one standalone container from structured options; use Compose for multi-container apps."),
+            Tool("run_container", "Run one standalone container. Use Compose for multi-container apps."),
             Tool("pull_image", "Pull a container image reference."),
             Tool("start_container", "Start a container by id or name."),
             Tool("stop_container", "Stop a container by id or name."),
             Tool("restart_container", "Restart a container by id or name."),
-            Tool("remove_container", "Remove a container by id or name."),
-            Tool("stop_all_containers", "Stop exact resolved running targets. Use name filters OR explicit scope=\"all\", never both."),
-            Tool("remove_all_containers", "Remove exact resolved targets. Use name filters OR scope=\"all\". onlyRunning defaults true."),
-            Tool("deploy_template", "Deploy template by ID/name. Compose requires explicit approval and fresh revalidation; blocked/stale/cancelled/partial is not success. No auto-retry. IDs: " + TemplateList()),
-            Tool("deploy_compose", "Deploy multi-container YAML as one project with shared networks/DNS, not separate runs. Requires explicit approval of instances, ports, mounts, warnings, ownership, replacements and native/legacy choices. Blockers cannot be ignored. Approval expires; inventory/capabilities are revalidated. Read per-instance outcomes: partial/blocked/stale/cancelled is not success. No automatic retry or model confirmation/token."),
+            Tool("stop_all_containers", "Stop resolved running targets. Use name filters OR scope=\"all\", never both."),
+            Tool("deploy_template", "Deploy a template by ID or name. Compose templates need explicit approval. IDs: " + TemplateList()),
+            Tool("deploy_compose", "Deploy multi-container YAML as one project with shared networks and service DNS, not separate runs. Needs explicit approval. Read per-instance outcomes: partial/blocked/stale/cancelled is not success, and must not be retried automatically."),
             Tool("create_volume", "Create a named volume."),
-            Tool("remove_volume", "Remove a named volume."),
             Tool("create_network", "Create a named network."),
-            Tool("remove_network", "Remove a named network."),
         };
+
+        // Operating a saved project is meaningless with none saved, and every definition sent costs
+        // budget the conversation needs. Definitions are rebuilt each turn, so these appear as soon
+        // as a project exists.
+        // Bringing a project down removes its containers, so it is withheld with the other
+        // destructive tools. The read-only listing stays available either way.
+        if (SavedComposeProjectCount() > 0)
+        {
+            definitions.AddRange([
+                Tool("start_compose_project", "Bring one saved project up via the supervisor."),
+                Tool("stop_compose_project", "Stop one saved project via the supervisor."),
+                Tool("restart_compose_project", "Restart one saved project via the supervisor."),
+            ]);
+            if (settings.AiAssistantAllowDestructive)
+            {
+                definitions.Add(Tool("down_compose_project",
+                    "Remove one saved project's containers via the supervisor; volumes are retained."));
+            }
+        }
+
+        // Withhold what the assistant is not permitted to do. Sending a tool it can only be refused
+        // for wastes budget twice: once on the definition, and again on the round trip that ends in
+        // "that is turned off". Turning the capability on brings them back on the next turn.
+        if (settings.AiAssistantAllowDestructive)
+        {
+            definitions.AddRange([
+                Tool("remove_container", "Remove a container by id or name."),
+                Tool("remove_all_containers", "Remove resolved targets. Use name filters OR scope=\"all\". onlyRunning defaults true."),
+                Tool("remove_volume", "Remove a named volume."),
+                Tool("remove_network", "Remove a named network."),
+            ]);
+        }
 
         var browsableRegistries = settings.Registries.Where(registryCatalog.CanBrowse).ToList();
         if (browsableRegistries.Count > 0)
         {
             var names = string.Join(", ", browsableRegistries.Select(r => string.IsNullOrWhiteSpace(r.Name) ? r.Host : r.Name));
             definitions.Add(Tool("list_registry_repositories",
-                "List the repositories (image names) available in a configured remote registry. Browsable registries: " + names + ". Docker Hub's global catalog is not browsable."));
+                "List repositories in a configured remote registry. Browsable: " + names + ". Docker Hub's global catalog is not browsable."));
             definitions.Add(Tool("list_registry_tags",
-                "List the available tags (versions) of a repository in a configured remote registry, so you can see what versions exist and which is newest. Browsable registries: " + names + "."));
+                "List available tags of a repository in a configured remote registry, so you can see which versions exist. Browsable: " + names + "."));
         }
 
         try
@@ -91,10 +115,14 @@ public sealed partial class AssistantToolset(
                     Tool("apply_yaml", "Apply a Kubernetes YAML manifest."),
                     Tool("scale_deployment", "Scale a Kubernetes deployment."),
                     Tool("restart_deployment", "Restart a Kubernetes deployment."),
-                    Tool("delete_resource", "Delete a Kubernetes resource. Namespace may be empty for a cluster-scoped resource."),
                     Tool("cluster_start", "Start k3s."),
                     Tool("cluster_stop", "Stop k3s."),
                 ]);
+                if (settings.AiAssistantAllowDestructive)
+                {
+                    definitions.Add(Tool("delete_resource",
+                        "Delete a Kubernetes resource. Namespace may be empty for a cluster-scoped resource."));
+                }
             }
         }
         catch (OperationCanceledException)
@@ -128,7 +156,7 @@ public sealed partial class AssistantToolset(
             "list_compose_projects" => Resolved(call, AssistantPermissionCategory.ReadOnly, "List compose projects", "", _ => Task.FromResult(ListComposeProjects())),
             "start_compose_project" or "stop_compose_project" or "restart_compose_project" or "down_compose_project" =>
                 await ResolveComposeLifecycleAsync(call, StringArg(args, "projectName"), ct).ConfigureAwait(false),
-            "run_container" => ResolveRunContainer(call, args),
+            "run_container" => await ResolveRunContainerAsync(call, args, ct).ConfigureAwait(false),
             "pull_image" => Resolved(call, AssistantPermissionCategory.CreateRun, $"Pull image {StringArg(args, "reference")}", call.ArgumentsJson, token => PullImageAsync(StringArg(args, "reference"), token)),
             "start_container" or "stop_container" or "restart_container" or "remove_container" =>
                 await ResolveContainerAsync(call, StringArg(args, "id"), ct).ConfigureAwait(false),
@@ -208,7 +236,20 @@ public sealed partial class AssistantToolset(
     public async Task<string> RunContainerAsync(RunContainerOptions options, CancellationToken ct)
     {
         ValidateRunOptions(options);
-        return Summarize(await wslc.RunContainerAsync(options, ct).ConfigureAwait(false));
+        var adjustment = await new DeploymentConflictResolver(wslc).ResolveAsync(options, ct).ConfigureAwait(false);
+        return await RunContainerAsync(options, adjustment, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs options whose conflicts were already resolved at approval time, so what executes is
+    /// exactly what the user approved and what the activity log recorded.
+    /// </summary>
+    private async Task<string> RunContainerAsync(
+        RunContainerOptions options, DeploymentAdjustment adjustment, CancellationToken ct)
+    {
+        ValidateRunOptions(options);
+        var result = Summarize(await wslc.RunContainerAsync(options, ct).ConfigureAwait(false));
+        return adjustment.Adjusted ? adjustment.Summary + "\n" + result : result;
     }
 
     [Description("State-changing: pull an image reference.")]
@@ -431,6 +472,20 @@ public sealed partial class AssistantToolset(
 
     private string TemplateList() => string.Join(", ", templates.Templates.Select(t => t.Id).Take(40));
 
+    /// <summary>Saved projects, tolerating an unreadable store rather than failing the whole turn.</summary>
+    private int SavedComposeProjectCount()
+    {
+        try
+        {
+            return composeStore.GetAll().Count;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Unknown means "offer them": withholding a tool the user may need is worse than the bytes.
+            return 1;
+        }
+    }
+
     private static AiToolDefinition Tool(string name, string description) => new()
     {
         Name = name,
@@ -486,37 +541,38 @@ public sealed partial class AssistantToolset(
           "type": "object",
           "properties": {
             "image": { "type": "string", "description": "Image reference" },
-            "name": { "type": "string", "description": "Optional container name" },
-            "command": { "type": "string", "description": "Command inside container" },
-            "entrypoint": { "type": "string", "description": "Entrypoint executable override" },
+            "name": { "type": "string" },
+            "command": { "type": "string" },
+            "entrypoint": { "type": "string" },
             "ports": { "type": "array", "items": { "type": "string" }, "description": "host:container[/proto]" },
-            "environment": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE environment" },
-            "volumes": { "type": "array", "items": { "type": "string" }, "description": "source:destination volume/bind mounts" },
-            "labels": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE labels" },
-            "networks": { "type": "array", "items": { "type": "string" }, "description": "Networks; first is primary" },
-            "aliases": { "type": "array", "items": { "type": "string" }, "description": "Network-scoped hostname aliases" },
-            "dns": { "type": "array", "items": { "type": "string" }, "description": "DNS nameserver IPs" },
-            "dnsSearch": { "type": "array", "items": { "type": "string" }, "description": "DNS search domains" },
-            "dnsOptions": { "type": "array", "items": { "type": "string" }, "description": "DNS resolver options" },
-            "tmpfs": { "type": "array", "items": { "type": "string" }, "description": "tmpfs targets" },
+            "environment": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE" },
+            "volumes": { "type": "array", "items": { "type": "string" }, "description": "source:destination" },
+            "labels": { "type": "array", "items": { "type": "string" }, "description": "KEY=VALUE" },
+            "networks": { "type": "array", "items": { "type": "string" }, "description": "first is primary" },
+            "aliases": { "type": "array", "items": { "type": "string" }, "description": "hostname aliases" },
+            "dns": { "type": "array", "items": { "type": "string" } },
+            "dnsSearch": { "type": "array", "items": { "type": "string" } },
+            "dnsOptions": { "type": "array", "items": { "type": "string" } },
+            "tmpfs": { "type": "array", "items": { "type": "string" } },
             "ulimits": { "type": "array", "items": { "type": "string" }, "description": "name=soft[:hard]" },
-            "gpus": { "type": "boolean", "description": "Request all GPUs for GPU workloads; not proof of acceleration" },
-            "removeOnExit": { "type": "boolean", "description": "Automatically remove on exit" },
-            "user": { "type": "string", "description": "Process user" },
-            "workingDir": { "type": "string", "description": "Container working directory" },
-            "hostname": { "type": "string", "description": "Container hostname" },
-            "domainname": { "type": "string", "description": "Container domain" },
+            "gpus": { "type": "boolean", "description": "request all GPUs" },
+            "removeOnExit": { "type": "boolean" },
+            "user": { "type": "string" },
+            "workingDir": { "type": "string" },
+            "hostname": { "type": "string" },
+            "domainname": { "type": "string" },
             "cpuLimit": { "type": "string", "description": "CPU limit, e.g. 1.5" },
             "memoryLimit": { "type": "string", "description": "Memory limit, e.g. 512M" },
             "shmSize": { "type": "string", "description": "/dev/shm size, e.g. 64M" },
-            "stopSignal": { "type": "string", "description": "Stop signal" }
+            "stopSignal": { "type": "string" }
           },
           "required": ["image"],
           "additionalProperties": false
         }
         """;
 
-    private AssistantResolvedToolCall ResolveRunContainer(AiToolCall call, JsonElement args)
+    private async Task<AssistantResolvedToolCall> ResolveRunContainerAsync(
+        AiToolCall call, JsonElement args, CancellationToken ct)
     {
         var options = new RunContainerOptions
         {
@@ -546,7 +602,20 @@ public sealed partial class AssistantToolset(
         AddStringArray(args, "tmpfs", options.Tmpfs);
         AddStringArray(args, "ulimits", options.Ulimits);
         AddKeyValueArray(args, "labels", options.Labels);
-        return Resolved(call, AssistantPermissionCategory.CreateRun, $"Run container {options.Image}", JsonSerializer.Serialize(options, JsonOptions), token => RunContainerAsync(options, token));
+
+        // Resolve conflicts BEFORE building the approval summary, so the user approves and the
+        // activity log records the deployment that actually runs. Doing it inside the executor
+        // meant approving "sqlserver, port 1433" and silently getting "sqlserver-2, port 1434".
+        var adjustment = await new DeploymentConflictResolver(wslc).ResolveAsync(options, ct).ConfigureAwait(false);
+        var summary = adjustment.Adjusted
+            ? $"Run container {options.Image} as {options.Name}"
+            : $"Run container {options.Image}";
+        var details = adjustment.Adjusted
+            ? adjustment.Summary + "\n" + JsonSerializer.Serialize(options, JsonOptions)
+            : JsonSerializer.Serialize(options, JsonOptions);
+
+        return Resolved(call, AssistantPermissionCategory.CreateRun, summary, details, token =>
+            RunContainerAsync(options, adjustment, token));
     }
 
     private async Task<AssistantResolvedToolCall> ResolveStopAllAsync(AiToolCall call, string? namePrefix, string? nameContains, CancellationToken ct)
@@ -578,8 +647,11 @@ public sealed partial class AssistantToolset(
     {
         var inventory = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
         var resolvedId = ContainerIdentity.ResolveId(inventory.Select(c => c.Id), id);
+        // The engine reports names both bare and with Docker's leading slash - its own conflict
+        // messages say "/sqlserver" - so accept either form rather than failing to find the target.
+        var wanted = (id ?? string.Empty).Trim().TrimStart('/');
         var matches = inventory.Where(c => string.Equals(c.Id, resolvedId, StringComparison.Ordinal) ||
-            string.Equals(c.Name, id, StringComparison.Ordinal)).ToArray();
+            string.Equals((c.Name ?? string.Empty).TrimStart('/'), wanted, StringComparison.Ordinal)).ToArray();
         if (matches.Length != 1)
             throw new InvalidOperationException("Container target is missing or ambiguous; no action was prepared.");
         var target = CaptureTarget(matches[0]);
@@ -731,18 +803,28 @@ public sealed partial class AssistantToolset(
         }
         catch (JsonException ex)
         {
-            throw new InvalidOperationException("Invalid tool arguments: a valid JSON object is required.", ex);
+            throw new AssistantArgumentException("Invalid tool arguments: a valid JSON object is required.", ex);
         }
 
         if (args.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("Invalid tool arguments: a JSON object is required.");
+            throw new AssistantArgumentException("Invalid tool arguments: a JSON object is required.");
         var schema = schemaDocument.RootElement;
         var properties = schema.GetProperty("properties");
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var field in args.EnumerateObject())
         {
             if (!seen.Add(field.Name) || !properties.TryGetProperty(field.Name, out var property))
-                throw new InvalidOperationException($"Invalid tool arguments: unsupported or duplicate field '{field.Name}'.");
+            {
+                // Name the fields that would have worked. A bare "unsupported field" tells the model
+                // nothing it can act on, so it tends to retry the same shape; listing the schema
+                // lets it correct itself on the next step instead of dead-ending the turn.
+                var accepted = properties.EnumerateObject().Select(p => p.Name).ToArray();
+                throw new AssistantArgumentException(
+                    $"Invalid tool arguments: unsupported or duplicate field '{field.Name}'. " +
+                    (accepted.Length == 0
+                        ? $"'{call.Name}' takes no arguments."
+                        : $"'{call.Name}' accepts only: {string.Join(", ", accepted)}. Call it again using just those fields."));
+            }
             var valid = property.GetProperty("type").GetString() switch
             {
                 "string" => field.Value.ValueKind == JsonValueKind.String &&
@@ -757,12 +839,19 @@ public sealed partial class AssistantToolset(
                 _ => false,
             };
             if (!valid)
-                throw new InvalidOperationException($"Invalid tool arguments: field '{field.Name}' has an invalid type, empty value, or out-of-range value.");
+            {
+                var expected = property.GetProperty("type").GetString();
+                throw new AssistantArgumentException(
+                    $"Invalid tool arguments: field '{field.Name}' must be a non-empty {expected} within range. " +
+                    $"Call '{call.Name}' again with a corrected '{field.Name}'.");
+            }
         }
         if (schema.TryGetProperty("required", out var required))
             foreach (var field in required.EnumerateArray())
                 if (!seen.Contains(field.GetString()!))
-                    throw new InvalidOperationException($"Invalid tool arguments: required field '{field.GetString()}' is missing.");
+                    throw new AssistantArgumentException(
+                        $"Invalid tool arguments: required field '{field.GetString()}' is missing. " +
+                        $"'{call.Name}' requires: {string.Join(", ", required.EnumerateArray().Select(r => r.GetString()))}.");
 
         if (call.Name is "stop_all_containers" or "remove_all_containers")
         {
@@ -772,7 +861,7 @@ public sealed partial class AssistantToolset(
                 throw new InvalidOperationException("Invalid bulk scope: specify nonblank name filters OR scope=\"all\", never both.");
         }
         if (seen.Contains("kind") && !SupportedResourceKinds.Contains(StringArg(args, "kind").ToLowerInvariant()))
-            throw new InvalidOperationException("Invalid tool arguments: unsupported Kubernetes resource kind.");
+            throw new AssistantArgumentException("Invalid tool arguments: unsupported Kubernetes resource kind.");
         if (call.Name == "run_container")
             ValidateRunArguments(args);
         return args;
@@ -797,13 +886,13 @@ public sealed partial class AssistantToolset(
                 var text = item.GetString()!;
                 var separator = text.IndexOf('=');
                 if (separator <= 0 || string.IsNullOrWhiteSpace(text[..separator]) || !keys.Add(text[..separator].Trim()))
-                    throw new InvalidOperationException($"Invalid tool arguments: '{name}' requires unique nonblank KEY=VALUE entries.");
+                    throw new AssistantArgumentException($"Invalid tool arguments: '{name}' requires unique nonblank KEY=VALUE entries.");
             }
         }
         if (args.TryGetProperty("cpuLimit", out var cpu) &&
             (!decimal.TryParse(cpu.GetString(), System.Globalization.NumberStyles.AllowDecimalPoint,
                 System.Globalization.CultureInfo.InvariantCulture, out var value) || value <= 0))
-            throw new InvalidOperationException("Invalid tool arguments: cpuLimit must be a positive decimal.");
+            throw new AssistantArgumentException("Invalid tool arguments: cpuLimit must be a positive decimal.");
     }
 
     private static string StringArg(JsonElement args, string name)

@@ -197,6 +197,7 @@
     <Compile Remove="Services\AssistantComposeContractTests.cs" />
     <Compile Remove="Services\AssistantObservationContractTests.cs" />
     <Compile Remove="Services\AssistantCatalogAdapterTests.cs" />
+    <Compile Remove="Services\AssistantToolExposureTests.cs" />
     <Compile Remove="Services\CopilotSdkBindingTests.cs" />
     <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
     <Compile Remove="Services\ComposeReconciliationSupervisorTests.cs" />

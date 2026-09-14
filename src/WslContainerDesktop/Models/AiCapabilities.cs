@@ -30,8 +30,10 @@ public sealed record AiCapabilityObservation(
     AiObservationSource Source = AiObservationSource.None);
 
 /// <summary>
-/// Tokens and application-accounted UTF-8 JSON bytes are different units. Only an explicitly
-/// byte-accounted limit can reduce the application's byte ceiling; never convert tokens to bytes.
+/// Tokens and application-accounted UTF-8 JSON bytes are different units. An explicitly
+/// byte-accounted limit is measured and always wins. A reported context window is only ever used
+/// to raise the default ceiling through a deliberately pessimistic conversion, never treated as a
+/// byte count in its own right.
 /// </summary>
 public sealed record AiContextObservation(
     AiSupport Support = AiSupport.Unknown,

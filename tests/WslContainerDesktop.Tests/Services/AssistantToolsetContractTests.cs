@@ -230,12 +230,79 @@ public sealed class AssistantToolsetContractTests
         yield return ["unknown_tool", "{}"];
     }
 
+    /// <summary>
+    /// A rejected call is a dead end unless the model is told what would have worked: given only
+    /// "unsupported field 'scope'" it tends to retry the same shape. The message must name the
+    /// tool's real fields so the next attempt can be correct.
+    /// </summary>
+    [Fact]
+    public async Task RejectedArgumentsNameTheFieldsThatWouldHaveWorked()
+    {
+        var h = new Fixture();
+
+        var error = await Assert.ThrowsAsync<AssistantArgumentException>(
+            () => h.Resolve("deploy_template", """{"idOrName":"sqlserver","scope":"all"}"""));
+
+        Assert.Contains("scope", error.Message);
+        Assert.Contains("idOrName", error.Message);
+        Assert.Contains("deploy_template", error.Message);
+        Assert.Empty(h.Calls);
+    }
+
+    /// <summary>
+    /// It derives from InvalidOperationException so existing tool-failure handling still contains
+    /// it, but stays distinguishable so the UI does not tell the user to fix their configuration
+    /// when the assistant simply called a tool wrongly.
+    /// </summary>
+    [Fact]
+    public async Task InvalidArgumentsAreReportedAsAnAssistantMistakeNotAUserConfigurationProblem()
+    {
+        var h = new Fixture();
+
+        var error = await Assert.ThrowsAsync<AssistantArgumentException>(
+            () => h.Resolve("stop_container", """{"nope":"x"}"""));
+
+        Assert.IsAssignableFrom<InvalidOperationException>(error);
+        var feedback = AiErrorClassifier.Classify(error,
+            new AiErrorContext(AiProviderKind.Ollama, "Ollama", "Assistant chat"));
+        Assert.DoesNotContain("Configuration needed", feedback.Title);
+        Assert.Contains("assistant", feedback.Title, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A clashing name or port is moved aside at resolve time, so the approval prompt and the
+    /// activity record must describe the deployment that actually runs. Resolving inside the
+    /// executor meant approving "sqlserver on 1433" and silently getting "sqlserver-2 on 1434".
+    /// </summary>
+    [Fact]
+    public async Task ApprovalDescribesTheDeploymentThatActuallyRuns()
+    {
+        var existing = Container("existing", "sqlserver");
+        existing.PortsKnown = true;
+        existing.Ports = [new PortMapping { HostPort = 1433, ContainerPort = 1433 }];
+        var h = new Fixture { Inventory = [existing] };
+
+        var plan = await h.Resolve("run_container",
+            """{"image":"mssql","name":"sqlserver","ports":["1433:1433"],"volumes":["sqlserver-data:/var/opt/mssql"]}""");
+
+        // What the user is shown, before they approve anything.
+        Assert.Contains("sqlserver-2", plan.Summary);
+        Assert.Contains("sqlserver-2", plan.Details);
+
+        await plan.ExecuteAsync(CancellationToken.None);
+
+        var options = Assert.IsType<RunContainerOptions>(h.RunOptions);
+        Assert.Equal("sqlserver-2", options.Name);
+        Assert.Equal(["1434:1433"], options.PortMappings);
+        Assert.Equal(["sqlserver-data-2:/var/opt/mssql"], options.Volumes);
+    }
+
     [Theory]
     [MemberData(nameof(InvalidArguments))]
     public async Task InvalidArgumentsFailBeforeInventoryOrMutation(string tool, string arguments)
     {
         var h = new Fixture();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Resolve(tool, arguments));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => h.Resolve(tool, arguments));
         Assert.Empty(h.Calls);
     }
 
@@ -282,7 +349,10 @@ public sealed class AssistantToolsetContractTests
              "user":"1000","workingDir":"/work","hostname":"host","domainname":"example.invalid",
              "cpuLimit":"1.5","memoryLimit":"512M","shmSize":"64M","stopSignal":"SIGTERM"}
             """);
-        Assert.Empty(h.Calls);
+        // Resolve reads inventory so the approval names the deployment that will actually run
+        // (a clashing name/port is moved before you approve it, not after). The guarantee that
+        // matters is that nothing was *mutated* before approval.
+        Assert.All(h.Calls, c => Assert.Equal("list", c));
         await plan.ExecuteAsync(CancellationToken.None);
         var options = Assert.IsType<RunContainerOptions>(h.RunOptions);
         Assert.Equal("image:v1", options.Image);
@@ -688,7 +758,7 @@ public sealed class AssistantToolsetContractTests
         h.AutoApproved.Add(tool);
         h.Assistant.ApprovalChanged += (_, approval) => Assert.Null(approval);
         h.Provider.Turns.Enqueue((invoke, ct) => invoke(AiContractHarness.Call(tool, arguments), ct));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Assistant.SendAsync("invalid").WaitAsync(Deadline));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => h.Assistant.SendAsync("invalid").WaitAsync(Deadline));
         Assert.Empty(fixture.Calls);
         Assert.Empty(h.Activity);
     }

@@ -166,7 +166,8 @@ public sealed class AiCapabilityService(
                 if (didProbe) _probeAt = _clock.GetUtcNow();
                 AiConversationContext.SetObservedLimit(configuration,
                     snapshot.Context.Support == AiSupport.Supported ? snapshot.Context.InputByteCeiling : null,
-                    (snapshot.Context.Source == AiObservationSource.HarmlessProbe ? _probeAt : snapshot.ObservedAt) + ProbeLifetime);
+                    (snapshot.Context.Source == AiObservationSource.HarmlessProbe ? _probeAt : snapshot.ObservedAt) + ProbeLifetime,
+                    snapshot.Context.ContextTokens);
             }
             return GetCached(configuration);
         }
