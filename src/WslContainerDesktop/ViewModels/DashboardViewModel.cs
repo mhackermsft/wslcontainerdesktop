@@ -217,13 +217,16 @@ public partial class DashboardViewModel : ObservableObject
         // longer exist per `wslc ps` (the StatusMonitor snapshot, which the Containers page trusts).
         // Cross-check against that snapshot's running-container IDs so the dashboard can't grow
         // "live" rows for containers that aren't actually running.
+        //
+        // The two commands do not agree on ID width: `stats` reports the full 64-character ID while
+        // `list` reports the 12-character short form, so an exact comparison matches nothing and the
+        // dashboard showed "no running containers" with 0% CPU no matter what was running. Correlate
+        // short and long forms instead of assuming one shape.
         var knownRunningIds = _monitor.Latest?.Containers
             .Where(c => c.State == ContainerState.Running)
             .Select(c => c.Id)
-            .ToHashSet(StringComparer.Ordinal);
-        var stats = knownRunningIds is null
-            ? rawStats
-            : rawStats.Where(s => knownRunningIds.Contains(s.Id)).ToList();
+            .ToList();
+        var stats = ContainerIdentity.RunningOnly(rawStats, knownRunningIds, s => s.Id);
 
         var byId = stats.ToDictionary(s => s.Id, StringComparer.Ordinal);
 

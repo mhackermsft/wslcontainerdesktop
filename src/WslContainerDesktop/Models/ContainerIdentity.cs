@@ -39,4 +39,23 @@ internal static class ContainerIdentity
         }
         return count == 1 ? match : null;
     }
+
+    /// <summary>
+    /// Filters observations down to those whose container appears in <paramref name="running"/>.
+    ///
+    /// Engine commands do not agree on ID width — <c>stats</c> reports the full 64-character ID
+    /// while <c>list</c> reports the 12-character short form — so this correlates the two forms
+    /// rather than comparing them for equality. Comparing directly silently discarded every row.
+    /// A null <paramref name="running"/> means the inventory is unknown, which is not evidence that
+    /// nothing is running, so the observations are passed through untouched.
+    /// </summary>
+    internal static IReadOnlyList<T> RunningOnly<T>(
+        IReadOnlyList<T> observations, IReadOnlyList<string>? running, Func<T, string> idOf)
+    {
+        ArgumentNullException.ThrowIfNull(observations);
+        ArgumentNullException.ThrowIfNull(idOf);
+        return running is null
+            ? observations
+            : observations.Where(o => ResolveId(running, idOf(o)) is not null).ToList();
+    }
 }

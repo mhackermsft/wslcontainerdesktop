@@ -214,5 +214,50 @@ public sealed class ContainerInfoCompatibilityTests
         Assert.Null(ContainerIdentity.ResolveId(["not-hexadecimal-id-long"], "not-hexadecimal-id"));
     }
 
+    /// <summary>
+    /// The engine does not report one ID width. `wslc stats` returns the full 64-character ID while
+    /// `wslc list` returns the 12-character short form, so the dashboard's cross-check against the
+    /// running inventory must correlate the two. Comparing them for equality matched nothing, and the
+    /// dashboard reported "no running containers" at 0% CPU no matter what was actually running.
+    /// </summary>
+    [Fact]
+    public void RunningOnly_CorrelatesFullStatsIdsWithShortInventoryIds()
+    {
+        // Real shapes observed from the engine for the same two containers.
+        const string mysqlFull = "b87452640ec930d1e0cbbcdd4522bda64b9c668d17f5bea0348719749b90bcc5";
+        const string ollamaFull = "5a4dbe1fc5d266cba704aae261f282b9f6364e77959024f4275e577945d74407";
+        string[] inventory = ["b87452640ec9", "5a4dbe1fc5d2"];
+
+        var kept = ContainerIdentity.RunningOnly([mysqlFull, ollamaFull], inventory, id => id);
+
+        Assert.Equal([mysqlFull, ollamaFull], kept);
+    }
+
+    /// <summary>The cross-check still exists to drop stats for containers that are no longer running.</summary>
+    [Fact]
+    public void RunningOnly_DropsObservationsThatAreNotInTheInventory()
+    {
+        const string running = "b87452640ec930d1e0cbbcdd4522bda64b9c668d17f5bea0348719749b90bcc5";
+        const string orphan = "ffffffffffff0000000000000000000000000000000000000000000000000000";
+
+        var kept = ContainerIdentity.RunningOnly([running, orphan], ["b87452640ec9"], id => id);
+
+        Assert.Equal([running], kept);
+    }
+
+    /// <summary>
+    /// An unreadable inventory is unknown, not empty. Treating it as empty would blank the dashboard
+    /// during a transient listing failure.
+    /// </summary>
+    [Fact]
+    public void RunningOnly_PassesEverythingThroughWhenTheInventoryIsUnknown()
+    {
+        string[] observations = ["b87452640ec9", "5a4dbe1fc5d2"];
+
+        Assert.Equal(observations, ContainerIdentity.RunningOnly(observations, null, id => id));
+        // A genuinely empty inventory is evidence, and does filter.
+        Assert.Empty(ContainerIdentity.RunningOnly(observations, [], id => id));
+    }
+
     private static ContainerInfo Parse(string json) => Assert.Single(WslcJsonParser.ParseList<ContainerInfo>(json));
 }
