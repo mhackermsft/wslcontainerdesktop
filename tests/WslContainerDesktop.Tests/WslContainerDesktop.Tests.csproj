@@ -200,6 +200,8 @@
     <Compile Remove="Services\DevContainerLifecycleTests.cs" />
     <Compile Remove="Services\ComposeReviewSupervisorTests.cs" />
     <Compile Remove="Services\SupervisorMonitorDoubles.cs" />
+    <!-- TemplateCatalog is only source-linked for the Windows target. -->
+    <Compile Remove="Services\TemplateCatalogTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Update="Fixtures\Capabilities\*.txt" CopyToOutputDirectory="PreserveNewest" />

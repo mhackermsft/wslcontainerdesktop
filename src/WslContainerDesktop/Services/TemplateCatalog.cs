@@ -263,12 +263,13 @@ public sealed class TemplateCatalog : ITemplateCatalog
                 Glyph = "\uE943",
                 Note = "Keep-alive sandbox — open the container's Terminal for a shell. "
                     + "Files persist in the \"java-workspace\" volume at /workspace. "
-                    + "Published port 8080 for a dev server (e.g. Spring Boot).",
+                    + "Host port 8095 forwards to 8080 in the container for a dev server "
+                    + "(e.g. Spring Boot), so it does not collide with the Nginx template.",
                 RunOptions = new RunContainerOptions
                 {
                     Image = "eclipse-temurin:25-jdk",
                     Name = "java-dev",
-                    PortMappings = { "8080:8080" },
+                    PortMappings = { "8095:8080" },
                     Volumes = { "java-workspace:/workspace" },
                     WorkingDir = "/workspace",
                     Command = "sleep infinity",
@@ -342,7 +343,7 @@ public sealed class TemplateCatalog : ITemplateCatalog
             {
                 Id = "azurite",
                 Name = "Azurite (Azure Storage)",
-                Category = "Databases",
+                Category = "Azure",
                 Description = "Azure Storage emulator: blob 10000, queue 10001, table 10002.",
                 Glyph = "\uE7B8",
                 Note = "Use the standard development connection string \"UseDevelopmentStorage=true\", "
@@ -355,6 +356,26 @@ public sealed class TemplateCatalog : ITemplateCatalog
                     Volumes = { "azurite-data:/data" },
                     // Azurite binds loopback by default, which is unreachable from outside the container.
                     Command = "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /data",
+                },
+            },
+            new()
+            {
+                Id = "cosmosdb",
+                Name = "Cosmos DB emulator",
+                Category = "Azure",
+                Description = "Azure Cosmos DB (NoSQL) emulator with Data Explorer on http://localhost:1234.",
+                Glyph = "\uE7B8",
+                // The gateway's own port stays 8081 inside the container; only the host side moves,
+                // because 8081 is already taken by the Adminer template.
+                Note = "Data Explorer: http://localhost:1234. Connect with endpoint http://localhost:8085 and the "
+                    + "well-known emulator key "
+                    + "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==. "
+                    + "This vNext emulator serves plain HTTP and supports the NoSQL API in gateway mode.",
+                RunOptions = new RunContainerOptions
+                {
+                    Image = "mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-latest",
+                    Name = "cosmosdb",
+                    PortMappings = { "8085:8081", "1234:1234" },
                 },
             },
 
@@ -397,6 +418,39 @@ public sealed class TemplateCatalog : ITemplateCatalog
                     + "If an Ollama runtime already exists it is reused, and only the web UI is deployed; "
                     + "otherwise one is deployed alongside. Download models from the UI or the Settings page.",
                 ComposeYaml = OpenWebUiPlanner.BundledYaml,
+            },
+            new()
+            {
+                Id = "servicebus",
+                Name = "Service Bus emulator",
+                Category = "Azure",
+                Description = "Azure Service Bus emulator with its required SQL backend.",
+                Glyph = "\uE909",
+                Kind = StackTemplateKind.Compose,
+                ComposeProjectName = "servicebus",
+                // AMQP is offset from 5672 because the RabbitMQ template already claims it.
+                Note = "Connection string: \"Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;"
+                    + "SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;\". "
+                    + "Starts with namespace \"sbemulatorns\" containing queue.1 and topic.1 "
+                    + "(subscription.1, subscription.2, subscription.3). "
+                    + "The emulator waits for SQL Server to pass its health check, so first start takes a minute.",
+                ComposeYaml = ServiceBusYaml,
+            },
+            new()
+            {
+                Id = "eventhubs",
+                Name = "Event Hubs emulator",
+                Category = "Azure",
+                Description = "Azure Event Hubs emulator with its required Azurite and SQL backends.",
+                Glyph = "\uE909",
+                Kind = StackTemplateKind.Compose,
+                ComposeProjectName = "eventhubs",
+                Note = "Connection string: \"Endpoint=sb://localhost:5674;SharedAccessKeyName=RootManageSharedAccessKey;"
+                    + "SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;\". "
+                    + "Starts with namespace \"emulatorns1\" containing event hub \"eh1\" (2 partitions, "
+                    + "consumer groups \"cg1\" and \"$default\"). Kafka endpoint: localhost:9092. "
+                    + "The emulator waits for SQL Server to pass its health check, so first start takes a minute.",
+                ComposeYaml = EventHubsYaml,
             },
         };
     }
@@ -452,5 +506,88 @@ public sealed class TemplateCatalog : ITemplateCatalog
         volumes:
           pg-data:
           pgadmin-data:
+        """;
+
+    /// <summary>
+    /// The Service Bus emulator needs a SQL Server it can reach, and exits if SQL is not accepting
+    /// connections yet, so startup is gated on a real query rather than on the container merely
+    /// existing. The emulator ships a default namespace, so no configuration file has to be mounted.
+    /// AMQP is published on 5673 because the RabbitMQ template already publishes 5672.
+    /// </summary>
+    private const string ServiceBusYaml = """
+        services:
+          sql:
+            image: mcr.microsoft.com/mssql/server:2025-latest
+            environment:
+              ACCEPT_EULA: "Y"
+              MSSQL_SA_PASSWORD: "Str0ng!Passw0rd"
+              MSSQL_PID: Developer
+            volumes:
+              - servicebus-sql:/var/opt/mssql
+            healthcheck:
+              test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Str0ng!Passw0rd' -C -Q 'SELECT 1'
+              interval: 10s
+              retries: 12
+              start_period: 20s
+          servicebus:
+            image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+            depends_on:
+              sql:
+                condition: service_healthy
+            ports:
+              - "5673:5672"
+              - "5300:5300"
+            environment:
+              ACCEPT_EULA: "Y"
+              SQL_SERVER: sql
+              MSSQL_SA_PASSWORD: "Str0ng!Passw0rd"
+        volumes:
+          servicebus-sql:
+        """;
+
+    /// <summary>
+    /// The Event Hubs emulator needs both blob/metadata storage (Azurite) and SQL Server. Azurite
+    /// must bind 0.0.0.0 or the emulator cannot reach it from another container. Like Service Bus,
+    /// the emulator ships a default namespace and AMQP is offset off the RabbitMQ port.
+    /// </summary>
+    private const string EventHubsYaml = """
+        services:
+          azurite:
+            image: mcr.microsoft.com/azure-storage/azurite:latest
+            command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /data
+            volumes:
+              - eventhubs-storage:/data
+          sql:
+            image: mcr.microsoft.com/mssql/server:2025-latest
+            environment:
+              ACCEPT_EULA: "Y"
+              MSSQL_SA_PASSWORD: "Str0ng!Passw0rd"
+              MSSQL_PID: Developer
+            volumes:
+              - eventhubs-sql:/var/opt/mssql
+            healthcheck:
+              test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Str0ng!Passw0rd' -C -Q 'SELECT 1'
+              interval: 10s
+              retries: 12
+              start_period: 20s
+          eventhubs:
+            image: mcr.microsoft.com/azure-messaging/eventhubs-emulator:latest
+            depends_on:
+              azurite:
+                condition: service_started
+              sql:
+                condition: service_healthy
+            ports:
+              - "5674:5672"
+              - "9092:9092"
+            environment:
+              ACCEPT_EULA: "Y"
+              BLOB_SERVER: azurite
+              METADATA_SERVER: azurite
+              SQL_SERVER: sql
+              MSSQL_SA_PASSWORD: "Str0ng!Passw0rd"
+        volumes:
+          eventhubs-storage:
+          eventhubs-sql:
         """;
 }
