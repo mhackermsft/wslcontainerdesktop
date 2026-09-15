@@ -23,7 +23,14 @@ public sealed record DevContainerOperationResult(bool Success, string Detail);
 
 public interface IDevContainerSupervisor
 {
-    Task<DevContainerOperationResult> UpAsync(DevContainerConfig config, bool rebuild = false, bool noCache = false, CancellationToken ct = default);
+    /// <summary>
+    /// Starts or rebuilds a dev container. Nonempty Windows initialize commands require explicit
+    /// approval of the supplied immutable snapshot on every call, before any preparation or mutation.
+    /// Missing/declined approval fails the operation; cancellation throws. Compose host hooks remain blocked.
+    /// </summary>
+    Task<DevContainerOperationResult> UpAsync(DevContainerConfig config, bool rebuild = false, bool noCache = false,
+        CancellationToken ct = default,
+        Func<DevContainerHostCommandReview, CancellationToken, Task<bool>>? approveHostCommandsAsync = null);
     Task StopAsync(DevContainerConfig config, CancellationToken ct = default);
     Task RemoveAsync(DevContainerConfig config, CancellationToken ct = default);
     void OpenTerminal(DevContainerConfig config, string containerId);
