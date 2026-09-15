@@ -12,6 +12,17 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+### Security
+
+- **Container file exports cannot use Linux filenames to escape the Windows destination folder.**
+  Legacy downloads and automatic drag-out staging now share the native path's protections, reject
+  Windows device/alternate-stream names and ambiguous filenames, and refuse existing host symbolic
+  links in destination paths. Both backends require a folder below the drive or share root.
+- **Dev-container host commands now require explicit approval on every start or rebuild.**
+  The confirmation identifies the Windows workspace and exact `initializeCommand` hooks instead
+  of treating a generic import confirmation as permission to run host commands. Declining stops
+  the operation before host commands or container changes.
+
 ### Fixed
 
 - **Disk usage offered space it could not free.** Every untagged image counted as reclaimable, but

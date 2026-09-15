@@ -375,7 +375,7 @@ public sealed class WslcService(
 
     public Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default) =>
         FileTransfer.CopyFromAsync(id, containerPath, hostPath,
-            token => CopyFromContainerLegacyAsync(id, containerPath, hostPath, token), ct);
+            (source, destination, token) => CopyFromContainerLegacyAsync(id, source, destination, token), ct);
 
     public Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default) =>
         FileTransfer.CopyToAsync(id, hostPath, containerPath,
@@ -401,11 +401,10 @@ public sealed class WslcService(
             return new CommandResult { ExitCode = -1, StandardError = $"Path not found in container: {containerPath}" };
         }
 
-        var name = PosixBaseName(containerPath);
-
         try
         {
-            Directory.CreateDirectory(hostPath);
+            var destination = ContainerDownloadPath.Create(containerPath, hostPath);
+            var name = destination.Name;
 
             if (kind == "DIR")
             {
@@ -415,7 +414,7 @@ public sealed class WslcService(
                 var script =
                     $"cd {WslRootShell.ShellEscape(PosixParent(containerPath))} || exit 1; " +
                     "tmp=$(mktemp) || exit 1; trap 'rm -f \"$tmp\"' EXIT HUP INT TERM; " +
-                    $"if tar -cf \"$tmp\" -- {WslRootShell.ShellEscape(name)}; then base64 \"$tmp\"; s=$?; else s=$?; fi; " +
+                    $"if tar -cf \"$tmp\" -- {WslRootShell.ShellEscape(name.Length == 0 ? "." : name)}; then base64 \"$tmp\"; s=$?; else s=$?; fi; " +
                     "rm -f \"$tmp\"; exit $s";
                 var res = await ExecShellAsync(id, script, ct).ConfigureAwait(false);
                 if (!res.Success)
@@ -423,9 +422,9 @@ public sealed class WslcService(
                     return res;
                 }
 
-                PrepareOverwrite(Path.Combine(hostPath, name));
+                destination.Prepare(ct);
                 using var ms = new MemoryStream(DecodeBase64(res.StandardOutput));
-                System.Formats.Tar.TarFile.ExtractToDirectory(ms, hostPath, overwriteFiles: true);
+                System.Formats.Tar.TarFile.ExtractToDirectory(ms, destination.Directory, overwriteFiles: true);
                 return res;
             }
             else
@@ -437,11 +436,8 @@ public sealed class WslcService(
                     return res;
                 }
 
-                var dest = Path.Combine(hostPath, name);
-                // A prior "open" marks the staged file read-only; clear that so re-opening the same
-                // file (which truncates/overwrites) doesn't fail with UnauthorizedAccessException.
-                PrepareOverwrite(dest);
-                await File.WriteAllBytesAsync(dest, DecodeBase64(res.StandardOutput), ct)
+                destination.Prepare(ct);
+                await File.WriteAllBytesAsync(destination.Target, DecodeBase64(res.StandardOutput), ct)
                     .ConfigureAwait(false);
                 return res;
             }
@@ -1118,55 +1114,13 @@ public sealed class WslcService(
         return Convert.FromBase64CharArray(buffer, 0, n);
     }
 
-    /// <summary>
-    /// Clears read-only attributes on an existing host file or directory tree so a subsequent
-    /// overwrite/extract can truncate it. Files opened for read-only preview are marked read-only,
-    /// which would otherwise make re-copying them throw <see cref="UnauthorizedAccessException"/>.
-    /// </summary>
-    private static void PrepareOverwrite(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.SetAttributes(path, FileAttributes.Normal);
-            }
-            else if (Directory.Exists(path))
-            {
-                foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
-                {
-                    try
-                    {
-                        File.SetAttributes(file, FileAttributes.Normal);
-                    }
-                    catch
-                    {
-                        // Best-effort; a still-locked file will surface a clear error on write.
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Best-effort; the caller's write/extract will report any real failure.
-        }
-    }
-
-    private static string PosixBaseName(string path)
+    private static string PosixParent(string path)
     {
         var trimmed = path.TrimEnd('/');
         if (trimmed.Length == 0)
         {
             return "/";
         }
-
-        var idx = trimmed.LastIndexOf('/');
-        return idx < 0 ? trimmed : trimmed[(idx + 1)..];
-    }
-
-    private static string PosixParent(string path)
-    {
-        var trimmed = path.TrimEnd('/');
         var idx = trimmed.LastIndexOf('/');
         if (idx < 0)
         {

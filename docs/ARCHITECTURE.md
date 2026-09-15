@@ -313,8 +313,16 @@ Transfers select native `wslc container cp` only when detected; definite absence
 exec/base64/tar backend (running container with the required tools), and unknown availability produces
 a diagnostic. Native failures are not retried through legacy code. Transfer destinations are directories:
 basenames are preserved, host destinations are created, and upload archives include the requested
-destination hierarchy to retain mkdir-p behavior. Native container paths must be absolute and
-traversal-free; downloaded basenames must be representable on Windows.
+destination hierarchy to retain mkdir-p behavior. Native container paths and all download sources
+must be absolute and traversal-free.
+
+`ContainerDownloadPath` validates both download backends before filesystem mutation: the POSIX
+basename must be a safe Windows filename (including device-name, alternate-stream and trailing
+dot/space rejection), its canonical target must stay in the selected directory, and the destination
+must be below a drive/share root. Existing destination ancestors and overwritten trees are checked
+for symbolic links, including dangling links; non-link cloud placeholders remain supported.
+The legacy backend receives canonical paths and repeats the link checks before writing/extracting.
+Preview/open and drag-out use the validated source basename rather than raw file-listing names.
 
 Native transfer does not require an in-container shell, but still uses host `tar.exe` and staging.
 Uploads use streamed, disk-backed PAX archives under the concrete MSIX `LocalCacheFolder` path.
@@ -338,6 +346,18 @@ and [upstream copy tests](https://github.com/microsoft/WSL/blob/2.9.11/test/wind
 plus controlled local stopped/shell-removed transfer fixtures. This is not a promise of Docker parity.
 The Files page's **Download path** supports known-path transfers without browsing; browsing,
 text preview, path editing and diff remain shell-dependent.
+
+### Dev-container host command approval
+
+Single-container `initializeCommand` hooks are host execution, not container execution.
+The supervisor requires an explicit per-operation review of the Windows workspace and exact
+commands before running hooks or preparing/changing containers. A missing reviewer, denial or
+cancellation cannot silently skip the gate and continue. Execution uses the immutable reviewed
+workspace/commands even if the imported configuration changes while approval is pending.
+Display projections visibly escape backslashes and invisible control/format characters to prevent
+misleading reviews; those display strings are never used for execution.
+Approval is not persisted as workspace trust, and every start/rebuild requires a fresh decision.
+Compose-backed initialization remains blocked by its existing compatibility review.
 
 ### Container filesystem diff (`WslcService.DiffContainerAsync`)
 

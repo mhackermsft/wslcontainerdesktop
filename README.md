@@ -307,6 +307,10 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
   - **Changes** — a `docker diff` equivalent listing every file **added (A)**, **changed (C)**, or **deleted (D)** relative to the container's image, so you can see exactly what a running container has written. (Emulated by comparing the container's rootfs against a fresh walk of its image; needs a running container with a shell.)
 - Open an interactive terminal (`exec -it`) or open a published port in the browser.
 
+File downloads and background drag-out staging reject Windows-unsafe filenames, traversal, and
+existing host symbolic links on both native and legacy engines. Choose a destination below the
+drive or share root. Opened files remain untrusted; read-only marking does not make their contents safe.
+
 ### Docker Compose
 - **Import a `docker-compose.yml`** (file picker) to create a **Compose project** — the app parses a large subset of the Compose spec into a service dependency graph.
 - **Apply / Down / Restart**, for the whole stack or selected services from **Manage services**. Repeated **up** keeps unchanged running containers and selectively recreates changed configuration/images; **restart** only stop/starts existing containers and does not apply edits. Targeted apply includes required dependencies, with health/exit gating, project-scoped resources and service DNS aliases. Explicit rebuild is available for build-context edits.
@@ -317,6 +321,16 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 - See [reconciliation semantics](docs/COMPOSE-RECONCILIATION.md) for plans, profiles, dependency restart conditions, image policies, preserved storage, and partial-failure behavior.
 - **Compatibility review before apply** — inspect active services, replicas, dependencies, storage, ports, networks, limits, native/legacy backend and app-owned supervision. Supported, approximated, ignored and blocked settings have explanations; blockers cannot be overridden. Cancel changes no workload or saved deployment settings. Confirmation rechecks fresh evidence and rejects stale or expired reviews. See the [review and reusable approval API](docs/COMPOSE-COMPATIBILITY.md).
 - **Local scaling** — set `scale` / `deploy.replicas` or a saved per-service UI count. Reconciliation preserves unchanged instances and applies ownership-safe scale changes. See the [supported scaling subset](docs/COMPOSE-SCALING.md), including port/name conflicts and replicated dependency behavior.
+
+### Dev containers
+
+Starting or rebuilding a single-container dev environment with `initializeCommand` requires a
+separate confirmation showing the workspace and exact commands. These commands run **on Windows
+with your user permissions, not inside the container**. Approval applies only to that operation;
+declining stops it before host commands or container changes. Importing a workspace is not approval
+to execute its host commands. Compose-backed host initialization remains blocked.
+The review visibly escapes backslashes and hidden control/format characters; it is not copy-ready
+shell text. Execution uses the original reviewed commands.
 
 ### Images
 - List with repository, tag, ID, size, and age.

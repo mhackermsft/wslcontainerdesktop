@@ -28,40 +28,23 @@ internal sealed class WslcFileTransfer(
 {
     public Task<CommandResult> CopyFromAsync(
         string id, string containerPath, string hostDirectory,
-        Func<CancellationToken, Task<CommandResult>> legacy, CancellationToken ct = default) =>
-        SelectAsync(legacy, async (executable, token) =>
-        {
-            ValidateContainerPath(containerPath);
-            var source = containerPath.TrimEnd('/');
-            if (source.Length == 0)
-            {
-                source = "/";
-            }
-            var name = source[(source.LastIndexOf('/') + 1)..];
-            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            {
-                throw new ArgumentException("The source basename cannot be represented as a Windows filename.");
-            }
+        Func<string, string, CancellationToken, Task<CommandResult>> legacy, CancellationToken ct = default)
+    {
+        return SelectAsync(token => DownloadAsync(null, token), DownloadAsync, ct);
 
-            var destination = Path.GetFullPath(hostDirectory);
-            // WSLC strips trailing separators; a drive root would become drive-relative.
-            if (string.Equals(
-                destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                Path.GetPathRoot(destination)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                StringComparison.OrdinalIgnoreCase))
+        async Task<CommandResult> DownloadAsync(string? executable, CancellationToken token)
+        {
+            var destination = ContainerDownloadPath.Create(containerPath, hostDirectory);
+            destination.Prepare(token);
+            if (executable is null)
             {
-                throw new ArgumentException("Select a destination folder below the drive or share root.");
+                return await legacy(destination.Source, destination.Directory, token).ConfigureAwait(false);
             }
-            Directory.CreateDirectory(destination);
-            if (name.Length > 0)
-            {
-                PrepareOverwrite(Path.Combine(destination, name), token);
-            }
-            // WSLC uses host tar.exe to extract. An existing directory prevents rename semantics.
-            var result = await run(executable, ["container", "cp", $"{id}:{source}", destination], token)
+            var result = await run(executable, ["container", "cp", $"{id}:{destination.Source}", destination.Directory], token)
                 .ConfigureAwait(false);
             return WithNativeDiagnostic(result);
-        }, ct);
+        }
+    }
 
     public Task<CommandResult> CopyToAsync(
         string id, string hostPath, string containerDirectory,
@@ -121,17 +104,7 @@ internal sealed class WslcFileTransfer(
         ct.ThrowIfCancellationRequested();
         var snapshot = await capabilities.GetAsync(ct).ConfigureAwait(false);
         var capability = snapshot[WslcFeature.ContainerCp];
-        if (capability.Support == WslcCapabilitySupport.Unsupported)
-        {
-            var result = await legacy(ct).ConfigureAwait(false);
-            return result.Success ? result : new CommandResult
-            {
-                ExitCode = result.ExitCode,
-                StandardOutput = result.StandardOutput,
-                StandardError = $"{result.ErrorText}\nThis engine uses legacy transfer: the container must be running with sh, base64 and (for directories) tar.",
-            };
-        }
-        if (capability.Support != WslcCapabilitySupport.Supported)
+        if (capability.Support is not (WslcCapabilitySupport.Supported or WslcCapabilitySupport.Unsupported))
         {
             return new CommandResult
             {
@@ -142,6 +115,16 @@ internal sealed class WslcFileTransfer(
 
         try
         {
+            if (capability.Support == WslcCapabilitySupport.Unsupported)
+            {
+                var result = await legacy(ct).ConfigureAwait(false);
+                return result.Success ? result : new CommandResult
+                {
+                    ExitCode = result.ExitCode,
+                    StandardOutput = result.StandardOutput,
+                    StandardError = $"{result.ErrorText}\nThis engine uses legacy transfer: the container must be running with sh, base64 and (for directories) tar.",
+                };
+            }
             return await native(snapshot.ExecutablePath, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -225,32 +208,8 @@ internal sealed class WslcFileTransfer(
     }
 
     internal static void PrepareOverwrite(
-        string path, CancellationToken ct, Func<string, FileAttributes>? readAttributes = null)
-    {
-        ct.ThrowIfCancellationRequested();
-        if (!Path.Exists(path))
-        {
-            return;
-        }
-        var attributes = (readAttributes ?? File.GetAttributes)(path);
-        var isDirectory = (attributes & FileAttributes.Directory) != 0;
-        FileSystemInfo info = isDirectory ? new DirectoryInfo(path) : new FileInfo(path);
-        if ((attributes & FileAttributes.ReparsePoint) != 0 && info.LinkTarget is not null)
-        {
-            throw new IOException("The download would overwrite a host symbolic link. Choose another destination.");
-        }
-        if (isDirectory)
-        {
-            foreach (var child in Directory.EnumerateFileSystemEntries(path))
-            {
-                PrepareOverwrite(child, ct, readAttributes);
-            }
-        }
-        else if ((attributes & FileAttributes.ReadOnly) != 0)
-        {
-            File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
-        }
-    }
+        string path, CancellationToken ct, Func<string, FileAttributes>? readAttributes = null) =>
+        ContainerDownloadPath.PrepareOverwrite(path, ct, readAttributes);
 
     private static CommandResult WithNativeDiagnostic(CommandResult result) => result.Success ? result : new CommandResult
     {

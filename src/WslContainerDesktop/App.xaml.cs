@@ -453,6 +453,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IDevContainerStore, DevContainerStore>();
         services.AddSingleton<IDevContainerFeatureResolver, DevContainerFeatureResolver>();
         services.AddSingleton<IDevContainerSupervisor, DevContainerSupervisor>();
+        services.AddSingleton<IDevContainerHostCommandPresenter, DevContainerHostCommandPresenter>();
         services.AddSingleton<AssistantToolset>();
         services.AddSingleton<IHealthObservationSource>(sp => sp.GetRequiredService<StatusMonitor>());
         services.AddSingleton<IAppHealthObservationSource>(sp => sp.GetRequiredService<HealthWatchdog>());

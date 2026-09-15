@@ -64,6 +64,7 @@ public partial class DevContainersViewModel(
     IDevContainerImporter importer,
     IDevContainerStore store,
     IDevContainerSupervisor supervisor,
+    IDevContainerHostCommandPresenter hostCommandPresenter,
     IWslcService wslc,
     DialogService dialogs) : ObservableObject
 {
@@ -157,7 +158,8 @@ public partial class DevContainersViewModel(
             return;
         }
 
-        await RunOperationAsync(row, () => supervisor.UpAsync(row.Config), "Starting", "Start failed");
+        await RunOperationAsync(row, () => supervisor.UpAsync(row.Config,
+            approveHostCommandsAsync: hostCommandPresenter.ConfirmAsync), "Starting", "Start failed");
     }
 
     [RelayCommand]
@@ -169,7 +171,8 @@ public partial class DevContainersViewModel(
             return;
         }
 
-        await RunOperationAsync(row, () => supervisor.UpAsync(row.Config, rebuild: true), "Rebuilding", "Rebuild failed");
+        await RunOperationAsync(row, () => supervisor.UpAsync(row.Config, rebuild: true,
+            approveHostCommandsAsync: hostCommandPresenter.ConfirmAsync), "Rebuilding", "Rebuild failed");
     }
 
     [RelayCommand]
@@ -181,7 +184,8 @@ public partial class DevContainersViewModel(
             return;
         }
 
-        await RunOperationAsync(row, () => supervisor.UpAsync(row.Config, rebuild: true, noCache: true), "Rebuilding without cache", "Rebuild failed");
+        await RunOperationAsync(row, () => supervisor.UpAsync(row.Config, rebuild: true, noCache: true,
+            approveHostCommandsAsync: hostCommandPresenter.ConfirmAsync), "Rebuilding without cache", "Rebuild failed");
     }
 
     [RelayCommand]
@@ -283,6 +287,15 @@ public partial class DevContainersViewModel(
                 await dialogs.ShowMessageAsync(failureTitle, result.Detail);
             }
         }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = $"{progress} \"{row.Name}\" cancelled.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"{row.Name}: failed";
+            await dialogs.ShowMessageAsync(failureTitle, ex.Message);
+        }
         finally
         {
             IsBusy = false;
@@ -335,6 +348,12 @@ public partial class DevContainersViewModel(
         if (!string.IsNullOrWhiteSpace(row(config.Lifecycle)))
         {
             sb.AppendLine("Lifecycle: " + row(config.Lifecycle));
+        }
+        if (config.Lifecycle.Initialize.Any(c => !string.IsNullOrWhiteSpace(c)))
+        {
+            sb.AppendLine(config.Compose is null
+                ? "Host initializeCommand scripts require separate Windows host execution approval on every start or rebuild. Importing does not approve them."
+                : "Host initializeCommand scripts are blocked for Compose dev containers.");
         }
         if (warnings.Count > 0)
         {
