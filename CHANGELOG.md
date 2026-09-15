@@ -10,7 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Each version links to its release,
 where the signed MSIX and installation steps live.
 
-## [Unreleased]
+## [1.8.1] — 2026-09-15
 
 ### Security
 
@@ -237,7 +237,8 @@ rather than assuming one schema or flag set.
 Older versions (1.0.0 – 1.5.3) predate this changelog. Their tags remain in the repository, and
 their changes can be reviewed with `git log v1.5.2..v1.5.3` and similar.
 
-[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v1.8.0...main
+[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v1.8.1...main
+[1.8.1]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.8.1
 [1.8.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.8.0
 [1.7.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.7.0
 [1.6.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.6.0
