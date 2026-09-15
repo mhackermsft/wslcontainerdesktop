@@ -309,7 +309,9 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 
 File downloads and background drag-out staging reject Windows-unsafe filenames, traversal, and
 existing host symbolic links on both native and legacy engines. Choose a destination below the
-drive or share root. Opened files remain untrusted; read-only marking does not make their contents safe.
+drive or share root. Legacy directory archives are validated in full before extraction: members
+and links cannot escape the requested source subtree. Opened files remain untrusted; read-only
+marking does not make their contents safe.
 
 ### Docker Compose
 - **Import a `docker-compose.yml`** (file picker) to create a **Compose project** — the app parses a large subset of the Compose spec into a service dependency graph.
@@ -331,6 +333,9 @@ declining stops it before host commands or container changes. Importing a worksp
 to execute its host commands. Compose-backed host initialization remains blocked.
 The review visibly escapes backslashes and hidden control/format characters; it is not copy-ready
 shell text. Execution uses the original reviewed commands.
+Host initialization requires a conventional drive-letter workspace path shorter than 260 characters.
+UNC, device and extended-length paths are rejected because CMD can silently use a different working
+directory. Workspaces without host initialization commands are unaffected.
 
 ### Images
 - List with repository, tag, ID, size, and age.

@@ -26,7 +26,7 @@ public sealed class DevContainerHostCommandReview
     {
         Commands = Array.AsReadOnly(commands.Where(c => !string.IsNullOrWhiteSpace(c)).ToArray());
         // Resolve relative paths before review; never resolve a different working directory later.
-        WorkspacePath = Commands.Count == 0 ? workspacePath : Path.GetFullPath(workspacePath);
+        WorkspacePath = Commands.Count == 0 ? workspacePath : ResolveWorkspace(workspacePath);
         DisplayWorkspacePath = EscapeForDisplay(WorkspacePath);
         DisplayCommands = Array.AsReadOnly(Commands.Select(EscapeForDisplay).ToArray());
     }
@@ -38,6 +38,19 @@ public sealed class DevContainerHostCommandReview
     /// <summary>Display-only escaping prevents invisible characters from concealing the reviewed inputs.</summary>
     public string DisplayWorkspacePath { get; }
     public IReadOnlyList<string> DisplayCommands { get; }
+
+    private static string ResolveWorkspace(string workspacePath)
+    {
+        var fullPath = Path.GetFullPath(workspacePath);
+        // CMD can silently replace UNC/device/extended-length current directories with C:\Windows.
+        if (fullPath.Length >= 260 || fullPath.Length < 3 || !char.IsAsciiLetter(fullPath[0]) ||
+            fullPath[1] != ':' || fullPath[2] != '\\')
+        {
+            throw new ArgumentException("Host initializeCommand requires a conventional drive-letter workspace path shorter than 260 characters. " +
+                "UNC, device and extended-length workspace paths are not supported by cmd.exe.");
+        }
+        return fullPath;
+    }
 
     internal static string EscapeForDisplay(string text)
     {

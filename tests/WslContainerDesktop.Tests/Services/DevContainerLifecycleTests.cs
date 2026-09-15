@@ -25,6 +25,50 @@ namespace WslContainerDesktop.Tests.Services;
 
 public sealed class DevContainerLifecycleTests
 {
+    public static IEnumerable<object[]> UnsupportedHostWorkspaces()
+    {
+        yield return [@"\\server\share\workspace"];
+        yield return ["//server/share/workspace"];
+        yield return [@"\\?\C:\workspace"];
+        yield return [@"\\.\C:\workspace"];
+        yield return [@"\\?\UNC\server\share\workspace"];
+        yield return [@"C:\" + new string('a', 257)];
+    }
+
+    [Theory]
+    [MemberData(nameof(UnsupportedHostWorkspaces))]
+    public async Task RejectsWorkspaceFormsCmdCannotHonorBeforeApprovalOrMutation(string workspace)
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.WorkspacePath = workspace;
+        fixture.Config.Lifecycle.Initialize = ["cd"];
+        var reviews = 0;
+
+        var result = await fixture.Up(approveHostCommandsAsync: (_, _) =>
+        {
+            reviews++;
+            return Task.FromResult(true);
+        });
+
+        Assert.False(result.Success);
+        Assert.Contains("not supported by cmd.exe", result.Detail);
+        Assert.Equal(0, reviews);
+        Assert.Empty(fixture.HostProcesses);
+        Assert.Empty(fixture.Calls);
+        Assert.Empty(fixture.Compose.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task WorkspaceRestrictionsDoNotApplyWhenThereAreNoHostCommands()
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.WorkspacePath = @"\\server\share\workspace";
+        fixture.Config.Lifecycle.Initialize = [];
+
+        Assert.True((await fixture.Up()).Success);
+        Assert.Empty(fixture.HostProcesses);
+    }
+
     [Theory]
     [InlineData("echo \u202Etxt\u202C", @"echo \u202Etxt\u202C")]
     [InlineData("echo \u2066a\u2067b\u2068c\u2069", @"echo \u2066a\u2067b\u2068c\u2069")]

@@ -42,12 +42,7 @@ internal sealed class ContainerDownloadPath
         var source = containerPath.TrimEnd('/');
         if (source.Length == 0) source = "/";
         var name = source[(source.LastIndexOf('/') + 1)..];
-        if (name.Length > 0 &&
-            (name.Any(c => c < ' ' || "<>:\"/\\|?*".Contains(c)) ||
-             name.EndsWith('.') || name.EndsWith(' ') || IsDeviceName(name)))
-        {
-            throw new ArgumentException("The source basename cannot be represented safely as a Windows filename.");
-        }
+        if (name.Length > 0) ValidateFileName(name);
 
         var directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(hostDirectory));
         if (string.Equals(directory, Path.GetPathRoot(directory), StringComparison.OrdinalIgnoreCase))
@@ -63,6 +58,15 @@ internal sealed class ContainerDownloadPath
         }
 
         return new(source, directory, name, target);
+    }
+
+    internal static void ValidateFileName(string name)
+    {
+        if (name.Length == 0 || name.Any(c => c < ' ' || "<>:\"/\\|?*".Contains(c)) ||
+            name.EndsWith('.') || name.EndsWith(' ') || IsDeviceName(name))
+        {
+            throw new ArgumentException("A downloaded name cannot be represented safely as a Windows filename.");
+        }
     }
 
     public void Prepare(CancellationToken ct)

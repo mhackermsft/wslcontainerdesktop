@@ -422,9 +422,8 @@ public sealed class WslcService(
                     return res;
                 }
 
-                destination.Prepare(ct);
                 using var ms = new MemoryStream(DecodeBase64(res.StandardOutput));
-                System.Formats.Tar.TarFile.ExtractToDirectory(ms, destination.Directory, overwriteFiles: true);
+                await ContainerDownloadArchive.ExtractAsync(ms, destination, ct).ConfigureAwait(false);
                 return res;
             }
             else

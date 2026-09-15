@@ -322,6 +322,10 @@ dot/space rejection), its canonical target must stay in the selected directory, 
 must be below a drive/share root. Existing destination ancestors and overwritten trees are checked
 for symbolic links, including dangling links; non-link cloud placeholders remain supported.
 The legacy backend receives canonical paths and repeats the link checks before writing/extracting.
+`ContainerDownloadArchive` preflights every incoming member and link before any extraction.
+Each POSIX member component must be a safe Windows name, and canonical member/link targets must
+remain below the requested source subtree (the selected destination for a `/` source). Safe
+relative links and standard `./` root archives retain the framework's extraction semantics.
 Preview/open and drag-out use the validated source basename rather than raw file-listing names.
 
 Native transfer does not require an in-container shell, but still uses host `tar.exe` and staging.
@@ -356,6 +360,9 @@ cancellation cannot silently skip the gate and continue. Execution uses the immu
 workspace/commands even if the imported configuration changes while approval is pending.
 Display projections visibly escape backslashes and invisible control/format characters to prevent
 misleading reviews; those display strings are never used for execution.
+Nonempty host initialization requires a conventional drive-letter workspace path below 260
+characters; UNC/device/extended-length paths fail before review, because CMD can silently replace
+their working directory. No-host-command operations keep their existing workspace behavior.
 Approval is not persisted as workspace trust, and every start/rebuild requires a fresh decision.
 Compose-backed initialization remains blocked by its existing compatibility review.
 
