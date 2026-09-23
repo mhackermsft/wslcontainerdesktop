@@ -693,6 +693,9 @@ public partial class KubernetesViewModel : ObservableObject
         PortForwards.Clear();
     }
 
+    /// <summary>Stops every port-forward and empties the list, e.g. before the app closes for an update.</summary>
+    public void StopAllPortForwards() => ClearPortForwards();
+
     private void AppendLog(string line)
     {
         _dispatcher.TryEnqueue(() =>

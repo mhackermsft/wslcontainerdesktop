@@ -199,8 +199,14 @@ script-signing policy.
 4. Launch **WSL Container Desktop** from the Start menu.
 
 The first command trusts the app's self-signed publisher certificate (`CN=Michael Hacker`) so Windows
-accepts the sideloaded package; the second installs (or updates) the app. To update later, repeat the
-same steps with a newer release — it updates in place.
+accepts the sideloaded package; the second installs (or updates) the app.
+
+**Updating.** Once installed, the app checks GitHub for a newer release each time it starts. When one is
+available it shows a bar at the top of the window and a Windows notification; choose **Update now** and
+it downloads the release, closes, installs it and reopens. It only installs a package that is a newer
+build of this app signed with the same certificate as the one you installed. Turn the check off, or
+check by hand, under **Settings → About**. You can also still update manually by repeating the steps
+above with a newer release — it updates in place.
 
 **Prefer the bundled `Install.ps1` script?** Download it too, then run it in a way that bypasses the
 script-signing block — either from an elevated PowerShell in the download folder:
@@ -445,6 +451,7 @@ Raw approved values stay in execution memory and may be passed to workload servi
 ### Notifications
 - **Windows toast notifications** for noteworthy events: image pull/build completed or failed, a container that stopped running, and the engine going down or recovering.
 - **Clicking a toast** activates the app and opens the relevant page.
+- **App updates** — when a newer release is available, a toast with an **Update now** button (see [Updating](#option-a-install-a-release-recommended-for-users)).
 - **User-toggleable** in Settings — a master *Show notifications* switch plus per-category switches (images, containers, engine) — and globally mutable from the tray menu.
 
 ### System tray
@@ -460,6 +467,7 @@ Raw approved values stay in execution memory and may be passed to workload servi
 - Auto-refresh interval.
 - **AI diagnostics** *(off by default)* — enable AI, choose a provider (GitHub Copilot / Ollama / Azure OpenAI / OpenAI-compatible), set the OpenAI-compatible base URL for a local or self-hosted server, set up or remove an app-managed local Ollama, and configure **Container AI Assistant permissions**: whether the assistant may delete things at all, whether it may act without asking, and per-tool auto-approve.
 - Light / Dark / System theme, applied instantly.
+- **Updates** (About section) — *Check for updates when the app starts* (on by default) and a **Check for updates** button.
 
 ---
 

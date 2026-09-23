@@ -33,4 +33,10 @@ internal static class AppConstants
 
     /// <summary>Default number of log lines to tail when first showing container/pod logs.</summary>
     public const int DefaultLogTailLines = 500;
+
+    /// <summary>GitHub <c>owner/repo</c> whose releases the in-app updater installs from.</summary>
+    public const string UpdateRepository = "mhackermsft/wslcontainerdesktop";
+
+    /// <summary>Largest MSIX the updater will download; a release far beyond this is not ours.</summary>
+    public const long UpdateMaxPackageBytes = 1024L * 1024 * 1024;
 }

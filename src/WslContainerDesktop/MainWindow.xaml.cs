@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         Shell = App.Current.Services.GetRequiredService<ShellViewModel>();
+        Updates = App.Current.Services.GetRequiredService<AppUpdateViewModel>();
         _settings = App.Current.Services.GetRequiredService<ISettingsService>();
         _dialogs = App.Current.Services.GetRequiredService<DialogService>();
         _aiAvailability = App.Current.Services.GetRequiredService<IAiAvailabilityService>();
@@ -58,6 +59,12 @@ public sealed partial class MainWindow : Window
     }
 
     public ShellViewModel Shell { get; }
+
+    public AppUpdateViewModel Updates { get; }
+
+    public static Visibility ToVisibility(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
+
+    private void UpdateBar_CloseButtonClick(InfoBar sender, object args) => Updates.DismissBar();
 
     private void OnRootLoaded(object sender, RoutedEventArgs e)
     {

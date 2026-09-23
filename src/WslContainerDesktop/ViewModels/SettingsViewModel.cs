@@ -94,6 +94,9 @@ public partial class SettingsViewModel : ObservableObject
     private bool _notifyEngineEvents;
 
     [ObservableProperty]
+    private bool _checkForUpdatesOnLaunch;
+
+    [ObservableProperty]
     private string _devContainerNpmRegistry = string.Empty;
 
     [ObservableProperty]
@@ -501,6 +504,7 @@ public partial class SettingsViewModel : ObservableObject
         _notifyImageEvents = settings.NotifyImageEvents;
         _notifyContainerEvents = settings.NotifyContainerEvents;
         _notifyEngineEvents = settings.NotifyEngineEvents;
+        _checkForUpdatesOnLaunch = settings.CheckForUpdatesOnLaunch;
         _devContainerNpmRegistry = settings.DevContainerNpmRegistry ?? string.Empty;
         _aiFeaturesEnabled = settings.AiFeaturesEnabled;
         // Foundry Local is implemented but hidden from Settings for now. A previously saved
@@ -576,6 +580,12 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnNotifyEngineEventsChanged(bool value)
     {
         _settings.NotifyEngineEvents = value;
+        _settings.Save();
+    }
+
+    partial void OnCheckForUpdatesOnLaunchChanged(bool value)
+    {
+        _settings.CheckForUpdatesOnLaunch = value;
         _settings.Save();
     }
 

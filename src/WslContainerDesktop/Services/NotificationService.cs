@@ -33,6 +33,12 @@ public sealed class NotificationService : INotificationService
     private const string ActionKey = "action";
     private const string IdKey = "id";
 
+    /// <summary>Toast action verb that starts installing the available update.</summary>
+    public const string UpdateAction = "update";
+
+    /// <summary>Toast action verb that opens the available release's page.</summary>
+    public const string ReleaseNotesAction = "release-notes";
+
     private readonly ISettingsService _settings;
     private readonly DispatcherQueue _dispatcher;
     private readonly ILogger<NotificationService> _logger;
@@ -163,12 +169,29 @@ public sealed class NotificationService : INotificationService
         Show("Engine recovered", "The WSL container engine is reachable again.", "dashboard");
     }
 
+    public void NotifyUpdateAvailable(string version, bool canInstall)
+    {
+        if (!_settings.NotificationsEnabled)
+        {
+            return;
+        }
+
+        Show(
+            "Update available",
+            canInstall
+                ? $"WSL Container Desktop {version} is ready to install. The app closes, updates and reopens."
+                : $"WSL Container Desktop {version} is available on GitHub.",
+            page: null,
+            new AppNotificationButton(canInstall ? "Update now" : "View release")
+                .AddArgument(ActionKey, canInstall ? UpdateAction : ReleaseNotesAction));
+    }
+
     private bool IsCategoryEnabled(bool categoryEnabled) => _settings.NotificationsEnabled && categoryEnabled;
 
     private static string FormatError(string? error) =>
         string.IsNullOrWhiteSpace(error) ? string.Empty : $" {error.Trim()}";
 
-    private void Show(string title, string body, string page, AppNotificationButton? button = null)
+    private void Show(string title, string body, string? page, AppNotificationButton? button = null)
     {
         if (!_registered)
         {
@@ -178,9 +201,14 @@ public sealed class NotificationService : INotificationService
         try
         {
             var builder = new AppNotificationBuilder()
-                .AddArgument(PageKey, page)
                 .AddText(title)
                 .AddText(body);
+
+            // Without a page, clicking the toast body only brings the app forward.
+            if (page is not null)
+            {
+                builder.AddArgument(PageKey, page);
+            }
 
             if (button is not null)
             {

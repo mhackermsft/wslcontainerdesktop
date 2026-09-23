@@ -52,6 +52,11 @@ public interface ISettingsService
     /// <summary>Emit toasts when the container engine becomes unavailable or recovers.</summary>
     bool NotifyEngineEvents { get; set; }
 
+    /// <summary>
+    /// Check GitHub for a newer release each time the app starts, and offer to install it. Defaults on.
+    /// </summary>
+    bool CheckForUpdatesOnLaunch { get; set; }
+
     /// <summary>Master opt-in switch for AI diagnostics. Defaults off.</summary>
     bool AiFeaturesEnabled { get; set; }
 

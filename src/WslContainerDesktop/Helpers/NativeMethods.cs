@@ -209,4 +209,16 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool IsIconic(nint hWnd);
+
+    // RegisterApplicationRestart flags: restart only after servicing, never after a crash, hang or reboot.
+    public const uint RESTART_NO_CRASH = 1;
+    public const uint RESTART_NO_HANG = 2;
+    public const uint RESTART_NO_REBOOT = 8;
+
+    /// <summary>Asks Windows to relaunch this process after it is shut down for servicing (an MSIX update).</summary>
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    public static extern int RegisterApplicationRestart(string? pwzCommandline, uint dwFlags);
+
+    [DllImport("kernel32.dll")]
+    public static extern int UnregisterApplicationRestart();
 }

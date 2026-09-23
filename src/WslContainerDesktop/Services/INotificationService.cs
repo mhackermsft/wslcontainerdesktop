@@ -62,4 +62,10 @@ public interface INotificationService
 
     /// <summary>Toast for the engine recovering after being unavailable.</summary>
     void NotifyEngineRecovered();
+
+    /// <summary>
+    /// Toast offering a newer app release. Its "Update now" button activates with action
+    /// <c>update</c>; <paramref name="canInstall"/> false offers the release page instead.
+    /// </summary>
+    void NotifyUpdateAvailable(string version, bool canInstall);
 }

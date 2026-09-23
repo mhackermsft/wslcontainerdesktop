@@ -49,6 +49,7 @@ public sealed class SettingsService : ISettingsService
     public bool NotifyImageEvents { get; set; } = true;
     public bool NotifyContainerEvents { get; set; } = true;
     public bool NotifyEngineEvents { get; set; } = true;
+    public bool CheckForUpdatesOnLaunch { get; set; } = true;
     public bool AiFeaturesEnabled { get; set; }
     public AiProviderKind AiProvider { get; set; }
     public string AiOllamaEndpoint { get; set; } = "http://localhost:11434";
@@ -128,6 +129,7 @@ public sealed class SettingsService : ISettingsService
             NotifyImageEvents = dto.NotifyImageEvents;
             NotifyContainerEvents = dto.NotifyContainerEvents;
             NotifyEngineEvents = dto.NotifyEngineEvents;
+            CheckForUpdatesOnLaunch = dto.CheckForUpdatesOnLaunch;
             AiFeaturesEnabled = dto.AiFeaturesEnabled;
             AiProvider = Enum.IsDefined(typeof(AiProviderKind), dto.AiProvider)
                 ? (AiProviderKind)dto.AiProvider
@@ -269,6 +271,7 @@ public sealed class SettingsService : ISettingsService
                 NotifyImageEvents = NotifyImageEvents,
                 NotifyContainerEvents = NotifyContainerEvents,
                 NotifyEngineEvents = NotifyEngineEvents,
+                CheckForUpdatesOnLaunch = CheckForUpdatesOnLaunch,
                 AiFeaturesEnabled = AiFeaturesEnabled,
                 AiProvider = (int)AiProvider,
                 AiOllamaEndpoint = AiOllamaEndpoint,
@@ -390,6 +393,7 @@ public sealed class SettingsService : ISettingsService
         public bool NotifyImageEvents { get; set; } = true;
         public bool NotifyContainerEvents { get; set; } = true;
         public bool NotifyEngineEvents { get; set; } = true;
+        public bool CheckForUpdatesOnLaunch { get; set; } = true;
         public bool AiFeaturesEnabled { get; set; }
         public int AiProvider { get; set; }
         public string? AiOllamaEndpoint { get; set; }

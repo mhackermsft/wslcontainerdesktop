@@ -165,6 +165,12 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\DeploymentConflictResolver.cs" Link="Services\DeploymentConflictResolver.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeProjectStore.cs" Link="Services\IComposeProjectStore.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectStore.cs" Link="Services\ComposeProjectStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\AppUpdateRelease.cs" Link="Models\AppUpdateRelease.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\MsixIdentity.cs" Link="Models\MsixIdentity.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AppUpdateException.cs" Link="Services\AppUpdateException.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AppUpdateReleaseParser.cs" Link="Services\AppUpdateReleaseParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AppUpdatePackageVerifier.cs" Link="Services\AppUpdatePackageVerifier.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\MsixPackageInspector.cs" Link="Services\MsixPackageInspector.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'">
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcService.cs" Link="Services\WslcService.cs" />
