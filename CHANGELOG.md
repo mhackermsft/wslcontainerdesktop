@@ -12,6 +12,12 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-09-23
+
+The app can now **update itself** from GitHub releases, and **Set up Ollama** is a true one-click
+local AI setup. Install this release manually; from the next release on, the app offers updates
+itself.
+
 ### Added
 
 - **The app can update itself.** Each time it starts it checks GitHub for a newer release; when there
@@ -19,9 +25,10 @@ where the signed MSIX and installation steps live.
   downloads the release, closes the app, installs the update and reopens it. It refuses any package
   that is not a newer build of WSL Container Desktop signed with the same certificate as your
   installation. Running containers are not stopped; Kubernetes port-forwards are. The launch check is
-  on by default and can be turned off, or run by hand, under **Settings → About**. Copies installed
-  from a local development build can see updates but not install them. Updates start working from
-  the release after the first one that includes this feature, which must be installed manually.
+  **on by default** — it contacts `api.github.com` once per launch (retrying a few times if the
+  network isn't ready) — and can be turned off, or run by hand, under **Settings → About**. Copies
+  installed from a local development build can see updates but not install them. Updates start
+  working from the release after this one, since this release must be installed manually.
 
 ### Changed
 
@@ -261,7 +268,8 @@ rather than assuming one schema or flag set.
 Older versions (1.0.0 – 1.5.3) predate this changelog. Their tags remain in the repository, and
 their changes can be reviewed with `git log v1.5.2..v1.5.3` and similar.
 
-[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v1.8.1...main
+[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v1.9.0...main
+[1.9.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.9.0
 [1.8.1]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.8.1
 [1.8.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.8.0
 [1.7.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.7.0
