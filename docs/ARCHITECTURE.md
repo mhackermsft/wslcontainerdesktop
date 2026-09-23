@@ -249,6 +249,10 @@ No new dependencies are involved: GitHub is queried with `HttpClient`, and signa
 `crypt32.dll` rather than `System.Security.Cryptography.Pkcs`, which is not part of the shared
 framework the app runs on.
 
+The close → install → relaunch steps cannot be unit tested. `tools/update-e2e` builds a signed,
+side-by-side test copy that checks a scratch repository, so the real path can be exercised on a
+developer machine without touching the installed app; run it after changing the updater.
+
 ### WSL virtual machine (`WslSystemService`)
 
 Host-level operations on the **WSL VM itself**, as opposed to the container engine, backing the

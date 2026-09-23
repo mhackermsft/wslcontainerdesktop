@@ -43,6 +43,7 @@ public partial class AppUpdateViewModel : ObservableObject
 
     private AppUpdateRelease? _release;
     private Task<AppUpdateRelease?>? _checkInFlight;
+    private int _installAttempt;
 
     [ObservableProperty]
     private bool _isBarOpen;
@@ -223,7 +224,16 @@ public partial class AppUpdateViewModel : ObservableObject
         ShowBar(InfoBarSeverity.Informational, $"Downloading version {release.DisplayVersion}", "Starting download…");
         SetProgress(0);
 
-        var progress = new Progress<AppUpdateProgress>(OnProgress);
+        // Progress<T> posts each report to the UI queue, so a report can arrive after the install
+        // attempt has already finished and overwrite its result. Only the running attempt may update.
+        var attempt = ++_installAttempt;
+        var progress = new Progress<AppUpdateProgress>(p =>
+        {
+            if (IsBusy && attempt == _installAttempt)
+            {
+                OnProgress(p);
+            }
+        });
         try
         {
             await _updates.InstallAsync(release, progress, BeforeInstall);
