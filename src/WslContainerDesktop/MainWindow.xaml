@@ -186,7 +186,48 @@
                 </StackPanel>
             </NavigationView.PaneFooter>
 
-            <Frame x:Name="NavFrame" />
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!--  App update notification bar  -->
+                <InfoBar
+                    x:Name="UpdateBar"
+                    Margin="16,8,16,0"
+                    AutomationProperties.AutomationId="AppUpdateInfoBar"
+                    CloseButtonClick="UpdateBar_CloseButtonClick"
+                    IsClosable="{x:Bind Updates.IsBarClosable, Mode=OneWay}"
+                    IsOpen="{x:Bind Updates.IsBarOpen, Mode=OneWay}"
+                    Message="{x:Bind Updates.BarMessage, Mode=OneWay}"
+                    Severity="{x:Bind Updates.BarSeverity, Mode=OneWay}"
+                    Title="{x:Bind Updates.BarTitle, Mode=OneWay}">
+                    <InfoBar.Content>
+                        <StackPanel Margin="0,0,0,12" Spacing="8">
+                            <ProgressBar
+                                IsIndeterminate="{x:Bind Updates.IsProgressIndeterminate, Mode=OneWay}"
+                                Maximum="100"
+                                Visibility="{x:Bind local:MainWindow.ToVisibility(Updates.IsProgressVisible), Mode=OneWay}"
+                                Value="{x:Bind Updates.ProgressValue, Mode=OneWay}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    AutomationProperties.AutomationId="AppUpdateNowButton"
+                                    Command="{x:Bind Updates.UpdateNowCommand}"
+                                    Content="{x:Bind Updates.UpdateButtonText, Mode=OneWay}"
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    Visibility="{x:Bind local:MainWindow.ToVisibility(Updates.IsUpdateButtonVisible), Mode=OneWay}" />
+                                <Button
+                                    Command="{x:Bind Updates.ViewReleaseNotesCommand}"
+                                    Content="What's new"
+                                    Visibility="{x:Bind local:MainWindow.ToVisibility(Updates.IsReleaseNotesVisible), Mode=OneWay}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </InfoBar.Content>
+                </InfoBar>
+
+                <Frame x:Name="NavFrame" Grid.Row="1" />
+            </Grid>
         </NavigationView>
 
         <Border

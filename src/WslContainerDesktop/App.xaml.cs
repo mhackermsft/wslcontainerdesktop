@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 using WslContainerDesktop.Tray;
@@ -138,6 +139,16 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _window = new MainWindow();
         _window.ApplyTheme(settings.Theme);
 
+        // In-app updates: report on an update the previous session was closed to install (and
+        // clear its download), then offer any newer release once the window exists.
+        var updates = Services.GetRequiredService<AppUpdateViewModel>();
+        updates.BeforeInstall = PrepareForUpdateInstall;
+        var updateOutcome = Services.GetRequiredService<IAppUpdateService>().CompleteLaunch();
+        if (updateOutcome is not null)
+        {
+            updates.ReportLaunchOutcome(updateOutcome);
+        }
+
         // When Windows launches us at sign-in (via the StartupTask), start quietly in the
         // tray so we don't steal focus on login; otherwise honor the StartMinimized setting.
         var launchedAtLogin = WasActivatedByStartupTask();
@@ -150,13 +161,39 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             _window.Activate();
             OnNotificationActivated(this, notificationActivation);
         }
-        else if (settings.StartMinimized || launchedAtLogin)
+        else if (updateOutcome is null && (settings.StartMinimized || launchedAtLogin))
         {
             _window.HideToTray();
         }
         else
         {
+            // Always come back visibly after an update, so the user sees it finished.
             _window.Activate();
+        }
+
+        // A toast's update button runs its own check, so don't race it with a second one.
+        var isUpdateActivation = notificationActivation?.Action is NotificationService.UpdateAction or NotificationService.ReleaseNotesAction;
+        if (settings.CheckForUpdatesOnLaunch && !isUpdateActivation)
+        {
+            UiSafe.Run(updates.CheckOnLaunchAsync);
+        }
+    }
+
+    /// <summary>
+    /// Runs on the UI thread just before Windows closes the app to install an update. Only tears
+    /// down what would otherwise be orphaned; everything else is ended by the forced shutdown. It
+    /// goes through the view model so the list stays truthful if Windows then refuses the update.
+    /// </summary>
+    private void PrepareForUpdateInstall()
+    {
+        _logger?.LogInformation("Closing for an app update.");
+        try
+        {
+            Services.GetRequiredService<KubernetesViewModel>().StopAllPortForwards();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to stop port-forwards before updating.");
         }
     }
 
@@ -190,7 +227,15 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         }
 
         ShowMainWindow();
-        if (string.Equals(e.Action, "logs", StringComparison.Ordinal) && !string.IsNullOrEmpty(e.TargetId))
+        if (string.Equals(e.Action, NotificationService.UpdateAction, StringComparison.Ordinal))
+        {
+            UiSafe.Run(Services.GetRequiredService<AppUpdateViewModel>().UpdateFromNotificationAsync);
+        }
+        else if (string.Equals(e.Action, NotificationService.ReleaseNotesAction, StringComparison.Ordinal))
+        {
+            UiSafe.Run(Services.GetRequiredService<AppUpdateViewModel>().OpenReleaseNotesFromNotificationAsync);
+        }
+        else if (string.Equals(e.Action, "logs", StringComparison.Ordinal) && !string.IsNullOrEmpty(e.TargetId))
         {
             _window?.OpenContainerLogs(e.TargetId);
         }
@@ -500,6 +545,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
                 ?? throw new InvalidOperationException("AiAvailabilityService must first be resolved on the UI thread."),
             sp.GetRequiredService<ILogger<AiAvailabilityService>>()));
         services.AddSingleton<IImageUpdateService, ImageUpdateService>();
+        services.AddSingleton<IAppUpdateService, AppUpdateService>();
 
         services.AddSingleton<ContainersViewModel>();
         services.AddSingleton<ImagesViewModel>();
@@ -511,6 +557,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<AssistantViewModel>();
         services.AddSingleton<ShellViewModel>();
+        services.AddSingleton<AppUpdateViewModel>();
         services.AddSingleton<DashboardViewModel>();
         services.AddSingleton<PortsViewModel>();
         services.AddSingleton<ActivityViewModel>();

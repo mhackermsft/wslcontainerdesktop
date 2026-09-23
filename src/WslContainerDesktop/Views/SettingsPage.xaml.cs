@@ -28,12 +28,15 @@ public sealed partial class SettingsPage : Page
     public SettingsPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<SettingsViewModel>();
+        Updates = App.Current.Services.GetRequiredService<AppUpdateViewModel>();
         InitializeComponent();
 
         ViewModel.ThemeChangeRequested += (_, theme) => App.Current.MainWindow?.ApplyTheme(theme);
     }
 
     public SettingsViewModel ViewModel { get; }
+
+    public AppUpdateViewModel Updates { get; }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {

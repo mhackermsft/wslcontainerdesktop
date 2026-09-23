@@ -802,6 +802,44 @@
                         Margin="-12,0,0,0"
                         Content="Learn about WSL containers"
                         NavigateUri="https://aka.ms/wslc" />
+                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                    <Grid Padding="0,8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Check for updates when the app starts" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="Look for a newer release on GitHub at launch and offer to install it. Nothing is installed until you choose Update now."
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch
+                            Grid.Column="1"
+                            MinWidth="0"
+                            AutomationProperties.Name="Check for updates when the app starts"
+                            IsOn="{x:Bind ViewModel.CheckForUpdatesOnLaunch, Mode=TwoWay}" />
+                    </Grid>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind Updates.StatusText, Mode=OneWay}"
+                            TextWrapping="Wrap" />
+                        <Button
+                            Grid.Column="1"
+                            AutomationProperties.AutomationId="CheckForUpdatesButton"
+                            Command="{x:Bind Updates.CheckForUpdatesCommand}"
+                            Content="Check for updates" />
+                    </Grid>
                 </StackPanel>
             </Border>
         </StackPanel>

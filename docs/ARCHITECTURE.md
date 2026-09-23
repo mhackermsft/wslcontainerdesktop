@@ -211,6 +211,38 @@ credentials are stored** — only registry host/username metadata; the actual lo
 the engine's credential store. Corrupt settings never crash the app (they fall back to defaults
 and log a warning).
 
+### In-app updates (`AppUpdateService`, `AppUpdateViewModel`)
+
+On launch (unless *Check for updates when the app starts* is off) the app asks the GitHub API for
+the repository's latest release. `AppUpdateReleaseParser` accepts only a non-draft, non-prerelease
+`vX.Y.Z` tag with an uploaded `WSLContainerDesktop_X.Y.Z_<arch>.msix` asset whose download URL is
+exactly that release's asset URL — the asset name the release workflow produces is therefore a
+contract. A newer release opens the `InfoBar` at the top of `MainWindow` and raises a toast whose
+**Update now** button activates with action `update`.
+
+Installing is deliberately paranoid, because the result goes to the package installer:
+
+1. **Download** to `LocalCacheFolder\Updates` (the real path, since the deployment service reads
+   it) with a dedicated `HttpClient`; the byte count must equal the size GitHub reports and, when
+   the API publishes one, the SHA-256 digest must match (`AppUpdatePackageVerifier.DownloadAsync`).
+2. **Verify** (`AppUpdatePackageVerifier.Verify`, `MsixPackageInspector`): the MSIX manifest's
+   `Identity` must have this package's name, publisher and architecture and exactly the advertised,
+   strictly newer version; and the single signer of its `AppxSignature.p7x` — whose signature is
+   checked with CryptoAPI — must have the same certificate (SHA-256 thumbprint) as the installed
+   package's own `AppxSignature.p7x`. A development registration of loose files has no signature,
+   so it can see updates but not install them.
+3. **Install**: after at least 65 s of process uptime (Windows ignores `RegisterApplicationRestart`
+   for younger processes), write `pending-update.json`, register for restart, stop port-forwards,
+   then `PackageManager.AddPackageAsync(..., ForceApplicationShutdown)`. Windows closes the app,
+   installs, and relaunches it. If the package manager refuses instead, the restart registration
+   and marker are removed and the error is shown in the bar.
+4. **Next launch**: `CompleteLaunch` reads the marker, reports success (or an update that did not
+   finish) in the bar, forces the window visible, and deletes the downloaded files.
+
+No new dependencies are involved: GitHub is queried with `HttpClient`, and signatures are read with
+`crypt32.dll` rather than `System.Security.Cryptography.Pkcs`, which is not part of the shared
+framework the app runs on.
+
 ### WSL virtual machine (`WslSystemService`)
 
 Host-level operations on the **WSL VM itself**, as opposed to the container engine, backing the

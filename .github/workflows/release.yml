@@ -155,7 +155,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           $ver = "${{ steps.ver.outputs.version }}"
 
-          # Rename the MSIX to a friendly, versioned name.
+          # Rename the MSIX to a friendly, versioned name. The in-app updater only installs an asset
+          # named exactly WSLContainerDesktop_<X.Y.Z>_<arch>.msix (see AppUpdateReleaseParser).
           Copy-Item "${{ steps.pkg.outputs.msix }}" (Join-Path $stage "WSLContainerDesktop_${ver}_x64.msix")
 
           # Export the public certificate (for user trust) from the PFX.
@@ -220,8 +221,13 @@ jobs:
             Unblock-File -Path .\*
             ``````
 
-          The script self-elevates, trusts the certificate, and installs the package. To update later,
-          repeat the same steps with a newer release.
+          The script self-elevates, trusts the certificate, and installs the package.
+
+          ### Updating
+
+          Once installed, the app checks for new releases when it starts and offers **Update now**,
+          which downloads, installs and reopens it. You can also update manually by repeating the
+          steps above with a newer release.
 
           > Self-signed, self-contained package (bundles the .NET and Windows App SDK runtimes, so nothing else is required). Not a Microsoft product and carries no warranty - see the repository README.
           "@ | Set-Content -LiteralPath $notesPath -Encoding UTF8

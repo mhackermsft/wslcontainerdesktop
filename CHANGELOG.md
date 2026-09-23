@@ -12,6 +12,16 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+### Added
+
+- **The app can update itself.** Each time it starts it checks GitHub for a newer release; when there
+  is one, a bar at the top of the window and a Windows notification offer **Update now**, which
+  downloads the release, closes the app, installs the update and reopens it. It refuses any package
+  that is not a newer build of WSL Container Desktop signed with the same certificate as your
+  installation. Running containers are not stopped; Kubernetes port-forwards are. The launch check is
+  on by default and can be turned off, or run by hand, under **Settings → About**. Copies installed
+  from a local development build can see updates but not install them.
+
 ### Fixed
 
 - **Disk usage offered space it could not free.** Every untagged image counted as reclaimable, but
