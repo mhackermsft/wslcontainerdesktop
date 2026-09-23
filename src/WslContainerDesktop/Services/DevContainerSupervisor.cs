@@ -32,19 +32,47 @@ public sealed class DevContainerSupervisor(
     ILogger<DevContainerSupervisor> logger) : IDevContainerSupervisor
 {
     private readonly SemaphoreSlim _upGate = new(1, 1);
+    private readonly Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> _runHostCommandAsync =
+        (psi, ct) => ProcessExecutor.RunAsync(psi, launchErrorContext: "Could not run initializeCommand.", ct: ct);
+
+    // Tests capture the proposed host process without launching scripts or containers.
+    internal DevContainerSupervisor(
+        IWslcService wslc, IDevContainerStore store, IDevContainerFeatureResolver features,
+        ComposeProjectSupervisor composeSupervisor, ProcessRunner runner, ILogger<DevContainerSupervisor> logger,
+        Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> runHostCommandAsync)
+        : this(wslc, store, features, composeSupervisor, runner, logger)
+    {
+        _runHostCommandAsync = runHostCommandAsync;
+    }
 
     public async Task<DevContainerOperationResult> UpAsync(
         DevContainerConfig config,
         bool rebuild = false,
         bool noCache = false,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<DevContainerHostCommandReview, CancellationToken, Task<bool>>? approveHostCommandsAsync = null)
     {
         await _upGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            ct.ThrowIfCancellationRequested();
             if (config.Compose is not null)
                 return await UpComposeAsync(config, rebuild, noCache, ct).ConfigureAwait(false);
-            await RunHostLifecycleAsync(config, ct).ConfigureAwait(false);
+
+            var hostCommands = new DevContainerHostCommandReview(config.WorkspacePath, config.Lifecycle.Initialize);
+            if (hostCommands.Commands.Count > 0)
+            {
+                if (approveHostCommandsAsync is null)
+                    return new(false, "Windows host initializeCommand execution requires explicit approval. No host commands or container changes were made.");
+
+                var isApproved = await approveHostCommandsAsync(hostCommands, ct).WaitAsync(ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                if (!isApproved)
+                    return new(false, "Windows host initializeCommand execution was not approved. No host commands or container changes were made.");
+
+                await RunHostLifecycleAsync(config, hostCommands, ct).ConfigureAwait(false);
+            }
+            ct.ThrowIfCancellationRequested();
             return await UpSingleContainerAsync(config, rebuild, noCache, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -377,22 +405,26 @@ public sealed class DevContainerSupervisor(
         runner.RunInteractive(["exec", "-it", containerId, "sh", "-lc", command]);
     }
 
-    private async Task RunHostLifecycleAsync(DevContainerConfig config, CancellationToken ct)
+    private async Task RunHostLifecycleAsync(
+        DevContainerConfig config, DevContainerHostCommandReview review, CancellationToken ct)
     {
-        foreach (var command in config.Lifecycle.Initialize.Where(c => !string.IsNullOrWhiteSpace(c)))
+        foreach (var command in review.Commands)
         {
+            ct.ThrowIfCancellationRequested();
             var psi = new ProcessStartInfo
             {
-                FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd.exe",
+                FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe"),
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = config.WorkspacePath,
+                WorkingDirectory = review.WorkspacePath,
             };
+            // Do not run unrelated Command Processor AutoRun registry scripts.
+            psi.ArgumentList.Add("/d");
             psi.ArgumentList.Add("/c");
             psi.ArgumentList.Add(command);
-            var result = await ProcessExecutor.RunAsync(psi, launchErrorContext: "Could not run initializeCommand.", ct: ct).ConfigureAwait(false);
+            var result = await _runHostCommandAsync(psi, ct).ConfigureAwait(false);
             AppendLog(config, "initializeCommand", result);
             if (!result.Success)
             {

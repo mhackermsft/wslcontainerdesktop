@@ -138,6 +138,8 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\HealthProbeProgress.cs" Link="Services\HealthProbeProgress.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\RestartSuppressionState.cs" Link="Services\RestartSuppressionState.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcFileTransfer.cs" Link="Services\WslcFileTransfer.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerDownloadPath.cs" Link="Services\ContainerDownloadPath.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerDownloadArchive.cs" Link="Services\ContainerDownloadArchive.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCopyInput.cs" Link="Services\WslcCopyInput.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkAttachment.cs" Link="Models\NetworkAttachment.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerNetworkState.cs" Link="Models\ContainerNetworkState.cs" />
@@ -175,6 +177,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslRootShell.cs" Link="Services\WslRootShell.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ComposeViewModel.cs" Link="ViewModels\ComposeViewModel.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\DevContainerSupervisor.cs" Link="Services\DevContainerSupervisor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\DevContainerHostCommandReview.cs" Link="Models\DevContainerHostCommandReview.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\DevContainerStore.cs" Link="Services\DevContainerStore.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IDevContainerSupervisor.cs" Link="Services\IDevContainerSupervisor.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IDevContainerFeatureResolver.cs" Link="Services\IDevContainerFeatureResolver.cs" />
@@ -227,4 +230,3 @@
     <None Include="..\..\examples\compose\**\*" LinkBase="Examples\compose" CopyToOutputDirectory="Always" />
   </ItemGroup>
 </Project>
-

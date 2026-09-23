@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using WslContainerDesktop.Models;
@@ -24,6 +25,373 @@ namespace WslContainerDesktop.Tests.Services;
 
 public sealed class DevContainerLifecycleTests
 {
+    public static IEnumerable<object[]> UnsupportedHostWorkspaces()
+    {
+        yield return [@"\\server\share\workspace"];
+        yield return ["//server/share/workspace"];
+        yield return [@"\\?\C:\workspace"];
+        yield return [@"\\.\C:\workspace"];
+        yield return [@"\\?\UNC\server\share\workspace"];
+        yield return [@"C:\" + new string('a', 257)];
+    }
+
+    [Theory]
+    [MemberData(nameof(UnsupportedHostWorkspaces))]
+    public async Task RejectsWorkspaceFormsCmdCannotHonorBeforeApprovalOrMutation(string workspace)
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.WorkspacePath = workspace;
+        fixture.Config.Lifecycle.Initialize = ["cd"];
+        var reviews = 0;
+
+        var result = await fixture.Up(approveHostCommandsAsync: (_, _) =>
+        {
+            reviews++;
+            return Task.FromResult(true);
+        });
+
+        Assert.False(result.Success);
+        Assert.Contains("not supported by cmd.exe", result.Detail);
+        Assert.Equal(0, reviews);
+        Assert.Empty(fixture.HostProcesses);
+        Assert.Empty(fixture.Calls);
+        Assert.Empty(fixture.Compose.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task WorkspaceRestrictionsDoNotApplyWhenThereAreNoHostCommands()
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.WorkspacePath = @"\\server\share\workspace";
+        fixture.Config.Lifecycle.Initialize = [];
+
+        Assert.True((await fixture.Up()).Success);
+        Assert.Empty(fixture.HostProcesses);
+    }
+
+    [Theory]
+    [InlineData("echo \u202Etxt\u202C", @"echo \u202Etxt\u202C")]
+    [InlineData("echo \u2066a\u2067b\u2068c\u2069", @"echo \u2066a\u2067b\u2068c\u2069")]
+    [InlineData("\u061C\u200E\u200F\u202A\u202B\u202D", @"\u061C\u200E\u200F\u202A\u202B\u202D")]
+    [InlineData("zero\u200Bwidth\u200C\u200D\uFEFF", @"zero\u200Bwidth\u200C\u200D\uFEFF")]
+    [InlineData("a\0\b\t\u001B\u007F\u0085b", @"a\u0000\u0008\u0009\u001B\u007F\u0085b")]
+    [InlineData("a\rb\u2028c\u2029d", @"a\u000Db\u2028c\u2029d")]
+    [InlineData("echo \U000E0001", @"echo \U000E0001")]
+    [InlineData(@"echo \u202E", @"echo \\u202E")]
+    [InlineData("echo café \U0001F680", "echo café \U0001F680")]
+    public void HostReviewDisplayExposesInvisibleCharactersWithoutAmbiguousLiteralEscapes(string input, string expected)
+    {
+        Assert.Equal(expected, DevContainerHostCommandReview.EscapeForDisplay(input));
+    }
+
+    [Fact]
+    public void HostReviewDisplayPreservesMultilineScriptsAndExposesUnpairedSurrogates()
+    {
+        Assert.Equal("first\r\nsecond\nthird\r\n", DevContainerHostCommandReview.EscapeForDisplay("first\r\nsecond\nthird\r\n"));
+        Assert.Equal(@"\uD800x\uDC00", DevContainerHostCommandReview.EscapeForDisplay("\uD800x\uDC00"));
+    }
+
+    [Fact]
+    public async Task EscapedHostReviewDisplayDoesNotChangeOriginalExecutionSnapshot()
+    {
+        var fixture = Fixture.SingleContainer();
+        var workspace = "C:\\work\u200B\\sub";
+        var command = "echo first\r\necho \u202Esecond\u202C\n\techo literal \\u202E";
+        fixture.Config.WorkspacePath = workspace;
+        fixture.Config.Lifecycle.Initialize = [command];
+
+        var result = await fixture.Up(approveHostCommandsAsync: (review, _) =>
+        {
+            Assert.Equal(@"C:\\work\u200B\\sub", review.DisplayWorkspacePath);
+            Assert.Equal("echo first\r\necho \\u202Esecond\\u202C\n\\u0009echo literal \\\\u202E",
+                Assert.Single(review.DisplayCommands));
+            Assert.Equal(workspace, review.WorkspacePath);
+            Assert.Equal(command, Assert.Single(review.Commands));
+            return Task.FromResult(true);
+        });
+
+        Assert.True(result.Success);
+        var process = Assert.Single(fixture.HostProcesses);
+        Assert.Equal(workspace, process.WorkingDirectory);
+        Assert.Equal(command, process.ArgumentList[2]);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    public async Task HostCommandsWithoutApprovalPreventAllPreparationAndMutation(
+        bool hasApprovalCallback, bool rebuild, bool noCache)
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.Lifecycle.Initialize = ["untrusted host command"];
+        fixture.Config.Build = new() { Context = "untrusted-build-context" };
+        fixture.Config.Features = [new() { Id = "untrusted-feature" }];
+        var reviews = 0;
+
+        var result = await fixture.Up(rebuild: rebuild, noCache: noCache,
+            approveHostCommandsAsync: hasApprovalCallback ? (_, _) =>
+            {
+                reviews++;
+                return Task.FromResult(false);
+            } : null);
+
+        Assert.False(result.Success);
+        Assert.Contains(hasApprovalCallback ? "not approved" : "requires explicit approval", result.Detail);
+        Assert.Equal(hasApprovalCallback ? 1 : 0, reviews);
+        Assert.Empty(fixture.Calls);
+        Assert.Empty(fixture.HostProcesses);
+        Assert.Empty(fixture.Compose.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task HostReviewFailureFailsClosedWithoutPreparingAnything()
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.Lifecycle.Initialize = ["untrusted host command"];
+
+        var result = await fixture.Up(approveHostCommandsAsync: (_, _) =>
+            throw new InvalidOperationException("Host review unavailable."));
+
+        Assert.False(result.Success);
+        Assert.Contains("Host review unavailable", result.Detail);
+        Assert.Empty(fixture.Calls);
+    }
+
+    [Fact]
+    public async Task CancellationBeforeHostReviewDoesNotInvokeReviewOrAnyService()
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.Lifecycle.Initialize = ["untrusted host command"];
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Up(cancellation.Token,
+            approveHostCommandsAsync: (_, _) => throw new InvalidOperationException("Must not review.")));
+
+        Assert.Empty(fixture.Calls);
+    }
+
+    [Fact]
+    public async Task CancellationDuringPendingHostReviewRejectsEvenLateApproval()
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.Lifecycle.Initialize = ["untrusted host command"];
+        using var cancellation = new CancellationTokenSource();
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var operation = fixture.Up(cancellation.Token, approveHostCommandsAsync: (_, token) =>
+        {
+            Assert.Equal(cancellation.Token, token);
+            opened.SetResult();
+            return decision.Task; // Deliberately ignores cancellation.
+        });
+        await opened.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Empty(fixture.Calls);
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation.WaitAsync(TimeSpan.FromSeconds(5)));
+        decision.SetResult(true);
+        Assert.Empty(fixture.Calls);
+
+        // The cancelled operation released its gate, and approval is not cached for the retry.
+        Assert.False((await fixture.Up()).Success);
+        Assert.Empty(fixture.Calls);
+    }
+
+    [Fact]
+    public async Task CancellationAtHostApprovalPreventsExecution()
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.Lifecycle.Initialize = ["untrusted host command"];
+        using var cancellation = new CancellationTokenSource();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Up(cancellation.Token,
+            approveHostCommandsAsync: (_, _) =>
+            {
+                cancellation.Cancel();
+                return Task.FromResult(true);
+            }));
+
+        Assert.Empty(fixture.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationAfterHostCommandPreventsRemainingCommandsAndContainerMutation(bool hasSecondCommand)
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.Lifecycle.Initialize = hasSecondCommand ? ["first", "second"] : ["first"];
+        using var cancellation = new CancellationTokenSource();
+        fixture.AfterHostCommand = _ => cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Up(cancellation.Token,
+            approveHostCommandsAsync: (_, _) => Task.FromResult(true)));
+
+        Assert.Single(fixture.HostProcesses);
+        Assert.Equal(["host"], fixture.Calls);
+        Assert.Empty(fixture.Compose.Engine.Mutations);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task EveryStartAndRebuildRequiresFreshApprovalAndExecutesReviewedCommands(bool rebuild, bool noCache)
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.Lifecycle.Initialize = ["  first & second  ", "", " \t", "third\nfourth"];
+        var reviews = new List<DevContainerHostCommandReview>();
+
+        for (var operation = 0; operation < 2; operation++)
+        {
+            fixture.Calls.Clear();
+            Assert.True((await fixture.Up(rebuild: rebuild, noCache: noCache, approveHostCommandsAsync: (review, _) =>
+            {
+                Assert.Empty(fixture.Calls);
+                reviews.Add(review);
+                return Task.FromResult(true);
+            })).Success);
+            Assert.Equal(["host", "host"], fixture.Calls.Take(2));
+            Assert.Contains("wslc:PullImageAsync", fixture.Calls);
+            Assert.Contains("wslc:RunContainerAsync", fixture.Calls);
+        }
+
+        Assert.Equal(2, reviews.Count);
+        Assert.NotSame(reviews[0], reviews[1]);
+        Assert.Equal(4, fixture.HostProcesses.Count);
+        Assert.All(reviews, review =>
+        {
+            Assert.Equal(fixture.Config.WorkspacePath, review.WorkspacePath);
+            Assert.Equal(["  first & second  ", "third\nfourth"], review.Commands);
+        });
+        for (var index = 0; index < fixture.HostProcesses.Count; index++)
+        {
+            var process = fixture.HostProcesses[index];
+            Assert.Equal(fixture.Config.WorkspacePath, process.WorkingDirectory);
+            Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe"), process.FileName);
+            Assert.Equal(new[] { "/d", "/c", reviews[0].Commands[index % 2] }, process.ArgumentList);
+            Assert.False(process.UseShellExecute);
+        }
+        fixture.Calls.Clear();
+        Assert.False((await fixture.Up(rebuild: rebuild, noCache: noCache)).Success);
+        Assert.Empty(fixture.Calls);
+    }
+
+    [Fact]
+    public async Task MutationDuringPendingHostReviewCannotChangeExecutedWorkspaceOrCommands()
+    {
+        var fixture = Fixture.SingleContainer();
+        var originalCommands = new List<string> { "reviewed first", "reviewed second" };
+        fixture.Config.Lifecycle.Initialize = originalCommands;
+        var originalWorkspace = fixture.Config.WorkspacePath;
+        var opened = new TaskCompletionSource<DevContainerHostCommandReview>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var operation = fixture.Up(approveHostCommandsAsync: (review, _) =>
+        {
+            opened.SetResult(review);
+            return decision.Task;
+        });
+        var review = await opened.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Empty(fixture.Calls);
+
+        originalCommands[0] = "replacement command";
+        originalCommands.Add("extra command");
+        fixture.Config.Lifecycle = new() { Initialize = ["entirely different commands"] };
+        fixture.Config.WorkspacePath = @"C:\different-workspace";
+        Assert.Throws<NotSupportedException>(() => ((IList<string>)review.Commands)[0] = "changed through review");
+        Assert.Equal(originalWorkspace, review.WorkspacePath);
+        Assert.Equal(["reviewed first", "reviewed second"], review.Commands);
+        decision.SetResult(true);
+
+        Assert.True((await operation.WaitAsync(TimeSpan.FromSeconds(5))).Success);
+        Assert.Equal(["reviewed first", "reviewed second"], fixture.HostProcesses.Select(p => p.ArgumentList[2]));
+        Assert.All(fixture.HostProcesses, process => Assert.Equal(originalWorkspace, process.WorkingDirectory));
+    }
+
+    [Fact]
+    public async Task FailedApprovedHostCommandDoesNotPrepareOrMutateContainers()
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.Lifecycle.Initialize = ["first", "second"];
+        fixture.HostResult = new() { ExitCode = 1, StandardError = "Host script failed." };
+
+        var result = await fixture.Up(approveHostCommandsAsync: (_, _) => Task.FromResult(true));
+
+        Assert.False(result.Success);
+        Assert.Contains("initializeCommand failed", result.Detail);
+        Assert.Equal(["host"], fixture.Calls);
+        Assert.Empty(fixture.Compose.Engine.Mutations);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NoHostCommandsNeedNoApprovalAndPreserveSingleContainerBehavior(bool hasApprovalCallback)
+    {
+        var fixture = Fixture.SingleContainer();
+        fixture.Config.Lifecycle.Initialize = ["", " \r\n\t"];
+        // No host execution means an unused workspace need not be normalized for a review.
+        fixture.Config.WorkspacePath = "";
+
+        var result = await fixture.Up(approveHostCommandsAsync: hasApprovalCallback
+            ? (_, _) => throw new InvalidOperationException("Must not request host approval.")
+            : null);
+
+        Assert.True(result.Success);
+        Assert.Empty(fixture.HostProcesses);
+        Assert.Equal(["create", "content", "created", "started"], fixture.Commands);
+        Assert.Contains("wslc:RunContainerAsync", fixture.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ComposeStillBlocksHostCommandsAndFeaturesWithoutRequestingHostApproval(bool hasFeatures)
+    {
+        var fixture = new Fixture();
+        if (hasFeatures)
+            fixture.Config.Features =
+            [
+                new()
+                {
+                    Id = "blocked-feature",
+                    RawOptions = JsonSerializer.SerializeToElement(new Dictionary<string, string>()),
+                },
+            ];
+        else
+            fixture.Config.Lifecycle.Initialize = ["blocked host command"];
+
+        var hostReviews = 0;
+        var result = await fixture.Up(approveHostCommandsAsync: (_, _) =>
+        {
+            hostReviews++;
+            throw new InvalidOperationException("Compose must not request host execution.");
+        });
+
+        Assert.False(result.Success);
+        Assert.Contains("Compatibility checks blocked deployment", result.Detail);
+        var preview = Assert.Single(fixture.Compose.Reviews);
+        Assert.False(preview.CanApply);
+        var blocker = Assert.Single(preview.Settings, setting => setting.Disposition == ComposeSettingDisposition.Blocked);
+        Assert.Equal("Project", blocker.Service);
+        Assert.Equal("import diagnostic", blocker.Setting);
+        Assert.Contains("Compose dev-container features and host initialize commands require externally prepared inputs",
+            blocker.EffectiveValue);
+        Assert.Equal("Importer diagnostic", blocker.Source);
+        Assert.Equal(0, hostReviews);
+        Assert.Empty(fixture.HostProcesses);
+        Assert.Empty(fixture.Commands);
+        Assert.Empty(fixture.Compose.Engine.Mutations);
+        Assert.Empty(fixture.Compose.SavedSnapshots);
+        // Existing dev-container bookkeeping still saves the blocked outcome; no execution service is called.
+        Assert.Equal(["store:Get", "store:Save"], fixture.Calls);
+    }
+
     [Fact]
     public async Task ScalingRetainedPrimaryDoesNotScheduleHooksForAdditionalReplicas()
     {
@@ -473,6 +841,10 @@ public sealed class DevContainerLifecycleTests
         public List<string> Commands { get; } = new();
         public List<string> ExecIds { get; } = new();
         public List<string> Scripts { get; } = new();
+        public List<string> Calls { get; } = new();
+        public List<ProcessStartInfo> HostProcesses { get; } = new();
+        public CommandResult HostResult { get; set; } = new();
+        public Action<ProcessStartInfo>? AfterHostCommand { get; set; }
         public string? FailCommand { get; set; }
         public bool FailSave { get; set; }
         public Action<string>? AfterExec { get; set; }
@@ -493,6 +865,7 @@ public sealed class DevContainerLifecycleTests
             };
             var wslc = NetworkTestProxy.Create<IWslcService>((method, args) =>
             {
+                Calls.Add("wslc:" + method.Name);
                 if (method.Name != nameof(IWslcService.ExecAsync))
                     return method.Invoke(Compose.Engine.Service, args);
                 var command = ((string)args[1]!).Split(" && ", 2)[1];
@@ -508,19 +881,42 @@ public sealed class DevContainerLifecycleTests
             });
             var store = NetworkTestProxy.Create<IDevContainerStore>((method, args) =>
             {
+                Calls.Add("store:" + method.Name);
                 if (method.Name == nameof(IDevContainerStore.Get)) return _saved;
                 if (method.Name != nameof(IDevContainerStore.Save)) throw new InvalidOperationException(method.Name);
                 if (FailSave) throw new InvalidOperationException("fixture save failure");
                 _saved = JsonSerializer.Deserialize<DevContainerConfig>(JsonSerializer.Serialize((DevContainerConfig)args[0]!))!;
                 return null;
             });
-            var features = NetworkTestProxy.Create<IDevContainerFeatureResolver>((method, _) => throw new InvalidOperationException(method.Name));
+            var features = NetworkTestProxy.Create<IDevContainerFeatureResolver>((method, _) =>
+            {
+                Calls.Add("features:" + method.Name);
+                throw new InvalidOperationException(method.Name);
+            });
             var settings = NetworkTestProxy.Create<ISettingsService>((method, _) => throw new InvalidOperationException(method.Name));
             _supervisor = new(wslc, store, features, Compose.Supervisor, new ProcessRunner(settings),
-                NullLogger<DevContainerSupervisor>.Instance);
+                NullLogger<DevContainerSupervisor>.Instance, (psi, _) =>
+                {
+                    Calls.Add("host");
+                    HostProcesses.Add(psi);
+                    AfterHostCommand?.Invoke(psi);
+                    return Task.FromResult(HostResult);
+                });
         }
 
-        public Task<DevContainerOperationResult> Up(CancellationToken ct = default) => _supervisor.UpAsync(Config, ct: ct);
+        public static Fixture SingleContainer()
+        {
+            var fixture = new Fixture();
+            fixture.Config.Compose = null;
+            fixture.Config.Image = "fixture";
+            fixture.Config.RunOptions.Image = "fixture";
+            fixture.Config.WorkspacePath = @"C:\reviewed-workspace";
+            return fixture;
+        }
+
+        public Task<DevContainerOperationResult> Up(CancellationToken ct = default, bool rebuild = false, bool noCache = false,
+            Func<DevContainerHostCommandReview, CancellationToken, Task<bool>>? approveHostCommandsAsync = null) =>
+            _supervisor.UpAsync(Config, rebuild, noCache, ct, approveHostCommandsAsync);
         public void Persist() => _saved = JsonSerializer.Deserialize<DevContainerConfig>(JsonSerializer.Serialize(Config))!;
         public void Reload() => Config = JsonSerializer.Deserialize<DevContainerConfig>(JsonSerializer.Serialize(_saved))!;
     }

@@ -508,7 +508,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            var localPath = Path.Combine(tempDir, entry.Name);
+            var localPath = ContainerDownloadPath.Create(entry.Path, tempDir).Target;
+            ContainerDownloadPath.RequireUnlinkedAncestors(localPath, CancellationToken.None);
             if (!File.Exists(localPath))
             {
                 FilesStatusMessage = "File was not found after copy.";
@@ -836,7 +837,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 return null;
             }
 
-            var localPath = Path.Combine(tempDir, entry.Name);
+            var localPath = ContainerDownloadPath.Create(entry.Path, tempDir).Target;
+            ContainerDownloadPath.RequireUnlinkedAncestors(localPath, CancellationToken.None);
             return File.Exists(localPath) ? localPath : null;
         }
         catch (Exception ex)
