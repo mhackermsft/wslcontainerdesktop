@@ -44,6 +44,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAiCapabilityService.cs" Link="Services\IAiCapabilityService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ILocalAiSetupService.cs" Link="Services\ILocalAiSetupService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\LocalAiSetupService.cs" Link="Services\LocalAiSetupService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ImagePullProgress.cs" Link="Services\ImagePullProgress.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\LocalRuntimeResourceState.cs" Link="Models\LocalRuntimeResourceState.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiCapabilityService.cs" Link="Services\AiCapabilityService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\HttpAiCapabilityObserver.cs" Link="Services\HttpAiCapabilityObserver.cs" />

@@ -505,7 +505,14 @@ there is no silent name-based ownership migration.
 An older running Ollama can still be configured as an external Ollama provider;
 that does not grant this lifecycle service ownership or removal permission.
 
-New setup selects an already cached full image ID and enforces `--pull never`.
+New setup creates from a cached `ollama/ollama:latest` image ID with `--pull never` when create
+supports it. When create definitively lacks `--pull` (older WSLC), the flag is omitted: the
+content ID cannot be fetched from a registry, so creation still cannot download anything.
+Unknown `--pull` support blocks with a diagnostic.
+When no usable image is cached, setup first pulls `ollama/ollama:latest` itself, after the
+capability preflight and before creating any volume or container; a failed or cancelled pull
+creates nothing. A cached image is never re-pulled. Pull progress is layer counts parsed from
+the redirected `wslc pull` output (`ImagePullProgress`), which has no byte counts.
 Shared `IWslcCapabilitiesService` observations of **create** help govern `--pull`
 and `--gpus`; version numbers and run-help guesses are not evidence. Only
 definitive absence of the GPU flag selects CPU before creation. Unknown GPU
@@ -530,10 +537,9 @@ A requested deletion therefore returns an explicit partial/retained-data result,
 even when runtime removal succeeds; the UI must not claim models were removed.
 Users can inspect ownership and users before a separate deliberate Volumes action.
 
-Preparation must be explicit and age-audited: pin the image/model identity and
-verify authoritative publication is at least seven days old before acquisition.
-Missing cached images give preparation/tagging guidance, not an implicit pull.
-Mutable names and build timestamps are not publication evidence. Settings does
+**Image acquisition (maintainer decision):** one-click setup pulls the mutable `ollama/ollama:latest`
+tag without the seven-day publication-age check that applies to build and test dependencies, so
+quick start needs no manual step. That tag can be hours old when pulled. Settings does
 not download or warm a default model during setup. The separate model-pull
 confirmation is user attestation of an audit, not automated publication/digest
 verification; do not treat it as a provenance verifier. Capability evidence is

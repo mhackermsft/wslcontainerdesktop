@@ -46,8 +46,9 @@ public sealed record LocalAiRemovalResult(bool Success, LocalRuntimeResourceStat
     LocalRuntimeResourceState ModelData, string Message);
 
 /// <summary>
-/// Provisions an ownership-verified Ollama container from an already acquired immutable image.
-/// This service never downloads images/models, starts native runtimes, or asserts model capabilities.
+/// Provisions an ownership-verified Ollama container. When <c>ollama/ollama:latest</c> is not cached it
+/// is pulled first, so setup is one step; the container itself is then created from that image ID with
+/// pulls disabled. This service never downloads models, starts native runtimes, or asserts model capabilities.
 /// </summary>
 public interface ILocalAiSetupService
 {

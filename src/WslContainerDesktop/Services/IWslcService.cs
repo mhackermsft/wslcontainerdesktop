@@ -96,6 +96,9 @@ public interface IWslcService
     // Images
     Task<IReadOnlyList<ImageInfo>> ListImagesAsync(CancellationToken ct = default);
     Task<CommandResult> PullImageAsync(string reference, CancellationToken ct = default);
+
+    /// <summary>Pulls an image, reporting each output line (e.g. per-layer status) as it arrives on a reader thread.</summary>
+    Task<CommandResult> PullImageAsync(string reference, Action<string> onLine, CancellationToken ct = default);
     Task<CommandResult> RemoveImageAsync(string id, bool force = true, CancellationToken ct = default);
     Task<CommandResult> TagImageAsync(string source, string target, CancellationToken ct = default);
     Task<CommandResult> PruneImagesAsync(CancellationToken ct = default);

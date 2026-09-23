@@ -32,11 +32,28 @@ public sealed class ProcessRunner(ISettingsService settings)
         CancellationToken cancellationToken = default) =>
         RunAtPathAsync(settings.WslcPath, arguments, cancellationToken);
 
+    /// <summary>
+    /// Runs wslc and additionally reports each output line as it arrives (on a reader thread), for
+    /// long operations such as pulls. Captured output is still returned.
+    /// </summary>
+    public Task<CommandResult> RunStreamingAsync(
+        IEnumerable<string> arguments,
+        Action<string> onLine,
+        CancellationToken cancellationToken = default) =>
+        RunCoreAsync(settings.WslcPath, arguments, onLine, cancellationToken);
+
     /// <summary>Runs against a captured executable path so a shared probe cannot mix engines.</summary>
     internal static Task<CommandResult> RunAtPathAsync(
         string executablePath,
         IEnumerable<string> arguments,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        RunCoreAsync(executablePath, arguments, onLine: null, cancellationToken);
+
+    private static Task<CommandResult> RunCoreAsync(
+        string executablePath,
+        IEnumerable<string> arguments,
+        Action<string>? onLine,
+        CancellationToken cancellationToken)
     {
         var psi = new ProcessStartInfo
         {
@@ -56,6 +73,7 @@ public sealed class ProcessRunner(ISettingsService settings)
 
         return ProcessExecutor.RunAsync(
             psi,
+            onLine: onLine,
             launchErrorContext: $"Could not launch '{executablePath}'.",
             ct: cancellationToken);
     }

@@ -235,7 +235,7 @@ Unblock-File -Path .\*
 | **.NET 10 SDK** | Needed to build and run from source. |
 | **Windows App SDK** tooling | Installed with recent Visual Studio workloads. |
 | **Azure CLI** *(optional)* | Only for the "Add from Azure" registry feature. |
-| **AI provider** *(optional)* | Only for the AI assistant & diagnostics (off by default). Use **GitHub Copilot CLI** (signed in), an **Azure OpenAI** endpoint + API key, any **OpenAI-compatible** endpoint (configurable base URL; API key optional for local servers), or run locally with **Ollama** (**Set up Ollama** after pulling `ollama/ollama:latest`). |
+| **AI provider** *(optional)* | Only for the AI assistant & diagnostics (off by default). Use **GitHub Copilot CLI** (signed in), an **Azure OpenAI** endpoint + API key, any **OpenAI-compatible** endpoint (configurable base URL; API key optional for local servers), or run locally with **Ollama** (**Set up Ollama** downloads the `ollama/ollama:latest` image if you don't have it). |
 | **GPU** *(optional)* | Used automatically where it helps: Ollama setup and the Open WebUI template request GPU access when the engine advertises the `--gpus` flag, and fall back to CPU when it doesn't. Requesting GPU access is not by itself proof of acceleration. |
 
 Install or update the WSL container preview from an elevated PowerShell prompt:
@@ -287,7 +287,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 3. Go to **Containers → Run a container**, pick the image, map a port, and click **Run**.
 4. *(Optional)* Open **Kubernetes** and click **Install** to spin up a local k3s cluster.
 5. *(Optional)* Open **Registries** to add a private registry or an Azure Container Registry.
-6. *(Optional)* Pull `ollama/ollama:latest` from the **Images** page, then open **Settings → AI diagnostics** and click **Set up Ollama** to run AI entirely on your own machine.
+6. *(Optional)* Open **Settings → AI diagnostics** and click **Set up Ollama** to run AI entirely on your own machine. The first setup downloads the Ollama image (a few GB) and offers to download a model.
 
 ---
 
@@ -415,7 +415,7 @@ AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, 
 #### Providers
 - **Choose your provider** — **GitHub Copilot** (uses your Copilot CLI sign-in), **Azure OpenAI**, any **OpenAI-compatible** endpoint, or **Ollama** for fully local inference. API keys are stored in **Windows Credential Manager**, never in plain text.
 - **Any OpenAI-compatible host, local or remote** — set the **base URL** yourself (default `https://api.openai.com/v1`) to point at LM Studio (`http://localhost:1234/v1`), llama.cpp / vLLM (`http://localhost:8000/v1`), Ollama's OpenAI API, or an internal gateway. `/chat/completions` is appended automatically, the **API key is optional** for servers that don't need one, and **Refresh** lists the models the endpoint actually serves.
-- **Quick start: run AI locally** — **Set up Ollama** creates an app-managed container on `127.0.0.1:11434`, offers to download a model if you don't have one, selects it as your provider, and reports what the model actually supports. It manages only its own container and never adopts an unrelated Ollama just because the endpoint answers. Pull `ollama/ollama:latest` from the **Images** page first — setup doesn't download images for you. **Remove Ollama** deletes the container, and optionally its model volume.
+- **Quick start: run AI locally** — **Set up Ollama** creates an app-managed container on `127.0.0.1:11434`, offers to download a model if you don't have one, selects it as your provider, and reports what the model actually supports. It manages only its own container and never adopts an unrelated Ollama just because the endpoint answers. If `ollama/ollama:latest` isn't on your machine yet, setup downloads it first (a few GB); an image you already have is used as is. **Remove Ollama** deletes the container, and optionally its model volume.
 
 #### What it can do
 - **Diagnose-and-fix** — a **Diagnose** button on any container's detail view gathers its logs, inspect JSON, filesystem-diff entries, and recent activity, **redacts and truncates** them into a preview you can review first, then asks the model what went wrong and how to fix it. Suggested fixes are **copy-only and never run automatically**.

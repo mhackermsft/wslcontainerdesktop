@@ -264,38 +264,137 @@ public sealed class LocalAiSetupServiceTests
     [Theory]
     [InlineData(WslcCapabilitySupport.Unknown, WslcCapabilitySupport.Supported)]
     [InlineData(WslcCapabilitySupport.Supported, WslcCapabilitySupport.Unknown)]
-    [InlineData(WslcCapabilitySupport.Supported, WslcCapabilitySupport.Unsupported)]
     [InlineData(WslcCapabilitySupport.Unsupported, WslcCapabilitySupport.Unknown)]
-    [InlineData(WslcCapabilitySupport.Unsupported, WslcCapabilitySupport.Unsupported)]
-    public async Task UnknownGpuOrUnavailableCachedOnlySupportAllowsNoMutation(
+    public async Task UnknownGpuOrPullSupportAllowsNoMutation(
         WslcCapabilitySupport gpu, WslcCapabilitySupport pull)
     {
-        var h = new Harness { Gpu = gpu, Pull = pull };
+        var h = new Harness { Gpu = gpu, Pull = pull, Images = [] };
         Assert.False((await h.Service.EnsureOllamaContainerAsync(null)).Success);
+        // AssertNoMutations also proves nothing was downloaded when creation is impossible anyway.
         h.AssertNoMutations();
         Assert.Equal(0, h.Count(nameof(IWslcService.ListImagesAsync)));
     }
 
     [Theory]
+    [InlineData(WslcCapabilitySupport.Supported)]
+    [InlineData(WslcCapabilitySupport.Unsupported)]
+    public async Task EngineWithoutCreatePullStillCreatesFromTheCachedImageId(WslcCapabilitySupport gpu)
+    {
+        var h = new Harness { Gpu = gpu, Pull = WslcCapabilitySupport.Unsupported };
+
+        var result = await h.Service.EnsureOllamaContainerAsync(null);
+
+        Assert.True(result.Success, result.Message);
+        var options = Assert.Single(h.Created);
+        // The content ID cannot be fetched from a registry, so omitting --pull cannot trigger a download.
+        Assert.Equal(ImageId, options.Image);
+        Assert.False(options.NeverPull);
+        Assert.Equal(gpu == WslcCapabilitySupport.Supported, options.AllGpus);
+        h.AssertSafe();
+    }
+
+    [Theory]
     [InlineData("absent")]
-    [InlineData("tag-only")]
     [InlineData("other-repository")]
     [InlineData("other-tag")]
-    public async Task MissingAuditedCachedImageNeverDownloadsOrMutates(string image)
+    public async Task MissingImageIsPulledOnceThenUsedForCreation(string image)
     {
-        var h = new Harness();
-        h.Images = image switch
+        var h = new Harness
         {
-            "absent" => [],
-            "tag-only" => [new() { Id = "latest", Repository = "ollama/ollama", Tag = "latest" }],
-            "other-repository" => [new() { Id = ImageId, Repository = "unrelated/image", Tag = "latest" }],
-            _ => [new() { Id = ImageId, Repository = "ollama/ollama", Tag = "old" }],
+            Images = image switch
+            {
+                "absent" => [],
+                "other-repository" => [new() { Id = ImageId, Repository = "unrelated/image", Tag = "latest" }],
+                _ => [new() { Id = ImageId, Repository = "ollama/ollama", Tag = "old" }],
+            },
+            ImagesAfterPull = [new() { Id = ImageId, Repository = "ollama/ollama", Tag = "latest" }],
+            PullLines =
+            [
+                "latest: Pulling from ollama/ollama",
+                "aaaaaaaaaaaa: Pulling fs layer",
+                "bbbbbbbbbbbb: Pulling fs layer",
+                "aaaaaaaaaaaa: Download complete",
+                "bbbbbbbbbbbb: Download complete",
+                "aaaaaaaaaaaa: Pull complete",
+                "bbbbbbbbbbbb: Pull complete",
+                "Status: Downloaded newer image for ollama/ollama:latest",
+            ],
         };
+        var progress = new List<string>();
+
+        var result = await h.Service.EnsureOllamaContainerAsync(new SyncProgress(progress.Add));
+
+        Assert.True(result.Success, result.Message);
+        Assert.Contains(progress, p => p.Contains("Downloading the Ollama image"));
+        Assert.Contains("Downloading the Ollama image: 1 of 2 layers downloaded...", progress);
+        Assert.Contains("Unpacking the Ollama image: 2 of 2 layers ready...", progress);
+        var options = Assert.Single(h.Created);
+        Assert.Equal(ImageId, options.Image);
+        Assert.True(options.NeverPull);
+        // The download happens after the capability preflight and before anything is created.
+        Assert.True(h.Events.IndexOf("capabilities") < h.Events.IndexOf(nameof(IWslcService.PullImageAsync)));
+        Assert.True(h.Events.IndexOf(nameof(IWslcService.PullImageAsync)) < h.Events.IndexOf(nameof(IWslcService.CreateVolumeAsync)));
+        h.AssertSafe(expectedPulls: 1);
+    }
+
+    [Fact]
+    public async Task FailedPullCreatesNothingAndSaysWhy()
+    {
+        var h = new Harness { Images = [], PullFailure = "dial tcp: lookup registry-1.docker.io: no such host\nmore detail" };
+
         var result = await h.Service.EnsureOllamaContainerAsync(null);
+
         Assert.False(result.Success);
-        Assert.Contains("not on this machine", result.Message);
-        Assert.Contains("does not download images", result.Message);
-        h.AssertNoMutations();
+        Assert.Equal(LocalAiContainerState.Failed, result.State);
+        Assert.Contains("Could not download the Ollama image", result.Message);
+        Assert.Contains("no such host", result.Message);
+        Assert.DoesNotContain("more detail", result.Message);
+        // Nothing was created, so ownership recovery guidance would only confuse.
+        Assert.DoesNotContain("Recovery:", result.Message);
+        Assert.Equal(LocalRuntimeResourceState.Absent, result.Runtime);
+        h.AssertNoMutations(expectedPulls: 1);
+    }
+
+    [Theory]
+    [InlineData("absent")]
+    [InlineData("tag-only")]
+    public async Task ImageStillMissingAfterPullCreatesNothing(string after)
+    {
+        var h = new Harness
+        {
+            Images = [],
+            ImagesAfterPull = after == "tag-only"
+                ? [new() { Id = "latest", Repository = "ollama/ollama", Tag = "latest" }]
+                : [],
+        };
+
+        var result = await h.Service.EnsureOllamaContainerAsync(null);
+
+        Assert.False(result.Success);
+        Assert.Contains("was downloaded, but the engine does not list", result.Message);
+        h.AssertNoMutations(expectedPulls: 1);
+    }
+
+    [Fact]
+    public async Task CancelledPullCreatesNothing()
+    {
+        using var cts = new CancellationTokenSource();
+        var h = new Harness { Images = [] };
+        h.Overrides[nameof(IWslcService.PullImageAsync)] = _ =>
+        {
+            cts.Cancel();
+            return Task.FromException<CommandResult>(new OperationCanceledException(cts.Token));
+        };
+
+        var result = await h.Service.EnsureOllamaContainerAsync(null, cts.Token);
+
+        Assert.Equal(LocalAiContainerState.Cancelled, result.State);
+        h.AssertNoMutations(expectedPulls: 1);
+    }
+
+    private sealed class SyncProgress(Action<string> report) : IProgress<string>
+    {
+        public void Report(string value) => report(value);
     }
 
     [Theory]
@@ -444,7 +543,8 @@ public sealed class LocalAiSetupServiceTests
         Assert.False(result.Success);
         Assert.Equal(LocalRuntimeResourceState.Absent, result.Runtime);
         Assert.Equal(existingModels ? LocalRuntimeResourceState.Retained : LocalRuntimeResourceState.Absent, result.ModelData);
-        Assert.DoesNotContain("not on this machine", result.Message);
+        Assert.DoesNotContain("Could not download", result.Message);
+        // An unreadable inventory is not evidence the image is missing, so nothing is downloaded.
         h.AssertNoMutations();
     }
 
@@ -861,6 +961,11 @@ public sealed class LocalAiSetupServiceTests
         public WslcCapabilitySupport Pull { get; set; } = WslcCapabilitySupport.Supported;
         public IReadOnlyList<ImageInfo> Images { get; set; } =
             [new() { Id = ImageId, Repository = "ollama/ollama", Tag = "latest" }];
+        /// <summary>What the image inventory reports after a successful pull; null leaves it unchanged.</summary>
+        public IReadOnlyList<ImageInfo>? ImagesAfterPull { get; set; }
+        public string? PullFailure { get; set; }
+        /// <summary>Output lines the simulated pull streams to its line callback.</summary>
+        public IReadOnlyList<string> PullLines { get; set; } = [];
         public string? CreateFailure { get; set; }
         public string? StartFailure { get; set; }
         public string? RemoveFailure { get; set; }
@@ -951,6 +1056,15 @@ public sealed class LocalAiSetupServiceTests
                     return Task.FromResult(Volume is null ? Fail("volume absent") : Ok(Volume.ToJsonString()));
                 case nameof(IWslcService.ListImagesAsync):
                     return Task.FromResult(Images);
+                case nameof(IWslcService.PullImageAsync):
+                    Assert.Equal("ollama/ollama:latest", args[0]);
+                    Assert.Empty(_mutations);
+                    if (args.Length == 3 && args[1] is Action<string> onLine)
+                        foreach (var line in PullLines)
+                            onLine(line);
+                    if (PullFailure is not null) return Task.FromResult(Fail(PullFailure));
+                    Images = ImagesAfterPull ?? Images;
+                    return Task.FromResult(Ok());
                 case nameof(IWslcService.CreateVolumeAsync):
                     Assert.Equal(Name, args[0]);
                     var labels = (IReadOnlyDictionary<string, string>)args[3]!;
@@ -985,7 +1099,7 @@ public sealed class LocalAiSetupServiceTests
         }
 
         // Assertion exceptions are intentionally outside the service's lifecycle catch filter.
-        // Pull/run/exec/volume deletion, live probes, and every other unconfigured I/O fail the test.
+        // Run/exec/volume deletion, live probes, and every other unconfigured I/O fail the test.
         private XunitException Unexpected(string name)
         {
             _unexpected.Add(name);
@@ -993,11 +1107,12 @@ public sealed class LocalAiSetupServiceTests
         }
 
         /// <summary>Volume deletion is a real, user-approved outcome, so it is asserted per test via
-        /// <see cref="AssertNoVolumeDeletion"/> rather than banned outright here.</summary>
-        public void AssertSafe()
+        /// <see cref="AssertNoVolumeDeletion"/> rather than banned outright here. A cached image must
+        /// never be re-pulled, so pulls default to zero.</summary>
+        public void AssertSafe(int expectedPulls = 0)
         {
             Assert.Empty(_unexpected);
-            Assert.Equal(0, Count(nameof(IWslcService.PullImageAsync)));
+            Assert.Equal(expectedPulls, Count(nameof(IWslcService.PullImageAsync)));
             Assert.Equal(0, Count(nameof(IWslcService.RunContainerAsync)));
             Assert.Equal(0, Count(nameof(IWslcService.ExecAsync)));
             Assert.Equal("invalidate", Events[^1]);
@@ -1006,11 +1121,11 @@ public sealed class LocalAiSetupServiceTests
         public void AssertNoVolumeDeletion() =>
             Assert.Equal(0, Count(nameof(IWslcService.RemoveVolumeAsync)));
 
-        public void AssertNoMutations()
+        public void AssertNoMutations(int expectedPulls = 0)
         {
             Assert.Empty(_mutations);
             AssertNoVolumeDeletion();
-            AssertSafe();
+            AssertSafe(expectedPulls);
         }
     }
 }

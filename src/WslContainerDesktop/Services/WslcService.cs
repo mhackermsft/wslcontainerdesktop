@@ -710,6 +710,9 @@ public sealed class WslcService(
     public Task<CommandResult> PullImageAsync(string reference, CancellationToken ct = default) =>
         runner.RunAsync(["pull", reference], ct);
 
+    public Task<CommandResult> PullImageAsync(string reference, Action<string> onLine, CancellationToken ct = default) =>
+        runner.RunStreamingAsync(["pull", reference], onLine, ct);
+
     public Task<CommandResult> LoginRegistryAsync(string server, string username, string password, CancellationToken ct = default)
     {
         var args = new List<string> { "login" };

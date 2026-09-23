@@ -132,7 +132,11 @@ exercise and the remaining signed app-MSIX/hardware evidence gaps.
 Ollama container lifecycle is separate from native providers and capability observation.
 Setup serializes with removal, resolves discovery names to full inspected IDs, and requires
 managed/operation labels plus a matching labelled model-volume snapshot and exact loopback
-API binding. New setup uses a cached image ID with `--pull never`; shared create-help
+API binding. New setup pulls `ollama/ollama:latest` only when no usable cached image exists (after
+the capability preflight, before any resource is created), then creates from the cached image ID
+with `--pull never` (or without the flag when create definitively lacks it; a content ID cannot be
+fetched from a registry, so there is still no implicit download). Pull progress is reported per
+layer by `ImagePullProgress`, since redirected `wslc pull` output has no byte counts. Shared create-help
 tri-state capabilities select GPU or definitive unsupported CPU before any mutation.
 Create/verify/start is not retried through another backend on failure.
 
