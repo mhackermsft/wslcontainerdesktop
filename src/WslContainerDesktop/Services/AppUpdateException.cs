@@ -22,4 +22,10 @@ public sealed class AppUpdateException : Exception
     public AppUpdateException(string message) : base(message) { }
 
     public AppUpdateException(string message, Exception inner) : base(message, inner) { }
+
+    /// <summary>
+    /// False when the release itself was refused (wrong signer, identity or version), so trying the
+    /// same release again cannot succeed; true for transient failures such as network errors.
+    /// </summary>
+    public bool CanRetry { get; init; } = true;
 }

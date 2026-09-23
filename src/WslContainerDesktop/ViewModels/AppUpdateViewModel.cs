@@ -250,7 +250,9 @@ public partial class AppUpdateViewModel : ObservableObject
             ClearProgress();
             ShowBar(InfoBarSeverity.Error, "Update failed", ex.Message);
             UpdateButtonText = "Try again";
-            IsUpdateButtonVisible = true;
+
+            // Retrying a refused release would download the same package only to refuse it again.
+            IsUpdateButtonVisible = ex.CanRetry;
             StatusText = $"The update to {release.DisplayVersion} failed.";
         }
         catch (Exception ex)

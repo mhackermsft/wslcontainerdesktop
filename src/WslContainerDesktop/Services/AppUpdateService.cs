@@ -133,7 +133,7 @@ public sealed class AppUpdateService : IAppUpdateService
             ?? throw new AppUpdateException("Updates are only available for the installed app.");
         if (package.SignerThumbprint is null)
         {
-            throw new AppUpdateException("This copy is not a signed release install, so it cannot update itself. Install the release from GitHub instead.");
+            throw new AppUpdateException("This copy is not a signed release install, so it cannot update itself. Install the release from GitHub instead.") { CanRetry = false };
         }
 
         var folder = UpdatesFolder();
@@ -213,7 +213,9 @@ public sealed class AppUpdateService : IAppUpdateService
         {
             TryDelete(path);
             _logger.LogWarning("Refused update {Version}: {Reason}", release.Version, reason);
-            throw new AppUpdateException(reason);
+            // The download already matched GitHub's size (and checksum, when published), so fetching
+            // it again would give the same file.
+            throw new AppUpdateException(reason) { CanRetry = false };
         }
 
         progress?.Report(new AppUpdateProgress(AppUpdatePhase.Installing));

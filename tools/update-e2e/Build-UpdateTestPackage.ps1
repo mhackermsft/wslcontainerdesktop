@@ -54,6 +54,22 @@ $TestPhoneProductId = '7E3A5C1B-2D4F-4A6B-9C8D-0E1F2A3B4C5E'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
+# robocopy /MIR deletes everything in the destination that is not in the repo, so only ever mirror
+# into a folder this script owns: never the repo itself or anything inside it, and never an existing
+# non-empty folder unless an earlier run of this script left its marker there.
+$MarkerName = '.wslcd-update-e2e-workdir'
+$WorkDir = [System.IO.Path]::GetFullPath($WorkDir).TrimEnd('\')
+$repoPrefix = $repoRoot.TrimEnd('\') + '\'
+if ($WorkDir -eq $repoRoot.TrimEnd('\') -or $WorkDir.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+    $repoPrefix.StartsWith($WorkDir + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "-WorkDir '$WorkDir' overlaps the repository; choose a folder outside it."
+}
+if ((Test-Path -LiteralPath $WorkDir) -and
+    (Get-ChildItem -LiteralPath $WorkDir -Force | Select-Object -First 1) -and
+    -not (Test-Path -LiteralPath (Join-Path $WorkDir $MarkerName))) {
+    throw "-WorkDir '$WorkDir' is not empty and was not created by this script; its contents would be deleted. Choose an empty or new folder."
+}
+
 function Set-FileText([string]$Path, [string]$Content) {
     [System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding($false)))
 }
@@ -66,8 +82,9 @@ function Replace-Exact([string]$Content, [string]$Old, [string]$New, [string]$Wh
 # 1. Fresh copy of the tree (build outputs, git metadata and tests are not needed).
 Write-Host "Copying working tree to $WorkDir"
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
-robocopy $repoRoot $WorkDir /MIR /NFL /NDL /NJH /NJS /NP /XD .git bin obj AppPackages tests .vs | Out-Null
+robocopy $repoRoot $WorkDir /MIR /NFL /NDL /NJH /NJS /NP /XD .git bin obj AppPackages tests .vs /XF $MarkerName | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
+New-Item -ItemType File -Force -Path (Join-Path $WorkDir $MarkerName) | Out-Null
 
 $app = Join-Path $WorkDir 'src\WslContainerDesktop'
 
