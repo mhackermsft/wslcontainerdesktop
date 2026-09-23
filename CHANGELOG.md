@@ -10,6 +10,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Each version links to its release,
 where the signed MSIX and installation steps live.
 
+## [Unreleased]
+
+### Added
+
+- **The app can update itself.** Each time it starts it checks GitHub for a newer release; when there
+  is one, a bar at the top of the window and a Windows notification offer **Update now**, which
+  downloads the release, closes the app, installs the update and reopens it. It refuses any package
+  that is not a newer build of WSL Container Desktop signed with the same certificate as your
+  installation. Running containers are not stopped; Kubernetes port-forwards are. The launch check is
+  on by default and can be turned off, or run by hand, under **Settings → About**. Copies installed
+  from a local development build can see updates but not install them. Updates start working from
+  the release after the first one that includes this feature, which must be installed manually.
+
 ## [1.8.1] — 2026-09-15
 
 ### Security
@@ -26,16 +39,6 @@ where the signed MSIX and installation steps live.
   the operation before host commands or container changes. Host initialization now rejects
   UNC, device, extended-length and overly long workspace paths instead of letting CMD silently
   execute in a different directory.
-
-### Added
-
-- **The app can update itself.** Each time it starts it checks GitHub for a newer release; when there
-  is one, a bar at the top of the window and a Windows notification offer **Update now**, which
-  downloads the release, closes the app, installs the update and reopens it. It refuses any package
-  that is not a newer build of WSL Container Desktop signed with the same certificate as your
-  installation. Running containers are not stopped; Kubernetes port-forwards are. The launch check is
-  on by default and can be turned off, or run by hand, under **Settings → About**. Copies installed
-  from a local development build can see updates but not install them.
 
 ### Fixed
 
