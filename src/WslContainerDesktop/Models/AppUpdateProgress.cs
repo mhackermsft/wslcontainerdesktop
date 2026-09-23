@@ -19,6 +19,9 @@ namespace WslContainerDesktop.Models;
 public enum AppUpdatePhase
 {
     Downloading,
+
+    /// <summary>Downloaded; waiting until Windows will relaunch the app after installing.</summary>
+    Preparing,
     Verifying,
     Installing,
 }

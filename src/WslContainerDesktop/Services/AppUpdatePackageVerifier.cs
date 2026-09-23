@@ -149,7 +149,7 @@ public static class AppUpdatePackageVerifier
 
         return string.Equals(installedSignerThumbprint, candidateSignerThumbprint, StringComparison.OrdinalIgnoreCase)
             ? null
-            : "The downloaded package is signed by a different certificate than this installation.";
+            : "This release is signed with a different certificate than your installation, so it can't be installed automatically. Download it from the GitHub release page and install it with its new certificate.";
     }
 
     private static void TryDelete(string path)

@@ -140,6 +140,11 @@ public sealed class AppUpdateService : IAppUpdateService
         var path = Path.Combine(folder, release.AssetName);
 
         progress?.Report(new AppUpdateProgress(AppUpdatePhase.Downloading, 0));
+
+        // Windows only relaunches a process that has run for about a minute. Wait for that alongside
+        // the download rather than after the checks, so the verified package is installed at once and
+        // never sits on disk between verification and installation.
+        var uptimeWait = EnsureRestartableUptimeAsync(ct);
         var lastPercent = 0;
         using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
         {
@@ -170,6 +175,19 @@ public sealed class AppUpdateService : IAppUpdateService
         }
 
         _logger.LogInformation("Downloaded update {Version} to {Path}.", release.Version, path);
+
+        if (!uptimeWait.IsCompleted)
+        {
+            progress?.Report(new AppUpdateProgress(AppUpdatePhase.Preparing));
+        }
+
+        await uptimeWait;
+        if (ct.IsCancellationRequested)
+        {
+            TryDelete(path);
+            ct.ThrowIfCancellationRequested();
+        }
+
         progress?.Report(new AppUpdateProgress(AppUpdatePhase.Verifying));
 
         string? reason;
@@ -199,7 +217,6 @@ public sealed class AppUpdateService : IAppUpdateService
         }
 
         progress?.Report(new AppUpdateProgress(AppUpdatePhase.Installing));
-        await EnsureRestartableUptimeAsync(ct);
         ct.ThrowIfCancellationRequested();
 
         WritePendingMarker(folder, release.Version, package.Identity.Version);
@@ -321,13 +338,21 @@ public sealed class AppUpdateService : IAppUpdateService
     /// <summary>The package manager runs outside the app, so it must get the real (unredirected) path.</summary>
     private static string UpdatesFolder() => Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "Updates");
 
+    /// <summary>Completes once the process is old enough to be relaunched; never faults, so it can run unobserved.</summary>
     private static async Task EnsureRestartableUptimeAsync(CancellationToken ct)
     {
         using var process = Process.GetCurrentProcess();
         var uptime = DateTime.Now - process.StartTime;
         if (uptime < MinimumUptimeForRestart)
         {
-            await Task.Delay(MinimumUptimeForRestart - uptime, ct).ConfigureAwait(false);
+            try
+            {
+                await Task.Delay(MinimumUptimeForRestart - uptime, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The caller checks its token after awaiting.
+            }
         }
     }
 

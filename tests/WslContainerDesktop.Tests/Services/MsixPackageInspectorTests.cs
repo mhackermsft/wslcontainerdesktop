@@ -107,14 +107,9 @@ public sealed class MsixPackageInspectorTests : IDisposable
         Assert.Equal(new byte[] { 0x30 }, MsixPackageInspector.ReadInstalledSignature(_folder));
     }
 
-    [Fact]
+    [WindowsFact]
     public void ReturnsTheVerifiedSignerOfASignedMessage()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var cert = CreateSigningCertificate();
         var signed = Pkcs7Signer.Sign(cert, "package hashes"u8.ToArray());
 
@@ -124,14 +119,9 @@ public sealed class MsixPackageInspectorTests : IDisposable
         Assert.Equal(cert.GetCertHashString(HashAlgorithmName.SHA256), MsixPackageInspector.Thumbprint(signer));
     }
 
-    [Fact]
+    [WindowsFact]
     public void RejectsASignedMessageWhoseContentWasAltered()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var cert = CreateSigningCertificate();
         var content = Encoding.ASCII.GetBytes("package hashes that must not change");
         var signed = Pkcs7Signer.Sign(cert, content);
@@ -144,7 +134,7 @@ public sealed class MsixPackageInspectorTests : IDisposable
         Assert.Null(MsixPackageInspector.GetVerifiedSigner(signed));
     }
 
-    [Fact]
+    [WindowsFact]
     public void RejectsCertificatesOnlyAndGarbageData()
     {
         using var cert = CreateSigningCertificate();

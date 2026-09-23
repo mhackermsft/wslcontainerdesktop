@@ -214,7 +214,8 @@ and log a warning).
 ### In-app updates (`AppUpdateService`, `AppUpdateViewModel`)
 
 On launch (unless *Check for updates when the app starts* is off) the app asks the GitHub API for
-the repository's latest release. `AppUpdateReleaseParser` accepts only a non-draft, non-prerelease
+the repository's latest release, retrying a failed check after 1, 5 and 20 minutes (the network is
+often not up yet at sign-in). `AppUpdateReleaseParser` accepts only a non-draft, non-prerelease
 `vX.Y.Z` tag with an uploaded `WSLContainerDesktop_X.Y.Z_<arch>.msix` asset whose download URL is
 exactly that release's asset URL — the asset name the release workflow produces is therefore a
 contract. A newer release opens the `InfoBar` at the top of `MainWindow` and raises a toast whose
@@ -225,14 +226,19 @@ Installing is deliberately paranoid, because the result goes to the package inst
 1. **Download** to `LocalCacheFolder\Updates` (the real path, since the deployment service reads
    it) with a dedicated `HttpClient`; the byte count must equal the size GitHub reports and, when
    the API publishes one, the SHA-256 digest must match (`AppUpdatePackageVerifier.DownloadAsync`).
+   Meanwhile the app waits until it has run for 65 s, because Windows ignores
+   `RegisterApplicationRestart` for younger processes. Waiting *before* verification means the
+   verified file is installed immediately rather than sitting in a user-writable folder.
 2. **Verify** (`AppUpdatePackageVerifier.Verify`, `MsixPackageInspector`): the MSIX manifest's
    `Identity` must have this package's name, publisher and architecture and exactly the advertised,
    strictly newer version; and the single signer of its `AppxSignature.p7x` — whose signature is
    checked with CryptoAPI — must have the same certificate (SHA-256 thumbprint) as the installed
    package's own `AppxSignature.p7x`. A development registration of loose files has no signature,
-   so it can see updates but not install them.
-3. **Install**: after at least 65 s of process uptime (Windows ignores `RegisterApplicationRestart`
-   for younger processes), write `pending-update.json`, register for restart, stop port-forwards,
+   so it can see updates but not install them. Because of this pin, rotating the signing
+   certificate ends automatic updates for existing installs (see `build/README-signing.md`); a
+   list of accepted thumbprints would not help, since Windows also refuses a self-signed package
+   until the user has trusted its exact certificate.
+3. **Install**: write `pending-update.json`, register for restart, stop port-forwards,
    then `PackageManager.AddPackageAsync(..., ForceApplicationShutdown)`. Windows closes the app,
    installs, and relaunches it. If the package manager refuses instead, the restart registration
    and marker are removed and the error is shown in the bar.

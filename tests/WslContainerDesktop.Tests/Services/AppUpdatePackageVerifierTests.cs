@@ -95,6 +95,10 @@ public sealed class AppUpdatePackageVerifierTests : IDisposable
         Assert.NotNull(AppUpdatePackageVerifier.Verify(Release(), Installed, Candidate(), installedThumb, candidateThumb));
 
     [Fact]
+    public void TellsTheUserHowToRecoverFromACertificateChange() =>
+        Assert.Contains("GitHub release page", AppUpdatePackageVerifier.Verify(Release(), Installed, Candidate(), Thumb, "CD34"));
+
+    [Fact]
     public async Task DownloadsAndChecksTheDigest()
     {
         var payload = RandomNumberGenerator.GetBytes(300_000);

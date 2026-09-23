@@ -29,8 +29,16 @@ namespace WslContainerDesktop.ViewModels;
 /// </summary>
 public partial class AppUpdateViewModel : ObservableObject
 {
+    private static readonly TimeSpan[] LaunchRetryDelays =
+    [
+        TimeSpan.FromMinutes(1),
+        TimeSpan.FromMinutes(5),
+        TimeSpan.FromMinutes(20),
+    ];
+
     private readonly IAppUpdateService _updates;
     private readonly INotificationService _notifications;
+    private readonly ISettingsService _settings;
     private readonly ILogger<AppUpdateViewModel> _logger;
 
     private AppUpdateRelease? _release;
@@ -78,10 +86,11 @@ public partial class AppUpdateViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(UpdateNowCommand))]
     private bool _isBusy;
 
-    public AppUpdateViewModel(IAppUpdateService updates, INotificationService notifications, ILogger<AppUpdateViewModel> logger)
+    public AppUpdateViewModel(IAppUpdateService updates, INotificationService notifications, ISettingsService settings, ILogger<AppUpdateViewModel> logger)
     {
         _updates = updates;
         _notifications = notifications;
+        _settings = settings;
         _logger = logger;
         StatusText = updates.CurrentVersion is null
             ? "Updates are available only for the installed app."
@@ -93,7 +102,8 @@ public partial class AppUpdateViewModel : ObservableObject
 
     /// <summary>
     /// Launch-time check: quiet unless a newer release exists, in which case the bar opens and a
-    /// Windows notification is shown (so it is seen even when the app starts in the tray).
+    /// Windows notification is shown (so it is seen even when the app starts in the tray). A failed
+    /// check is retried a few times, since at sign-in the network is often not ready yet.
     /// </summary>
     public async Task CheckOnLaunchAsync()
     {
@@ -102,18 +112,35 @@ public partial class AppUpdateViewModel : ObservableObject
             return;
         }
 
-        try
+        for (var attempt = 0; ; attempt++)
         {
-            var release = await CheckCoreAsync();
-            if (release is not null)
+            try
             {
-                _notifications.NotifyUpdateAvailable(release.DisplayVersion, _updates.CanInstallInPlace);
+                var release = await CheckCoreAsync();
+                if (release is not null)
+                {
+                    _notifications.NotifyUpdateAvailable(release.DisplayVersion, _updates.CanInstallInPlace);
+                }
+
+                return;
             }
-        }
-        catch (AppUpdateException ex)
-        {
-            // A failed background check is not worth interrupting anyone for; Settings shows why.
-            _logger.LogInformation(ex, "Launch update check failed.");
+            catch (AppUpdateException ex)
+            {
+                // A failed background check is not worth interrupting anyone for; Settings shows why.
+                _logger.LogInformation(ex, "Launch update check failed (attempt {Attempt}).", attempt + 1);
+                if (attempt >= LaunchRetryDelays.Length)
+                {
+                    return;
+                }
+            }
+
+            await Task.Delay(LaunchRetryDelays[attempt]);
+
+            // Stop if the user turned the check off, or a manual check or update has since run.
+            if (!_settings.CheckForUpdatesOnLaunch || _release is not null || IsBusy)
+            {
+                return;
+            }
         }
     }
 
@@ -206,6 +233,7 @@ public partial class AppUpdateViewModel : ObservableObject
             ShowBar(InfoBarSeverity.Success, "Update installed", $"Restart WSL Container Desktop to start using version {release.DisplayVersion}.");
             StatusText = $"Version {release.DisplayVersion} is installed; restart the app to use it.";
             _release = null;
+            IsReleaseNotesVisible = false;
         }
         catch (AppUpdateException ex)
         {
@@ -311,6 +339,11 @@ public partial class AppUpdateViewModel : ObservableObject
                 var percent = (int)Math.Round((p.Fraction ?? 0) * 100);
                 BarMessage = $"{percent}% downloaded.";
                 SetProgress(percent);
+                break;
+            case AppUpdatePhase.Preparing:
+                BarTitle = "Getting ready to install";
+                BarMessage = "The download is complete. The update will install in less than a minute.";
+                SetProgress(null);
                 break;
             case AppUpdatePhase.Verifying:
                 BarTitle = "Checking the download";

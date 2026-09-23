@@ -23,6 +23,16 @@ certificate lives in secrets rather than being created on the fly.
 
 ## Rotating / recreating the certificate
 
+> [!WARNING]
+> **Rotating the certificate ends automatic updates for every existing installation.** The in-app
+> updater installs a release only if it is signed with the *same* certificate (compared by SHA-256
+> thumbprint) as the copy already installed, and Windows only accepts a self-signed package whose
+> exact certificate the user has trusted. A release signed with a new certificate therefore shows
+> *"This release is signed with a different certificate…"* in the app, and every user has to
+> download it and trust the new `.cer` by hand, as for a first install. Only rotate when you have
+> to (compromise or imminent expiry — the current certificate is valid for ten years), and say so
+> prominently in that release's notes and `CHANGELOG.md`.
+
 Run locally (PowerShell), then update the two secrets:
 
 ```powershell
@@ -49,4 +59,6 @@ $b64 | gh secret set PFX_BASE64 --repo mhackermsft/wslcontainerdesktop
 To remove the "unknown publisher / trust this certificate" step for users, replace the
 self-signed certificate with one from a trusted CA (or an Azure Trusted Signing account) and
 update the two secrets plus the manifest `Publisher` to match the new subject. No workflow
-changes are required.
+changes are required. A new `Publisher` makes it a different package to Windows, so — as with a
+rotation — existing installations cannot update in place and users must install the new release
+manually (and uninstall the old one).
