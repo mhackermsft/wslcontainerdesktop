@@ -505,10 +505,14 @@ there is no silent name-based ownership migration.
 An older running Ollama can still be configured as an external Ollama provider;
 that does not grant this lifecycle service ownership or removal permission.
 
-New setup uses a cached `ollama/ollama:latest` image ID and enforces `--pull never` on create.
+New setup creates from a cached `ollama/ollama:latest` image ID with `--pull never` when create
+supports it. When create definitively lacks `--pull` (older WSLC), the flag is omitted: the
+content ID cannot be fetched from a registry, so creation still cannot download anything.
+Unknown `--pull` support blocks with a diagnostic.
 When no usable image is cached, setup first pulls `ollama/ollama:latest` itself, after the
 capability preflight and before creating any volume or container; a failed or cancelled pull
-creates nothing. A cached image is never re-pulled.
+creates nothing. A cached image is never re-pulled. Pull progress is layer counts parsed from
+the redirected `wslc pull` output (`ImagePullProgress`), which has no byte counts.
 Shared `IWslcCapabilitiesService` observations of **create** help govern `--pull`
 and `--gpus`; version numbers and run-help guesses are not evidence. Only
 definitive absence of the GPU flag selects CPU before creation. Unknown GPU

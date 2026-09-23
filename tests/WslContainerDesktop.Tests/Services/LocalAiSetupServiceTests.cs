@@ -264,10 +264,8 @@ public sealed class LocalAiSetupServiceTests
     [Theory]
     [InlineData(WslcCapabilitySupport.Unknown, WslcCapabilitySupport.Supported)]
     [InlineData(WslcCapabilitySupport.Supported, WslcCapabilitySupport.Unknown)]
-    [InlineData(WslcCapabilitySupport.Supported, WslcCapabilitySupport.Unsupported)]
     [InlineData(WslcCapabilitySupport.Unsupported, WslcCapabilitySupport.Unknown)]
-    [InlineData(WslcCapabilitySupport.Unsupported, WslcCapabilitySupport.Unsupported)]
-    public async Task UnknownGpuOrUnavailableCachedOnlySupportAllowsNoMutation(
+    public async Task UnknownGpuOrPullSupportAllowsNoMutation(
         WslcCapabilitySupport gpu, WslcCapabilitySupport pull)
     {
         var h = new Harness { Gpu = gpu, Pull = pull, Images = [] };
@@ -275,6 +273,24 @@ public sealed class LocalAiSetupServiceTests
         // AssertNoMutations also proves nothing was downloaded when creation is impossible anyway.
         h.AssertNoMutations();
         Assert.Equal(0, h.Count(nameof(IWslcService.ListImagesAsync)));
+    }
+
+    [Theory]
+    [InlineData(WslcCapabilitySupport.Supported)]
+    [InlineData(WslcCapabilitySupport.Unsupported)]
+    public async Task EngineWithoutCreatePullStillCreatesFromTheCachedImageId(WslcCapabilitySupport gpu)
+    {
+        var h = new Harness { Gpu = gpu, Pull = WslcCapabilitySupport.Unsupported };
+
+        var result = await h.Service.EnsureOllamaContainerAsync(null);
+
+        Assert.True(result.Success, result.Message);
+        var options = Assert.Single(h.Created);
+        // The content ID cannot be fetched from a registry, so omitting --pull cannot trigger a download.
+        Assert.Equal(ImageId, options.Image);
+        Assert.False(options.NeverPull);
+        Assert.Equal(gpu == WslcCapabilitySupport.Supported, options.AllGpus);
+        h.AssertSafe();
     }
 
     [Theory]
@@ -292,6 +308,17 @@ public sealed class LocalAiSetupServiceTests
                 _ => [new() { Id = ImageId, Repository = "ollama/ollama", Tag = "old" }],
             },
             ImagesAfterPull = [new() { Id = ImageId, Repository = "ollama/ollama", Tag = "latest" }],
+            PullLines =
+            [
+                "latest: Pulling from ollama/ollama",
+                "aaaaaaaaaaaa: Pulling fs layer",
+                "bbbbbbbbbbbb: Pulling fs layer",
+                "aaaaaaaaaaaa: Download complete",
+                "bbbbbbbbbbbb: Download complete",
+                "aaaaaaaaaaaa: Pull complete",
+                "bbbbbbbbbbbb: Pull complete",
+                "Status: Downloaded newer image for ollama/ollama:latest",
+            ],
         };
         var progress = new List<string>();
 
@@ -299,6 +326,8 @@ public sealed class LocalAiSetupServiceTests
 
         Assert.True(result.Success, result.Message);
         Assert.Contains(progress, p => p.Contains("Downloading the Ollama image"));
+        Assert.Contains("Downloading the Ollama image: 1 of 2 layers downloaded...", progress);
+        Assert.Contains("Unpacking the Ollama image: 2 of 2 layers ready...", progress);
         var options = Assert.Single(h.Created);
         Assert.Equal(ImageId, options.Image);
         Assert.True(options.NeverPull);
@@ -935,6 +964,8 @@ public sealed class LocalAiSetupServiceTests
         /// <summary>What the image inventory reports after a successful pull; null leaves it unchanged.</summary>
         public IReadOnlyList<ImageInfo>? ImagesAfterPull { get; set; }
         public string? PullFailure { get; set; }
+        /// <summary>Output lines the simulated pull streams to its line callback.</summary>
+        public IReadOnlyList<string> PullLines { get; set; } = [];
         public string? CreateFailure { get; set; }
         public string? StartFailure { get; set; }
         public string? RemoveFailure { get; set; }
@@ -1028,6 +1059,9 @@ public sealed class LocalAiSetupServiceTests
                 case nameof(IWslcService.PullImageAsync):
                     Assert.Equal("ollama/ollama:latest", args[0]);
                     Assert.Empty(_mutations);
+                    if (args.Length == 3 && args[1] is Action<string> onLine)
+                        foreach (var line in PullLines)
+                            onLine(line);
                     if (PullFailure is not null) return Task.FromResult(Fail(PullFailure));
                     Images = ImagesAfterPull ?? Images;
                     return Task.FromResult(Ok());

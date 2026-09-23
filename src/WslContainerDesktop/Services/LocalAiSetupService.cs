@@ -77,9 +77,13 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
             var gpu = capabilities[WslcFeature.CreateGpus].Support;
             Require(gpu != WslcCapabilitySupport.Unknown,
                 "GPU creation support is unknown. Check the configured WSLC executable and its create help; no runtime was created.");
-            Require(capabilities[WslcFeature.CreatePull].Support == WslcCapabilitySupport.Supported,
-                "Cached-only creation cannot be guaranteed: WSLC create --pull support is unavailable or unknown. " +
-                "Existing verified runtimes can still be reused. Prepare the runtime manually with an age-audited image; no automatic download was attempted.");
+            // Unknown support must surface a diagnostic rather than a guess. Without --pull the container
+            // is still created from the cached image's content ID, which the engine cannot fetch from a
+            // registry, so no implicit download can happen on engines that lack the option.
+            var pullSupport = capabilities[WslcFeature.CreatePull].Support;
+            Require(pullSupport != WslcCapabilitySupport.Unknown,
+                "Could not tell whether this engine's create command supports --pull. Check the WSLC path under " +
+                "Settings > Container engine; no runtime was created.");
             var image = await EnsureImageAsync(progress, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             aiCapabilities.Invalidate();
@@ -106,7 +110,7 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
             ct.ThrowIfCancellationRequested();
             aiCapabilities.Invalidate();
             var creation = await wslc.CreateContainerAsync(BuildOptions(image, gpu == WslcCapabilitySupport.Supported,
-                operation, volume!.Operation), ct).ConfigureAwait(false);
+                pullSupport == WslcCapabilitySupport.Supported, operation, volume!.Operation), ct).ConfigureAwait(false);
             var returnedId = creation.StandardOutput.Trim();
             if (IsContainerId(returnedId))
                 createdId = returnedId;
@@ -129,7 +133,7 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
         catch (ImageUnavailableException ex)
         {
             // Nothing was created or changed yet, so ownership recovery guidance would only confuse.
-            logger.LogWarning("Local AI setup stopped: the Ollama image is unavailable.");
+            logger.LogWarning("Local AI setup stopped before creating anything: {Reason}", ex.Message);
             return new(false, LocalAiContainerState.Failed, ex.Message, null, runtime, modelData);
         }
         catch (Exception ex) when (IsLifecycleFailure(ex))
@@ -244,13 +248,13 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
         }
     }
 
-    private static RunContainerOptions BuildOptions(string image, bool useGpu, string operation, string volume) => new()
+    private static RunContainerOptions BuildOptions(string image, bool useGpu, bool neverPull, string operation, string volume) => new()
     {
         Image = image,
         Name = ManagedContainerName,
         Detached = true,
         AllGpus = useGpu,
-        NeverPull = true,
+        NeverPull = neverPull,
         PortMappings = { $"127.0.0.1:{Port}:{Port}" },
         Volumes = { $"{ModelVolumeName}:/root/.ollama" },
         Labels = { [OwnerLabel] = "local-ai", [OperationLabel] = operation, [VolumeLabel] = volume },
@@ -268,7 +272,12 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
             return cached;
 
         progress?.Report($"Downloading the Ollama image ({PullReference}, a few GB). This can take several minutes...");
-        var pull = await wslc.PullImageAsync(PullReference, ct).ConfigureAwait(false);
+        var layers = new ImagePullProgress("the Ollama image");
+        var pull = await wslc.PullImageAsync(PullReference, line =>
+        {
+            if (layers.Observe(line) is { } message)
+                progress?.Report(message);
+        }, ct).ConfigureAwait(false);
         if (!pull.Success)
         {
             var detail = pull.ErrorText.Split('\n', 2)[0].Trim();
