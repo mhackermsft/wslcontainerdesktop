@@ -26,6 +26,7 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
     IAiCapabilityService aiCapabilities, ILogger<LocalAiSetupService> logger) : ILocalAiSetupService
 {
     private const string ImageReference = "ollama/ollama";
+    private const string PullReference = "ollama/ollama:latest";
     private const string ManagedContainerName = "wslcd-ollama";
     private const string ModelVolumeName = "wslcd-ollama";
     internal const string OwnerLabel = "com.wslcontainerdesktop.managed";
@@ -79,7 +80,7 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
             Require(capabilities[WslcFeature.CreatePull].Support == WslcCapabilitySupport.Supported,
                 "Cached-only creation cannot be guaranteed: WSLC create --pull support is unavailable or unknown. " +
                 "Existing verified runtimes can still be reused. Prepare the runtime manually with an age-audited image; no automatic download was attempted.");
-            var image = await FindImageAsync(ct).ConfigureAwait(false);
+            var image = await EnsureImageAsync(progress, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             aiCapabilities.Invalidate();
             if (volume is null)
@@ -124,6 +125,12 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
                 ? LocalAiContainerState.CreatedWithGpu : LocalAiContainerState.CreatedCpuOnly,
                 "Owned Ollama container is running. GPU access is not proof of acceleration; API/model readiness is checked separately.",
                 createdId, LocalRuntimeResourceState.Retained, modelData);
+        }
+        catch (ImageUnavailableException ex)
+        {
+            // Nothing was created or changed yet, so ownership recovery guidance would only confuse.
+            logger.LogWarning("Local AI setup stopped: the Ollama image is unavailable.");
+            return new(false, LocalAiContainerState.Failed, ex.Message, null, runtime, modelData);
         }
         catch (Exception ex) when (IsLifecycleFailure(ex))
         {
@@ -249,15 +256,40 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
         Labels = { [OwnerLabel] = "local-ai", [OperationLabel] = operation, [VolumeLabel] = volume },
     };
 
-    private async Task<string> FindImageAsync(CancellationToken ct)
+    /// <summary>
+    /// Returns the cached Ollama image ID, downloading <see cref="PullReference"/> first when it is not
+    /// on this machine so quick start needs no manual step. A cached image is never re-pulled, so an
+    /// existing setup keeps the image it already has.
+    /// </summary>
+    private async Task<string> EnsureImageAsync(IProgress<string>? progress, CancellationToken ct)
+    {
+        var cached = await FindImageAsync(ct).ConfigureAwait(false);
+        if (cached is not null)
+            return cached;
+
+        progress?.Report($"Downloading the Ollama image ({PullReference}, a few GB). This can take several minutes...");
+        var pull = await wslc.PullImageAsync(PullReference, ct).ConfigureAwait(false);
+        if (!pull.Success)
+        {
+            var detail = pull.ErrorText.Split('\n', 2)[0].Trim();
+            if (detail.Length > 200)
+                detail = detail[..200] + "…";
+            throw new ImageUnavailableException(
+                $"Could not download the Ollama image ({PullReference}). Check your internet connection and try again." +
+                (detail.Length > 0 ? $" The engine reported: {detail}" : ""));
+        }
+
+        return await FindImageAsync(ct).ConfigureAwait(false)
+            ?? throw new ImageUnavailableException(
+                $"The Ollama image was downloaded, but the engine does not list {PullReference}. Check the Images page, then try again.");
+    }
+
+    private async Task<string?> FindImageAsync(CancellationToken ct)
     {
         var images = await wslc.ListImagesAsync(ct).ConfigureAwait(false);
         var image = images.FirstOrDefault(i => i.Repository is ImageReference or "docker.io/ollama/ollama"
             && i.Tag == "latest" && IsImageId(i.Id));
-        Require(image is not null,
-            "The Ollama image is not on this machine yet. Pull ollama/ollama:latest from the Images page, then run setup again. " +
-            "Setup does not download images on your behalf.");
-        return image!.Id;
+        return image?.Id;
     }
 
     private async Task<OwnedContainer?> FindContainerAsync(CancellationToken ct)
@@ -434,6 +466,9 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
     private static bool IsLifecycleFailure(Exception ex) =>
         ex is InvalidOperationException or IOException or Win32Exception or JsonException or OperationCanceledException or TimeoutException;
     private sealed class LifecycleException(string message) : InvalidOperationException(message);
+
+    /// <summary>The Ollama image could not be obtained; raised before any resource is created.</summary>
+    private sealed class ImageUnavailableException(string message) : InvalidOperationException(message);
     private sealed record OwnedVolume(string Operation, string CreatedAt, string Mountpoint);
     private sealed record OwnedContainer(string Id, string Operation, string Volume, bool Running, bool CanStart, JsonElement Inspect);
 }

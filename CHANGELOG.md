@@ -23,6 +23,14 @@ where the signed MSIX and installation steps live.
   from a local development build can see updates but not install them. Updates start working from
   the release after the first one that includes this feature, which must be installed manually.
 
+### Changed
+
+- **Set up Ollama is now one click.** If the Ollama image isn't on your machine, setup downloads
+  `ollama/ollama:latest` itself (a few GB) and carries on, instead of stopping with "The Ollama
+  image is not on this machine yet… Setup does not download images on your behalf." An Ollama image
+  you already have is used as is, never re-downloaded. If the download fails, setup says why and
+  nothing is created.
+
 ## [1.8.1] — 2026-09-15
 
 ### Security
