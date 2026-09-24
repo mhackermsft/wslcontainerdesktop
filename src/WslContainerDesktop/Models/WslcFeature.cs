@@ -41,4 +41,10 @@ public enum WslcFeature
 
     /// <summary>`remove --volumes`: deletes anonymous volumes along with the container.</summary>
     RemoveVolumes,
+
+    // `<resource> prune --force`: engines that advertise it also prompt for confirmation without it.
+    ContainerPruneForce,
+    ImagePruneForce,
+    VolumePruneForce,
+    NetworkPruneForce,
 }

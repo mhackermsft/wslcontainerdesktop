@@ -12,6 +12,35 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Prune no longer hangs on WSLC 2.9.12 and later.** These engines ask "Are you sure you want to
+  continue? [y/N]" before pruning, on a console nobody could type into, so **Prune** on the
+  Containers, Images, Volumes and Networks pages — and **Reclaim space → Prune all** — stayed busy
+  forever and removed nothing. The app already asks you to confirm, so it now passes `--force` to
+  engines that support it. Older engines, which don't prompt, run exactly as before. If the app
+  can't tell which kind of engine it has, it prunes nothing and says why rather than guessing.
+- **An unexpected engine prompt can no longer freeze the app.** Prunes and deletes now run without
+  a console to wait on, so a confirmation prompt fails with an explanation instead of looking like a
+  success that did nothing. They also give up after 10 minutes instead of waiting indefinitely.
+
+### Changed
+
+- **Keep STDIN open (-i) now requires Run in background (-d).** In the foreground, `-i` left the
+  Run dialog's command waiting for terminal input until the container exited. The dialog now
+  explains this and disables **Run** until `-d` is on; a saved profile with that combination is
+  refused with the same explanation.
+- **Importing `docker run -it …` runs the container in the background with STDIN kept open**, with
+  a note saying so, instead of starting a foreground run that could never receive input. Open a
+  terminal to the container to use its shell. Imports without `-i` are unchanged — a plain
+  `docker run image cmd` still runs in the foreground.
+- **A Dockerfile path of `-` is refused.** It means "read the Dockerfile from standard input",
+  which the app cannot supply, so the build waited forever; enter a file path instead.
+- **Exiting the app now stops the engine commands it started.** Previously a stuck or long-running
+  `wslc` command (for example an image pull or build in progress) kept running hidden after the app
+  closed. Containers themselves keep running, and terminal windows opened from the app are not
+  affected.
+
 ## [1.9.0] — 2026-09-23
 
 The app can now **update itself** from GitHub releases, and **Set up Ollama** is a true one-click

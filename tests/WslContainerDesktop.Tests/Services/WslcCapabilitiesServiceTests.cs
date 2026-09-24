@@ -39,7 +39,8 @@ public sealed class WslcCapabilitiesServiceTests
                 ? WslcCapabilitySupport.Unsupported : WslcCapabilitySupport.Supported, snapshot[feature].Support);
         }
 
-        Assert.Equal(["--version", "network --help", "container --help", "run --help", "create --help", "remove --help"],
+        Assert.Equal(["--version", "network --help", "container --help", "run --help", "create --help", "remove --help",
+                "container prune --help", "image prune --help", "volume prune --help", "network prune --help"],
             fixture.Calls.Select(call => call.Arguments));
         Assert.All(fixture.Calls, call => Assert.Equal(fixture.Path, call.Path));
         Assert.Empty(fixture.Warnings);
@@ -59,6 +60,76 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.All(Enum.GetValues<WslcFeature>(), feature =>
             Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[feature].Support));
     }
+
+    [Fact]
+    public async Task PruneProbes_PassSubcommandAsSeparateArguments()
+    {
+        using var fixture = new Fixture();
+        await fixture.Service.GetAsync();
+
+        // A single "container prune" token would be one argv entry that wslc cannot parse.
+        foreach (var resource in new[] { "container", "image", "volume", "network" })
+        {
+            Assert.Contains(fixture.ArgumentLists, arguments => arguments.SequenceEqual([resource, "prune", "--help"]));
+        }
+
+        Assert.DoesNotContain(fixture.ArgumentLists, arguments => arguments.Any(argument => argument.Contains(' ')));
+    }
+
+    [Theory]
+    [InlineData("container", WslcFeature.ContainerPruneForce)]
+    [InlineData("image", WslcFeature.ImagePruneForce)]
+    [InlineData("volume", WslcFeature.VolumePruneForce)]
+    [InlineData("network", WslcFeature.NetworkPruneForce)]
+    public async Task PruneForce_IsReadFromThatResourcesOwnHelp(string resource, WslcFeature feature)
+    {
+        using var fixture = new Fixture();
+        fixture.Responses[$"{resource} prune --help"] = Ok(Help("legacy", $"{resource}-prune"));
+        var snapshot = await fixture.Service.GetAsync();
+
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[feature].Support);
+        Assert.Contains($"{resource} prune --help", snapshot[feature].Diagnostic);
+        foreach (var other in PruneFeatures.Where(other => other != feature))
+        {
+            Assert.True(snapshot.IsSupported(other), $"{other} must not borrow evidence from {resource} prune --help.");
+        }
+    }
+
+    [Fact]
+    public async Task PruneForce_OtherFlagsWithForceInTheirNameAreNotEvidence()
+    {
+        using var fixture = new Fixture();
+        fixture.Responses["container prune --help"] = Ok(Help("current", "container-prune")
+            .Replace("  -f  --force    ", "      --force-rm   "));
+        var snapshot = await fixture.Service.GetAsync();
+
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.ContainerPruneForce].Support);
+    }
+
+    [Theory]
+    [InlineData(1, "Usage: wslc container prune [options]\nOptions:\n  -f  --force  Do not prompt\n  -?  --help  Help")]
+    [InlineData(0, "Usage: wslc container [<command>] [<options>]\nCommands:\n  prune  Remove.\n\nOptions:\n  -?  --help  Help")]
+    [InlineData(0, "")]
+    public async Task PruneHelpFailureOrWrongHelp_IsUnknownNotUnsupported(int exitCode, string help)
+    {
+        using var fixture = new Fixture();
+        fixture.Responses["container prune --help"] = new() { ExitCode = exitCode, StandardOutput = help };
+        var snapshot = await fixture.Service.GetAsync();
+
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.ContainerPruneForce].Support);
+        Assert.Contains("container prune --help", snapshot[WslcFeature.ContainerPruneForce].Diagnostic);
+        Assert.True(snapshot.HasProbeFailures);
+        Assert.True(snapshot.IsSupported(WslcFeature.ImagePruneForce));
+    }
+
+    // --version plus one help probe per command: network, container, run, create, remove, and 4 prunes.
+    private const int ProbesPerSnapshot = 10;
+
+    private static readonly WslcFeature[] PruneFeatures =
+    [
+        WslcFeature.ContainerPruneForce, WslcFeature.ImagePruneForce,
+        WslcFeature.VolumePruneForce, WslcFeature.NetworkPruneForce,
+    ];
 
     [Fact]
     public async Task RuntimeCreationOptions_UseCreateHelpNotVersionOrRunHelp()
@@ -254,7 +325,7 @@ public sealed class WslcCapabilitiesServiceTests
 
         Assert.All(results, snapshot => Assert.Same(results[0], snapshot));
         Assert.Same(results[0], await fixture.Service.GetAsync());
-        Assert.Equal(6, fixture.Calls.Count);
+        Assert.Equal(ProbesPerSnapshot, fixture.Calls.Count);
     }
 
     [Fact]
@@ -277,7 +348,7 @@ public sealed class WslcCapabilitiesServiceTests
         release.SetResult();
 
         Assert.True((await other).IsSupported(WslcFeature.ContainerCp));
-        Assert.Equal(6, fixture.Calls.Count);
+        Assert.Equal(ProbesPerSnapshot, fixture.Calls.Count);
     }
 
     [Fact]
@@ -312,8 +383,8 @@ public sealed class WslcCapabilitiesServiceTests
 
         Assert.Same(second, await first);
         Assert.Equal(fixture.Path, second.ExecutablePath);
-        Assert.Equal(6, fixture.Calls.Count(call => call.Path == original));
-        Assert.Equal(6, fixture.Calls.Count(call => call.Path == fixture.Path));
+        Assert.Equal(ProbesPerSnapshot, fixture.Calls.Count(call => call.Path == original));
+        Assert.Equal(ProbesPerSnapshot, fixture.Calls.Count(call => call.Path == fixture.Path));
     }
 
     [Fact]
@@ -326,7 +397,7 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.NotSame(first, replacement);
         fixture.Service.Invalidate();
         Assert.NotSame(replacement, await fixture.Service.GetAsync());
-        Assert.Equal(18, fixture.Calls.Count);
+        Assert.Equal(3 * ProbesPerSnapshot, fixture.Calls.Count);
     }
 
     [Fact]
@@ -347,7 +418,7 @@ public sealed class WslcCapabilitiesServiceTests
 
         var result = await first;
         Assert.Same(result, await fixture.Service.GetAsync());
-        Assert.Equal(12, fixture.Calls.Count);
+        Assert.Equal(2 * ProbesPerSnapshot, fixture.Calls.Count);
     }
 
     [Fact]
@@ -360,7 +431,7 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.Same(unknown, await fixture.Service.GetAsync());
         fixture.Clock.Advance(TimeSpan.FromSeconds(16));
         Assert.True((await fixture.Service.GetAsync()).IsSupported(WslcFeature.ContainerCp));
-        Assert.Equal(12, fixture.Calls.Count);
+        Assert.Equal(2 * ProbesPerSnapshot, fixture.Calls.Count);
     }
 
     [Fact]
@@ -376,7 +447,7 @@ public sealed class WslcCapabilitiesServiceTests
         var snapshot = await fixture.Service.GetAsync();
         Assert.True(snapshot.HasProbeFailures);
         Assert.Same(snapshot, await fixture.Service.GetAsync());
-        Assert.Equal(6, fixture.Calls.Count);
+        Assert.Equal(ProbesPerSnapshot, fixture.Calls.Count);
     }
 
     [Theory]
@@ -408,14 +479,14 @@ public sealed class WslcCapabilitiesServiceTests
         var probe = Assert.IsAssignableFrom<Task>(entry.GetType().GetProperty("Task")!.GetValue(entry));
         release.SetResult();
         await probe.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(6, fixture.Calls.Count);
+        Assert.Equal(ProbesPerSnapshot, fixture.Calls.Count);
         fixture.Responses["container --help"] = Ok(Help("current", "container"));
         fixture.Clock.Advance(failedProbe ? TimeSpan.FromSeconds(16) : TimeSpan.FromMinutes(6));
 
         var snapshot = await fixture.Service.GetAsync();
 
         Assert.False(snapshot.HasProbeFailures);
-        Assert.Equal(12, fixture.Calls.Count);
+        Assert.Equal(2 * ProbesPerSnapshot, fixture.Calls.Count);
     }
 
     [Fact]
@@ -427,7 +498,7 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.Same(first, await fixture.Service.GetAsync());
         fixture.Clock.Advance(TimeSpan.FromMinutes(2));
         Assert.NotSame(first, await fixture.Service.GetAsync());
-        Assert.Equal(12, fixture.Calls.Count);
+        Assert.Equal(2 * ProbesPerSnapshot, fixture.Calls.Count);
     }
 
     [Fact]
@@ -572,8 +643,9 @@ public sealed class WslcCapabilitiesServiceTests
 
     private static CommandResult Ok(string output) => new() { StandardOutput = output };
 
-    // Current fixtures are recorded help sections from 2.9.11.0; legacy fixtures model
-    // the 2.9.9 baseline without optional commands, not a claimed recording of an old binary.
+    // Current fixtures are recorded help sections from 2.9.11.0, except *-prune.txt, recorded from
+    // 2.9.12.0 (the first engine seen with the prune confirmation prompt and -f/--force). Legacy
+    // fixtures model the 2.9.9 baseline without optional commands or flags, not a recording of an old binary.
     private static string Help(string variant, string command) =>
         File.ReadAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "Capabilities",
             $"{variant}-{command}.txt")).Replace("\r", "");
@@ -584,6 +656,7 @@ public sealed class WslcCapabilitiesServiceTests
         internal int Revision;
         internal string? IdentityError;
         internal readonly ConcurrentQueue<(string Path, string Arguments)> Calls = new();
+        internal readonly ConcurrentQueue<string[]> ArgumentLists = new();
         internal readonly ConcurrentQueue<string> Warnings = new();
         internal readonly Dictionary<string, CommandResult> Responses;
         internal readonly TestClock Clock = new();
@@ -601,12 +674,18 @@ public sealed class WslcCapabilitiesServiceTests
                 ["run --help"] = Ok(Help(variant, "run")),
                 ["create --help"] = Ok(Help(variant, "run").Replace("Usage: wslc run ", "Usage: wslc create ")),
                 ["remove --help"] = Ok(Help(variant, "remove")),
+                ["container prune --help"] = Ok(Help(variant, "container-prune")),
+                ["image prune --help"] = Ok(Help(variant, "image-prune")),
+                ["volume prune --help"] = Ok(Help(variant, "volume-prune")),
+                ["network prune --help"] = Ok(Help(variant, "network-prune")),
             };
             Service = new(() => Path,
                 path => new(path, path, LastWriteTicks: Revision, Diagnostic: IdentityError),
                 async (path, arguments, ct) =>
                 {
-                    var key = string.Join(" ", arguments);
+                    var list = arguments.ToArray();
+                    var key = string.Join(" ", list);
+                    ArgumentLists.Enqueue(list);
                     Calls.Enqueue((path, key));
                     if (BeforeResponse is { } before)
                     {

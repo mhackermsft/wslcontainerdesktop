@@ -176,11 +176,16 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
             (WslcFeature.CreatePull, "--pull"),
         ]).ConfigureAwait(false);
         await ProbeHelpAsync("remove", true, [(WslcFeature.RemoveVolumes, "--volumes")]).ConfigureAwait(false);
+        await ProbeHelpAsync("container prune", true, [(WslcFeature.ContainerPruneForce, "--force")]).ConfigureAwait(false);
+        await ProbeHelpAsync("image prune", true, [(WslcFeature.ImagePruneForce, "--force")]).ConfigureAwait(false);
+        await ProbeHelpAsync("volume prune", true, [(WslcFeature.VolumePruneForce, "--force")]).ConfigureAwait(false);
+        await ProbeHelpAsync("network prune", true, [(WslcFeature.NetworkPruneForce, "--force")]).ConfigureAwait(false);
         return new(identity.ExecutablePath, version, features, versionDiagnostic);
 
         async Task ProbeHelpAsync(string command, bool options, (WslcFeature Feature, string Token)[] expected)
         {
-            var result = await RunProbeAsync(identity.ExecutablePath, [command, "--help"], lifetimeToken).ConfigureAwait(false);
+            var result = await RunProbeAsync(identity.ExecutablePath, [.. command.Split(' '), "--help"], lifetimeToken)
+                .ConfigureAwait(false);
             var entries = result.Success
                 ? WslcCapabilityHelpParser.ReadEntries(result.StandardOutput + "\n" + result.StandardError, command, options)
                 : null;

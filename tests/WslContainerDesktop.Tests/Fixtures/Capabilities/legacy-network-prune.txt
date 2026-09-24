@@ -1,0 +1,13 @@
+Copyright (c) Microsoft Corporation. All rights reserved.
+For privacy information about this product please visit https://aka.ms/privacy.
+
+Removes all unused networks. A network is considered unused when it is not referenced by any container.
+
+Usage: wslc network prune [options]
+
+Options:
+      --filter   Provide filter values (e.g. "until=<timestamp>")
+  -?  --help     Shows help about the selected command
+
+Global Options:
+      --session  Specify the session to use

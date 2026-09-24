@@ -49,6 +49,7 @@ public sealed class RunContainerDialog : ContentDialog
     private readonly CheckBox _removeOnExit;
     private readonly CheckBox _interactive;
     private readonly CheckBox _gpus;
+    private readonly TextBlock _interactiveWarning;
 
     private readonly List<RunProfile> _profileItems = new();
     private bool _applyingProfile;
@@ -209,6 +210,20 @@ public sealed class RunContainerDialog : ContentDialog
         toggles.Children.Add(_interactive);
         toggles.Children.Add(_gpus);
 
+        // -i without -d would leave `wslc run` waiting on input nobody can type, so Run is disabled.
+        _interactiveWarning = new TextBlock
+        {
+            Text = RunContainerOptions.ForegroundInteractiveError,
+            FontSize = 12,
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCautionBrush"],
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+        };
+        _detached.Checked += (_, _) => UpdateInteractiveWarning();
+        _detached.Unchecked += (_, _) => UpdateInteractiveWarning();
+        _interactive.Checked += (_, _) => UpdateInteractiveWarning();
+        _interactive.Unchecked += (_, _) => UpdateInteractiveWarning();
+
         // Saved run profiles: pick one to prefill the form, or save/delete the current settings.
         _profileBox = new ComboBox
         {
@@ -271,6 +286,7 @@ public sealed class RunContainerDialog : ContentDialog
                 _nameBox,
                 _networkBox,
                 toggles,
+                _interactiveWarning,
                 _portsBox,
                 _envBox,
                 _volumesBox,
@@ -435,6 +451,17 @@ public sealed class RunContainerDialog : ContentDialog
         _profileStatus.Visibility = Visibility.Visible;
     }
 
+    private bool WaitsForTerminalInput =>
+        new RunContainerOptions { Detached = _detached.IsChecked == true, Interactive = _interactive.IsChecked == true }
+            .WaitsForTerminalInput();
+
+    private void UpdateInteractiveWarning()
+    {
+        var blocked = WaitsForTerminalInput;
+        _interactiveWarning.Visibility = blocked ? Visibility.Visible : Visibility.Collapsed;
+        IsPrimaryButtonEnabled = !blocked;
+    }
+
     private async void OnOpened(ContentDialog sender, ContentDialogOpenedEventArgs args)
     {
         try
@@ -506,6 +533,13 @@ public sealed class RunContainerDialog : ContentDialog
 
     private void OnPrimary(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
+        if (WaitsForTerminalInput)
+        {
+            args.Cancel = true;
+            UpdateInteractiveWarning();
+            return;
+        }
+
         var options = BuildOptions();
         if (options is null)
         {

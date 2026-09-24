@@ -128,6 +128,9 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcExecutableIdentity.cs" Link="Services\WslcExecutableIdentity.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessRunner.cs" Link="Services\ProcessRunner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ProcessExecutor.cs" Link="Services\ProcessExecutor.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ChildProcessJob.cs" Link="Services\ChildProcessJob.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcPruneCommand.cs" Link="Services\WslcPruneCommand.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\DockerRunParser.cs" Link="Services\DockerRunParser.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiCapabilityGuidance.cs" Link="Services\AiCapabilityGuidance.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IHealthObservationSource.cs" Link="Services\IHealthObservationSource.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAppHealthObservationSource.cs" Link="Services\IAppHealthObservationSource.cs" />
@@ -217,6 +220,8 @@
     <Compile Remove="Services\DevContainerLifecycleTests.cs" />
     <Compile Remove="Services\ComposeReviewSupervisorTests.cs" />
     <Compile Remove="Services\SupervisorMonitorDoubles.cs" />
+    <!-- WslcService is only source-linked for the Windows target. -->
+    <Compile Remove="Services\WslcServiceNonInteractiveTests.cs" />
     <!-- TemplateCatalog is only source-linked for the Windows target. -->
     <Compile Remove="Services\TemplateCatalogTests.cs" />
   </ItemGroup>

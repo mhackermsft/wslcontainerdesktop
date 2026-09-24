@@ -16,21 +16,77 @@
 
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
 /// <summary>
 /// Runs the wslc.exe CLI and captures its output. All members are thread-safe and async.
+/// Every wslc child is added to <see cref="ChildProcessJob.Shared"/> so none outlives the app.
 /// </summary>
 public sealed class ProcessRunner(ISettingsService settings)
 {
+    /// <summary>Upper bound for a non-interactive mutation; a hung engine call ends instead of blocking forever.</summary>
+    internal static readonly TimeSpan MutationTimeout = TimeSpan.FromMinutes(10);
+
+    // wslc's ConfirmAction() prompt ends in "[y/N]"; with stdin closed it reads EOF, declines, and exits 0.
+    private static readonly Regex ConfirmationPrompt = new(@"\[y/n\]",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 
     /// <summary>Runs wslc with the given arguments and returns captured output.</summary>
     public Task<CommandResult> RunAsync(
         IEnumerable<string> arguments,
         CancellationToken cancellationToken = default) =>
         RunAtPathAsync(settings.WslcPath, arguments, cancellationToken);
+
+    /// <summary>
+    /// Runs a wslc mutation that must never wait for user input: see <see cref="RunNonInteractiveAtPathAsync"/>.
+    /// </summary>
+    public Task<CommandResult> RunNonInteractiveAsync(
+        IEnumerable<string> arguments,
+        CancellationToken cancellationToken = default) =>
+        RunNonInteractiveAtPathAsync(settings.WslcPath, arguments, MutationTimeout, cancellationToken);
+
+    /// <summary>
+    /// Runs wslc with stdin redirected and immediately closed, so a confirmation prompt reads EOF
+    /// instead of waiting on the hidden console nobody can type into. Because a declined prompt still
+    /// exits 0 without doing anything, prompt text in the output is reported as a failure. The call
+    /// is bounded by <paramref name="timeout"/> (the process tree is killed on expiry).
+    /// </summary>
+    internal static async Task<CommandResult> RunNonInteractiveAtPathAsync(
+        string executablePath,
+        IEnumerable<string> arguments,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ProcessExecutor.RunAsync(
+            CreateStartInfo(executablePath, arguments, redirectInput: true),
+            timeout: timeout,
+            launchErrorContext: $"Could not launch '{executablePath}'.",
+            killOnAppExit: true,
+            ct: cancellationToken).ConfigureAwait(false);
+        return RejectDeclinedPrompt(result);
+    }
+
+    /// <summary>Turns a successful exit that only printed a confirmation prompt into a failure.</summary>
+    internal static CommandResult RejectDeclinedPrompt(CommandResult result)
+    {
+        if (!result.Success ||
+            !(ConfirmationPrompt.IsMatch(result.StandardOutput) || ConfirmationPrompt.IsMatch(result.StandardError)))
+        {
+            return result;
+        }
+
+        return new CommandResult
+        {
+            ExitCode = -1,
+            StandardOutput = result.StandardOutput,
+            StandardError = "wslc asked for confirmation, which the app cannot answer, so nothing was changed. " +
+                "Update WSL Container Desktop or run the command from a terminal.\n\n" +
+                (result.StandardError + result.StandardOutput).Trim(),
+        };
+    }
 
     /// <summary>
     /// Runs wslc and additionally reports each output line as it arrives (on a reader thread), for
@@ -55,9 +111,20 @@ public sealed class ProcessRunner(ISettingsService settings)
         Action<string>? onLine,
         CancellationToken cancellationToken)
     {
+        return ProcessExecutor.RunAsync(
+            CreateStartInfo(executablePath, arguments, redirectInput: false),
+            onLine: onLine,
+            launchErrorContext: $"Could not launch '{executablePath}'.",
+            killOnAppExit: true,
+            ct: cancellationToken);
+    }
+
+    internal static ProcessStartInfo CreateStartInfo(string executablePath, IEnumerable<string> arguments, bool redirectInput)
+    {
         var psi = new ProcessStartInfo
         {
             FileName = executablePath,
+            RedirectStandardInput = redirectInput,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -71,11 +138,7 @@ public sealed class ProcessRunner(ISettingsService settings)
             psi.ArgumentList.Add(arg);
         }
 
-        return ProcessExecutor.RunAsync(
-            psi,
-            onLine: onLine,
-            launchErrorContext: $"Could not launch '{executablePath}'.",
-            ct: cancellationToken);
+        return psi;
     }
 
     /// <summary>Convenience overload accepting a params array.</summary>
@@ -91,27 +154,11 @@ public sealed class ProcessRunner(ISettingsService settings)
         string stdin,
         CancellationToken cancellationToken = default)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = settings.WslcPath,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-
-        foreach (var arg in arguments)
-        {
-            psi.ArgumentList.Add(arg);
-        }
-
         return ProcessExecutor.RunAsync(
-            psi,
+            CreateStartInfo(settings.WslcPath, arguments, redirectInput: true),
             stdin: stdin,
             launchErrorContext: $"Could not launch '{settings.WslcPath}'.",
+            killOnAppExit: true,
             ct: cancellationToken);
     }
 
@@ -125,6 +172,7 @@ public sealed class ProcessRunner(ISettingsService settings)
         var psi = WslcCopyInput.CreateStartInfo(executablePath, arguments, inputPath);
         return ProcessExecutor.RunAsync(psi,
             launchErrorContext: $"Could not launch '{executablePath}'.",
+            killOnAppExit: true,
             ct: cancellationToken);
     }
 

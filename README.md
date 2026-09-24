@@ -608,7 +608,8 @@ Signing details and how to rotate the certificate are documented in [`build/READ
 - Container inventory supports legacy arrays and object streams (including the WSLC 2.9.9 baseline), numeric states (`1 = Created`, `2 = Running`, `3 = Stopped`), and WSLC 2.9.11 text states (`exited` = Stopped). Unrecognized states remain Unknown. `Name`/`Names` and numeric/formatted dates are normalized; unavailable dates fall back safely to the Unix epoch.
 - Empty or ambiguous display-string ports mean **unknown**, not "no published ports" — read-only inspect enrichment resolves them, including for stopped containers, and caches the result for five minutes. Malformed inventory fails as a whole and surfaces an engine error rather than a successful empty list.
 - Inventory reports a container's image as a bare **image ID** as often as a name, and `images` reports **12-character short IDs** rather than full digests. Mount sources may be a volume *name* or a host path. The app matches on all of these rather than assuming one shape.
-- `prune` subcommands do **not** accept `--force`; `volume prune` needs `--all` to include named volumes.
+- On WSLC 2.9.12 and later, `prune` subcommands ask for confirmation unless given `-f/--force`; earlier engines neither prompt nor accept the flag. The app passes `--force` only when the engine advertises it, since it has already asked you to confirm. `volume prune` needs `--all` to include named volumes.
+- The app never waits on the engine for input: prunes and deletes run with standard input closed, so an unexpected confirmation prompt fails with an explanation instead of leaving the page busy forever. **Keep STDIN open (-i)** therefore requires **Run in background (-d)**, and a Dockerfile path of `-` (read from stdin) is refused.
 - Current inspect schemas can report named-volume and bind mounts. The app uses typed mount metadata for volume usage and saved profiles; older or missing metadata is reported as unknown rather than empty.
 - There is no `pause` command; **Kill** serves as a force-stop.
 
@@ -630,6 +631,7 @@ unknown, and a failed native operation is never retried through a legacy backend
 | Command health | Supported shell checks and timing flags use native run/create; inspect feeds badges and dependencies | App probes; `CMD` argv and unsupported `start_interval` use the entire app backend, with timing limitations surfaced |
 | TCP, restart, auto-heal | App-owned, regardless of native health availability | Same app-owned behavior; requires the app to run |
 | Mount usage / saved profiles | Schema-adaptive named/shared/stopped usage; recoverable Windows/UNC/readonly mounts | Unknown/partial/estimated usage and explicit pre-save omission warnings |
+| Prune | Engines advertising `prune --force` (which prompt without it) get the flag after the app's own confirmation | Plain `prune`, which these engines run without prompting; unknown support prunes nothing and explains why |
 
 Unknown probe results are not permission to emit optional flags. New settings are additive and retained
 when switching engines. Capability tests include **synthetic** legacy help fixtures; they are not

@@ -250,7 +250,7 @@ public sealed class WslcService(
         }
 
         args.Add(id);
-        var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
+        var result = await runner.RunNonInteractiveAsync(args, ct).ConfigureAwait(false);
         if (result.Success)
             foreach (var pending in _pendingHealth.Where(p => MatchesPendingHealth(p.Key, p.Value, id)))
                 _pendingHealth.TryRemove(pending.Key, out _);
@@ -258,11 +258,31 @@ public sealed class WslcService(
     }
 
     public Task<CommandResult> PruneContainersAsync(CancellationToken ct = default) =>
-        runner.RunAsync(["container", "prune"], ct);
+        PruneAsync(WslcPruneTarget.Containers, ct);
+
+    /// <summary>
+    /// Prunes against the capability snapshot's executable, so the <c>--force</c> decision and the
+    /// command always target the same engine. Runs non-interactively: see <see cref="WslcPruneCommand"/>.
+    /// </summary>
+    private async Task<CommandResult> PruneAsync(WslcPruneTarget target, CancellationToken ct)
+    {
+        var snapshot = await _capabilities.GetAsync(ct).ConfigureAwait(false);
+        var selection = WslcPruneCommand.Select(target, snapshot);
+        if (selection.Arguments is null)
+        {
+            logger.LogWarning("Prune of {Target} was not attempted: {Detail}", target, selection.Error);
+            return new CommandResult { ExitCode = -1, StandardError = selection.Error! };
+        }
+
+        return await ProcessRunner.RunNonInteractiveAtPathAsync(
+            snapshot.ExecutablePath, selection.Arguments, ProcessRunner.MutationTimeout, ct).ConfigureAwait(false);
+    }
 
     public async Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default,
         long maximumStopVersion = long.MaxValue)
     {
+        if (options.WaitsForTerminalInput())
+            return new CommandResult { ExitCode = -1, StandardError = RunContainerOptions.ForegroundInteractiveError };
         var resume = string.IsNullOrWhiteSpace(options.Name)
             ? (RestartSuppressionState.ResumeToken?)null : suppression.CaptureExplicitStart(options.Name, maximumStopVersion);
         var selection = options.Health is null ? new NativeHealthSelection(true, [])
@@ -822,14 +842,14 @@ public sealed class WslcService(
         }
 
         args.Add(id);
-        return runner.RunAsync(args, ct);
+        return runner.RunNonInteractiveAsync(args, ct);
     }
 
     public Task<CommandResult> TagImageAsync(string source, string target, CancellationToken ct = default) =>
         runner.RunAsync(["tag", source, target], ct);
 
     public Task<CommandResult> PruneImagesAsync(CancellationToken ct = default) =>
-        runner.RunAsync(["image", "prune"], ct);
+        PruneAsync(WslcPruneTarget.Images, ct);
 
     public Task<CommandResult> InspectImageAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["inspect", "--type", "image", id], ct);
@@ -907,6 +927,9 @@ public sealed class WslcService(
         var args = new List<string> { "build", "-t", tag };
         if (!string.IsNullOrWhiteSpace(dockerfile))
         {
+            // `-f -` reads the Dockerfile from stdin, which the app can never supply.
+            if (IsStdinDockerfile(dockerfile))
+                return Task.FromResult(new CommandResult { ExitCode = -1, StandardError = StdinDockerfileError });
             args.Add("-f");
             args.Add(dockerfile);
         }
@@ -949,6 +972,12 @@ public sealed class WslcService(
         return runner.RunAsync(args, ct);
     }
 
+    public const string StdinDockerfileError =
+        "'-' reads the Dockerfile from standard input, which the app cannot supply. Enter a Dockerfile path instead.";
+
+    /// <summary>True for the <c>-f -</c> form, which would make <c>wslc build</c> wait on stdin.</summary>
+    public static bool IsStdinDockerfile(string? dockerfile) => dockerfile?.Trim() == "-";
+
     // ---- Volumes --------------------------------------------------------
 
     public async Task<IReadOnlyList<VolumeInfo>> ListVolumesAsync(CancellationToken ct = default)
@@ -971,10 +1000,10 @@ public sealed class WslcService(
     }
 
     public Task<CommandResult> RemoveVolumeAsync(string name, CancellationToken ct = default) =>
-        runner.RunAsync(["volume", "remove", name], ct);
+        runner.RunNonInteractiveAsync(["volume", "remove", name], ct);
 
     public Task<CommandResult> PruneVolumesAsync(CancellationToken ct = default) =>
-        runner.RunAsync(["volume", "prune", "--all"], ct);
+        PruneAsync(WslcPruneTarget.Volumes, ct);
 
     public Task<CommandResult> InspectVolumeAsync(string name, CancellationToken ct = default) =>
         runner.RunAsync(["volume", "inspect", name], ct);
@@ -1054,10 +1083,10 @@ public sealed class WslcService(
     }
 
     public Task<CommandResult> RemoveNetworkAsync(string name, CancellationToken ct = default) =>
-        runner.RunAsync(["network", "remove", name], ct);
+        runner.RunNonInteractiveAsync(["network", "remove", name], ct);
 
     public Task<CommandResult> PruneNetworksAsync(CancellationToken ct = default) =>
-        runner.RunAsync(["network", "prune"], ct);
+        PruneAsync(WslcPruneTarget.Networks, ct);
 
     public Task<CommandResult> InspectNetworkAsync(string name, CancellationToken ct = default) =>
         runner.RunAsync(["network", "inspect", name], ct);
