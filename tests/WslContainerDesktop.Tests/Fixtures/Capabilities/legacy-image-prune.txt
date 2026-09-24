@@ -3,7 +3,7 @@ For privacy information about this product please visit https://aka.ms/privacy.
 
 Removes all dangling images. If --all is specified, removes all images not used by any container.
 
-Usage: wslc image prune [options]
+Usage: wslc image prune [<options>]
 
 Options:
   -a  --all      Remove all unused images, not just dangling ones.

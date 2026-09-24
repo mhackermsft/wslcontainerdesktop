@@ -23,7 +23,8 @@ namespace WslContainerDesktop.Services;
 
 /// <summary>
 /// Runs the wslc.exe CLI and captures its output. All members are thread-safe and async.
-/// Every wslc child is added to <see cref="ChildProcessJob.Shared"/> so none outlives the app.
+/// Every captured wslc child is added to <see cref="ChildProcessJob.Shared"/> so none outlives the app;
+/// <see cref="RunInteractive"/> terminal windows are deliberately left independent.
 /// </summary>
 public sealed class ProcessRunner(ISettingsService settings)
 {

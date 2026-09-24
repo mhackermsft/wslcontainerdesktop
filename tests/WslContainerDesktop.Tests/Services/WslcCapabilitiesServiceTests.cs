@@ -96,6 +96,20 @@ public sealed class WslcCapabilitiesServiceTests
     }
 
     [Fact]
+    public async Task LegacyContainerPruneHelp_ListingOnlyHelp_IsUnsupportedNotUnknown()
+    {
+        // WSLC 2.9.9/2.9.11 `container prune` defines no arguments, so its Options section lists only
+        // --help. Reading that as Unknown would block container prune on the minimum supported engine.
+        using var fixture = new Fixture();
+        fixture.Responses["container prune --help"] = Ok(Help("legacy", "container-prune"));
+        var snapshot = await fixture.Service.GetAsync();
+
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.ContainerPruneForce].Support);
+        Assert.False(snapshot.HasProbeFailures);
+        Assert.Empty(fixture.Warnings);
+    }
+
+    [Fact]
     public async Task PruneForce_OtherFlagsWithForceInTheirNameAreNotEvidence()
     {
         using var fixture = new Fixture();
@@ -645,7 +659,8 @@ public sealed class WslcCapabilitiesServiceTests
 
     // Current fixtures are recorded help sections from 2.9.11.0, except *-prune.txt, recorded from
     // 2.9.12.0 (the first engine seen with the prune confirmation prompt and -f/--force). Legacy
-    // fixtures model the 2.9.9 baseline without optional commands or flags, not a recording of an old binary.
+    // fixtures model the 2.9.9 baseline without optional commands or flags, not a recording of an old binary;
+    // legacy-*-prune.txt follow the 2.9.9 source (`[<options>]` usage, no --force, container prune only --help).
     private static string Help(string variant, string command) =>
         File.ReadAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "Capabilities",
             $"{variant}-{command}.txt")).Replace("\r", "");
