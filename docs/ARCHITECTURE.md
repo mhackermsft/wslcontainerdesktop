@@ -156,6 +156,13 @@ process start, UTF-8 output draining, optional stdin, an optional streaming call
 timeout, and cancel/timeout process-tree kill. Callers only build a `ProcessStartInfo`:
 
 - `ProcessRunner` wraps `wslc.exe` for container/image/volume/network operations.
+  `RunNonInteractiveAsync` (prunes and deletes) redirects stdin and closes it immediately, bounds the
+  call with `MutationTimeout`, and reports a successful exit whose output is only a `[y/N]` prompt as
+  a failure — a declined WSLC confirmation exits 0 without changing anything. Other wslc calls keep
+  their console stdin. Every `ProcessRunner` child joins `ChildProcessJob.Shared`, a kill-on-close
+  Job object whose handle lives until the app exits, so a hung wslc cannot outlive the app. Other
+  `ProcessExecutor` callers (installers, `az`, devcontainer host commands) opt out, since they may
+  legitimately leave processes running.
 - `WslRootShell` wraps `wsl.exe -u root -e sh -c "…"` for all k3s operations, and centralizes
   **shell-argument escaping** (`ShellEscape`, `SafeKind`, `NsSelector`, `NsArg`).
 - `AzureCliService` builds its own `ProcessStartInfo` for `az` (with a default timeout).
@@ -303,6 +310,10 @@ including separate run/create health flags. Executable identity changes invalida
 and concurrent callers share probes. The minimum stays **WSLC 2.9.9.0**: optional integration uses
 native operations only with positive evidence, definite absence selects a documented legacy path,
 and unknown evidence surfaces a diagnostic. Never retry a failed native mutation through a fallback.
+Each `<resource> prune --help` is probed separately: `WslcPruneCommand` appends `--force` only when
+that resource advertises it (such engines prompt otherwise), runs the plain command when it is
+absent (2.9.9 rejects the flag and never prompts), and prunes nothing when support is unknown. The
+prune runs against the snapshot's executable so the flag decision and the engine cannot diverge.
 `AiCapabilityGuidance.GetAsync` shares sanitized feature/state guidance with diagnosis, each chat
 turn and the read-only `engine_capabilities` tool. It excludes executable paths, raw help and probe
 errors, distinguishes partial/unavailable evidence from definitive absence, and does not infer

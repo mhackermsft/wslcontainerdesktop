@@ -98,11 +98,18 @@ public sealed class BuildImageDialog : ContentDialog
         };
 
         UpdatePreview();
+        _dockerfileBox.TextChanged += (_, _) => _dockerfileBox.Description = null;
         PrimaryButtonClick += (_, args) =>
         {
             if (string.IsNullOrWhiteSpace(ContextPath) || string.IsNullOrWhiteSpace(_tagBox.Text))
             {
                 args.Cancel = true;
+            }
+            else if (Services.WslcService.IsStdinDockerfile(Dockerfile))
+            {
+                args.Cancel = true;
+                _dockerfileBox.Description = Services.WslcService.StdinDockerfileError;
+                _dockerfileBox.Focus(FocusState.Programmatic);
             }
         };
     }

@@ -47,6 +47,10 @@ public static class ProcessExecutor
     /// <param name="launchErrorContext">
     /// Prefix for the error text when the process fails to start (e.g. "Could not launch az.").
     /// </param>
+    /// <param name="killOnAppExit">
+    /// Adds the child to <see cref="ChildProcessJob.Shared"/> so it is terminated if the app exits
+    /// first. Only for short-lived CLI clients; never for tools that may spawn lasting descendants.
+    /// </param>
     /// <param name="ct">Caller cancellation. On external cancellation the process tree is killed and the exception rethrown.</param>
     public static async Task<CommandResult> RunAsync(
         ProcessStartInfo psi,
@@ -54,6 +58,7 @@ public static class ProcessExecutor
         Action<string>? onLine = null,
         TimeSpan? timeout = null,
         string launchErrorContext = "Could not launch the process.",
+        bool killOnAppExit = false,
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -89,6 +94,12 @@ public static class ProcessExecutor
         catch (Exception ex)
         {
             return new CommandResult { ExitCode = -1, StandardError = $"{launchErrorContext} {ex.Message}" };
+        }
+
+        if (killOnAppExit)
+        {
+            // Best effort: if assignment fails the child is simply not reaped on app exit, as before.
+            ChildProcessJob.Shared?.TryAssign(process);
         }
 
         process.BeginOutputReadLine();

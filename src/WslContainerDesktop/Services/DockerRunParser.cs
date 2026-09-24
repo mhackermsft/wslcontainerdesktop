@@ -101,6 +101,14 @@ public static class DockerRunParser
 
         options.Image = image.Trim();
         options.Detached = sawDetach;
+        if (options.WaitsForTerminalInput())
+        {
+            // e.g. `docker run -it ubuntu bash`: detached with STDIN held open keeps the shell alive.
+            options.Detached = true;
+            warnings.Add("'-i' without '-d' would wait for terminal input the app cannot provide, so the container " +
+                "will run in the background (-d) with STDIN kept open. Open a terminal to the container to use it.");
+        }
+
         if (command.Count > 0)
         {
             options.Command = string.Join(' ', command.Select(QuoteIfNeeded));

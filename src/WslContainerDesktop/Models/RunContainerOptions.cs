@@ -26,6 +26,20 @@ public sealed class RunContainerOptions
     public bool Detached { get; set; } = true;
     public bool RemoveOnExit { get; set; }
     public bool Interactive { get; set; }
+
+    /// <summary>Why <see cref="WaitsForTerminalInput"/> options cannot be run from the app.</summary>
+    public const string ForegroundInteractiveError =
+        "Keep STDIN open (-i) needs Run in background (-d). The app has no terminal to attach to a " +
+        "foreground container, so the run would wait forever. Turn on -d, then open a terminal to the " +
+        "container to interact with it.";
+
+    /// <summary>
+    /// True when `wslc run` would hold stdin open in the foreground (`-i` without `-d`) and stay busy
+    /// until the container exits, since the app's hidden console can never supply input. A method, not
+    /// a property, so it is not persisted with run profiles.
+    /// </summary>
+    public bool WaitsForTerminalInput() => Interactive && !Detached;
+
     public bool AllGpus { get; set; }
     /// <summary>Caller must verify --pull support before selecting cached-only creation.</summary>
     public bool NeverPull { get; set; }
