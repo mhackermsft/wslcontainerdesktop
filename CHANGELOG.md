@@ -12,6 +12,11 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-09-24
+
+Fixes **Prune** hanging forever on WSLC 2.9.12 and later, and stops the app from waiting on input
+it can never receive.
+
 ### Fixed
 
 - **Prune no longer hangs on WSLC 2.9.12 and later.** These engines ask "Are you sure you want to
@@ -297,7 +302,8 @@ rather than assuming one schema or flag set.
 Older versions (1.0.0 – 1.5.3) predate this changelog. Their tags remain in the repository, and
 their changes can be reviewed with `git log v1.5.2..v1.5.3` and similar.
 
-[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v1.9.0...main
+[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v1.9.1...main
+[1.9.1]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.9.1
 [1.9.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.9.0
 [1.8.1]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.8.1
 [1.8.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.8.0
