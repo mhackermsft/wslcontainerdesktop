@@ -44,24 +44,48 @@ public enum ImageUpdateState
 /// </summary>
 public sealed partial class ImageInfo : ObservableObject
 {
+    /// <summary>
+    /// Returns the image reference. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Reference;
+
+    /// <summary>Gets or sets the id.</summary>
     [JsonPropertyName("Id")]
     public string Id { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the repository.</summary>
     [JsonPropertyName("Repository")]
     public string Repository { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the tag.</summary>
     [JsonPropertyName("Tag")]
     public string Tag { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the created.</summary>
     [JsonPropertyName("Created")]
     public long Created { get; set; }
 
+    /// <summary>Gets or sets the created at.</summary>
     [JsonPropertyName("CreatedAt")]
     public string? CreatedAt { get; set; }
 
+    /// <summary>Gets or sets the size.</summary>
     [JsonPropertyName("Size")]
     [JsonConverter(typeof(WslcByteSizeJsonConverter))]
     public long Size { get; set; }
+
+    /// <summary>Gets or sets the digest.</summary>
+    [JsonPropertyName("Digest")]
+    public string Digest { get; set; } = string.Empty;
+
+    /// <summary>Gets the digest display.</summary>
+    [JsonIgnore]
+    public string DigestDisplay => string.IsNullOrWhiteSpace(Digest) || Digest == "<none>" ? "-" : Digest;
+
+    /// <summary>Gets a value indicating whether this value has digest.</summary>
+    [JsonIgnore]
+    public bool HasDigest => DigestDisplay != "-";
 
     /// <summary>
     /// Containers currently holding this image, as a display string; empty when nothing uses it.
@@ -74,6 +98,7 @@ public sealed partial class ImageInfo : ObservableObject
     [NotifyPropertyChangedFor(nameof(UsedByCaption))]
     private string _usedBy = string.Empty;
 
+    /// <summary>Gets a value indicating whether this value is in use.</summary>
     [JsonIgnore]
     public bool IsInUse => !string.IsNullOrEmpty(UsedBy);
 
@@ -89,22 +114,26 @@ public sealed partial class ImageInfo : ObservableObject
     [NotifyPropertyChangedFor(nameof(UpdateTooltip))]
     private ImageUpdateState _updateState = ImageUpdateState.Unknown;
 
+    /// <summary>Gets a value indicating whether the update available flag is set.</summary>
     [JsonIgnore]
     public bool UpdateAvailable => UpdateState == ImageUpdateState.UpdateAvailable;
 
+    /// <summary>Gets a value indicating whether this value is checking update.</summary>
     [JsonIgnore]
     public bool IsCheckingUpdate => UpdateState == ImageUpdateState.Checking;
 
+    /// <summary>Gets the update tooltip.</summary>
     [JsonIgnore]
     public string UpdateTooltip => UpdateState switch
     {
-        ImageUpdateState.UpdateAvailable => "A newer image is available upstream. Pull to update.",
+        ImageUpdateState.UpdateAvailable => "A newer version of this tag is available from its registry. Click Update to pull it; containers already running from the old version keep using it until you recreate them.",
         ImageUpdateState.UpToDate => "Up to date with the registry.",
         ImageUpdateState.Checking => "Checking for updates…",
         ImageUpdateState.CheckFailed => "Couldn't check for updates (private registry or network error).",
         _ => "Update status unknown.",
     };
 
+    /// <summary>Gets the image digest shortened for table display.</summary>
     [JsonIgnore]
     public string ShortId
     {
@@ -115,10 +144,12 @@ public sealed partial class ImageInfo : ObservableObject
         }
     }
 
+    /// <summary>Gets the reference.</summary>
     [JsonIgnore]
     public string Reference =>
         string.IsNullOrEmpty(Tag) || Tag == "<none>" ? Repository : $"{Repository}:{Tag}";
 
+    /// <summary>Gets the image creation time as UTC, or the Unix epoch when the CLI omitted it.</summary>
     [JsonIgnore]
     public DateTimeOffset CreatedUtc
     {
@@ -135,6 +166,10 @@ public sealed partial class ImageInfo : ObservableObject
         }
     }
 
+    /// <summary>Parses input into try parse created at data used by the app.</summary>
+    /// <param name="value">The value value supplied by the caller.</param>
+    /// <param name="createdAt">The created at value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     internal static bool TryParseCreatedAt(string? value, out DateTimeOffset createdAt)
     {
         createdAt = default;

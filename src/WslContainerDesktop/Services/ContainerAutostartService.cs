@@ -82,6 +82,9 @@ public sealed class ContainerAutostartService : IDisposable
     private volatile bool _tracking;
     private volatile bool _disposed;
 
+    /// <summary>
+    /// Initializes a new <c>ContainerAutostartService</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public ContainerAutostartService(IWslcService wslc, StatusMonitor monitor, ISettingsService settings, ILogger<ContainerAutostartService> logger)
     {
         _wslc = wslc;
@@ -355,6 +358,9 @@ public sealed class ContainerAutostartService : IDisposable
             .Where(key => key.Length > 5)
             .OrderBy(key => key, StringComparer.Ordinal));
 
+    /// <summary>
+    /// Releases long-lived resources owned by this service.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed)
@@ -372,7 +378,13 @@ public sealed class ContainerAutostartService : IDisposable
     /// <summary>A container that was running when the app last observed it, keyed by id (with name fallback).</summary>
     public sealed class AutostartEntry
     {
+        /// <summary>
+        /// Gets the persisted container id for this autostart entry.
+        /// </summary>
         public string Id { get; set; } = string.Empty;
+        /// <summary>
+        /// Gets the last known container name for this autostart entry.
+        /// </summary>
         public string Name { get; set; } = string.Empty;
     }
 }

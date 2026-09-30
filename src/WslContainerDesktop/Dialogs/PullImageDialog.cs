@@ -20,6 +20,7 @@ using Microsoft.UI.Xaml.Media;
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
+using WslContainerDesktop.Views.Controls;
 
 namespace WslContainerDesktop.Dialogs;
 
@@ -34,6 +35,7 @@ public sealed class PullImageDialog : ContentDialog
     private readonly ComboBox _registryBox;
     private readonly TextBox _referenceBox;
     private readonly TextBlock _preview;
+    private readonly CheckBox _allTagsBox;
     private readonly Button _browseButton;
     private readonly Border _browsePanel;
     private readonly TextBox _repoFilterBox;
@@ -50,7 +52,12 @@ public sealed class PullImageDialog : ContentDialog
 
     /// <summary>The fully-resolved image reference to pull.</summary>
     public string Reference { get; private set; } = string.Empty;
+    /// <summary>Gets or sets a value indicating whether the all tags flag is set.</summary>
+    public bool AllTags { get; private set; }
 
+    /// <summary>Creates a new &lt;c&gt;PullImageDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="registries">The registries value supplied by the caller.</param>
+    /// <param name="catalog">The catalog value supplied by the caller.</param>
     public PullImageDialog(IReadOnlyList<RegistryEntry> registries, IRegistryCatalogService catalog)
     {
         _registries = registries;
@@ -103,6 +110,15 @@ public sealed class PullImageDialog : ContentDialog
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
         };
+
+        _allTagsBox = new CheckBox
+        {
+            Content = InfoTip.Labeled(
+                new TextBlock { Text = "All tags", VerticalAlignment = VerticalAlignment.Center },
+                InfoTip.Create(FlagHelp.PullAllTags)),
+        };
+        _allTagsBox.Checked += (_, _) => UpdatePreview();
+        _allTagsBox.Unchecked += (_, _) => UpdatePreview();
 
         // ---- Browse panel (collapsed until "Browse…" is clicked) --------------------------
         _repoFilterBox = new TextBox
@@ -182,7 +198,7 @@ public sealed class PullImageDialog : ContentDialog
         Content = new StackPanel
         {
             Spacing = 12,
-            Children = { _registryBox, referenceRow, _preview, _browsePanel },
+            Children = { _registryBox, referenceRow, _allTagsBox, _preview, _browsePanel },
         };
 
         UpdateBrowseAvailability();
@@ -403,7 +419,9 @@ public sealed class PullImageDialog : ContentDialog
             return;
         }
 
-        _preview.Text = $"Will pull: {SelectedRegistry.Qualify(input)}";
+        _preview.Text = _allTagsBox.IsChecked == true
+            ? $"Will pull all tags in: {WslContainerDesktop.Services.WslcService.StripTag(SelectedRegistry.Qualify(input))}"
+            : $"Will pull: {SelectedRegistry.Qualify(input)}";
     }
 
     private void OnPrimary(ContentDialog sender, ContentDialogButtonClickEventArgs args)
@@ -417,5 +435,6 @@ public sealed class PullImageDialog : ContentDialog
         }
 
         Reference = SelectedRegistry.Qualify(input);
+        AllTags = _allTagsBox.IsChecked == true;
     }
 }

@@ -22,6 +22,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers Windows job-object cleanup so child <c>wslc</c> processes join the shared job and are killed without affecting unrelated processes.</summary>
 public sealed class ChildProcessJobTests
 {
     private static readonly TimeSpan Guard = TimeSpan.FromSeconds(30);

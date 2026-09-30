@@ -25,6 +25,7 @@ public sealed record DeploymentAdjustment(
     string? Name,
     IReadOnlyList<string> Notes)
 {
+    /// <summary>True when at least one name, port, or volume was changed to avoid a collision.</summary>
     public bool Adjusted => Notes.Count > 0;
 
     /// <summary>One sentence for the user or the model; empty when nothing had to change.</summary>
@@ -147,6 +148,10 @@ public sealed class DeploymentConflictResolver(IWslcService wslc)
         return new(originalName, project.Name, notes);
     }
 
+    /// <summary>
+    /// Adjusts a standalone container run so it deploys alongside existing containers instead of
+    /// reusing their name, host port, or named volumes.
+    /// </summary>
     public async Task<DeploymentAdjustment> ResolveAsync(RunContainerOptions options, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(options);

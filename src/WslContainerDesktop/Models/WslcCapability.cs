@@ -16,4 +16,5 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Immutable or init-only data model that carries wslc capability information between services and view models.</summary>
 public sealed record WslcCapability(WslcCapabilitySupport Support, string? Diagnostic = null);

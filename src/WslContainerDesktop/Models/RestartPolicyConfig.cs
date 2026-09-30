@@ -27,6 +27,7 @@ public sealed class RestartPolicyConfig
     /// <summary>Upper bound for how many auto-restarts are attempted before giving up.</summary>
     public const int MaxRestartLimit = 20;
 
+    /// <summary>Gets or sets the container name.</summary>
     public string ContainerName { get; set; } = string.Empty;
 
     /// <summary>The compose restart policy to enforce.</summary>
@@ -35,6 +36,7 @@ public sealed class RestartPolicyConfig
     /// <summary>Restart budget (rolling): attempts before the watchdog gives up. 0 disables restarts.</summary>
     public int MaxRestarts { get; set; } = 3;
 
+    /// <summary>Gets or sets a value indicating whether this value is enabled.</summary>
     public bool Enabled { get; set; } = true;
 
     /// <summary>True when the policy is actionable (a named container and a policy other than "no").</summary>

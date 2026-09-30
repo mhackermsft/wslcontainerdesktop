@@ -16,35 +16,52 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Model object that stores ai diagnosis information used by services, view models, or dialogs.</summary>
 public sealed class AiDiagnosis
 {
+    /// <summary>Gets or sets the summary.</summary>
     public string Summary { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the likely cause.</summary>
     public string LikelyCause { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the evidence cited.</summary>
     public List<string> EvidenceCited { get; set; } = new();
 
+    /// <summary>Gets or sets the suggested fix.</summary>
     public AiSuggestedFix SuggestedFix { get; set; } = new();
 
+    /// <summary>Gets or sets the confidence.</summary>
     public double Confidence { get; set; }
 }
 
+/// <summary>Model object that stores ai suggested fix information used by services, view models, or dialogs.</summary>
 public sealed class AiSuggestedFix
 {
+    /// <summary>Gets or sets the description.</summary>
     public string Description { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the commands.</summary>
     public List<string> Commands { get; set; } = new();
 
+    /// <summary>Gets or sets the file edits.</summary>
     public List<string> FileEdits { get; set; } = new();
 }
 
+/// <summary>Values that describe ai provider kind states or choices in WSL Container Desktop workflows.</summary>
 public enum AiProviderKind
 {
+    /// <summary>Represents the none option.</summary>
     None,
+    /// <summary>Represents the git hub copilot option.</summary>
     GitHubCopilot,
+    /// <summary>Represents the ollama option.</summary>
     Ollama,
+    /// <summary>Represents the azure open ai option.</summary>
     AzureOpenAi,
+    /// <summary>Represents the open ai option.</summary>
     OpenAi,
+    /// <summary>Represents the foundry local option.</summary>
     FoundryLocal,
 }
 
@@ -52,6 +69,9 @@ public enum AiProviderKind
 /// implementations and AI feedback/error classification so the wording stays consistent.</summary>
 public static class AiProviderKindExtensions
 {
+    /// <summary>Performs the display name helper used by this model or dialog.</summary>
+    /// <param name="kind">The kind value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static string DisplayName(this AiProviderKind kind) => kind switch
     {
         AiProviderKind.GitHubCopilot => "GitHub Copilot",
@@ -63,6 +83,8 @@ public static class AiProviderKindExtensions
     };
 }
 
+/// <summary>Immutable or init-only data model that carries ai prompt request information between services and view models.</summary>
 public sealed record AiPromptRequest(string SystemPrompt, string UserPrompt);
 
+/// <summary>Immutable or init-only data model that carries ai diagnostic preview information between services and view models.</summary>
 public sealed record AiDiagnosticPreview(AiPromptRequest Request, string Payload);

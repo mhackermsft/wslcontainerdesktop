@@ -26,12 +26,24 @@ using WslContainerDesktop.Tray;
 namespace WslContainerDesktop.ViewModels;
 
 /// <summary>One published endpoint: a container's port mapped to a host port.</summary>
+/// <summary>One published container endpoint shown on the Ports page.</summary>
 public sealed class PortEndpointRow
 {
+    /// <summary>
+    /// Returns the container name and host port. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => $"{ContainerName} {HostPort}";
+
+    /// <summary>Name of the running container that owns this endpoint.</summary>
     public required string ContainerName { get; init; }
+    /// <summary>Full container id used to distinguish same-named rows across refreshes.</summary>
     public required string ContainerId { get; init; }
+    /// <summary>Port published on the Windows host.</summary>
     public required int HostPort { get; init; }
+    /// <summary>Port inside the container.</summary>
     public required int ContainerPort { get; init; }
+    /// <summary>Transport protocol reported by <c>wslc</c>, usually <c>tcp</c>.</summary>
     public required string Protocol { get; init; }
 
     /// <summary>Browser-usable URL, e.g. <c>http://localhost:8080</c>.</summary>
@@ -43,6 +55,7 @@ public sealed class PortEndpointRow
     /// <summary>TCP endpoints are assumed to be openable in a browser.</summary>
     public bool IsHttp => Protocol.Equals("tcp", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Compact container-side port/protocol text for the list.</summary>
     public string PortDisplay => $"{ContainerPort}/{Protocol}";
 }
 
@@ -58,17 +71,22 @@ public partial class PortsViewModel : ObservableObject
     /// <summary>Signature of the endpoints currently shown, used to skip no-op rebuilds.</summary>
     private string _signature = string.Empty;
 
+    /// <summary>Generated flag that switches the view between endpoint rows and the empty state.</summary>
     [ObservableProperty]
     private bool _hasEndpoints;
 
+    /// <summary>Status text explaining whether the endpoint inventory is complete.</summary>
     [ObservableProperty]
     private string _inventorySummary = "Every published port across your running containers, in one place.";
 
+    /// <summary>Message shown when no endpoint rows are available.</summary>
     [ObservableProperty]
     private string _emptyMessage = "No published ports. Start a container that publishes a port to see it here.";
 
+    /// <summary>Published endpoints currently visible in the page.</summary>
     public ObservableCollection<PortEndpointRow> Endpoints { get; } = new();
 
+    /// <summary>Subscribes to the shared engine monitor and seeds the page from its latest snapshot.</summary>
     public PortsViewModel(StatusMonitor monitor)
     {
         _monitor = monitor;
@@ -145,6 +163,7 @@ public partial class PortsViewModel : ObservableObject
     [RelayCommand]
     private void Refresh() => _monitor.RequestRefresh();
 
+    /// <summary>Opens the endpoint URL with the user's default browser.</summary>
     [RelayCommand]
     private void Open(PortEndpointRow? row)
     {
@@ -167,6 +186,7 @@ public partial class PortsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Copies the endpoint host and port to the Windows clipboard.</summary>
     [RelayCommand]
     private void Copy(PortEndpointRow? row)
     {

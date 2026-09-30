@@ -27,8 +27,14 @@ namespace WslContainerDesktop.Services;
 public sealed class FoundryLocalArtifactCatalog
 {
     private readonly FoundryLocalAuditedPackageSet[] _approved;
+    /// <summary>
+    /// Gets the id of the audited standalone Foundry Local package set bundled into this catalog.
+    /// </summary>
     public const string StandalonePackageSetId = "foundry-local-cli-0.10.3-x64";
 
+    /// <summary>
+    /// Initializes a new <c>FoundryLocalArtifactCatalog</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public FoundryLocalArtifactCatalog() => _approved =
     [
         new(StandalonePackageSetId,
@@ -52,20 +58,38 @@ public sealed class FoundryLocalArtifactCatalog
                 new("https://github.com/microsoft/winget-cli/releases/expanded_assets/v1.9.25180"),
                 "x64/Microsoft.VCLibs.140.00.UWPDesktop_14.0.33728.0_x64.appx"))
     ];
+    /// <summary>
+    /// Initializes a new <c>FoundryLocalArtifactCatalog</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     internal FoundryLocalArtifactCatalog(params FoundryLocalAuditedPackageSet[] approved) =>
         _approved = approved.ToArray();
 
+    /// <summary>
+    /// Gets whether the audited catalog contains a runtime old enough to satisfy the dependency-age policy.
+    /// </summary>
     public bool HasEligibleRuntime => _approved.Any(package => package.IsEligible(DateTimeOffset.UtcNow));
+    /// <summary>
+    /// Finds an audited package set by id when it is eligible for use.
+    /// </summary>
     internal FoundryLocalAuditedPackageSet? Find(string id, DateTimeOffset now) =>
         _approved.SingleOrDefault(package => package.Id == id && package.IsEligible(now));
+    /// <summary>
+    /// Gets the audited standalone Foundry Local package set used by setup.
+    /// </summary>
     internal FoundryLocalAuditedPackageSet? GetStandalone() => Find(StandalonePackageSetId, DateTimeOffset.UtcNow);
 }
 
 // Only compiled, independently reviewed catalog entries can carry provenance. No public
 // constructor/parser accepts claimed timestamps, checksums, licenses or audit acknowledgements.
+/// <summary>
+/// Describes one audited downloadable Foundry Local artifact, including its size and expected hash.
+/// </summary>
 internal sealed record FoundryLocalAuditedArtifact(string Version, long Bytes, string Sha256,
     DateTimeOffset PublishedAt, Uri PublicationEvidence, string License, Uri LicenseEvidence)
 {
+    /// <summary>
+    /// Gets whether this audited artifact satisfies age, hash, license, and evidence requirements.
+    /// </summary>
     internal bool IsEligible(DateTimeOffset now) =>
         System.Version.TryParse(Version, out _) && Bytes > 0
         && Regex.IsMatch(Sha256, @"\A[0-9a-fA-F]{64}\z")
@@ -75,19 +99,31 @@ internal sealed record FoundryLocalAuditedArtifact(string Version, long Bytes, s
         && LicenseEvidence.IsAbsoluteUri && LicenseEvidence.Scheme == "https";
 }
 
+/// <summary>
+/// Groups the audited runtime and prerequisite artifacts for a Foundry Local version.
+/// </summary>
 internal sealed record FoundryLocalAuditedPackageSet(string Id, FoundryLocalAuditedArtifact Runtime,
     FoundryLocalAuditedArtifact VcLibs, Uri CompleteBundledDependencyAudit,
     Uri? RuntimeDownloadUri = null, FoundryLocalAuditedArchive? VcLibsArchive = null)
 {
+    /// <summary>
+    /// Gets whether this audited artifact satisfies age, hash, license, and evidence requirements.
+    /// </summary>
     internal bool IsEligible(DateTimeOffset now) =>
         !string.IsNullOrWhiteSpace(Id) && Runtime.IsEligible(now) && VcLibs.IsEligible(now)
         && CompleteBundledDependencyAudit.IsAbsoluteUri && CompleteBundledDependencyAudit.Scheme == "https";
 
+    /// <summary>
+    /// Gets whether this package set has approved download metadata for all required artifacts.
+    /// </summary>
     internal bool IsDownloadable(DateTimeOffset now) => IsEligible(now)
         && RuntimeDownloadUri is { IsAbsoluteUri: true, Scheme: "https", Host: "github.com" }
         && string.IsNullOrEmpty(RuntimeDownloadUri.UserInfo)
         && VcLibsArchive is not null && VcLibsArchive.IsEligible(now);
 
+    /// <summary>
+    /// Builds the human-readable audit confirmation text for the package set.
+    /// </summary>
     internal string Confirmation(string model) => AiTextSanitizer.Sanitize(
         $"Install only the standalone Foundry Local runtime {Runtime.Version} for this Windows user?\n" +
         $"Runtime: {Runtime.Bytes} bytes; SHA256 {Runtime.Sha256}; published {Runtime.PublishedAt:O}.\n" +
@@ -103,9 +139,15 @@ internal sealed record FoundryLocalAuditedPackageSet(string Id, FoundryLocalAudi
         AiTextSanitizer.DiagnosticLimit);
 }
 
+/// <summary>
+/// Describes the archive URL and verification data needed to stage a Foundry Local package.
+/// </summary>
 internal sealed record FoundryLocalAuditedArchive(Uri DownloadUri, long Bytes, string Sha256,
     DateTimeOffset PublishedAt, Uri PublicationEvidence, string EntryPath)
 {
+    /// <summary>
+    /// Gets whether this audited artifact satisfies age, hash, license, and evidence requirements.
+    /// </summary>
     internal bool IsEligible(DateTimeOffset now) =>
         Bytes > 0 && Regex.IsMatch(Sha256, @"\A[0-9a-fA-F]{64}\z")
         && PublishedAt > DateTimeOffset.UnixEpoch && PublishedAt <= now.AddDays(-7)

@@ -16,13 +16,17 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Values that describe app update phase states or choices in WSL Container Desktop workflows.</summary>
 public enum AppUpdatePhase
 {
+    /// <summary>Represents the downloading option.</summary>
     Downloading,
 
     /// <summary>Downloaded; waiting until Windows will relaunch the app after installing.</summary>
     Preparing,
+    /// <summary>Represents the verifying option.</summary>
     Verifying,
+    /// <summary>Represents the installing option.</summary>
     Installing,
 }
 

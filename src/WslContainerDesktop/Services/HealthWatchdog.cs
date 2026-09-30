@@ -27,6 +27,9 @@ namespace WslContainerDesktop.Services;
 /// <summary>Aggregate health of all watched containers, broadcast to the list and tray.</summary>
 public sealed class HealthSnapshot
 {
+    /// <summary>
+    /// Gets the per-container health observations in this snapshot.
+    /// </summary>
     public IReadOnlyList<ContainerHealthSnapshot> Containers { get; init; } = Array.Empty<ContainerHealthSnapshot>();
 
     /// <summary>Worst state across all watched containers (used for the tray roll-up).</summary>
@@ -70,9 +73,18 @@ public sealed class HealthWatchdog : IDisposable, IAppHealthObservationSource
     /// <summary>Raised (on the UI thread) when an unhealthy transition should surface a toast.</summary>
     public event Action<string, string>? NotificationRequested;
 
+    /// <summary>
+    /// Gets latest for callers in the service or view-model layer.
+    /// </summary>
     public HealthSnapshot Latest { get; private set; } = new();
+    /// <summary>
+    /// Gets observations information for callers in the service or view-model layer.
+    /// </summary>
     public IReadOnlyList<ContainerHealthSnapshot> GetObservations() => Latest.Containers;
 
+    /// <summary>
+    /// Initializes a new <c>HealthWatchdog</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public HealthWatchdog(IWslcService wslc, StatusMonitor monitor, ISettingsService settings,
         ILogger<HealthWatchdog> logger, RestartPolicyWatchdog restartWatchdog)
     {
@@ -84,6 +96,9 @@ public sealed class HealthWatchdog : IDisposable, IAppHealthObservationSource
         _restartWatchdog = restartWatchdog;
     }
 
+    /// <summary>
+    /// Starts the background work requested by the UI or a supervisor.
+    /// </summary>
     public void Start()
     {
         if (_started)
@@ -586,6 +601,9 @@ public sealed class HealthWatchdog : IDisposable, IAppHealthObservationSource
         };
     }
 
+    /// <summary>
+    /// Releases long-lived resources owned by this service.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed)
@@ -611,18 +629,57 @@ public sealed class HealthWatchdog : IDisposable, IAppHealthObservationSource
     /// <summary>Mutable per-container tracking used by the evaluation loop.</summary>
     private sealed class Runtime
     {
+        /// <summary>
+        /// Gets or sets the latest health state for this watched container.
+        /// </summary>
         public ContainerHealthState State = ContainerHealthState.Unknown;
+        /// <summary>
+        /// Gets progress for callers in the service or view-model layer.
+        /// </summary>
         public HealthProbeProgress Progress { get; } = new();
+        /// <summary>
+        /// Gets restart count for other services or view models.
+        /// </summary>
         public int RestartCount;
+        /// <summary>
+        /// Gets max restarts for other services or view models.
+        /// </summary>
         public int MaxRestarts;
+        /// <summary>
+        /// Gets or sets the user-facing detail for the latest health observation.
+        /// </summary>
         public string Detail = string.Empty;
+        /// <summary>
+        /// Gets last check for other services or view models.
+        /// </summary>
         public DateTimeOffset LastCheck = DateTimeOffset.MinValue;
+        /// <summary>
+        /// Gets last native observation for other services or view models.
+        /// </summary>
         public DateTimeOffset LastNativeObservation = DateTimeOffset.MinValue;
+        /// <summary>
+        /// Gets observation max age for callers in the service or view-model layer.
+        /// </summary>
         public TimeSpan ObservationMaxAge = TimeSpan.FromSeconds(15);
+        /// <summary>
+        /// Extracts a container id from native health JSON.
+        /// </summary>
         public string ContainerId = string.Empty;
+        /// <summary>
+        /// Gets or sets the health-check configuration text being evaluated.
+        /// </summary>
         public string Configuration = string.Empty;
+        /// <summary>
+        /// Gets or sets which kind of health probe produced this runtime state.
+        /// </summary>
         public HealthProbeKind Kind;
+        /// <summary>
+        /// Starts d at work requested by the UI or a background supervisor.
+        /// </summary>
         public ulong StartedAt;
+        /// <summary>
+        /// Gets check in progress for other services or view models.
+        /// </summary>
         public volatile bool CheckInProgress;
     }
 }

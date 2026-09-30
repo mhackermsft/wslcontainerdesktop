@@ -18,10 +18,22 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Common contract for AI chat providers that can run one assistant turn and call back into app tools.
+/// </summary>
 public interface IAiChatProvider
 {
+    /// <summary>Provider identifier used by settings and diagnostics.</summary>
     AiProviderKind Kind { get; }
 
+    /// <summary>
+    /// Runs one chat turn using the supplied tool catalog and tool invocation callback.
+    /// </summary>
+    /// <param name="request">Messages, model and provider options for this turn.</param>
+    /// <param name="tools">Tools the provider may call during the turn.</param>
+    /// <param name="invokeToolAsync">Callback used when the model requests an app tool.</param>
+    /// <param name="ct">Cancels provider and tool work.</param>
+    /// <returns>The final assistant text, tool messages and model metadata.</returns>
     Task<AiChatTurnResult> RunTurnAsync(
         AiChatRequest request,
         IReadOnlyList<AiToolDefinition> tools,

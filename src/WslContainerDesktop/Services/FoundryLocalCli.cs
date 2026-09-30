@@ -34,13 +34,22 @@ public sealed class FoundryLocalCli
     private readonly Func<string?> _findExecutable;
     private readonly Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> _run;
 
+    /// <summary>
+    /// Initializes a new <c>FoundryLocalCli</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public FoundryLocalCli() : this(FindExecutable, (start, ct) => ProcessExecutor.RunAsync(start,
         timeout: start.ArgumentList.Contains("load") || start.ArgumentList.Contains("start")
             ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(10),
         launchErrorContext: "Could not launch Foundry Local CLI.", ct: ct)) { }
 
+    /// <summary>
+    /// Gets whether is installed for the current app state.
+    /// </summary>
     public bool IsInstalled => _findExecutable() is not null;
 
+    /// <summary>
+    /// Initializes a new <c>FoundryLocalCli</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     internal FoundryLocalCli(Func<string?> findExecutable,
         Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> run)
     {
@@ -48,6 +57,9 @@ public sealed class FoundryLocalCli
         _run = run;
     }
 
+    /// <summary>
+    /// Discovers the installed Foundry Local CLI and its API endpoint.
+    /// </summary>
     public async Task<FoundryLocalDiscovery> DiscoverAsync(IProgress<string>? progress, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -80,6 +92,9 @@ public sealed class FoundryLocalCli
         return new(AiTextSanitizer.Sanitize(version.Trim(), 256), ParseEndpoint(status));
     }
 
+    /// <summary>
+    /// Reads whether the Foundry Local server is running and where it is listening.
+    /// </summary>
     public async Task<FoundryLocalServerStatus> ReadServerStatusAsync(CancellationToken ct)
     {
         var executable = RequireExecutable();
@@ -88,6 +103,9 @@ public sealed class FoundryLocalCli
         return ParseServerStatus(await RunAsync(executable, ["server", "status", "--output", "json"], ct).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// Starts server work requested by the UI or a background supervisor.
+    /// </summary>
     public async Task StartServerAsync(CancellationToken ct)
     {
         var executable = await RequireObservedVersionAsync(ct).ConfigureAwait(false);
@@ -106,7 +124,13 @@ public sealed class FoundryLocalCli
         }
     }
 
+    /// <summary>
+    /// Loads model data from the app's persisted state or an external tool.
+    /// </summary>
     public Task LoadModelAsync(string model, CancellationToken ct) => ModelMutationAsync("load", model, ct);
+    /// <summary>
+    /// Unloads a Foundry Local model through the CLI wrapper.
+    /// </summary>
     public Task UnloadModelAsync(string model, CancellationToken ct) => ModelMutationAsync("unload", model, ct);
 
     private async Task ModelMutationAsync(string operation, string model, CancellationToken ct)
@@ -117,6 +141,9 @@ public sealed class FoundryLocalCli
         RequireSuccessfulMutation(await RunAsync(executable, ["model", operation, model, "--output", "json"], ct).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// Stops server work requested by the UI or a background supervisor.
+    /// </summary>
     public async Task StopServerAsync(CancellationToken ct)
     {
         var executable = await RequireObservedVersionAsync(ct).ConfigureAwait(false);
@@ -131,6 +158,9 @@ public sealed class FoundryLocalCli
         return executable;
     }
 
+    /// <summary>
+    /// Throws a descriptive exception when a Foundry Local mutation command fails.
+    /// </summary>
     internal static void RequireSuccessfulMutation(string output)
     {
         using var json = JsonDocument.Parse(output);
@@ -141,6 +171,9 @@ public sealed class FoundryLocalCli
             throw new InvalidDataException("Foundry did not confirm the requested mutation. Outcome is uncertain; inspect status. No automatic retry.");
     }
 
+    /// <summary>
+    /// Parses server status text into the app's normalized model.
+    /// </summary>
     internal static FoundryLocalServerStatus ParseServerStatus(string output)
     {
         using var json = JsonDocument.Parse(output, new JsonDocumentOptions { MaxDepth = 8 });
@@ -172,6 +205,9 @@ public sealed class FoundryLocalCli
         return new(true, processId, startedAt, endpoints);
     }
 
+    /// <summary>
+    /// Reads the Foundry Local model cache location.
+    /// </summary>
     public async Task<FoundryLocalCacheLocation> ReadCacheLocationAsync(CancellationToken ct)
     {
         var executable = RequireExecutable();
@@ -189,6 +225,9 @@ public sealed class FoundryLocalCli
         return ParseCacheLocation(await RunAsync(executable, ["cache", "location", "--output", "json"], ct).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// Parses cache location text into the app's normalized model.
+    /// </summary>
     internal static FoundryLocalCacheLocation ParseCacheLocation(string output)
     {
         using var json = JsonDocument.Parse(output, new JsonDocumentOptions { MaxDepth = 8 });
@@ -215,6 +254,9 @@ public sealed class FoundryLocalCli
         return executable;
     }
 
+    /// <summary>
+    /// Checks whether Foundry Local help output advertises a specific command.
+    /// </summary>
     internal static bool AdvertisesCommand(string help, string command)
     {
         var section = false;
@@ -250,6 +292,9 @@ public sealed class FoundryLocalCli
         return result.StandardOutput;
     }
 
+    /// <summary>
+    /// Parses endpoint text into the app's normalized model.
+    /// </summary>
     internal static string ParseEndpoint(string output)
     {
         // Generic text evidence only, not a claimed version-locked status/JSON schema.
@@ -281,6 +326,15 @@ public sealed class FoundryLocalCli
         Path.IsPathFullyQualified(path) && Regex.IsMatch(path, @"^[A-Za-z]:\\");
 }
 
+/// <summary>
+/// Reports the discovered Foundry Local CLI version and API endpoint.
+/// </summary>
 public sealed record FoundryLocalDiscovery(string CliVersion, string Endpoint);
+/// <summary>
+/// Reports where Foundry Local stores model files and whether the user explicitly configured that path.
+/// </summary>
 public sealed record FoundryLocalCacheLocation(string Path, bool UserConfigured);
+/// <summary>
+/// Reports whether the Foundry Local server is running and which local endpoints it exposes.
+/// </summary>
 public sealed record FoundryLocalServerStatus(bool Running, int? Pid, DateTimeOffset? StartedAt, IReadOnlyList<string> Endpoints);

@@ -21,44 +21,14 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers <c>wslc</c> upload and download transfer safety so paths, links, native fallback, cleanup, cancellation, and archives behave predictably.</summary>
 public sealed class WslcFileTransferTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"wcd-copy-tests-{Guid.NewGuid():N}");
     private string Staging => Path.Combine(_root, "staging");
-    private int _legacyCalls;
     private int _nativeCalls;
 
     public WslcFileTransferTests() => Directory.CreateDirectory(_root);
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task UnsupportedSelectsOnlyLegacy(bool upload)
-    {
-        var transfer = Create(WslcCapabilitySupport.Unsupported);
-        var result = upload
-            ? await transfer.CopyToAsync("container-id", "source", "/dest", Legacy)
-            : await transfer.CopyFromAsync("container-id", "/source", Path.Combine(_root, "dest"), Legacy);
-        Assert.True(result.Success);
-        Assert.Equal(1, _legacyCalls);
-        Assert.Equal(0, _nativeCalls);
-        Assert.False(Directory.Exists(Staging));
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task UnknownSurfacesDiagnosticWithoutAnyTransfer(bool upload)
-    {
-        var transfer = Create(WslcCapabilitySupport.Unknown);
-        var result = upload
-            ? await transfer.CopyToAsync("container-id", "source", "/dest", Legacy)
-            : await transfer.CopyFromAsync("container-id", "/source", "dest", Legacy);
-        Assert.False(result.Success);
-        Assert.Contains("probe timed out", result.ErrorText);
-        Assert.Equal(0, _legacyCalls);
-        Assert.Equal(0, _nativeCalls);
-    }
 
     [Fact]
     public async Task DownloadCreatesDirectoryKeepsBasenameAndClearsReadonly()
@@ -70,13 +40,12 @@ public sealed class WslcFileTransferTests : IDisposable
         File.SetAttributes(existing, FileAttributes.ReadOnly);
         var transfer = Create(run: (_, arguments, _) =>
         {
-            Assert.Equal(["container", "cp", "container-id:/space dir/report.bin", destination], arguments);
+            Assert.Equal(["container", "cp", "--quiet", "container-id:/space dir/report.bin", destination], arguments);
             Assert.True(Directory.Exists(destination));
             Assert.False(File.GetAttributes(existing).HasFlag(FileAttributes.ReadOnly));
             return Task.FromResult(new CommandResult());
         });
-        Assert.True((await transfer.CopyFromAsync("container-id", "/space dir/report.bin/", destination, Legacy)).Success);
-        Assert.Equal(0, _legacyCalls);
+        Assert.True((await transfer.CopyFromAsync("container-id", "/space dir/report.bin/", destination)).Success);
     }
 
     [Fact]
@@ -89,10 +58,9 @@ public sealed class WslcFileTransferTests : IDisposable
             Assert.True(Directory.Exists(destination));
             return Task.FromResult(new CommandResult { ExitCode = 9, StandardError = "tar.exe missing" });
         });
-        var result = await transfer.CopyFromAsync("container-id", "/source", destination, Legacy);
+        var result = await transfer.CopyFromAsync("container-id", "/source", destination);
         Assert.Equal(9, result.ExitCode);
         Assert.Contains("tar.exe missing", result.ErrorText);
-        Assert.Equal(0, _legacyCalls);
     }
 
     public static IEnumerable<object[]> UnsafeDownloads()
@@ -121,110 +89,58 @@ public sealed class WslcFileTransferTests : IDisposable
             "relative.bin",
         })
         {
-            yield return [source, WslcCapabilitySupport.Supported];
-            yield return [source, WslcCapabilitySupport.Unsupported];
+            yield return [source];
         }
     }
 
     [Theory]
     [MemberData(nameof(UnsafeDownloads))]
-    public async Task UnsafeDownloadIsRejectedBeforeEitherBackendOrHostMutation(
-        string source, WslcCapabilitySupport support)
+    public async Task UnsafeDownloadIsRejectedBeforeEitherBackendOrHostMutation(string source)
     {
         var destination = Path.Combine(_root, "missing");
         var sentinel = Path.Combine(_root, "outside.bin");
         await File.WriteAllBytesAsync(sentinel, [1, 2, 3]);
         File.SetAttributes(sentinel, FileAttributes.ReadOnly);
 
-        var result = await Create(support).CopyFromAsync("container-id", source, destination, Legacy);
+        var result = await Create().CopyFromAsync("container-id", source, destination);
 
         Assert.False(result.Success);
         Assert.Contains("Could not copy files", result.ErrorText);
         Assert.Equal(0, _nativeCalls);
-        Assert.Equal(0, _legacyCalls);
         Assert.False(Directory.Exists(destination));
         Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(sentinel));
         Assert.True(File.GetAttributes(sentinel).HasFlag(FileAttributes.ReadOnly));
     }
 
     [Fact]
-    public async Task LegacyDownloadReceivesCanonicalPathsAndPreparesReadonlyDestination()
-    {
-        var destination = Path.Combine(_root, "destination");
-        Directory.CreateDirectory(destination);
-        var target = Path.Combine(destination, "report \u00e9.bin");
-        await File.WriteAllBytesAsync(target, [1]);
-        File.SetAttributes(target, FileAttributes.ReadOnly);
-
-        var result = await Create(WslcCapabilitySupport.Unsupported).CopyFromAsync(
-            "container-id", "/space dir/report \u00e9.bin/", Path.Combine(destination, "."),
-            async (source, directory, ct) =>
-            {
-                Assert.Equal("/space dir/report \u00e9.bin", source);
-                Assert.Equal(destination, directory);
-                Assert.False(File.GetAttributes(target).HasFlag(FileAttributes.ReadOnly));
-                await File.WriteAllBytesAsync(ContainerDownloadPath.Create(source, directory).Target, [0, 255], ct);
-                return new CommandResult();
-            });
-
-        Assert.True(result.Success);
-        Assert.Equal(new byte[] { 0, 255 }, await File.ReadAllBytesAsync(target));
-        Assert.Equal(0, _nativeCalls);
-    }
-
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Supported)]
-    [InlineData(WslcCapabilitySupport.Unsupported)]
-    public async Task DownloadRejectsLinkedDestinationAncestorBeforeCreatingDirectory(WslcCapabilitySupport support)
+    public async Task DownloadRejectsLinkedDestinationAncestorBeforeCreatingDirectory()
     {
         var external = Path.Combine(_root, "external");
         Directory.CreateDirectory(external);
         var link = Path.Combine(_root, "linked-parent");
         Directory.CreateSymbolicLink(link, external);
 
-        var result = await Create(support).CopyFromAsync(
-            "container-id", "/report.bin", Path.Combine(link, "missing"), Legacy);
+        var result = await Create().CopyFromAsync(
+            "container-id", "/report.bin", Path.Combine(link, "missing"));
 
         Assert.False(result.Success);
         Assert.Contains("symbolic link", result.ErrorText);
         Assert.Empty(Directory.EnumerateFileSystemEntries(external));
         Assert.Equal(0, _nativeCalls);
-        Assert.Equal(0, _legacyCalls);
     }
 
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Supported)]
-    [InlineData(WslcCapabilitySupport.Unsupported)]
-    public async Task DownloadRejectsDanglingDestinationLink(WslcCapabilitySupport support)
+    [Fact]
+    public async Task DownloadRejectsDanglingDestinationLink()
     {
         var external = Path.Combine(_root, "not-created.bin");
         File.CreateSymbolicLink(Path.Combine(_root, "source"), external);
 
-        var result = await Create(support).CopyFromAsync("container-id", "/source", _root, Legacy);
+        var result = await Create().CopyFromAsync("container-id", "/source", _root);
 
         Assert.False(result.Success);
         Assert.Contains("symbolic link", result.ErrorText);
         Assert.False(File.Exists(external));
         Assert.Equal(0, _nativeCalls);
-        Assert.Equal(0, _legacyCalls);
-    }
-
-    [Fact]
-    public async Task LegacyDownloadRejectsDirectoryTreeContainingHostLink()
-    {
-        var destination = Path.Combine(_root, "source");
-        Directory.CreateDirectory(destination);
-        var external = Path.Combine(_root, "external.bin");
-        await File.WriteAllBytesAsync(external, [0, 255]);
-        File.CreateSymbolicLink(Path.Combine(destination, "report.bin"), external);
-
-        var result = await Create(WslcCapabilitySupport.Unsupported).CopyFromAsync(
-            "container-id", "/source", _root, Legacy);
-
-        Assert.False(result.Success);
-        Assert.Contains("symbolic link", result.ErrorText);
-        Assert.Equal(new byte[] { 0, 255 }, await File.ReadAllBytesAsync(external));
-        Assert.Equal(0, _legacyCalls);
     }
 
     [Fact]
@@ -253,7 +169,7 @@ public sealed class WslcFileTransferTests : IDisposable
         var transfer = Create(input: async (executable, arguments, archivePath, ct) =>
         {
             Assert.Equal("configured-wslc.exe", executable);
-            Assert.Equal(["container", "cp", "-", "container-id:/"], arguments);
+            Assert.Equal(["container", "cp", "--quiet", "-", "container-id:/"], arguments);
             await using var stream = File.OpenRead(archivePath);
             var destination = Path.Combine(_root, "simulated-container");
             Directory.CreateDirectory(destination);
@@ -263,9 +179,20 @@ public sealed class WslcFileTransferTests : IDisposable
             Assert.True(Directory.Exists(Path.Combine(copied, "empty")));
             return new CommandResult();
         });
-        Assert.True((await transfer.CopyToAsync("container-id", source + Path.DirectorySeparatorChar, "/missing/deep/", Legacy)).Success);
+        Assert.True((await transfer.CopyToAsync("container-id", source + Path.DirectorySeparatorChar, "/missing/deep/")).Success);
         Assert.Empty(Directory.EnumerateFileSystemEntries(Staging));
-        Assert.Equal(0, _legacyCalls);
+    }
+
+    [Fact]
+    public async Task DownloadCanFollowSymlinks()
+    {
+        var transfer = Create(run: (_, arguments, _) =>
+        {
+            Assert.Equal(["container", "cp", "--quiet", "--follow-link", "container-id:/link", _root], arguments);
+            return Task.FromResult(new CommandResult());
+        });
+
+        Assert.True((await transfer.CopyFromAsync("container-id", "/link", _root, followSymlinks: true)).Success);
     }
 
     [Theory]
@@ -275,25 +202,11 @@ public sealed class WslcFileTransferTests : IDisposable
     [InlineData(@"\\server\share\")]
     public async Task NativeDownloadRejectsRootBeforeMutation(string destination)
     {
-        var result = await Create().CopyFromAsync("container-id", "/report.bin", destination, Legacy);
+        var result = await Create().CopyFromAsync("container-id", "/report.bin", destination);
         Assert.False(result.Success);
         Assert.Contains("below the drive or share root", result.ErrorText);
         Assert.Equal(0, _nativeCalls);
-        Assert.Equal(0, _legacyCalls);
         Assert.False(Directory.Exists(Staging));
-    }
-
-    [Theory]
-    [InlineData(@"C:\")]
-    [InlineData(@"C:\unused\..")]
-    [InlineData(@"\\server\share\")]
-    public async Task LegacyDownloadRejectsRootBeforeMutation(string destination)
-    {
-        var result = await Create(WslcCapabilitySupport.Unsupported).CopyFromAsync(
-            "container-id", "/report.bin", destination, Legacy);
-        Assert.False(result.Success);
-        Assert.Contains("below the drive or share root", result.ErrorText);
-        Assert.Equal(0, _legacyCalls);
     }
 
     [Theory]
@@ -361,23 +274,22 @@ public sealed class WslcFileTransferTests : IDisposable
     public async Task UnsafeArchiveDestinationIsRejectedBeforeMutation(string destination)
     {
         var transfer = Create();
-        var result = await transfer.CopyToAsync("container-id", _root, destination, Legacy);
+        var result = await transfer.CopyToAsync("container-id", _root, destination);
         Assert.False(result.Success);
         Assert.Equal(0, _nativeCalls);
         Assert.False(Directory.Exists(Staging));
     }
 
     [Fact]
-    public async Task UploadNativeFailureCleansArchiveWithoutLegacyRetry()
+    public async Task UploadNativeFailureCleansArchiveWithoutRetry()
     {
         var source = Path.Combine(_root, "file.bin");
         await File.WriteAllBytesAsync(source, [0, 255, 13, 10]);
         var transfer = Create(input: (_, _, _, _) =>
             Task.FromResult(new CommandResult { ExitCode = 2, StandardError = "partial native failure" }));
-        var result = await transfer.CopyToAsync("container-id", source, "/target", Legacy);
+        var result = await transfer.CopyToAsync("container-id", source, "/target");
         Assert.False(result.Success);
         Assert.Contains("partial native failure", result.ErrorText);
-        Assert.Equal(0, _legacyCalls);
         Assert.Empty(Directory.EnumerateFileSystemEntries(Staging));
     }
 
@@ -394,9 +306,8 @@ public sealed class WslcFileTransferTests : IDisposable
             return Task.FromResult(new CommandResult());
         });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            transfer.CopyToAsync("container-id", source, "/target", Legacy, cancellation.Token));
+            transfer.CopyToAsync("container-id", source, "/target", cancellation.Token));
         Assert.Empty(Directory.EnumerateFileSystemEntries(Staging));
-        Assert.Equal(0, _legacyCalls);
     }
 
     [Fact]
@@ -404,7 +315,7 @@ public sealed class WslcFileTransferTests : IDisposable
     {
         var transfer = Create();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            transfer.CopyToAsync("container-id", _root, "/target", Legacy, new CancellationToken(true)));
+            transfer.CopyToAsync("container-id", _root, "/target", new CancellationToken(true)));
         Assert.Equal(0, _nativeCalls);
         Assert.False(Directory.Exists(Staging));
     }
@@ -412,7 +323,7 @@ public sealed class WslcFileTransferTests : IDisposable
     [Fact]
     public async Task MissingHostSourceReportsFailureBeforeNativeMutation()
     {
-        var result = await Create().CopyToAsync("container-id", Path.Combine(_root, "missing"), "/target", Legacy);
+        var result = await Create().CopyToAsync("container-id", Path.Combine(_root, "missing"), "/target");
         Assert.False(result.Success);
         Assert.Contains("not found", result.ErrorText);
         Assert.Equal(0, _nativeCalls);
@@ -440,7 +351,7 @@ public sealed class WslcFileTransferTests : IDisposable
             }
             return new CommandResult();
         });
-        Assert.True((await transfer.CopyToAsync("container-id", source, "/target", Legacy)).Success);
+        Assert.True((await transfer.CopyToAsync("container-id", source, "/target")).Success);
         Assert.Equal(TarEntryType.SymbolicLink, entries["target/links/file-link"]);
         Assert.Equal(TarEntryType.SymbolicLink, entries["target/links/directory-link"]);
         Assert.DoesNotContain(entries.Keys, key => key.Contains("not-followed"));
@@ -466,11 +377,10 @@ public sealed class WslcFileTransferTests : IDisposable
             return Task.FromResult(new CommandResult());
         });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            transfer.CopyToAsync("container-id", source, "/target", Legacy, cancellation.Token));
+            transfer.CopyToAsync("container-id", source, "/target", cancellation.Token));
         await release;
         Assert.Empty(Directory.EnumerateFileSystemEntries(Staging));
         Assert.Equal(1, _nativeCalls);
-        Assert.Equal(0, _legacyCalls);
     }
 
     [Fact]
@@ -479,7 +389,7 @@ public sealed class WslcFileTransferTests : IDisposable
         var target = Path.Combine(_root, "target.bin");
         await File.WriteAllBytesAsync(target, [0, 255]);
         File.CreateSymbolicLink(Path.Combine(_root, "source"), target);
-        var result = await Create().CopyFromAsync("container-id", "/source", _root, Legacy);
+        var result = await Create().CopyFromAsync("container-id", "/source", _root);
         Assert.False(result.Success);
         Assert.Contains("symbolic link", result.ErrorText);
         Assert.Equal(0, _nativeCalls);
@@ -520,20 +430,10 @@ public sealed class WslcFileTransferTests : IDisposable
         Assert.Contains("symbolic link", error.Message);
     }
 
-    private Task<CommandResult> Legacy(CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        _legacyCalls++;
-        return Task.FromResult(new CommandResult());
-    }
-
-    private Task<CommandResult> Legacy(string source, string destination, CancellationToken ct) => Legacy(ct);
-
     private WslcFileTransfer Create(
-        WslcCapabilitySupport support = WslcCapabilitySupport.Supported,
         Func<string, IEnumerable<string>, CancellationToken, Task<CommandResult>>? run = null,
         Func<string, IEnumerable<string>, string, CancellationToken, Task<CommandResult>>? input = null) =>
-        new(new Capabilities(support),
+        new(
             (executable, arguments, ct) =>
             {
                 _nativeCalls++;
@@ -544,18 +444,8 @@ public sealed class WslcFileTransferTests : IDisposable
                 _nativeCalls++;
                 return input?.Invoke(executable, arguments, stream, ct) ?? Task.FromResult(new CommandResult());
             },
+            () => "configured-wslc.exe",
             () => Staging);
-
-    private sealed class Capabilities(WslcCapabilitySupport support) : IWslcCapabilitiesService
-    {
-        public Task<WslcCapabilities> GetAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new WslcCapabilities("configured-wslc.exe", "test",
-                new Dictionary<WslcFeature, WslcCapability>
-                {
-                    [WslcFeature.ContainerCp] = new(support, "probe timed out"),
-                }));
-        public void Invalidate() { }
-    }
 
     public void Dispose()
     {

@@ -29,15 +29,19 @@ public partial class ShellViewModel : ObservableObject
 {
     private readonly StatusMonitor _monitor;
 
+    /// <summary>Bindable state for engine status text used by the view.</summary>
     [ObservableProperty]
     private string _engineStatusText = "Connecting…";
 
+    /// <summary>Bindable state for engine status brush used by the view.</summary>
     [ObservableProperty]
     private Brush _engineStatusBrush = new SolidColorBrush(Color.FromArgb(255, 150, 150, 150));
 
+    /// <summary>Bindable state for kubernetes status text used by the view.</summary>
     [ObservableProperty]
     private string _kubernetesStatusText = "Kubernetes: …";
 
+    /// <summary>Bindable state for kubernetes status brush used by the view.</summary>
     [ObservableProperty]
     private Brush _kubernetesStatusBrush = new SolidColorBrush(Color.FromArgb(255, 150, 150, 150));
 
@@ -45,6 +49,7 @@ public partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     private Visibility _kubernetesVisibility = Visibility.Collapsed;
 
+    /// <summary>Creates the Shell view model and stores its injected services.</summary>
     public ShellViewModel(StatusMonitor monitor)
     {
         _monitor = monitor;
@@ -62,10 +67,13 @@ public partial class ShellViewModel : ObservableObject
         }
     }
 
+    /// <summary>Handles status changed changes and updates related view-model state.</summary>
     private void OnStatusChanged(object? sender, EngineStatusSnapshot e) => Apply(e);
 
+    /// <summary>Handles k8s status changed changes and updates related view-model state.</summary>
     private void OnK8sStatusChanged(object? sender, K8sStatusSnapshot e) => ApplyK8s(e);
 
+    /// <summary>Applies apply k8s state to bindable properties.</summary>
     private void ApplyK8s(K8sStatusSnapshot snapshot)
     {
         KubernetesVisibility = snapshot.IsInstalled ? Visibility.Visible : Visibility.Collapsed;
@@ -81,6 +89,7 @@ public partial class ShellViewModel : ObservableObject
         KubernetesStatusBrush = new SolidColorBrush(color);
     }
 
+    /// <summary>Applies apply state to bindable properties.</summary>
     private void Apply(EngineStatusSnapshot snapshot)
     {
         EngineStatusText = snapshot.Summary;

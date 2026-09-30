@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Replays recorded Foundry Local CLI output so parser behavior stays grounded in real tool shapes.
+/// </summary>
 public sealed class FoundryLocalRecordedCliTests
 {
     private static Dictionary<string, CommandResult> ReadCapture(string file = "help.json")

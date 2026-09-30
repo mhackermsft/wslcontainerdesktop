@@ -21,5 +21,8 @@ namespace WslContainerDesktop.Services;
 /// <summary>Only receives the safe projection, never raw YAML, plans, or credentials.</summary>
 public interface IComposeReviewPresenter
 {
+    /// <summary>Shows the Compose compatibility preview and returns true only when the user approves deployment.</summary>
+    /// <param name="preview">Safe consequence summary produced by the Compose importer.</param>
+    /// <param name="ct">Cancellation token used when the approval flow is no longer current.</param>
     Task<bool> ConfirmAsync(ComposeCompatibilityPreview preview, CancellationToken ct = default);
 }

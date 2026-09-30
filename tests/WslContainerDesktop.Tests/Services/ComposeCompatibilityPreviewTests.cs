@@ -22,6 +22,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests the Compose import preview that explains supported settings, blockers and masked secrets before changes run.
+/// </summary>
 public sealed class ComposeCompatibilityPreviewTests
 {
     [Theory]

@@ -33,7 +33,9 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public static class MsixPackageInspector
 {
+    /// <summary>Package entry name for the MSIX manifest.</summary>
     public const string ManifestEntry = "AppxManifest.xml";
+    /// <summary>Package entry name for the MSIX signature file.</summary>
     public const string SignatureEntry = "AppxSignature.p7x";
 
     private const string FoundationNamespace = "http://schemas.microsoft.com/appx/manifest/foundation/windows10";
@@ -253,37 +255,57 @@ public static class MsixPackageInspector
     public static string Thumbprint(X509Certificate2 certificate) =>
         certificate.GetCertHashString(HashAlgorithmName.SHA256);
 
+    /// <summary>Minimal P/Invoke surface for asking Windows Crypt32 to inspect and verify a PKCS #7 signature.</summary>
     private static class Crypt32
     {
+        /// <summary>Crypt32 input type for querying an in-memory blob.</summary>
         public const uint CERT_QUERY_OBJECT_BLOB = 2;
+        /// <summary>Crypt32 content flag that requires signed PKCS #7 data.</summary>
         public const uint CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED = 1 << 8;
+        /// <summary>Crypt32 format flag for binary DER data.</summary>
         public const uint CERT_QUERY_FORMAT_FLAG_BINARY = 1 << 1;
+        /// <summary>Message parameter id for the signer count.</summary>
         public const uint CMSG_SIGNER_COUNT_PARAM = 5;
+        /// <summary>Message parameter id for signer certificate lookup information.</summary>
         public const uint CMSG_SIGNER_CERT_INFO_PARAM = 7;
+        /// <summary>Control id that verifies a signer signature against a certificate.</summary>
         public const uint CMSG_CTRL_VERIFY_SIGNATURE = 1;
+        /// <summary>Encoding flag for X.509 certificate data.</summary>
         public const uint X509_ASN_ENCODING = 0x00000001;
+        /// <summary>Encoding flag for PKCS #7 message data.</summary>
         public const uint PKCS_7_ASN_ENCODING = 0x00010000;
+        /// <summary>Certificate-store search id for finding the signer certificate.</summary>
         public const uint CERT_FIND_SUBJECT_CERT = 11 << 16;
 
         [StructLayout(LayoutKind.Sequential)]
+        /// <summary>Native <c>CRYPT_DATA_BLOB</c> structure that points at the pinned signature bytes.</summary>
         public struct CryptDataBlob
         {
+            /// <summary>Length of the pinned signature buffer.</summary>
             public uint cbData;
+            /// <summary>Pointer to the pinned signature buffer.</summary>
             public IntPtr pbData;
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        /// <summary>Native <c>CERT_CONTEXT</c> fields needed to copy the verified signer certificate.</summary>
         public struct CertContext
         {
+            /// <summary>Encoding flags reported by Crypt32 for the certificate.</summary>
             public uint dwCertEncodingType;
+            /// <summary>Pointer to the encoded certificate bytes owned by Crypt32.</summary>
             public IntPtr pbCertEncoded;
+            /// <summary>Length of the encoded certificate bytes.</summary>
             public uint cbCertEncoded;
+            /// <summary>Pointer to native certificate metadata used for signature verification.</summary>
             public IntPtr pCertInfo;
+            /// <summary>Native store handle associated with this certificate context.</summary>
             public IntPtr hCertStore;
         }
 
         [DllImport("crypt32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
+        /// <summary>Opens the signed PKCS #7 blob and returns native store and message handles.</summary>
         public static extern bool CryptQueryObject(
             uint dwObjectType,
             IntPtr pvObject,
@@ -299,17 +321,21 @@ public static class MsixPackageInspector
 
         [DllImport("crypt32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
+        /// <summary>Reads a small CryptMsg parameter into a managed byte array.</summary>
         public static extern bool CryptMsgGetParam(IntPtr hCryptMsg, uint dwParamType, uint dwIndex, byte[] pvData, ref uint pcbData);
 
         [DllImport("crypt32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
+        /// <summary>Reads a variable-size CryptMsg parameter into caller-allocated native memory.</summary>
         public static extern bool CryptMsgGetParam(IntPtr hCryptMsg, uint dwParamType, uint dwIndex, IntPtr pvData, ref uint pcbData);
 
         [DllImport("crypt32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
+        /// <summary>Asks Crypt32 to verify the signed content with the supplied certificate info.</summary>
         public static extern bool CryptMsgControl(IntPtr hCryptMsg, uint dwFlags, uint dwCtrlType, IntPtr pvCtrlPara);
 
         [DllImport("crypt32.dll", SetLastError = true)]
+        /// <summary>Finds the signer certificate context inside the store returned by Crypt32.</summary>
         public static extern IntPtr CertFindCertificateInStore(
             IntPtr hCertStore,
             uint dwCertEncodingType,
@@ -320,14 +346,17 @@ public static class MsixPackageInspector
 
         [DllImport("crypt32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
+        /// <summary>Releases a native certificate context returned by Crypt32.</summary>
         public static extern bool CertFreeCertificateContext(IntPtr pCertContext);
 
         [DllImport("crypt32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
+        /// <summary>Closes a native CryptMsg handle.</summary>
         public static extern bool CryptMsgClose(IntPtr hCryptMsg);
 
         [DllImport("crypt32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
+        /// <summary>Closes a native certificate store handle.</summary>
         public static extern bool CertCloseStore(IntPtr hCertStore, uint dwFlags);
     }
 }

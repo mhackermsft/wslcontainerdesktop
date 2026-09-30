@@ -20,6 +20,7 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Runs the compose conformance scenarios against an approved disposable runtime and records evidence for later comparison.</summary>
 internal static class ComposeConformanceWorker
 {
     public static int Main(string[] args)

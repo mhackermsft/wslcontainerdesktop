@@ -24,9 +24,12 @@ public sealed class FoundryLocalProvider(
     FoundryLocalHttpClient http, ISettingsService settings,
     IFoundryLocalRuntimeService runtime, IAiCapabilityService capabilities) : IAiProvider, IAiChatProvider
 {
+    /// <inheritdoc/>
     public AiProviderKind Kind => AiProviderKind.FoundryLocal;
+    /// <inheritdoc/>
     public string DisplayName => Kind.DisplayName();
 
+    /// <inheritdoc/>
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
         var configuration = AiConversationContext.Capture(settings, Kind);
@@ -55,6 +58,7 @@ public sealed class FoundryLocalProvider(
         return AiProviderJson.ParseDiagnosis(turn.AssistantText ?? "");
     }
 
+    /// <inheritdoc/>
     public async Task<string> TestAsync(CancellationToken ct)
     {
         var configuration = AiConversationContext.Capture(settings, Kind);
@@ -64,12 +68,14 @@ public sealed class FoundryLocalProvider(
         return snapshot.StatusText;
     }
 
+    /// <inheritdoc/>
     public async Task<string> RunTurnAsync(IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync, CancellationToken ct) =>
         (await RunTurnAsync(new AiChatRequest(AiConversationContext.Capture(settings, Kind), history),
             tools, invokeToolAsync, ct).ConfigureAwait(false)).FinalText;
 
+    /// <inheritdoc/>
     public async Task<AiChatTurnResult> RunTurnAsync(AiChatRequest request,
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync, CancellationToken ct)
@@ -83,6 +89,7 @@ public sealed class FoundryLocalProvider(
         return result;
     }
 
+    /// <summary>Requires the same cached capability observation that proved this Foundry Local runtime/model can chat.</summary>
     private AiCapabilitySnapshot RequireLiveProof(AiChatConfiguration configuration, bool hasTools,
         AiCapabilitySnapshot? expected = null)
     {
@@ -96,6 +103,7 @@ public sealed class FoundryLocalProvider(
         return proof;
     }
 
+    /// <summary>Re-checks runtime inventory just before sending a request so stale capability proof cannot be reused.</summary>
     private async Task GuardAsync(AiChatConfiguration configuration, bool hasTools,
         AiCapabilitySnapshot proof, CancellationToken ct)
     {
@@ -117,6 +125,7 @@ public sealed class FoundryLocalProvider(
         }
     }
 
+    /// <summary>Ensures settings still point at the same Foundry Local endpoint and model.</summary>
     private void RequireCurrent(AiChatConfiguration configuration)
     {
         FoundryLocalRuntimeService.Validate(configuration);

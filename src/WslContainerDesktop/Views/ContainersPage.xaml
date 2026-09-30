@@ -4,7 +4,9 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:helpers="using:WslContainerDesktop.Helpers"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:WslContainerDesktop.ViewModels"
     x:Name="Root"
@@ -89,6 +91,10 @@
                     Orientation="Horizontal"
                     Spacing="8">
                     <TextBlock VerticalAlignment="Center" Text="Show all" />
+                    <controls:InfoTip
+                        Title="{x:Bind helpers:FlagHelp.ContainersShowAll.Title}"
+                        Flag="{x:Bind helpers:FlagHelp.ContainersShowAll.Flag}"
+                        Text="{x:Bind helpers:FlagHelp.ContainersShowAll.Text}" />
                     <ToggleSwitch MinWidth="0" IsOn="{x:Bind ViewModel.ShowAll, Mode=TwoWay}" />
                 </StackPanel>
             </Grid>
@@ -170,6 +176,7 @@
                     <ColumnDefinition Width="1.9*" MinWidth="110" />
                     <ColumnDefinition Width="1.2*" MinWidth="80" />
                     <ColumnDefinition Width="1.1*" MinWidth="80" />
+                    <ColumnDefinition Width="80" />
                     <ColumnDefinition Width="84" />
                     <ColumnDefinition Width="156" />
                 </Grid.ColumnDefinitions>
@@ -177,9 +184,16 @@
                 <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="IMAGE" />
                 <TextBlock Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" Text="PORTS" />
                 <TextBlock Grid.Column="4" Style="{ThemeResource CaptionTextBlockStyle}" Text="NETWORK" />
-                <TextBlock Grid.Column="5" Style="{ThemeResource CaptionTextBlockStyle}" Text="CREATED" />
+                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4">
+                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="SIZE" />
+                    <controls:InfoTip
+                        Title="{x:Bind helpers:FlagHelp.ContainersSize.Title}"
+                        Flag="{x:Bind helpers:FlagHelp.ContainersSize.Flag}"
+                        Text="{x:Bind helpers:FlagHelp.ContainersSize.Text}" />
+                </StackPanel>
+                <TextBlock Grid.Column="6" Style="{ThemeResource CaptionTextBlockStyle}" Text="CREATED" />
                 <TextBlock
-                    Grid.Column="6"
+                    Grid.Column="7"
                     HorizontalAlignment="Right"
                     Style="{ThemeResource CaptionTextBlockStyle}"
                     Text="ACTIONS" />
@@ -263,6 +277,7 @@
                                     <ColumnDefinition Width="1.9*" MinWidth="110" />
                                     <ColumnDefinition Width="1.2*" MinWidth="80" />
                                     <ColumnDefinition Width="1.1*" MinWidth="80" />
+                                    <ColumnDefinition Width="80" />
                                     <ColumnDefinition Width="84" />
                                     <ColumnDefinition Width="156" />
                                 </Grid.ColumnDefinitions>
@@ -353,13 +368,22 @@
 
                                 <TextBlock
                                     Grid.Column="5"
+                                    Margin="0,0,8,0"
+                                    VerticalAlignment="Center"
+                                    FontSize="12"
+                                    Text="{Binding SizeShort}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTipService.ToolTip="{Binding SizeDisplay}" />
+
+                                <TextBlock
+                                    Grid.Column="6"
                                     VerticalAlignment="Center"
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     Text="{Binding Created, Converter={StaticResource RelativeTime}}" />
 
                                 <StackPanel
-                                    Grid.Column="6"
+                                    Grid.Column="7"
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
@@ -423,7 +447,7 @@
                                         <FontIcon FontSize="15" Glyph="&#xE712;" />
                                         <Button.Flyout>
                                             <MenuFlyout>
-                                                <MenuFlyoutItem Click="OpenPortMenu_Click" Text="Open in browser">
+                                                <MenuFlyoutItem Click="OpenPortMenu_Click" Text="Open in browser" Visibility="{Binding CanOpenInBrowser, Converter={StaticResource BoolToVis}}">
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE774;" />
                                                     </MenuFlyoutItem.Icon>
@@ -438,7 +462,9 @@
                                                         <FontIcon Glyph="&#xE78C;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
-                                                <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" />
+                                                <MenuFlyoutItem Click="ExportMenu_Click" Text="Export filesystem…" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ContainerExport.Text}" />
+                                                <MenuFlyoutItem Click="AttachMenu_Click" Text="Attach to main process…" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ContainerAttach.Text}" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}" />
+                                                <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}" />
                                                 <MenuFlyoutSeparator />
                                                 <MenuFlyoutItem Click="RemoveMenu_Click" Text="Remove">
                                                     <MenuFlyoutItem.Icon>
@@ -507,6 +533,7 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="IMAGE" />
                                         <TextBlock
@@ -537,6 +564,14 @@
                                             FontSize="12"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                             Text="{Binding Created, Converter={StaticResource RelativeTime}}" />
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="SIZE" />
+                                        <TextBlock
+                                            Grid.Row="4"
+                                            Grid.Column="1"
+                                            FontSize="12"
+                                            Text="{Binding SizeShort}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{Binding SizeDisplay}" />
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="2">
@@ -599,7 +634,7 @@
                                             <FontIcon FontSize="15" Glyph="&#xE712;" />
                                             <Button.Flyout>
                                                 <MenuFlyout>
-                                                    <MenuFlyoutItem Click="OpenPortMenu_Click" Text="Open in browser">
+                                                    <MenuFlyoutItem Click="OpenPortMenu_Click" Text="Open in browser" Visibility="{Binding CanOpenInBrowser, Converter={StaticResource BoolToVis}}">
                                                         <MenuFlyoutItem.Icon>
                                                             <FontIcon Glyph="&#xE774;" />
                                                         </MenuFlyoutItem.Icon>
@@ -614,7 +649,9 @@
                                                             <FontIcon Glyph="&#xE78C;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
-                                                    <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" />
+                                                    <MenuFlyoutItem Click="ExportMenu_Click" Text="Export filesystem…" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ContainerExport.Text}" />
+                                                    <MenuFlyoutItem Click="AttachMenu_Click" Text="Attach to main process…" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ContainerAttach.Text}" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}" />
+                                                    <MenuFlyoutItem Click="KillMenu_Click" Text="Kill" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}" />
                                                     <MenuFlyoutSeparator />
                                                     <MenuFlyoutItem Click="RemoveMenu_Click" Text="Remove">
                                                         <MenuFlyoutItem.Icon>

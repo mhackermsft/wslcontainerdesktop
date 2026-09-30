@@ -32,8 +32,10 @@ public sealed record AppUpdateRelease
     /// <summary>Release page on GitHub, for "view release notes".</summary>
     public required Uri ReleasePage { get; init; }
 
+    /// <summary>Gets or sets the asset name.</summary>
     public required string AssetName { get; init; }
 
+    /// <summary>Gets or sets the asset download url.</summary>
     public required Uri AssetDownloadUrl { get; init; }
 
     /// <summary>Asset size in bytes as reported by GitHub; the download must match it exactly.</summary>

@@ -26,6 +26,9 @@ using WslContainerDesktop.Models;
 namespace WslContainerDesktop.Services;
 
 #pragma warning disable GHCP001 // Required SDK permission hook so Copilot surfaces our declared tool calls to the app gate.
+/// <summary>
+/// AI provider implementation that uses the installed GitHub Copilot CLI and Copilot Chat SDK to answer assistant turns.
+/// </summary>
 public sealed class GitHubCopilotProvider(
     ISettingsService settings,
     ILogger<GitHubCopilotProvider> logger) : IAiProvider, IAiChatProvider, IAiCapabilityObserver
@@ -33,10 +36,13 @@ public sealed class GitHubCopilotProvider(
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(3);
     private const string DefaultModel = "auto";
 
+    /// <inheritdoc/>
     public AiProviderKind Kind => AiProviderKind.GitHubCopilot;
 
+    /// <inheritdoc/>
     public string DisplayName => Kind.DisplayName();
 
+    /// <inheritdoc/>
     public async Task<AiCapabilitySnapshot> ReadMetadataAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -67,6 +73,7 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
+    /// <inheritdoc/>
     public async Task<AiCapabilitySnapshot> ProbeAsync(AiCapabilitySnapshot metadata, CancellationToken ct)
     {
         try
@@ -81,12 +88,14 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
+    /// <inheritdoc/>
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
         var result = await RunCopilotAsync(request, "Diagnosis", ct).ConfigureAwait(false);
         return AiProviderJson.ParseDiagnosis(result.Content);
     }
 
+    /// <inheritdoc/>
     public async Task<string> TestAsync(CancellationToken ct)
     {
         var result = await RunCopilotAsync(new AiPromptRequest(
@@ -179,6 +188,7 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
+    /// <inheritdoc/>
     public async Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
@@ -187,6 +197,7 @@ public sealed class GitHubCopilotProvider(
         => (await RunTurnAsync(new AiChatRequest(AiConversationContext.Capture(settings, Kind), history),
             tools, invokeToolAsync, ct).ConfigureAwait(false)).FinalText;
 
+    /// <inheritdoc/>
     public Task<AiChatTurnResult> RunTurnAsync(
         AiChatRequest request,
         IReadOnlyList<AiToolDefinition> tools,
@@ -311,6 +322,7 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
+    /// <summary>Builds the Copilot SDK session configuration from the app request and selected model.</summary>
     internal static SessionConfig BuildChatSessionConfig(
         string model,
         IReadOnlyList<AiChatMessage> history,
@@ -342,6 +354,7 @@ public sealed class GitHubCopilotProvider(
         };
     }
 
+    /// <summary>Converts provider-neutral tool definitions into Copilot SDK function declarations.</summary>
     internal static ICollection<AIFunctionDeclaration> BuildCopilotTools(
         IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
@@ -356,6 +369,7 @@ public sealed class GitHubCopilotProvider(
         return declarations;
     }
 
+    /// <summary>Maps Copilot SDK permission callbacks back to the app tool invocation policy.</summary>
     internal static PermissionDecision HandleToolPermissionRequest(
         PermissionRequest request,
         IReadOnlySet<string> allowlistedToolNames)
@@ -370,6 +384,7 @@ public sealed class GitHubCopilotProvider(
         return PermissionDecision.Reject("Only WSL Container Desktop's declared allowlisted assistant tools may run.");
     }
 
+    /// <summary>Flattens the app chat history into the prompt format expected by the Copilot CLI path.</summary>
     internal static string BuildCopilotChatPrompt(IEnumerable<AiChatMessage> history)
     {
         var builder = new StringBuilder();
@@ -396,6 +411,7 @@ public sealed class GitHubCopilotProvider(
         return builder.ToString();
     }
 
+    /// <summary>Copilot SDK adapter that delegates a function call to the app tool callback.</summary>
     private sealed class DelegatingAssistantFunction(
         AiToolDefinition definition,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
@@ -417,10 +433,13 @@ public sealed class GitHubCopilotProvider(
                 }, ct).ConfigureAwait(false);
             }, factoryOptions: new AIFunctionFactoryOptions { Name = definition.Name });
 
+        /// <summary>Tool name advertised to Copilot.</summary>
         public override string Name => definition.Name;
 
+        /// <summary>Tool description advertised to Copilot.</summary>
         public override string Description => definition.Description;
 
+        /// <summary>JSON schema for the tool arguments advertised to Copilot.</summary>
         public override JsonElement JsonSchema => _schema;
 
         protected override async ValueTask<object?> InvokeCoreAsync(
@@ -445,6 +464,7 @@ public sealed class GitHubCopilotProvider(
         return CreateClient(logger);
     }
 
+    /// <summary>Creates the Copilot SDK client and translates startup failures into actionable diagnostics.</summary>
     internal static CopilotClient CreateClient(ILogger logger)
     {
         return new CopilotClient(new CopilotClientOptions
@@ -487,6 +507,7 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
+    /// <summary>Finds the GitHub Copilot CLI executable on common Windows PATH locations.</summary>
     internal static string? FindCopilotCliPath()
     {
         var candidates = new List<string?>();
@@ -526,6 +547,7 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
+    /// <summary>Result from the CLI-based Copilot path, including requested and actual model names.</summary>
     private sealed record CopilotRunResult(string Content, string RequestedModel, string ActualModel);
 }
 #pragma warning restore GHCP001

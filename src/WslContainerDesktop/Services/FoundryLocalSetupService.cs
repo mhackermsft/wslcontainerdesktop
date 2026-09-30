@@ -28,6 +28,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
 {
     private readonly FoundryLocalArtifactCatalog _catalog = catalog ?? new();
     private readonly SemaphoreSlim _setupGate = new(1, 1);
+    /// <summary>Long user-facing explanation of what in-app Foundry Local setup may and may not do.</summary>
     public const string InstallationGuidance =
         "Runtime-only setup downloads and registers the pinned standalone Windows package for the current user, not machine-wide. " +
         "It checks for existing installations first and asks once before any download or registration. " +
@@ -38,11 +39,16 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
         "Use initial-model setup for the separate confirmed registration/load workflow. File-only staging does not execute Foundry. " +
         "An existing externally prepared server can be discovered and connected without installing, starting, stopping or adopting it.";
 
+    /// <summary>Whether the pinned standalone runtime can be downloaded and registered by this build.</summary>
     public bool CanInstall => downloader is not null && installer is not null
         && _catalog.GetStandalone()?.IsDownloadable(DateTimeOffset.UtcNow) == true;
+    /// <summary>Setup guidance including why runtime installation is unavailable when blocked.</summary>
     public string AvailabilityGuidance => (CanInstall ? "" : "Runtime-only setup unavailable: no eligible complete download manifest/adapters. ") + InstallationGuidance;
+    /// <summary>Directory used for audited runtime package cache, or a placeholder when unavailable.</summary>
     public string CacheLocation => downloader?.CacheLocation ?? "Unavailable";
+    /// <summary>Whether pinned model files can be downloaded to the local cache.</summary>
     public bool CanStageModelFiles => modelArtifacts is not null;
+    /// <summary>Directory used for staged model files, or a placeholder when unavailable.</summary>
     public string ModelCacheLocation => modelArtifacts?.CacheLocation ?? "Unavailable";
 
     /// <summary>True when the standalone runtime is installed, so the UI can offer removal instead of setup.</summary>
@@ -55,6 +61,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
                 "Runtime removal is unavailable in this configuration."))
             : installer.UninstallRuntimeAsync(ct);
 
+    /// <summary>Downloads pinned model files after confirmation without changing provider settings or running Foundry.</summary>
     public async Task<FoundryLocalModelPreparationResult> StageModelFilesAsync(AiChatConfiguration original,
         Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent,
         IProgress<string>? progress, CancellationToken ct)
@@ -100,6 +107,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
         }
     }
 
+    /// <summary>Downloads and registers the pinned Windows runtime package after explicit confirmation.</summary>
     public async Task<FoundryLocalInstallResult> InstallRuntimeAsync(AiChatConfiguration original,
         Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent,
         IProgress<string>? progress, CancellationToken ct, bool initialModelSetup = false)
@@ -166,6 +174,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
         }
     }
 
+    /// <summary>Builds the complete consent text for runtime/prerequisite downloads.</summary>
     internal static string DownloadConfirmation(FoundryLocalAuditedPackageSet package,
         FoundryLocalInstallPreflight preflight, string model, bool initialModelSetup = false)
     {
@@ -198,6 +207,7 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
         return AiTextSanitizer.Sanitize(text, AiTextSanitizer.DiagnosticLimit);
     }
 
+    /// <summary>Discovers an already-running external Foundry Local endpoint and reads metadata needed for confirmation.</summary>
     public async Task<FoundryLocalConnectionPlan> DiscoverAsync(AiChatConfiguration original,
         IProgress<string>? progress, CancellationToken ct)
     {
@@ -215,9 +225,11 @@ public sealed class FoundryLocalSetupService(FoundryLocalCli cli, IFoundryLocalR
 /// <summary>Observation bound to the original settings, never an acquisition approval.</summary>
 public sealed record FoundryLocalModelPreparationResult(bool Success, string Guidance, string? DirectoryPath = null);
 
+/// <summary>Confirmation model for adopting an already-running Foundry Local endpoint without installing anything.</summary>
 public sealed record FoundryLocalConnectionPlan(AiChatConfiguration Original,
     FoundryLocalDiscovery Discovery, FoundryLocalInventory Inventory)
 {
+    /// <summary>User-facing confirmation text built from the observed endpoint, CLI, and model metadata.</summary>
     public string Confirmation => AiTextSanitizer.Sanitize(
         $"Use existing external Foundry Local endpoint {Discovery.Endpoint}?\n" +
         $"Observed CLI version: {Discovery.CliVersion}\nExact selected model: {Original.Model}\n" +

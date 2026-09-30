@@ -16,9 +16,13 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Values that describe wslc capability support states or choices in WSL Container Desktop workflows.</summary>
 public enum WslcCapabilitySupport
 {
+    /// <summary>Represents the unknown option.</summary>
     Unknown = 0,
+    /// <summary>Represents the unsupported option.</summary>
     Unsupported,
+    /// <summary>Represents the supported option.</summary>
     Supported,
 }

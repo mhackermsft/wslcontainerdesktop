@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers compose reconciliation planning so desired files, saved snapshots, dependencies, fingerprints, and existing containers produce safe plans.</summary>
 public sealed class ComposeReconciliationPlannerTests
 {
     [Fact]

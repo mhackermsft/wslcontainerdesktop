@@ -19,6 +19,7 @@ namespace WslContainerDesktop.Helpers;
 /// <summary>Formatting helpers shared by view models and converters.</summary>
 public static class FormatHelpers
 {
+    /// <summary>Formats a byte count using binary units such as KB, MB, and GB.</summary>
     public static string HumanSize(long bytes)
     {
         string[] units = { "B", "KB", "MB", "GB", "TB" };
@@ -33,6 +34,7 @@ public static class FormatHelpers
         return unit == 0 ? $"{bytes} B" : $"{value:0.##} {units[unit]}";
     }
 
+    /// <summary>Formats a timestamp as a short relative age such as <c>just now</c> or <c>2 hours ago</c>.</summary>
     public static string RelativeTime(DateTimeOffset time)
     {
         if (time.ToUnixTimeSeconds() <= 0)

@@ -23,6 +23,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers MSIX update verification so downloads must match the expected package identity, architecture, version, signer, size, and digest.</summary>
 public sealed class AppUpdatePackageVerifierTests : IDisposable
 {
     private const string Name = "393193CD-4A5B-4502-BC94-7C6AF142CD28";
@@ -171,11 +172,13 @@ public sealed class AppUpdatePackageVerifierTests : IDisposable
         Assert.Contains("404", ex.Message);
     }
 
+    /// <summary>Runs progress callbacks synchronously so verifier tests can assert the exact reported values.</summary>
     private sealed class SyncProgress(Action<double> report) : IProgress<double>
     {
         public void Report(double value) => report(value);
     }
 
+    /// <summary>Returns an in-memory package download response without using the network.</summary>
     private sealed class StubHandler(byte[] payload, bool sendLength, HttpStatusCode status = HttpStatusCode.OK) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -188,6 +191,7 @@ public sealed class AppUpdatePackageVerifierTests : IDisposable
         }
     }
 
+    /// <summary>Makes a stream look like a non-seekable network body so hashing paths do not rely on rewinding.</summary>
     private sealed class NonSeekableStream(byte[] data) : MemoryStream(data)
     {
         public override bool CanSeek => false;

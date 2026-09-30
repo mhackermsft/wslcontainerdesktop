@@ -22,6 +22,10 @@ namespace WslContainerDesktop.Services;
 /// <summary>Source-linked SDK seam. Only synthetic acknowledgement callbacks; never app tools.</summary>
 internal static class CopilotCapabilityProbe
 {
+    /// <summary>
+    /// Runs harmless Copilot SDK chat and tool-callback checks, updating only the capability fields
+    /// that are proven by the callbacks.
+    /// </summary>
     internal static async Task<AiCapabilitySnapshot> RunAsync(AiCapabilitySnapshot metadata,
         Func<AiChatRequest, IReadOnlyList<AiToolDefinition>, Func<AiToolCall, CancellationToken, Task<string>>,
             CancellationToken, Task<AiChatTurnResult>> run, CancellationToken ct)

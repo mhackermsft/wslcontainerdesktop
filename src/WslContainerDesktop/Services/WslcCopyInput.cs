@@ -22,15 +22,21 @@ namespace WslContainerDesktop.Services;
 /// <summary>Native cp needs a seekable stdin handle to determine the archive's Content-Length.</summary>
 internal static class WslcCopyInput
 {
+    /// <summary>
+    /// Builds the fixed <c>cmd.exe</c> wrapper that redirects a staging archive into native
+    /// <c>wslc container cp</c> without exposing caller data to shell parsing.
+    /// </summary>
     public static ProcessStartInfo CreateStartInfo(
         string executable, IEnumerable<string> arguments, string archive)
     {
         var args = arguments.ToArray();
-        if (args.Length != 4 || args[0] != "container" || args[1] != "cp" || args[2] != "-")
+        var targetIndex = args is ["container", "cp", "-", _] ? 3 :
+            args is ["container", "cp", "--quiet", "-", _] ? 4 : -1;
+        if (targetIndex < 0)
         {
             throw new ArgumentException("File-backed input is only supported for container cp.");
         }
-        var values = new[] { executable, args[3], archive };
+        var values = new[] { executable, args[targetIndex], archive };
         if (values.Any(value => string.IsNullOrEmpty(value) || value.IndexOfAny(['"', '\r', '\n', '\0']) >= 0) ||
             values.Sum(value => value.Length) > 7500)
         {
@@ -52,9 +58,9 @@ internal static class WslcCopyInput
         // Unlike RedirectStandardInput's anonymous pipe, '<' gives WSLC a real file handle.
         // cmd.exe does not use CRT argv quoting, so ArgumentList would escape these fixed
         // quotes incorrectly. No caller data is concatenated into this command line.
-        psi.Arguments = "/d /v:off /s /c \"\"%WCD_CP_EXE%\" container cp - \"%WCD_CP_TARGET%\" < \"%WCD_CP_ARCHIVE%\"\"";
+        psi.Arguments = "/d /v:off /s /c \"\"%WCD_CP_EXE%\" container cp --quiet - \"%WCD_CP_TARGET%\" < \"%WCD_CP_ARCHIVE%\"\"";
         psi.Environment["WCD_CP_EXE"] = executable;
-        psi.Environment["WCD_CP_TARGET"] = args[3];
+        psi.Environment["WCD_CP_TARGET"] = args[targetIndex];
         psi.Environment["WCD_CP_ARCHIVE"] = archive;
         return psi;
     }

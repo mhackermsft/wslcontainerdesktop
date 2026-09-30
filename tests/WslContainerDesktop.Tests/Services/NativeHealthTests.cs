@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers native and app-owned health check behavior so timing, dependencies, fallback, compose conversion, and observations remain consistent.</summary>
 public sealed class NativeHealthTests
 {
     [Fact]
@@ -73,35 +74,27 @@ public sealed class NativeHealthTests
     }
 
     [Fact]
-    public void CreateCapabilitiesAreIndependent()
+    public void UnsupportedStartIntervalKeepsDesiredOptionsAndUsesAppBackend()
     {
-        var caps = Capabilities(WslcCapabilitySupport.Supported, WslcFeature.CreateHealthCmd);
-        var options = new NativeHealthOptions { Test = ["CMD-SHELL", "true"] };
-        Assert.True(NativeHealthPolicy.Select(options, caps).Native);
-        var create = NativeHealthPolicy.Select(options, caps, forCreate: true);
-        Assert.False(create.Native);
-        Assert.Equal(new[] { "--no-healthcheck" }, create.Arguments);
-    }
-
-    [Fact]
-    public void OlderEngineKeepsDesiredOptionsAndUsesAppFallback()
-    {
-        var health = new NativeHealthOptions { Test = ["CMD-SHELL", "false"], Retries = 6, Timeout = "250ms" };
+        var health = new NativeHealthOptions
+            { Test = ["CMD-SHELL", "false"], Retries = 6, Timeout = "250ms", StartInterval = "250ms" };
         var before = JsonSerializer.Serialize(health);
         var result = NativeHealthPolicy.Select(health, Capabilities(WslcCapabilitySupport.Unsupported));
         Assert.False(result.Native);
-        Assert.Empty(result.Arguments);
+        Assert.Equal(new[] { "--no-healthcheck" }, result.Arguments);
         Assert.Contains("app-owned", result.Diagnostic);
         Assert.Equal(before, JsonSerializer.Serialize(health));
     }
 
     [Fact]
-    public void UnknownNeverSilentlyDowngrades()
+    public void UnknownStartIntervalUsesAppBackendWithDiagnostic()
     {
-        var caps = Capabilities(WslcCapabilitySupport.Supported, WslcFeature.HealthCmd, WslcCapabilitySupport.Unknown);
-        var error = Assert.Throws<InvalidOperationException>(() => NativeHealthPolicy.Select(
-            new() { Test = ["CMD-SHELL", "true"] }, caps));
-        Assert.Contains("fixture diagnostic", error.Message);
+        var caps = Capabilities(WslcCapabilitySupport.Supported, WslcFeature.HealthStartInterval, WslcCapabilitySupport.Unknown);
+        var selection = NativeHealthPolicy.Select(new()
+            { Test = ["CMD-SHELL", "true"], StartInterval = "2s" }, caps);
+        Assert.False(selection.Native);
+        Assert.Equal(new[] { "--no-healthcheck" }, selection.Arguments);
+        Assert.Contains("fixture diagnostic", selection.Diagnostic);
         Assert.True(NativeHealthPolicy.Select(null, caps).Native);
     }
 
@@ -251,8 +244,6 @@ public sealed class NativeHealthTests
         Assert.Empty(NativeHealthPolicy.Select(null, caps).Arguments);
         var inherited = NativeHealthPolicy.Select(new() { Interval = "2s" }, caps);
         Assert.Equal(new[] { "--health-interval", "2s" }, inherited.Arguments);
-        Assert.Throws<InvalidOperationException>(() => NativeHealthPolicy.Select(
-            new() { Interval = "2s" }, Capabilities(WslcCapabilitySupport.Unsupported)));
         Assert.Equal(new[] { "--no-healthcheck" }, NativeHealthPolicy.Select(new() { Disabled = true }, caps).Arguments);
     }
 

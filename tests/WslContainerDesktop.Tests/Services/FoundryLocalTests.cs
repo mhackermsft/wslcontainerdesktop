@@ -27,6 +27,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers Foundry Local provider behavior so endpoint pinning, metadata, streaming tools, approvals, capability proof, and cleanup stay safe.</summary>
 public sealed class FoundryLocalTests
 {
     [Theory]
@@ -952,6 +953,7 @@ public sealed class FoundryLocalTests
         model = ModelId, choices = new[] { new { index = 0, delta = new { content = text }, finish_reason = "stop" } },
     }) + "\n\ndata: [DONE]\n\n";
 
+    /// <summary>Creates isolated settings, fake transports, and service instances for Foundry Local provider tests.</summary>
     private sealed class Fixture : IDisposable
     {
         internal Dictionary<string, object?> Values { get; } = new()
@@ -1005,6 +1007,7 @@ public sealed class FoundryLocalTests
         public void Dispose() => Http.Dispose();
     }
 
+    /// <summary>Returns fixed capability evidence so provider tests can focus on request behavior.</summary>
     private sealed class Cache : IAiCapabilityService
     {
         internal AiCapabilitySnapshot? Snapshot;
@@ -1015,6 +1018,7 @@ public sealed class FoundryLocalTests
         public event EventHandler? Changed { add { } remove { } }
     }
 
+    /// <summary>Captures settings-view-model logs without writing to the test output stream.</summary>
     private sealed class TestLogger : ILogger<FoundryLocalSettingsViewModel>
     {
         internal List<(LogLevel Level, string Text, Exception? Exception)> Entries { get; } = [];
@@ -1024,6 +1028,7 @@ public sealed class FoundryLocalTests
             Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, formatter(state, exception), exception));
     }
 
+    /// <summary>Fakes Foundry Local HTTP responses for provider tests without network access.</summary>
     private sealed class Handler : HttpMessageHandler
     {
         internal bool IsCached = true;

@@ -38,6 +38,7 @@ public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClien
 
     // ---- Configuration -------------------------------------------------
 
+    /// <inheritdoc/>
     public Task<WslConfigInfo> ReadConfigAsync(CancellationToken ct = default) =>
         Task.Run(() => ReadConfig(), ct);
 
@@ -114,6 +115,7 @@ public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClien
 
     // ---- Platform info -------------------------------------------------
 
+    /// <inheritdoc/>
     public async Task<WslPlatformInfo> GetPlatformInfoAsync(CancellationToken ct = default)
     {
         var wslVersion = string.Empty;
@@ -212,6 +214,7 @@ public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClien
 
     // ---- Updates -------------------------------------------------------
 
+    /// <inheritdoc/>
     public async Task<WslUpdateInfo> CheckForUpdateAsync(bool includePreRelease, CancellationToken ct = default)
     {
         var installed = string.Empty;
@@ -278,6 +281,7 @@ public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClien
         };
     }
 
+    /// <inheritdoc/>
     public Task<CommandResult> UpdateWslAsync(bool includePreRelease, CancellationToken ct = default) =>
         includePreRelease
             ? RunWslAsync(ct, "--update", "--pre-release")
@@ -365,6 +369,7 @@ public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClien
 
     // ---- Shutdown ------------------------------------------------------
 
+    /// <inheritdoc/>
     public Task<CommandResult> ShutdownWslAsync(CancellationToken ct = default) =>
         RunWslAsync(ct, "--shutdown");
 

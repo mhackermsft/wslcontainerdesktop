@@ -26,11 +26,15 @@ namespace WslContainerDesktop.Services;
 public sealed class FoundryLocalRuntimeService(
     FoundryLocalHttpClient http, ISettingsService settings) : IFoundryLocalRuntimeService
 {
+    /// <summary>Safety guidance explaining why this service will not load or acquire Foundry Local models.</summary>
     public const string AcquisitionGuidance = "Model loading and runtime-driven model/EP acquisition are blocked. Separate explicit preparation can stage the pinned CPU model's nine files without running Foundry or downloading EPs; this does not register or load the model. Runtime-only package registration also does not establish model readiness. Loading cached data may acquire execution providers. Use an externally prepared, already-loaded host after an independent version/license/publication audit (at least seven days old). Catalog advertisements and user attestation are not substitutes for that audit; device/EP hints are not hardware compatibility measurements.";
+    /// <summary>User-facing memory mutation policy shown after unload operations.</summary>
     public const string MemoryPolicy = "This integration targets the preview Foundry Local CLI REST API, which may change; parity with an SDK's optional REST server is not guaranteed. Inference requires an already-loaded cached model. The only supported explicit memory mutation is selected-model unload, without choosing an EP or forcing past its TTL. The app does not load models, keep models alive, unload other models, or stop the shared runtime. Cancellation is not rollback; refresh observed state.";
+    /// <summary>Raised before and after an unload mutation so UI can refresh runtime state.</summary>
     public event Action? StateChanged;
     private readonly SemaphoreSlim _mutation = new(1, 1);
 
+    /// <summary>Reads status, catalog, cached models, and loaded models from the configured Foundry Local REST endpoint.</summary>
     public async Task<FoundryLocalInventory> ReadInventoryAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         Validate(configuration, requireModel: false);
@@ -66,6 +70,7 @@ public sealed class FoundryLocalRuntimeService(
             AiCapabilityService.HashIdentity(status.RootElement.GetRawText()));
     }
 
+    /// <summary>Always blocks model load requests because cached data alone cannot prove the required native artifact audit.</summary>
     public Task<FoundryLocalMutationResult> LoadAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -76,6 +81,7 @@ public sealed class FoundryLocalRuntimeService(
             LocalRuntimeResourceState.Unknown, "Load blocked. " + AcquisitionGuidance));
     }
 
+    /// <summary>Requests unload of only the currently selected model and confirms the observed loaded state afterwards.</summary>
     public async Task<FoundryLocalMutationResult> UnloadAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         RequireCurrent(configuration);
@@ -136,6 +142,7 @@ public sealed class FoundryLocalRuntimeService(
         settings.AiProvider == AiProviderKind.FoundryLocal
         && configuration == AiConversationContext.Capture(settings, AiProviderKind.FoundryLocal);
 
+    /// <summary>Validates that a configuration targets Foundry Local with a safe endpoint and, when required, a concrete model id.</summary>
     internal static void Validate(AiChatConfiguration configuration, bool requireModel = true)
     {
         if (configuration.Kind != AiProviderKind.FoundryLocal)

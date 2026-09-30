@@ -1,7 +1,7 @@
 # WSL Container Desktop — Copilot instructions
 
 A native **WinUI 3 / .NET 10** desktop app (Docker-Desktop-like) that manages **WSL containers**
-via the `wslc.exe` preview CLI, a single-node **k3s** cluster inside WSL, and container registries.
+via the WSL/wslc 3.0.1+ `wslc.exe` CLI, a single-node **k3s** cluster inside WSL, and container registries.
 It is a packaged (MSIX-identity) app that minimizes to the system tray.
 
 For deep design detail read `docs/ARCHITECTURE.md`; user-facing features live in `README.md`.
@@ -27,7 +27,7 @@ in its own right, independent of how reputable the publisher is or how badly a f
 
 ## Environment & build
 
-- **Requires Windows 11** with the WSL container preview (`wslc.exe`, default
+- **Requires Windows 11** with WSL/wslc 3.0.1 or later (`wslc.exe`, default
   `C:\Program Files\WSL\wslc.exe`) and the **.NET 10 SDK**. The app cannot fully build on Linux —
   the WindowsAppSDK XAML compiler step requires Windows.
 - Work from `src\WslContainerDesktop`. Always target the **x64** platform.
@@ -94,11 +94,13 @@ Key cross-cutting services to understand before changing behavior:
 
 - **All external process calls funnel through `ProcessExecutor.RunAsync`.** `ProcessRunner` wraps
   `wslc.exe`; `WslRootShell` wraps `wsl.exe -u root -e sh -c "…"` for k3s and owns shell escaping.
-  Long-lived streams (`logs -f`, `port-forward`) are owned by `LogStreamer` / `PortForwardManager`,
-  not `ProcessExecutor`.
+  Long-lived streams (`logs -f`, `wslc events`, `port-forward`) are owned by
+  `LogStreamer` / `EngineEventStream` / `PortForwardManager`, not `ProcessExecutor`.
 - **`StatusMonitor`** is the *single* background poller and source of truth for engine + cluster
   health (tray, status bar, pages all observe it). It raises events on the UI thread via a captured
   `DispatcherQueue`, so it is registered with a DI **factory** and first resolved in `OnLaunched`.
+- **`WslRequirementService` / `WslPolicyService` / `EngineEventStream` / `WslcSettingsFileService`**
+  own the 3.0.1 gate, enterprise WSL policy checks, `wslc events`, and `system info`-discovered settings file edits.
 - **`KubernetesService`** is a thin facade over collaborators (`K8sInstaller`, `K8sResourceClient`,
   `PortForwardManager`, `K8sManifestSanitizer`). k3s status probes use sentinel markers
   (`@@STATE=`, `@@NODES`, …) — never hand-write them; use the constants in `K8sStatusProtocol`.
@@ -122,20 +124,28 @@ Key cross-cutting services to understand before changing behavior:
   `--password-stdin` and keep tokens in memory only; never log them.
 - Native copy's `WslcCopyInput` is the sole narrow fixed-template exception: seekable archive stdin
   via `cmd /d /v:off`, with validated quoted environment data. Never generalize it into a shell
-  command builder. Native copy is not tar-free; browsing/diff remain separate shell-based features.
-- **Keep WSLC 2.9.9.0 supported.** Use `IWslcCapabilitiesService.GetAsync` for optional commands
-  and run/create health flags; `Supported` permits native selection, `Unsupported` permits a
-  documented legacy fallback, and `Unknown` must surface a diagnostic. Never infer availability
-  from version alone or retry a failed native mutation via a legacy backend.
+  command builder. Native copy uploads still use a tar archive over stdin; browsing/diff remain
+  separate shell-based features.
+- **WSL/wslc 3.0.1 is the gated baseline.** Code directly against commands and flags advertised by
+  3.0.1. Use `IWslcCapabilitiesService.GetAsync` only for features beyond that baseline (currently
+  run/create `--health-start-interval`); `Unknown` must surface a diagnostic. Never infer optional
+  availability from version alone or retry a failed native mutation through another path.
 - **Inspect schemas vary:** use `ContainerMounts` and normalized `ContainerInfo`; missing metadata
   is unknown, not empty. List failures throw; successful empty inventory is valid.
-- **Remaining advertised gaps:** no `--add-host` (`extra_hosts` uses `exec` after start), native
-  restart policy or Compose command. Do not conflate native health checks with app-owned auto-heal.
+- **Remaining advertised gaps:** no `--add-host` (`extra_hosts` uses `exec` after start), no
+  advertised native restart policy flag, and no advertised Compose command. Do not conflate native
+  health checks with app-owned auto-heal.
 - Framework `async void` handlers must route work through **`Helpers/UiSafe.Run`** (awaits inside
   try/catch and logs) so a failing handler can't crash the app. Log swallowed exceptions (≥ Debug)
   or leave a one-line comment justifying a silent catch.
 - Extracted section `UserControl`s expose the page's VM as a `DependencyProperty` whose change
   callback calls `Bindings.Update()` so compiled `x:Bind` re-evaluates.
+- **Explain non-obvious engine flags in the UI.** A new option that maps to a `wslc` flag and isn't
+  self-explanatory gets a `Helpers/FlagHelp` entry (plain fields such as name, ports or command
+  don't). Only add a control a person would actually want; hide actions that can't work in the
+  current state instead of leaving no-op buttons. Buttons (including toggle and drop-down buttons) show it in a rich
+  hover tooltip; other controls (checkboxes, switches, fields, labels) get an `InfoTip` (i) next to
+  their label. Verify the wording against the engine's `--help` and the arguments the app really passes.
 - **MSIX AppData redirection gotcha:** for the packaged app, writes to `%LOCALAPPDATA%` are
   redirected to `...\Packages\<PFN>\LocalCache\Local`. Any path handed to an external process
   (`wslc`) must use `ApplicationData.Current.LocalCacheFolder.Path`, not the literal `%LOCALAPPDATA%`.

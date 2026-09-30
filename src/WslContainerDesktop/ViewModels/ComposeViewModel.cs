@@ -25,29 +25,45 @@ using WslContainerDesktop.Services;
 namespace WslContainerDesktop.ViewModels;
 
 /// <summary>A compose project row shown on the Compose page, with its live running/total counts.</summary>
+/// <summary>Observable row for one imported Compose project in the Compose page.</summary>
 public partial class ComposeProjectRow : ObservableObject
 {
+    /// <summary>
+    /// Returns the project name. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Name;
+
+    /// <summary>Creates a row and wires it to the page-level service-management command.</summary>
     public ComposeProjectRow(ComposeProject project, IAsyncRelayCommand<ComposeProjectRow?> manageServicesCommand)
     {
         Project = project;
         ManageServicesCommand = manageServicesCommand;
     }
 
+    /// <summary>Persisted Compose project definition backing this row.</summary>
     public ComposeProject Project { get; }
 
+    /// <summary>Command invoked by service-level buttons in this row.</summary>
     public IAsyncRelayCommand<ComposeProjectRow?> ManageServicesCommand { get; }
 
+    /// <summary>Project name shown in the list.</summary>
     public string Name => Project.Name;
 
+    /// <summary>Number of services in the Compose project.</summary>
     public int ServiceCount => Project.Services.Count;
+    /// <summary>Total desired container instances after replica overrides are applied.</summary>
     public long DesiredInstanceCount => Project.Services.Sum(s => (long)ComposeReconciliationPlanner.DesiredReplicas(Project, s, new()));
 
+    /// <summary>Generated count of currently running instances matched to the project.</summary>
     [ObservableProperty]
     private int _runningCount;
 
+    /// <summary>Generated status text such as running, partial, or not running.</summary>
     [ObservableProperty]
     private string _statusText = "Not running";
 
+    /// <summary>Human-readable service and replica summary for the row.</summary>
     public string ServicesSummary
     {
         get
@@ -70,18 +86,23 @@ public partial class ComposeViewModel : ObservableObject
     private readonly DialogService _dialogs;
     private int _busyOperations;
 
+    /// <summary>Generated busy flag shared by Compose page commands.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ManageServicesCommand), nameof(RefreshCommand))]
     private bool _isBusy;
 
+    /// <summary>Status text displayed above the Compose project list.</summary>
     [ObservableProperty]
     private string _statusMessage = "Ready";
 
+    /// <summary>Currently selected Compose project row.</summary>
     [ObservableProperty]
     private ComposeProjectRow? _selected;
 
+    /// <summary>Compose projects displayed by the page.</summary>
     public ObservableCollection<ComposeProjectRow> Projects { get; } = new();
 
+    /// <summary>Creates the Compose page model with persistence, supervisor, <c>wslc</c>, and dialog collaborators.</summary>
     public ComposeViewModel(
         IComposeProjectStore store,
         ComposeProjectSupervisor supervisor,
@@ -94,6 +115,7 @@ public partial class ComposeViewModel : ObservableObject
         _dialogs = dialogs;
     }
 
+    /// <summary>Reloads stored projects and reconciles each row with the current container inventory.</summary>
     [RelayCommand(CanExecute = nameof(CanManageServices))]
     public async Task RefreshAsync()
     {
@@ -150,6 +172,7 @@ public partial class ComposeViewModel : ObservableObject
                 : $"Partial ({running}/{row.DesiredInstanceCount} instances)";
     }
 
+    /// <summary>Prompts for Compose YAML and imports it through the shared import flow.</summary>
     [RelayCommand]
     private async Task ImportAsync()
     {
@@ -328,6 +351,7 @@ public partial class ComposeViewModel : ObservableObject
         await RefreshAsync();
     }
 
+    /// <summary>Applies the selected Compose project after compatibility review.</summary>
     [RelayCommand]
     private async Task UpAsync(ComposeProjectRow? row)
     {
@@ -356,6 +380,7 @@ public partial class ComposeViewModel : ObservableObject
         IsBusy = _busyOperations > 0;
     }
 
+    /// <summary>Opens the per-service operation dialog and applies the reviewed request.</summary>
     [RelayCommand(CanExecute = nameof(CanManageServices))]
     private async Task ManageServicesAsync(ComposeProjectRow? row)
     {
@@ -493,6 +518,7 @@ public partial class ComposeViewModel : ObservableObject
         }
     }
 
+    /// <summary>Stops and removes containers for the selected project while keeping the saved definition.</summary>
     [RelayCommand]
     private async Task DownAsync(ComposeProjectRow? row)
     {
@@ -530,6 +556,7 @@ public partial class ComposeViewModel : ObservableObject
         }
     }
 
+    /// <summary>Restarts existing containers for the selected project without recreating them.</summary>
     [RelayCommand]
     private async Task RestartAsync(ComposeProjectRow? row)
     {
@@ -581,6 +608,7 @@ public partial class ComposeViewModel : ObservableObject
         }
     }
 
+    /// <summary>Brings the selected project down, removes project-created volumes, and forgets the definition.</summary>
     [RelayCommand]
     private async Task RemoveAsync(ComposeProjectRow? row)
     {

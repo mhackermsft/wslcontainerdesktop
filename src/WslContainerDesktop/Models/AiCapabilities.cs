@@ -16,15 +16,24 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Values that describe ai support states or choices in WSL Container Desktop workflows.</summary>
 public enum AiSupport { Unknown, Supported, Unsupported }
+/// <summary>Values that describe ai observation source states or choices in WSL Container Desktop workflows.</summary>
 public enum AiObservationSource { None, Metadata, HarmlessProbe }
+/// <summary>Values that describe ai endpoint state states or choices in WSL Container Desktop workflows.</summary>
 public enum AiEndpointState { Unknown, Reachable, Unreachable, InvalidConfiguration }
+/// <summary>Values that describe ai authentication state states or choices in WSL Container Desktop workflows.</summary>
 public enum AiAuthenticationState { Unknown, Accepted, RequiredOrRejected }
+/// <summary>Values that describe ai runtime state states or choices in WSL Container Desktop workflows.</summary>
 public enum AiRuntimeState { Unknown, Ready, Unavailable }
+/// <summary>Values that describe ai model state states or choices in WSL Container Desktop workflows.</summary>
 public enum AiModelState { Unknown, Available, Missing }
+/// <summary>Values that describe ai download state states or choices in WSL Container Desktop workflows.</summary>
 public enum AiDownloadState { Unknown, NotDownloaded, Downloaded, Downloading }
+/// <summary>Values that describe ai load state states or choices in WSL Container Desktop workflows.</summary>
 public enum AiLoadState { Unknown, Unloaded, Loading, Loaded }
 
+/// <summary>Immutable or init-only data model that carries ai capability observation information between services and view models.</summary>
 public sealed record AiCapabilityObservation(
     AiSupport Support = AiSupport.Unknown,
     AiObservationSource Source = AiObservationSource.None);
@@ -48,23 +57,40 @@ public sealed record AiContextObservation(
 /// </summary>
 public sealed record AiCapabilitySnapshot(AiChatConfiguration Configuration)
 {
+    /// <summary>Gets or sets the chat.</summary>
     public AiCapabilityObservation Chat { get; init; } = new();
+    /// <summary>Gets or sets the tools.</summary>
     public AiCapabilityObservation Tools { get; init; } = new();
+    /// <summary>Gets or sets the structured json.</summary>
     public AiCapabilityObservation StructuredJson { get; init; } = new();
+    /// <summary>Gets or sets the streaming.</summary>
     public AiCapabilityObservation Streaming { get; init; } = new();
+    /// <summary>Gets or sets the context.</summary>
     public AiContextObservation Context { get; init; } = new();
+    /// <summary>Gets or sets the endpoint.</summary>
     public AiEndpointState Endpoint { get; init; }
+    /// <summary>Gets or sets the authentication.</summary>
     public AiAuthenticationState Authentication { get; init; }
+    /// <summary>Gets or sets the runtime.</summary>
     public AiRuntimeState Runtime { get; init; }
+    /// <summary>Gets or sets the model.</summary>
     public AiModelState Model { get; init; }
+    /// <summary>Gets or sets the download.</summary>
     public AiDownloadState Download { get; init; }
+    /// <summary>Gets or sets the load.</summary>
     public AiLoadState Load { get; init; }
+    /// <summary>Gets or sets the runtime identity.</summary>
     public string RuntimeIdentity { get; init; } = "";
+    /// <summary>Gets or sets the model identity.</summary>
     public string ModelIdentity { get; init; } = "";
+    /// <summary>Gets or sets the observed at.</summary>
     public DateTimeOffset ObservedAt { get; init; }
+    /// <summary>Gets or sets a value indicating whether the probe timed out flag is set.</summary>
     public bool ProbeTimedOut { get; init; }
+    /// <summary>Gets or sets the credential identity.</summary>
     internal string CredentialIdentity { get; init; } = "";
 
+    /// <summary>Gets a value indicating whether this value can chat.</summary>
     public bool CanChat => Chat.Support == AiSupport.Supported
         && Endpoint == AiEndpointState.Reachable
         && Authentication != AiAuthenticationState.RequiredOrRejected
@@ -73,6 +99,7 @@ public sealed record AiCapabilitySnapshot(AiChatConfiguration Configuration)
         && (Configuration.Kind != AiProviderKind.FoundryLocal
             || Runtime == AiRuntimeState.Ready && Model == AiModelState.Available
             && Download == AiDownloadState.Downloaded && Load == AiLoadState.Loaded);
+    /// <summary>Gets a value indicating whether this value can use tools.</summary>
     public bool CanUseTools => CanChat && Tools.Support == AiSupport.Supported;
 
     /// <summary>
@@ -102,6 +129,7 @@ public sealed record AiCapabilitySnapshot(AiChatConfiguration Configuration)
         : "Tool support has not been observed yet, so actions stay unavailable.";
 
     // Only fixed app-owned vocabulary enters status. No endpoint, model name, body or error detail.
+    /// <summary>Gets the status text.</summary>
     public string StatusText =>
         $"Endpoint: {Endpoint}; authentication: {Authentication}; runtime: {Runtime}; " +
         $"model: {Model}; download: {Download}; loading: {Load}.\n" +
@@ -110,6 +138,7 @@ public sealed record AiCapabilitySnapshot(AiChatConfiguration Configuration)
         $"Context tokens: {Context.ContextTokens?.ToString() ?? "Unknown"}; observed accounted input bytes: " +
         $"{Context.InputByteCeiling?.ToString() ?? "Unknown"} (default application ceiling: 32768 bytes; tokens are not bytes).\n" + NextStep;
 
+    /// <summary>Gets the next step.</summary>
     public string NextStep => Endpoint == AiEndpointState.InvalidConfiguration
         ? Configuration.Kind == AiProviderKind.FoundryLocal
             ? "Enter the actual Foundry Local loopback HTTP(S) URL with an explicit port and actual model ID. Remote hosts, credentials, queries and fragments are not supported; no defaults are inferred."

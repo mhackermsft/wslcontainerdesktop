@@ -23,7 +23,11 @@ public interface IAiAvailabilityService
 {
     /// <summary>Chat/diagnosis readiness, NOT proof of tool support.</summary>
     bool IsAvailable { get; }
+
+    /// <summary>True when the currently selected provider can run assistant tool calls.</summary>
     bool CanUseTools { get; }
+
+    /// <summary>Most recent capability probe, used by Settings and assistant entry points to explain availability.</summary>
     Models.AiCapabilitySnapshot? Observation { get; }
 
     /// <summary>Raised (on the UI thread) whenever <see cref="IsAvailable"/> changes.</summary>

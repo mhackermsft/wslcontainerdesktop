@@ -22,6 +22,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests the assistant capability layer so tools are exposed only after provider support is proved by safe probes.
+/// </summary>
 public sealed class AiCapabilityContractTests
 {
     public static TheoryData<AiProviderKind> Providers => AiProviderContractTests.Providers;
@@ -843,6 +846,9 @@ public sealed class AiCapabilityContractTests
         Endpoint = AiEndpointState.Reachable,
     };
 
+    /// <summary>
+    /// Records capability notifications so tests can assert that the UI would not show stale provider evidence.
+    /// </summary>
     private sealed class FakeObserver : IAiCapabilityObserver
     {
         public AiProviderKind Kind => AiProviderKind.OpenAi;
@@ -867,6 +873,9 @@ public sealed class AiCapabilityContractTests
         }
     }
 
+    /// <summary>
+    /// Gives cache-expiration tests deterministic time without waiting on the real clock.
+    /// </summary>
     private sealed class FakeClock : TimeProvider
     {
         private DateTimeOffset _now = DateTimeOffset.UtcNow;
@@ -874,6 +883,9 @@ public sealed class AiCapabilityContractTests
         public void Advance(TimeSpan duration) => _now += duration;
     }
 
+    /// <summary>
+    /// Lets tests add or revoke provider credentials without touching the user's credential store.
+    /// </summary>
     private sealed class MutableCredentials : IAiCredentialStore
     {
         public string Secret { get; set; } = "first-synthetic-key";

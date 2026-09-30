@@ -26,18 +26,23 @@ namespace WslContainerDesktop.Services;
 public sealed class FoundryLocalStandaloneRuntimeService(
     FoundryLocalHttpClient http, FoundryLocalCli cli) : IFoundryLocalRuntimeService
 {
+    /// <summary>Consent text explaining that the external Foundry daemon owns model memory policy.</summary>
     public const string MemoryPolicy = "The external daemon owns memory and idle policy. Setup loads only the pinned CPU model; it never evicts other models or stops a pre-existing server automatically. Load proof is bound to a verified CLI load, synthetic completion and process/start identity, not model listing. Refresh after external lifecycle changes. Cancellation is not rollback.";
+    /// <summary>Consent text explaining runtime/model acquisition boundaries for standalone Foundry.</summary>
     public const string AcquisitionGuidance = "Setup audits and pins the runtime and model files it downloads. Starting Microsoft Foundry Local may cause Windows to install execution-provider packages selected by Microsoft, using the network. This app neither selects, pins nor audits those vendor-managed versions. The 0.10.3 model-list endpoint requires online catalog access, even with cached model files; inference runs locally.";
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private string? _loadedIdentity;
+    /// <summary>Raised when the verified load proof changes and UI capability state should refresh.</summary>
     public event Action? StateChanged;
 
+    /// <summary>Forgets the verified load proof when an external lifecycle change may have occurred.</summary>
     internal void InvalidateLoadProof()
     {
         Volatile.Write(ref _loadedIdentity, null);
         StateChanged?.Invoke();
     }
 
+    /// <inheritdoc/>
     public async Task<FoundryLocalInventory> ReadInventoryAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         FoundryLocalRuntimeService.Validate(configuration, requireModel: false);
@@ -77,6 +82,7 @@ public sealed class FoundryLocalStandaloneRuntimeService(
             CacheStateKnown: loaded, LoadStateKnown: loaded);
     }
 
+    /// <summary>Parses the standalone v1 model list and rejects unknown or duplicate identity shapes.</summary>
     internal static string[] ParseModelIds(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("data", out var data)
@@ -98,6 +104,7 @@ public sealed class FoundryLocalStandaloneRuntimeService(
         return ids.ToArray();
     }
 
+    /// <summary>Ensures the configured endpoint belongs to the currently observed Foundry process.</summary>
     internal static void RequireMatchingHost(FoundryLocalServerStatus status, string endpoint)
     {
         if (!status.Running)
@@ -107,11 +114,14 @@ public sealed class FoundryLocalStandaloneRuntimeService(
             throw new InvalidOperationException("Configured Foundry endpoint does not match the observed standalone process. No fallback attempted.");
     }
 
+    /// <summary>Builds a stable hash tying readiness to process id, start time and endpoint authority.</summary>
     internal static string RuntimeIdentity(FoundryLocalServerStatus status, string endpoint) =>
         AiCapabilityService.HashIdentity(JsonSerializer.Serialize(new { Version = "0.10.3", status.Pid, status.StartedAt, Endpoint = Authority(endpoint) }));
 
+    /// <summary>Normalizes an endpoint to its scheme/host/port authority.</summary>
     private static string Authority(string endpoint) => FoundryLocalEndpoint.Validate(endpoint).GetLeftPart(UriPartial.Authority);
 
+    /// <inheritdoc/>
     public Task<FoundryLocalMutationResult> LoadAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -120,6 +130,7 @@ public sealed class FoundryLocalStandaloneRuntimeService(
             LocalRuntimeResourceState.Unknown, "Use initial-model setup to verify and register the pinned files before loading. No implicit model download."));
     }
 
+    /// <summary>Loads the pinned registered model and proves readiness with a synthetic local completion.</summary>
     internal async Task<FoundryLocalMutationResult> LoadRegisteredAsync(AiChatConfiguration configuration,
         IProgress<string>? progress, CancellationToken ct, Func<bool>? isCurrent = null,
         string? expectedRuntimeIdentity = null)
@@ -182,6 +193,7 @@ public sealed class FoundryLocalStandaloneRuntimeService(
         }
     }
 
+    /// <inheritdoc/>
     public async Task<FoundryLocalMutationResult> UnloadAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         FoundryLocalRuntimeService.Validate(configuration);

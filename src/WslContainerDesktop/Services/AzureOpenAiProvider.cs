@@ -20,27 +20,37 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Azure OpenAI implementation of diagnostics and assistant chat. It calls the configured Azure
+/// deployment, keeps the API key in headers only, and reuses OpenAI-compatible message/tool shapes.
+/// </summary>
 public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService settings, IAiCredentialStore credentials,
     IAiCapabilityService? capabilities = null) : IAiProvider, IAiChatProvider
 {
+    /// <summary>Azure OpenAI REST API version used for chat completions.</summary>
     private const string ApiVersion = "2024-10-21";
 
+    /// <inheritdoc/>
     public AiProviderKind Kind => AiProviderKind.AzureOpenAi;
 
+    /// <inheritdoc/>
     public string DisplayName => Kind.DisplayName();
 
+    /// <inheritdoc/>
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
         var content = await SendAsync(request, "Diagnosis", ct).ConfigureAwait(false);
         return AiProviderJson.ParseDiagnosis(content);
     }
 
+    /// <inheritdoc/>
     public async Task<string> TestAsync(CancellationToken ct)
     {
         _ = await SendAsync(new AiPromptRequest("Return JSON only.", "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), "Provider test", ct).ConfigureAwait(false);
         return $"Azure OpenAI responded using deployment '{settings.AiAzureOpenAiDeployment}'.";
     }
 
+    /// <summary>Sends a one-shot JSON-diagnosis prompt to the configured Azure deployment.</summary>
     private async Task<string> SendAsync(AiPromptRequest request, string operation, CancellationToken ct)
     {
         if (!credentials.TryReadSecret(AiProviderKind.AzureOpenAi, out var key) || string.IsNullOrWhiteSpace(key))
@@ -80,6 +90,7 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
     }
 
+    /// <inheritdoc/>
     public async Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
@@ -88,6 +99,7 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
         => (await RunTurnAsync(new AiChatRequest(AiConversationContext.Capture(settings, Kind), history),
             tools, invokeToolAsync, ct).ConfigureAwait(false)).FinalText;
 
+    /// <inheritdoc/>
     public async Task<AiChatTurnResult> RunTurnAsync(
         AiChatRequest request,
         IReadOnlyList<AiToolDefinition> tools,
@@ -177,14 +189,17 @@ public sealed class AzureOpenAiProvider(AiHttpClient http, ISettingsService sett
         throw new AssistantIterationLimitException("Stopped because the assistant reached the tool-iteration limit.");
     }
 
+    /// <summary>Creates a standardized configuration exception for missing Azure settings.</summary>
     private static AiProviderException ConfigurationError(string operation, string message) => new(
         AiProviderKind.AzureOpenAi,
         operation,
         message,
         AiFailureKind.Configuration);
 
+    /// <summary>Builds the completion URI from the currently saved settings.</summary>
     private Uri CompletionUri() => CompletionUri(settings.AiAzureOpenAiEndpoint!, settings.AiAzureOpenAiDeployment!);
 
+    /// <summary>Validates the endpoint and appends Azure's deployment-specific chat completions path.</summary>
     private static Uri CompletionUri(string baseEndpoint, string model)
     {
         var endpoint = baseEndpoint.Trim().TrimEnd('/');

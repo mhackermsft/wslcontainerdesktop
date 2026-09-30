@@ -22,12 +22,17 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Dialogs;
 
+/// <summary>WinUI 3 content dialog that collects or confirms compose preview input before a view model calls the underlying service.</summary>
 public sealed partial class ComposePreviewDialog : ContentDialog
 {
+    /// <summary>Gets the view model.</summary>
     public ComposePreviewViewModel ViewModel { get; }
+    /// <summary>Gets the severity.</summary>
     public InfoBarSeverity Severity => !ViewModel.CanApply ? InfoBarSeverity.Error :
         ViewModel.HasWarnings ? InfoBarSeverity.Warning : InfoBarSeverity.Informational;
 
+    /// <summary>Creates a new &lt;c&gt;ComposePreviewDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="preview">The preview value supplied by the caller.</param>
     public ComposePreviewDialog(ComposeCompatibilityPreview preview)
     {
         ViewModel = new(preview);

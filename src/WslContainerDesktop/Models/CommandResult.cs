@@ -19,9 +19,13 @@ namespace WslContainerDesktop.Models;
 /// <summary>Result of running a wslc process: exit code and captured streams.</summary>
 public sealed class CommandResult
 {
+    /// <summary>Gets or sets the exit code.</summary>
     public int ExitCode { get; init; }
+    /// <summary>Gets or sets the standard output.</summary>
     public string StandardOutput { get; init; } = string.Empty;
+    /// <summary>Gets or sets the standard error.</summary>
     public string StandardError { get; init; } = string.Empty;
+    /// <summary>Gets a value indicating whether the success flag is set.</summary>
     public bool Success => ExitCode == 0;
 
     /// <summary>Best-effort human readable error text.</summary>
@@ -31,12 +35,12 @@ public sealed class CommandResult
         {
             if (!string.IsNullOrWhiteSpace(StandardError))
             {
-                return StandardError.Trim();
+                return Services.CommandErrorText.Friendly(StandardError);
             }
 
             return string.IsNullOrWhiteSpace(StandardOutput)
                 ? $"Command failed with exit code {ExitCode}."
-                : StandardOutput.Trim();
+                : Services.CommandErrorText.Friendly(StandardOutput);
         }
     }
 }

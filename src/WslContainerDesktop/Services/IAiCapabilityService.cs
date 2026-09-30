@@ -18,11 +18,19 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Caches and refreshes AI provider capability evidence for Settings and assistant chat. It keeps
+/// metadata reads and optional harmless probes separate so the UI can distinguish unknown support
+/// from observed support.
+/// </summary>
 public interface IAiCapabilityService
 {
+    /// <summary>Returns the current cached observation for <paramref name="configuration"/> without probing.</summary>
     AiCapabilitySnapshot GetCached(AiChatConfiguration configuration);
+    /// <summary>Refreshes metadata and optionally runs harmless probes for <paramref name="configuration"/>.</summary>
     Task<AiCapabilitySnapshot> GetAsync(AiChatConfiguration configuration,
         bool probe = false, CancellationToken ct = default);
+    /// <summary>Clears cached observations after settings or credentials change.</summary>
     void Invalidate();
 
     /// <summary>
@@ -40,7 +48,10 @@ public interface IAiCapabilityService
 /// </summary>
 public interface IAiCapabilityObserver
 {
+    /// <summary>Provider kind this observer knows how to inspect.</summary>
     AiProviderKind Kind { get; }
+    /// <summary>Reads passive metadata without causing model generation, load, or download.</summary>
     Task<AiCapabilitySnapshot> ReadMetadataAsync(AiChatConfiguration configuration, CancellationToken ct);
+    /// <summary>Runs bounded harmless generation checks starting from previously read metadata.</summary>
     Task<AiCapabilitySnapshot> ProbeAsync(AiCapabilitySnapshot metadata, CancellationToken ct);
 }

@@ -24,22 +24,36 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <summary>Observable row for one imported <c>devcontainer.json</c> workspace.</summary>
 public partial class DevContainerRow : ObservableObject
 {
+    /// <summary>
+    /// Returns the dev container name. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Name;
+
+    /// <summary>Creates a row from the persisted Dev Container configuration.</summary>
     public DevContainerRow(DevContainerConfig config)
     {
         Config = config;
     }
 
+    /// <summary>Parsed Dev Container configuration backing this row.</summary>
     public DevContainerConfig Config { get; }
+    /// <summary>Display name from the Dev Container configuration.</summary>
     public string Name => Config.Name;
+    /// <summary>Windows workspace folder that contains the Dev Container file.</summary>
     public string WorkspacePath => Config.WorkspacePath;
+    /// <summary>Short description of the image, build, or Compose service used by this container.</summary>
     public string ImageSummary => Config.Compose is not null
         ? $"Compose: {Config.Compose.Service}"
         : Config.Build is not null
             ? $"Build: {Config.Build.Dockerfile ?? "Dockerfile"}"
             : Config.Image ?? "(no image)";
+    /// <summary>Comma-separated list of forwarded ports requested by the configuration.</summary>
     public string PortsSummary => Config.ForwardPorts.Count == 0 ? "No forwarded ports" : string.Join(", ", Config.ForwardPorts);
+    /// <summary>Lifecycle script phases present in the configuration.</summary>
     public string LifecycleSummary => string.Join(", ", new[]
     {
         Config.Lifecycle.Initialize.Count == 0 ? null : "initialize",
@@ -49,17 +63,22 @@ public partial class DevContainerRow : ObservableObject
         Config.Lifecycle.PostStart.Count == 0 ? null : "postStart",
         Config.Lifecycle.PostAttach.Count == 0 ? null : "postAttach",
     }.Where(s => s is not null));
+    /// <summary>Count of import warnings, or a no-warning message.</summary>
     public string WarningsSummary => Config.Warnings.Count == 0 ? "No warnings" : $"{Config.Warnings.Count} warning(s)";
+    /// <summary>Last captured lifecycle command output for the row.</summary>
     public string LifecycleLog => string.IsNullOrWhiteSpace(Config.LifecycleLog) ? "No lifecycle output yet." : Config.LifecycleLog;
 
+    /// <summary>Generated status text indicating whether the backing container is running.</summary>
     [ObservableProperty]
     private string _statusText = "Not running";
 
+    /// <summary>Generated full container id of the running instance, if found.</summary>
     [ObservableProperty]
     private string _containerId = string.Empty;
 }
 
 /// <summary>Lists known Dev Containers and drives their lifecycle.</summary>
+/// <summary>Lists imported Dev Containers and starts, rebuilds, stops, removes, or opens terminals for them.</summary>
 public partial class DevContainersViewModel(
     IDevContainerImporter importer,
     IDevContainerStore store,
@@ -68,17 +87,22 @@ public partial class DevContainersViewModel(
     IWslcService wslc,
     DialogService dialogs) : ObservableObject
 {
+    /// <summary>Generated busy flag used to serialize Dev Container operations.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Status text shown above the Dev Containers list.</summary>
     [ObservableProperty]
     private string _statusMessage = "Ready";
 
+    /// <summary>Currently selected Dev Container row.</summary>
     [ObservableProperty]
     private DevContainerRow? _selected;
 
+    /// <summary>Rows displayed by the Dev Containers page.</summary>
     public ObservableCollection<DevContainerRow> DevContainers { get; } = new();
 
+    /// <summary>Reloads persisted Dev Container configs and matches them to current containers.</summary>
     [RelayCommand]
     public async Task RefreshAsync()
     {
@@ -114,6 +138,7 @@ public partial class DevContainersViewModel(
         }
     }
 
+    /// <summary>Imports a workspace folder containing <c>devcontainer.json</c> after showing a preview.</summary>
     public async Task ImportFolderAsync(string workspacePath)
     {
         if (IsBusy)
@@ -149,6 +174,7 @@ public partial class DevContainersViewModel(
         }
     }
 
+    /// <summary>Starts the selected Dev Container, asking before host-side lifecycle commands run.</summary>
     [RelayCommand]
     private async Task UpAsync(DevContainerRow? row)
     {
@@ -162,6 +188,7 @@ public partial class DevContainersViewModel(
             approveHostCommandsAsync: hostCommandPresenter.ConfirmAsync), "Starting", "Start failed");
     }
 
+    /// <summary>Rebuilds and starts the selected Dev Container.</summary>
     [RelayCommand]
     private async Task RebuildAsync(DevContainerRow? row)
     {
@@ -175,6 +202,7 @@ public partial class DevContainersViewModel(
             approveHostCommandsAsync: hostCommandPresenter.ConfirmAsync), "Rebuilding", "Rebuild failed");
     }
 
+    /// <summary>Rebuilds the selected Dev Container without using the image build cache.</summary>
     [RelayCommand]
     private async Task RebuildNoCacheAsync(DevContainerRow? row)
     {
@@ -188,6 +216,7 @@ public partial class DevContainersViewModel(
             approveHostCommandsAsync: hostCommandPresenter.ConfirmAsync), "Rebuilding without cache", "Rebuild failed");
     }
 
+    /// <summary>Stops the selected Dev Container.</summary>
     [RelayCommand]
     private async Task StopAsync(DevContainerRow? row)
     {
@@ -220,6 +249,7 @@ public partial class DevContainersViewModel(
         }
     }
 
+    /// <summary>Stops, removes, and forgets the selected Dev Container.</summary>
     [RelayCommand]
     private async Task RemoveAsync(DevContainerRow? row)
     {
@@ -258,6 +288,7 @@ public partial class DevContainersViewModel(
         }
     }
 
+    /// <summary>Opens a terminal into the running Dev Container.</summary>
     [RelayCommand]
     private void OpenTerminal(DevContainerRow? row)
     {

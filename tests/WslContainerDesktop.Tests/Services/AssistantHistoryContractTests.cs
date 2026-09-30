@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Covers assistant turn history, resets and configuration switches so stale context cannot leak into later turns.
+/// </summary>
 public sealed class AssistantHistoryContractTests
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
@@ -655,6 +658,9 @@ public sealed class AssistantHistoryContractTests
         Assert.All(calls, call => Assert.Single(outcomes, m => m.ToolCallId == call.Id && m.ToolName == call.Name));
     }
 
+    /// <summary>
+    /// Routes contract scenarios through the Copilot bridge while still using the provider abstraction under test.
+    /// </summary>
     private sealed class CopilotBridgeProvider(CopilotChatTurnRunner runner) : IAiChatProvider
     {
         public AiProviderKind Kind => AiProviderKind.GitHubCopilot;

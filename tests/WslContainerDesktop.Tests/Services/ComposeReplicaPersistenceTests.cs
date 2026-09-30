@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers persistence of compose replica overrides so operator scaling choices survive imports and reloads without restoring stale values.</summary>
 public sealed class ComposeReplicaPersistenceTests : IDisposable
 {
     private readonly string _directory = Path.Combine(AppContext.BaseDirectory,

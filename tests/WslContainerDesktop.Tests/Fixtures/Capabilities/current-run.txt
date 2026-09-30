@@ -1,4 +1,17 @@
-Usage: wslc run [<options>] <image> [<command>] [<arguments>...]
+Copyright (c) Microsoft Corporation. All rights reserved.
+For privacy information about this product please visit https://aka.ms/privacy.
+
+Runs a container. By default, the container is started in the foreground; use --detach to run in the background.
+
+Usage:  wslc run [options] <image> [<command>] [<arguments>...]
+
+Aliases:
+  wslc container run, wslc run
+
+Arguments:
+  image      Image name
+  command    The command to run
+  arguments  Arguments to pass to container's init process
 
 Options:
       --cidfile              Write the container ID to the provided path
@@ -42,5 +55,5 @@ Options:
   -w  --workdir              Working directory inside the container
   -?  --help                 Shows help about the selected command
 
-Global Options:
+Global Options for 'wslc':
       --session              Specify the session to use

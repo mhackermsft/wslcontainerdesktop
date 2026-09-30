@@ -25,6 +25,7 @@ using Xunit;
 namespace WslContainerDesktop.Tests.Services;
 
 #pragma warning disable GHCP001
+/// <summary>Covers binding to the Copilot SDK so exported functions, failures, permissions, and redacted prompt serialization keep their expected contract.</summary>
 public sealed class CopilotSdkBindingTests
 {
     // SDK 1.0.7's pinned Session.ExecuteToolAndRespondAsync and CopilotTool binding use

@@ -18,10 +18,17 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Controls and observes the local Foundry model runtime used by the Foundry Local AI provider.
+/// </summary>
 public interface IFoundryLocalRuntimeService
 {
+    /// <summary>Raised when loaded model state changes and provider capability should be refreshed.</summary>
     event Action? StateChanged;
+    /// <summary>Reads the currently loaded Foundry models without mutating the runtime.</summary>
     Task<FoundryLocalInventory> ReadInventoryAsync(AiChatConfiguration configuration, CancellationToken ct);
+    /// <summary>Requests that Foundry Local load the configured model.</summary>
     Task<FoundryLocalMutationResult> LoadAsync(AiChatConfiguration configuration, CancellationToken ct);
+    /// <summary>Requests that Foundry Local unload the configured model.</summary>
     Task<FoundryLocalMutationResult> UnloadAsync(AiChatConfiguration configuration, CancellationToken ct);
 }

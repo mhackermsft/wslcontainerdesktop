@@ -30,13 +30,18 @@ namespace WslContainerDesktop.ViewModels;
 /// <summary>A category section of templates for the grouped gallery.</summary>
 public sealed class TemplateGroup : List<StackTemplate>
 {
+    /// <summary>Creates the TemplateGroup instance and stores the services it needs.</summary>
     public TemplateGroup(string category, IEnumerable<StackTemplate> items)
         : base(items)
     {
         Category = category;
     }
 
+    /// <summary>Value for category shown or edited by the view.</summary>
     public string Category { get; }
+
+    /// <summary>Returns the category so screen readers announce the section name, not the type.</summary>
+    public override string ToString() => Category;
 }
 
 /// <summary>
@@ -61,6 +66,7 @@ public partial class TemplatesViewModel : ObservableObject
     private readonly ComposeViewModel _compose;
     private readonly DispatcherQueue _dispatcher;
 
+    /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
@@ -68,11 +74,14 @@ public partial class TemplatesViewModel : ObservableObject
     [ObservableProperty]
     private bool _showHidden;
 
+    /// <summary>Bindable state for status message used by the view.</summary>
     [ObservableProperty]
     private string _statusMessage = "Pick a template to get started.";
 
+    /// <summary>Value for groups shown or edited by the view.</summary>
     public ObservableCollection<TemplateGroup> Groups { get; } = new();
 
+    /// <summary>Creates the Templates view model and stores its injected services.</summary>
     public TemplatesViewModel(
         ITemplateCatalog catalog,
         IWslcService wslc,
@@ -98,7 +107,7 @@ public partial class TemplatesViewModel : ObservableObject
         _userTemplates = userTemplates;
         _visibility = visibility;
         _compose = compose;
-        _openWebUi = new OpenWebUiPlanner(wslc, capabilities);
+        _openWebUi = new OpenWebUiPlanner(wslc);
 
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         RebuildGroups();
@@ -108,8 +117,10 @@ public partial class TemplatesViewModel : ObservableObject
         _visibility.Changed += OnCatalogOrVisibilityChanged;
     }
 
+    /// <summary>Handles catalog or visibility changed changes and updates related view-model state.</summary>
     private void OnCatalogOrVisibilityChanged(object? sender, EventArgs e) => RunOnUi(RebuildGroups);
 
+    /// <summary>Handles show hidden changed changes and updates related view-model state.</summary>
     partial void OnShowHiddenChanged(bool value) => RebuildGroups();
 
     /// <summary>
@@ -152,6 +163,7 @@ public partial class TemplatesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Handles status changed changes and updates related view-model state.</summary>
     private void OnStatusChanged(object? sender, EngineStatusSnapshot e)
     {
         if (_dispatcher.HasThreadAccess)
@@ -246,6 +258,7 @@ public partial class TemplatesViewModel : ObservableObject
         return [.. found.OrderBy(d => SuffixOf(d.Target, template))];
     }
 
+    /// <summary>Helper for the suffix of workflow in this view model.</summary>
     private int SuffixOf(string target, StackTemplate template)
     {
         var baseName = template.Kind == StackTemplateKind.Compose
@@ -320,6 +333,7 @@ public partial class TemplatesViewModel : ObservableObject
         }, ReportLaunchFailureAsync);
     }
 
+    /// <summary>Helper for the report launch failure workflow in this view model.</summary>
     private async Task ReportLaunchFailureAsync(Exception error)
     {
         StatusMessage = "Launch failed";
@@ -528,6 +542,7 @@ public partial class TemplatesViewModel : ObservableObject
         return ShowEditorAsync(template, isDuplicate: true);
     }
 
+    /// <summary>Helper for the show editor workflow in this view model.</summary>
     private async Task ShowEditorAsync(StackTemplate? source, bool isDuplicate)
     {
         var categories = _catalog.Templates.Select(t => t.Category);
@@ -633,6 +648,7 @@ public partial class TemplatesViewModel : ObservableObject
         StatusMessage = $"Imported {toSave.Count} template(s).";
     }
 
+    /// <summary>Helper for the make unique id workflow in this view model.</summary>
     private static string MakeUniqueId(HashSet<string> existing)
     {
         string id;
@@ -645,6 +661,7 @@ public partial class TemplatesViewModel : ObservableObject
         return id;
     }
 
+    /// <summary>Helper for the make unique name workflow in this view model.</summary>
     private static string MakeUniqueName(string name, HashSet<string> existing)
     {
         var candidate = $"{name} (imported)";
@@ -684,9 +701,11 @@ public partial class TemplatesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the remove compose workflow in this view model.</summary>
     private Task RemoveComposeAsync(TemplateDeployment deployment, bool removeVolumes) =>
         _compose.RemoveProjectAsync(deployment.Target, removeVolumes);
 
+    /// <summary>Helper for the remove container workflow in this view model.</summary>
     private async Task RemoveContainerAsync(TemplateDeployment deployment, bool removeVolumes)
     {
         var name = deployment.Target;
@@ -755,6 +774,7 @@ public partial class TemplatesViewModel : ObservableObject
         return (saved ?? template.RunOptions)?.Clone();
     }
 
+    /// <summary>Helper for the launch container workflow in this view model.</summary>
     private async Task LaunchContainerAsync(StackTemplate template)
     {
         var options = ResolveContainerOptions(template);
@@ -766,6 +786,7 @@ public partial class TemplatesViewModel : ObservableObject
         await RunContainerDirectAsync(template, options);
     }
 
+    /// <summary>Helper for the configure container workflow in this view model.</summary>
     private async Task ConfigureContainerAsync(StackTemplate template)
     {
         var options = ResolveContainerOptions(template);
@@ -870,6 +891,7 @@ public partial class TemplatesViewModel : ObservableObject
     private static string Acceleration(OpenWebUiPlanner.Plan? plan) =>
         plan is { UsesGpu: true } ? " using your GPU" : string.Empty;
 
+    /// <summary>Helper for the launch compose workflow in this view model.</summary>
     private async Task LaunchComposeAsync(StackTemplate template)
     {
         var (yaml, name) = ResolveComposeConfig(template);
@@ -948,6 +970,7 @@ public partial class TemplatesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the configure compose workflow in this view model.</summary>
     private async Task ConfigureComposeAsync(StackTemplate template)
     {
         var (yaml, name) = ResolveComposeConfig(template);

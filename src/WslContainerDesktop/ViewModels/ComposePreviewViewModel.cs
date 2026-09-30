@@ -18,14 +18,24 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.ViewModels;
 
-/// <summary>Immutable review VM: no commands can edit or override blocked planner evidence.</summary>
+/// <summary>
+/// Immutable view model for the Compose compatibility review dialog. It summarizes the planner's
+/// evidence so users can decide whether to apply a Compose operation before the supervisor touches containers.
+/// </summary>
+/// <remarks>No commands here can edit or override blocked planner evidence.</remarks>
 public sealed class ComposePreviewViewModel(ComposeCompatibilityPreview preview)
 {
+    /// <summary>Dialog title naming the Compose operation and project.</summary>
     public string Title => $"Review Compose {preview.Operation}: {preview.Project}";
+    /// <summary>Short planner summary displayed near the top of the dialog.</summary>
     public string Summary => preview.Summary;
+    /// <summary>True when no blocking compatibility issue prevents applying the operation.</summary>
     public bool CanApply => preview.CanApply;
+    /// <summary>True when the planner found non-blocking warnings.</summary>
     public bool HasWarnings => preview.HasWarnings;
+    /// <summary>All resolved Compose settings, including supported ones hidden from the attention list.</summary>
     public IReadOnlyList<ComposeCompatibilitySetting> Settings => preview.Settings;
+    /// <summary>Primary button label chosen for the current lifecycle operation.</summary>
     public string ApplyLabel => preview.Operation == ComposeLifecycleOperation.Up ? "Apply reviewed plan" : "Confirm operation";
 
     /// <summary>
@@ -37,8 +47,10 @@ public sealed class ComposePreviewViewModel(ComposeCompatibilityPreview preview)
             .OrderBy(s => s.Disposition == ComposeSettingDisposition.Blocked ? 0 : 1)
             .ToList();
 
+    /// <summary>True when at least one setting needs the user to read the attention section.</summary>
     public bool HasAttention => Attention.Count > 0;
 
+    /// <summary>Header text that counts blocking issues separately from softer warnings.</summary>
     public string AttentionHeader
     {
         get
@@ -53,6 +65,7 @@ public sealed class ComposePreviewViewModel(ComposeCompatibilityPreview preview)
         }
     }
 
+    /// <summary>Header for the full resolved-setting list.</summary>
     public string AllSettingsHeader => $"All resolved settings ({Settings.Count})";
 
     /// <summary>Plain-language description of the actual outcome, so the decision does not depend on

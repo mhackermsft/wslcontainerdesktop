@@ -37,12 +37,14 @@ public sealed class ComposeProjectStore : IComposeProjectStore
     private readonly List<ComposeProject> _projects = new();
     private readonly object _gate = new();
 
+    /// <summary>Creates the file-backed store using the app's standard local settings directory.</summary>
     public ComposeProjectStore(ILogger<ComposeProjectStore> logger)
         : this(logger, Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WslContainerDesktop"))
     {
     }
 
+    /// <summary>Creates the store with an explicit directory, primarily for tests.</summary>
     internal ComposeProjectStore(ILogger<ComposeProjectStore> logger, string settingsDirectory)
     {
         _logger = logger;
@@ -51,6 +53,7 @@ public sealed class ComposeProjectStore : IComposeProjectStore
         Load();
     }
 
+    /// <inheritdoc/>
     public IReadOnlyList<ComposeProject> GetAll()
     {
         lock (_gate)
@@ -59,6 +62,7 @@ public sealed class ComposeProjectStore : IComposeProjectStore
         }
     }
 
+    /// <inheritdoc/>
     public ComposeProject? Get(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -72,6 +76,7 @@ public sealed class ComposeProjectStore : IComposeProjectStore
         }
     }
 
+    /// <inheritdoc/>
     public void Save(ComposeProject project)
     {
         if (project is null || string.IsNullOrWhiteSpace(project.Name))
@@ -98,6 +103,7 @@ public sealed class ComposeProjectStore : IComposeProjectStore
         }
     }
 
+    /// <inheritdoc/>
     public void Delete(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -115,6 +121,7 @@ public sealed class ComposeProjectStore : IComposeProjectStore
         }
     }
 
+    /// <summary>Loads saved projects from disk, tolerating corrupt or missing state.</summary>
     private void Load()
     {
         try
@@ -154,6 +161,7 @@ public sealed class ComposeProjectStore : IComposeProjectStore
         }
     }
 
+    /// <summary>Writes the project list through a temporary file so partial saves do not replace the previous copy.</summary>
     private void Persist()
     {
         var temporary = _projectsFile + "." + Guid.NewGuid().ToString("N") + ".tmp";

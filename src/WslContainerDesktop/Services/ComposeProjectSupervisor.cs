@@ -23,27 +23,43 @@ namespace WslContainerDesktop.Services;
 /// <summary>Per-service outcome of a compose <c>up</c>.</summary>
 public sealed record ComposeServiceResult(string Service, bool Success, string Detail, string? Warning = null)
 {
+    /// <summary>Replica ordinal for the service; one means the primary instance.</summary>
     public int InstanceIndex { get; init; } = 1;
+
+    /// <summary>Stable key used in plans and results, including a <c>#N</c> suffix for replicas.</summary>
     public string InstanceKey => InstanceIndex == 1 ? Service : $"{Service}#{InstanceIndex}";
+
+    /// <summary>Container id affected by the action, when known and safe for internal callers.</summary>
     public string? ContainerId { get; init; }
+
+    /// <summary>Planned or completed action for this service instance.</summary>
     public ComposeServiceAction Action { get; init; }
+
+    /// <summary>High-level outcome used by review and assistant summaries.</summary>
     public ComposeInstanceOutcome? Outcome { get; init; }
 }
 
+/// <summary>High-level lifecycle outcomes for one Compose service instance.</summary>
 public enum ComposeInstanceOutcome { Started, Reused, Skipped, Failed, Cancelled, Stopped, Removed }
 
 /// <summary>Aggregate result of bringing a compose project up.</summary>
 public sealed class ComposeUpResult
 {
+    /// <summary>Per-service instance results in execution order.</summary>
     public IReadOnlyList<ComposeServiceResult> Services { get; init; } = Array.Empty<ComposeServiceResult>();
+    /// <summary>Plan that was applied or rejected, useful for UI refresh and review details.</summary>
     public ComposeReconciliationPlan? Plan { get; init; }
+    /// <summary>True when the operation stopped because cancellation was observed.</summary>
     public bool IsCancelled { get; init; }
 
+    /// <summary>True when the operation was not cancelled and every service result succeeded.</summary>
     public bool AllSucceeded => !IsCancelled && Services.All(s => s.Success);
 
+    /// <summary>Number of successful results that created, started, restarted or reused running work.</summary>
     public int Started => Services.Count(s => s.Success && s.Action is
         ComposeServiceAction.Start or ComposeServiceAction.Create or ComposeServiceAction.Recreate or ComposeServiceAction.Restart);
 
+    /// <summary>Warnings annotated with service instance keys for display.</summary>
     public IReadOnlyList<string> Warnings => Services.Where(s => s.Warning is not null)
         .Select(s => $"{s.InstanceKey}: {s.Warning}").ToList();
 }
@@ -70,13 +86,16 @@ public sealed partial class ComposeProjectSupervisor
     private readonly IWslcCapabilitiesService _capabilities;
     private readonly ComposeNetworkOrchestrator _networks;
     private readonly IComposeReviewPresenter? _reviewPresenter;
+    private readonly IWslPolicyService _policy;
     private readonly TimeProvider _reviewClock;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    /// <summary>Warnings from startup reconciliation, shown so users know what needs manual review.</summary>
     public IReadOnlyList<string> ReconciliationWarnings { get; private set; } = Array.Empty<string>();
 
     /// <summary>How long to wait for a <c>service_healthy</c> dependency before starting dependents.</summary>
     private static readonly TimeSpan HealthyWaitTimeout = TimeSpan.FromSeconds(90);
 
+    /// <summary>Creates the Compose supervisor and wires engine, store, watchdog and review collaborators.</summary>
     public ComposeProjectSupervisor(
         IWslcService wslc,
         IComposeProjectStore store,
@@ -87,7 +106,8 @@ public sealed partial class ComposeProjectSupervisor
         StatusMonitor monitor,
         RestartSuppressionState? suppression = null,
         IComposeReviewPresenter? reviewPresenter = null,
-        TimeProvider? reviewClock = null)
+        TimeProvider? reviewClock = null,
+        IWslPolicyService? policy = null)
     {
         _wslc = wslc;
         _store = store;
@@ -99,7 +119,19 @@ public sealed partial class ComposeProjectSupervisor
         _suppression = suppression;
         _reviewPresenter = reviewPresenter;
         _reviewClock = reviewClock ?? TimeProvider.System;
+        _policy = policy ?? AllowAllWslPolicyService.Instance;
         _networks = new ComposeNetworkOrchestrator(wslc, logger, suppression);
+    }
+
+    /// <summary>Fallback policy used in tests/older wiring when no enterprise WSL policy service is registered.</summary>
+    private sealed class AllowAllWslPolicyService : IWslPolicyService
+    {
+        /// <summary>Singleton fallback instance because this service has no mutable state.</summary>
+        public static readonly AllowAllWslPolicyService Instance = new();
+
+        /// <inheritdoc/>
+        public WslPolicySnapshot GetPolicy() =>
+            new(true, true, new WslRegistryAllowlist(WslRegistryAllowlistState.Unrestricted, []));
     }
 
     /// <summary>
@@ -109,6 +141,7 @@ public sealed partial class ComposeProjectSupervisor
     public Task<ComposeUpResult> UpAsync(ComposeProject project, CancellationToken ct = default) =>
         UpAsync(project, new ComposeOperationRequest(), ct);
 
+    /// <summary>Applies a project using an explicit operation request, usually including profile or replica choices.</summary>
     public Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
         CancellationToken ct = default) => UpAsync(project, request, null, ct);
 
@@ -125,9 +158,11 @@ public sealed partial class ComposeProjectSupervisor
         return (await ApplyReviewedAsync(review, confirmed, false, onServiceSucceeded, ct).ConfigureAwait(false)).ToUpResult();
     }
 
+    /// <summary>Per-instance decision about native network startup, health ownership and compatibility warnings.</summary>
     private sealed record NetworkStartupPlan(bool Native, string? Warning,
         ComposePolicyOwner HealthOwner = ComposePolicyOwner.None, WslcCapabilitySupport? NetworkSupport = null);
 
+    /// <summary>Determines whether a service can use native create/connect/start and who owns health checks.</summary>
     private async Task<NetworkStartupPlan> PreflightNetworkAsync(
         ComposeProject project, ComposeService service, CancellationToken ct)
     {
@@ -141,7 +176,7 @@ public sealed partial class ComposeProjectSupervisor
 
         string? warning = null;
         var capabilities = await _capabilities.GetAsync(ct).ConfigureAwait(false);
-        var native = endpoints.Count > 1 && ComposeNetworkOrchestrator.SelectNative(desired, capabilities, out warning);
+        var native = ComposeNetworkOrchestrator.SelectNative(desired, capabilities, out warning);
         var desiredHealth = service.Options.Health ?? service.Health?.DesiredHealth;
         var owner = service.Health is null ? ComposePolicyOwner.Engine : ComposePolicyOwner.Application;
         if (desiredHealth is not null)
@@ -151,9 +186,10 @@ public sealed partial class ComposeProjectSupervisor
                 health.Native ? ComposePolicyOwner.Engine : ComposePolicyOwner.Application;
             warning = string.Join(" ", new[] { warning, health.Diagnostic }.Where(s => !string.IsNullOrWhiteSpace(s)));
         }
-        return new(native, warning, owner, endpoints.Count > 1 ? capabilities[WslcFeature.NetworkConnect].Support : null);
+        return new(native, warning, owner, endpoints.Count > 1 ? WslcCapabilitySupport.Supported : null);
     }
 
+    /// <summary>Executes an already-reviewed up plan, checkpointing successful work as each instance completes.</summary>
     private async Task<ComposeUpResult> UpCoreAsync(ComposeProject project, long maximumStopVersion, CancellationToken ct,
         ComposeOperationRequest request, ComposeReconciliationPlan plan, Action<ComposeServiceResult>? onServiceSucceeded)
     {
@@ -289,6 +325,7 @@ public sealed partial class ComposeProjectSupervisor
         return true;
     }
 
+    /// <summary>Projects cancellation into per-service results without hiding work that already completed.</summary>
     private static ComposeUpResult CancelledResult(ComposeReconciliationPlan plan, List<ComposeServiceResult> results) => new()
     {
         Plan = plan, IsCancelled = true,
@@ -299,6 +336,7 @@ public sealed partial class ComposeProjectSupervisor
                     Outcome = ComposeInstanceOutcome.Cancelled })).ToArray(),
     };
 
+    /// <summary>Replaces any partial result for an instance with a failure that preserves known container identity.</summary>
     private static void RecordFailedOutcome(List<ComposeServiceResult> results, ComposeServicePlan entry, Exception error)
     {
         var completed = results.FirstOrDefault(r => r.InstanceKey == entry.InstanceKey);
@@ -311,6 +349,7 @@ public sealed partial class ComposeProjectSupervisor
         });
     }
 
+    /// <summary>Stops and removes an instance that is no longer desired by the plan.</summary>
     private async Task<ComposeServiceResult> RemoveExcessAsync(ComposeProject project, ComposeServicePlan entry, CancellationToken ct)
     {
         try
@@ -376,7 +415,7 @@ public sealed partial class ComposeProjectSupervisor
                 [ComposeProject.ProjectLabel] = project.Name,
             };
             var created = await _wslc.CreateNetworkAsync(network.Name, network.Driver, network.DriverOpts, labels,
-                network.Subnet, network.Gateway, network.IpRange, ct)
+                network.Subnet, network.Gateway, network.IpRange, ct, network.Internal)
                 .ConfigureAwait(false);
             if (!created.Success)
             {
@@ -648,6 +687,7 @@ public sealed partial class ComposeProjectSupervisor
     /// slot, so more retries would work against the very limit they guard.</summary>
     private const int MaxStagedMountAttempts = 2;
 
+    /// <summary>Creates or recreates one service container and verifies ownership before returning success.</summary>
     private async Task<ComposeServiceResult> StartServiceAsync(ComposeProject project, ComposeService service,
         long maximumStopVersion, CancellationToken ct, NetworkStartupPlan networkPlan,
         RunContainerOptions prepared, string? expectedId)
@@ -718,6 +758,7 @@ public sealed partial class ComposeProjectSupervisor
         var operation = Guid.NewGuid().ToString("N");
         prepared.Labels[ApplyOperationLabel] = operation;
         var launched = false;
+        ComposeServiceResult? outcome = null;
         try
         {
             string containerId;
@@ -729,7 +770,7 @@ public sealed partial class ComposeProjectSupervisor
             {
                 var run = await _wslc.RunContainerAsync(prepared, ct, maximumStopVersion).ConfigureAwait(false);
                 if (!run.Success)
-                    return new(service.Name, false, Summarize(run), networkWarning);
+                    return outcome = new(service.Name, false, Summarize(run), networkWarning);
                 // Complete observation of an acknowledged run even if cancellation arrives now.
                 using var observation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                 var state = await _networks.InspectAsync(name, observation.Token).ConfigureAwait(false);
@@ -739,14 +780,26 @@ public sealed partial class ComposeProjectSupervisor
             }
             launched = true;
             await ApplyExtraHostsAsync(name, service, ct).ConfigureAwait(false);
-            return new(service.Name, true, $"Started as {name}", networkWarning) { ContainerId = containerId };
+            return outcome = new(service.Name, true, $"Started as {name}", networkWarning) { ContainerId = containerId };
         }
         catch (OperationCanceledException) { throw; }
-        catch (Exception ex) { return new(service.Name, false, ex.Message); }
+        catch (Exception ex) { return outcome = new(service.Name, false, ex.Message); }
         finally
         {
             if (!launched && !nativeNetworks)
-                await CleanupPartialRunAsync(name, operation).ConfigureAwait(false);
+            {
+                // An exception thrown here would replace the result above and hide the real reason
+                // the run failed, so a cleanup failure is logged and reported alongside it instead.
+                try
+                {
+                    await CleanupPartialRunAsync(name, operation).ConfigureAwait(false);
+                }
+                catch (Exception cleanupError) when (cleanupError is not OperationCanceledException)
+                {
+                    _logger.LogError(cleanupError, "Cleanup after a failed Compose run of {Name} failed. Original failure: {Detail}",
+                        name, outcome?.Detail);
+                }
+            }
         }
     }
 
@@ -936,6 +989,7 @@ public sealed partial class ComposeProjectSupervisor
         }
     }
 
+    /// <summary>Builds isolated run options for one service instance, including labels and staged file mounts.</summary>
     private RunContainerOptions CloneForRun(ComposeProject project, ComposeService service, string name, string? stagingNonce = null)
     {
         var src = service.Options;
@@ -970,7 +1024,9 @@ public sealed partial class ComposeProjectSupervisor
             Ulimits = new List<string>(src.Ulimits),
             ShmSize = src.ShmSize,
             StopSignal = src.StopSignal,
+            StopTimeoutSeconds = src.StopTimeoutSeconds,
             Domainname = src.Domainname,
+            Mounts = src.Mounts.Select(m => m.Clone()).ToList(),
             Aliases = new List<string>(src.Aliases),
         };
 
@@ -995,6 +1051,7 @@ public sealed partial class ComposeProjectSupervisor
         return options;
     }
 
+    /// <summary>Normalizes Compose network aliases and <c>network_mode: service:</c> references for <c>wslc</c>.</summary>
     private static void PrepareNetworkOptions(ComposeProject project, ComposeService service, RunContainerOptions options,
         bool includeFirstContainerAlias = false)
     {
@@ -1025,6 +1082,7 @@ public sealed partial class ComposeProjectSupervisor
         }
     }
 
+    /// <summary>Creates a temporary project view containing only selected services for policy seeding/removal.</summary>
     private static ComposeProject ProjectWithServices(ComposeProject project, IEnumerable<ComposeService> services) =>
         new() { Name = project.Name, ActiveProfiles = ["*"], Services = services.ToList() };
 
@@ -1238,6 +1296,7 @@ public sealed partial class ComposeProjectSupervisor
     private static string ResolveContainerName(ComposeProject project, ComposeService service) =>
         ComposeReconciliationPlanner.ContainerName(project, service);
 
+    /// <summary>Finds a container by its user-visible name, ignoring a leading slash from Docker-style data.</summary>
     private static ContainerInfo? FindByName(IReadOnlyList<ContainerInfo> containers, string name) =>
         containers.FirstOrDefault(c =>
             string.Equals(c.Name.TrimStart('/'), name, StringComparison.Ordinal));
@@ -1376,12 +1435,10 @@ public sealed partial class ComposeProjectSupervisor
         _settings.Save();
     }
 
+    /// <summary>Converts an engine command result to the user-facing error text used by Compose operations.</summary>
     private static string Summarize(CommandResult result)
     {
-        var text = string.IsNullOrWhiteSpace(result.StandardError)
-            ? result.StandardOutput
-            : result.StandardError;
-        text = (text ?? string.Empty).Trim();
+        var text = result.ErrorText;
 
         if (IsMountLimitFailure(text))
         {
@@ -1422,4 +1479,3 @@ public sealed partial class ComposeProjectSupervisor
             || (lower.Contains("creating mount source path") && lower.Contains("read-only file system"));
     }
 }
-

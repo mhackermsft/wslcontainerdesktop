@@ -35,16 +35,29 @@ public partial class RegistriesViewModel : ObservableObject
     private readonly DialogService _dialogs;
     private readonly RegistryAuthRefresher _authRefresher;
     private readonly IRegistryCredentialStore _credentials;
+    private readonly IWslPolicyService _policy;
 
+    /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Bindable state for status message used by the view.</summary>
     [ObservableProperty]
     private string _statusMessage = "Manage the registries available when running or pulling images.";
 
+    /// <summary>Whether policy info visible for view binding.</summary>
+    [ObservableProperty]
+    private bool _isPolicyInfoVisible;
+
+    /// <summary>Bindable state for policy info message used by the view.</summary>
+    [ObservableProperty]
+    private string _policyInfoMessage = string.Empty;
+
+    /// <summary>Value for registries shown or edited by the view.</summary>
     public ObservableCollection<RegistryEntry> Registries { get; } = new();
 
-    public RegistriesViewModel(IWslcService wslc, IAzureCliService azure, ISettingsService settings, DialogService dialogs, RegistryAuthRefresher authRefresher, IRegistryCredentialStore credentials)
+    /// <summary>Creates the Registries view model and stores its injected services.</summary>
+    public RegistriesViewModel(IWslcService wslc, IAzureCliService azure, ISettingsService settings, DialogService dialogs, RegistryAuthRefresher authRefresher, IRegistryCredentialStore credentials, IWslPolicyService policy)
     {
         _wslc = wslc;
         _azure = azure;
@@ -52,10 +65,13 @@ public partial class RegistriesViewModel : ObservableObject
         _dialogs = dialogs;
         _authRefresher = authRefresher;
         _credentials = credentials;
+        _policy = policy;
     }
 
+    /// <summary>Refreshes load state for the view model.</summary>
     public void Load()
     {
+        RefreshPolicyInfo();
         Registries.Clear();
         foreach (var r in _settings.Registries)
         {
@@ -63,6 +79,22 @@ public partial class RegistriesViewModel : ObservableObject
         }
 
         _ = RefreshLoginStatesAsync();
+    }
+
+    /// <summary>Refreshes policy info state for the view model.</summary>
+    private void RefreshPolicyInfo()
+    {
+        var allowlist = _policy.GetPolicy().RegistryAllowlist;
+        IsPolicyInfoVisible = allowlist.State != WslRegistryAllowlistState.Unrestricted;
+        PolicyInfoMessage = allowlist.State switch
+        {
+            WslRegistryAllowlistState.Configured =>
+                "Your organization restricts WSL container image registries to: " +
+                string.Join(", ", allowlist.Registries),
+            WslRegistryAllowlistState.Invalid =>
+                "Your organization's WSLContainerRegistryAllowlist policy is invalid; registry operations fail closed until it is corrected.",
+            _ => string.Empty,
+        };
     }
 
     /// <summary>Probes each non-default registry's login state and updates the row indicators.
@@ -129,6 +161,7 @@ public partial class RegistriesViewModel : ObservableObject
     private Task<bool> TryAzureRefreshAsync(RegistryEntry registry) =>
         _authRefresher.RefreshAsync(registry);
 
+    /// <summary>Command handler for add actions triggered from the view.</summary>
     [RelayCommand]
     private async Task AddAsync()
     {
@@ -162,6 +195,7 @@ public partial class RegistriesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for add from azure actions triggered from the view.</summary>
     [RelayCommand]
     private async Task AddFromAzureAsync()
     {
@@ -200,6 +234,7 @@ public partial class RegistriesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for login actions triggered from the view.</summary>
     [RelayCommand]
     private async Task LoginAsync(RegistryEntry? registry)
     {
@@ -251,6 +286,7 @@ public partial class RegistriesViewModel : ObservableObject
         await LoginCoreAsync(registry, dialog.Username, dialog.Password);
     }
 
+    /// <summary>Helper for the login core workflow in this view model.</summary>
     private async Task LoginCoreAsync(RegistryEntry registry, string username, string password)
     {
         IsBusy = true;
@@ -283,6 +319,7 @@ public partial class RegistriesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for logout actions triggered from the view.</summary>
     [RelayCommand]
     private async Task LogoutAsync(RegistryEntry? registry)
     {
@@ -318,6 +355,7 @@ public partial class RegistriesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for remove actions triggered from the view.</summary>
     [RelayCommand]
     private async Task RemoveAsync(RegistryEntry? registry)
     {

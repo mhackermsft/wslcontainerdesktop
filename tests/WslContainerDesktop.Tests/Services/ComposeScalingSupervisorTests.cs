@@ -23,6 +23,9 @@ using static WslContainerDesktop.Tests.Services.ComposeNetworkSupervisorTests;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests Compose replica scaling so saved intent, runtime overrides and per-replica resources stay consistent.
+/// </summary>
 public sealed class ComposeScalingSupervisorTests
 {
     private static Fixture Replicas(int count, WslcCapabilitySupport support = WslcCapabilitySupport.Supported, Engine? engine = null)
@@ -72,12 +75,10 @@ public sealed class ComposeScalingSupervisorTests
         Assert.Empty(fresh.ReplicaOverrides);
     }
 
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Supported)]
-    [InlineData(WslcCapabilitySupport.Unsupported)]
-    public async Task ScaleUpThenDownRetainsLowestIdentityAndEverySupportedEndpointAlias(WslcCapabilitySupport support)
+    [Fact]
+    public async Task ScaleUpThenDownRetainsLowestIdentityAndEverySupportedEndpointAlias()
     {
-        var fixture = Replicas(1, support);
+        var fixture = Replicas(1);
         await UpAsync(fixture);
         var original = fixture.SavedProject!.AppliedServices["web"];
         fixture.Engine.Mutations.Clear();
@@ -95,7 +96,7 @@ public sealed class ComposeScalingSupervisorTests
             Assert.Equal("demo", pair.Value.Labels[ComposeProject.ProjectLabel]);
             Assert.Equal("web", pair.Value.Labels[ComposeProject.ServiceLabel]);
             Assert.Equal(index.ToString(), pair.Value.Labels[ComposeProject.InstanceLabel]);
-            Assert.Equal(support == WslcCapabilitySupport.Supported ? 2 : 1, fixture.Engine.Endpoints[pair.Key].Count);
+            Assert.Equal(2, fixture.Engine.Endpoints[pair.Key].Count);
             Assert.All(fixture.Engine.Endpoints[pair.Key], endpoint =>
             {
                 Assert.Contains("web", endpoint.Aliases);
@@ -262,16 +263,11 @@ public sealed class ComposeScalingSupervisorTests
     }
 
     [Fact]
-    public async Task UnknownCapabilitiesAndForeignOrdinalCannotDestroyRetainedInstances()
+    public async Task ForeignOrdinalCannotDestroyRetainedInstances()
     {
         var fixture = Replicas(2);
         await UpAsync(fixture);
         fixture.Engine.Mutations.Clear();
-        fixture.Snapshot = Capabilities(WslcCapabilitySupport.Unknown);
-        fixture.Project.Services[0].Replicas = 3;
-        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
-        Assert.Empty(fixture.Engine.Mutations);
-        fixture.Snapshot = Capabilities(WslcCapabilitySupport.Supported);
         fixture.Engine.Containers["demo_web_2"].Labels[ComposeProject.InstanceLabel] = "3";
         fixture.Project.Services[0].Replicas = 1;
         Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);

@@ -25,7 +25,7 @@ namespace WslContainerDesktop.Tests.Services;
 /// </summary>
 public class ComposeResourceErrorsTests
 {
-    // Verbatim from wslc 2.9.11.0: `wslc network inspect <absent>` / `wslc volume inspect <absent>`.
+    // Verbatim engine shape for `wslc network inspect <absent>` / `wslc volume inspect <absent>`.
     private const string ActualNetworkText = "Network not found: 'openwebui-net'\n[]";
     private const string ActualVolumeText = "Volume not found: 'openwebui_openwebui-data'\n[]";
 
@@ -62,7 +62,20 @@ public class ComposeResourceErrorsTests
     {
         Assert.False(ComposeResourceErrors.IsNetworkNotFound(text));
         Assert.False(ComposeResourceErrors.IsVolumeNotFound(text));
+        Assert.False(ComposeResourceErrors.IsContainerNotFound(text));
     }
+
+    /// <summary>
+    /// WSL 3.0.1 wording for a missing container (captured from <c>wslc inspect</c> and
+    /// <c>wslc container inspect</c>). Missing this made a failed Compose run report a cleanup
+    /// error instead of the real reason the run failed.
+    /// </summary>
+    [Theory]
+    [InlineData("Object not found: wordpress_db")]
+    [InlineData("Container 'wordpress_db' not found.")]
+    [InlineData("WSLC_E_CONTAINER_NOT_FOUND")]
+    public void MissingContainer_IsRecognized(string text) =>
+        Assert.True(ComposeResourceErrors.IsContainerNotFound(text));
 
     /// <summary>The two kinds must not answer for each other.</summary>
     [Fact]

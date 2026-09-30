@@ -33,7 +33,9 @@ public enum LocalAiContainerState
     /// <summary>A new container was started CPU-only because create help definitively lacks GPU support.</summary>
     CreatedCpuOnly,
 
+    /// <summary>The setup mutation failed before an owned ready container was observed.</summary>
     Failed,
+    /// <summary>The setup operation was canceled before completion.</summary>
     Cancelled,
 }
 
@@ -42,6 +44,7 @@ public sealed record LocalAiSetupResult(bool Success, LocalAiContainerState Stat
     string? ContainerId = null, LocalRuntimeResourceState Runtime = LocalRuntimeResourceState.Unknown,
     LocalRuntimeResourceState ModelData = LocalRuntimeResourceState.Unknown);
 
+/// <summary>Result of removing the app-managed Ollama container and optionally retaining model data.</summary>
 public sealed record LocalAiRemovalResult(bool Success, LocalRuntimeResourceState Runtime,
     LocalRuntimeResourceState ModelData, string Message);
 

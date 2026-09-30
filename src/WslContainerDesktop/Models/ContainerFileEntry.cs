@@ -16,34 +16,53 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Model object that stores container file entry information used by services, view models, or dialogs.</summary>
 public sealed class ContainerFileEntry
 {
+    /// <summary>
+    /// Returns the file or folder name. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
 
+    /// <summary>Gets or sets the path.</summary>
     public string Path { get; init; } = "/";
 
+    /// <summary>Gets or sets the kind.</summary>
     public string Kind { get; init; } = "f";
 
+    /// <summary>Gets or sets the permissions.</summary>
     public string Permissions { get; init; } = "-";
 
+    /// <summary>Gets or sets the owner.</summary>
     public string Owner { get; init; } = "-";
 
+    /// <summary>Gets or sets the group.</summary>
     public string Group { get; init; } = "-";
 
+    /// <summary>Gets or sets the size bytes.</summary>
     public long SizeBytes { get; init; }
 
+    /// <summary>Gets or sets the modified at.</summary>
     public DateTimeOffset ModifiedAt { get; init; }
 
+    /// <summary>Gets a value indicating whether this value is directory.</summary>
     public bool IsDirectory => string.Equals(Kind, "d", StringComparison.Ordinal);
 
+    /// <summary>Gets a value indicating whether this value is symlink.</summary>
     public bool IsSymlink => string.Equals(Kind, "l", StringComparison.Ordinal);
 
+    /// <summary>Gets the icon glyph.</summary>
     public string IconGlyph => IsDirectory
         ? "\uE838"
         : IsSymlink
             ? "\uE71B"
             : "\uE8A5";
 
+    /// <summary>Gets the friendly file type label shown in the container file browser.</summary>
     public string TypeDisplay
     {
         get
@@ -65,16 +84,22 @@ public sealed class ContainerFileEntry
 
     private string? _typeDisplay;
 
+    /// <summary>Gets the owner display.</summary>
     public string OwnerDisplay => string.IsNullOrWhiteSpace(Group) || string.Equals(Owner, Group, StringComparison.Ordinal)
         ? Owner
         : $"{Owner}:{Group}";
 
+    /// <summary>Gets the size display.</summary>
     public string SizeDisplay => IsDirectory ? "-" : FormatSize(SizeBytes);
 
+    /// <summary>Gets the modified display.</summary>
     public string ModifiedDisplay => ModifiedAt == default
         ? "-"
         : ModifiedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
 
+    /// <summary>Performs the static helper used by this model or dialog.</summary>
+    /// <param name="CurrentPath">The current path value supplied by the caller.</param>
+    /// <param name="Entries">The entries value supplied by the caller.</param>
     public static (string CurrentPath, IReadOnlyList<ContainerFileEntry> Entries) ParseListing(string output, string fallbackPath)
     {
         var currentPath = string.IsNullOrWhiteSpace(fallbackPath) ? "/" : fallbackPath;

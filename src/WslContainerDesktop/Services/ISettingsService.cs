@@ -16,6 +16,7 @@
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>App-wide settings shared by view models and services and persisted as JSON.</summary>
 public interface ISettingsService
 {
     /// <summary>Full path to wslc.exe.</summary>
@@ -63,30 +64,43 @@ public interface ISettingsService
     /// <summary>Selected AI provider.</summary>
     Models.AiProviderKind AiProvider { get; set; }
 
+    /// <summary>Endpoint URL for a local or remote Ollama server.</summary>
     string AiOllamaEndpoint { get; set; }
 
+    /// <summary>Ollama model name used for assistant requests.</summary>
     string AiOllamaModel { get; set; }
 
+    /// <summary>Azure OpenAI resource endpoint used for chat completions.</summary>
     string AiAzureOpenAiEndpoint { get; set; }
 
+    /// <summary>Azure OpenAI deployment name selected for the assistant.</summary>
     string AiAzureOpenAiDeployment { get; set; }
 
+    /// <summary>OpenAI-compatible endpoint used by the generic OpenAI provider.</summary>
     string AiOpenAiEndpoint { get; set; }
 
+    /// <summary>OpenAI-compatible model name selected for the assistant.</summary>
     string AiOpenAiModel { get; set; }
 
+    /// <summary>Loopback endpoint for an externally prepared Foundry Local runtime.</summary>
     string AiFoundryLocalEndpoint { get; set; }
 
+    /// <summary>Foundry Local model identifier selected in settings.</summary>
     string AiFoundryLocalModel { get; set; }
 
+    /// <summary>GitHub Copilot model identifier selected for assistant chat.</summary>
     string AiGitHubCopilotModel { get; set; }
 
+    /// <summary>Whether the assistant may create and run containers after approval.</summary>
     bool AiAssistantAutoCreateRun { get; set; }
 
+    /// <summary>Whether the assistant may start, stop, restart, or remove containers after approval.</summary>
     bool AiAssistantAutoLifecycle { get; set; }
 
+    /// <summary>Whether the assistant may generate Compose templates from prompts after approval.</summary>
     bool AiAssistantAutoComposeTemplate { get; set; }
 
+    /// <summary>Whether the assistant may run Kubernetes actions after approval.</summary>
     bool AiAssistantAutoKubernetes { get; set; }
 
     /// <summary>Names of assistant tools the user has opted to run automatically (no approval prompt).</summary>
@@ -153,7 +167,9 @@ public interface ISettingsService
     /// </summary>
     System.Collections.Generic.List<Models.RestartPolicyConfig> RestartPolicies { get; set; }
 
+    /// <summary>Loads settings from disk, falling back to defaults when the file is missing or invalid.</summary>
     void Load();
+    /// <summary>Persists current settings and raises <c>Changed</c> for observers.</summary>
     void Save();
 
     /// <summary>Raised after settings are persisted, so observers (e.g. the title-bar assistant button) can refresh.</summary>

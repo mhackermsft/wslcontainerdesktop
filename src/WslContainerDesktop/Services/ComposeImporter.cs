@@ -35,34 +35,49 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public static partial class ComposeImporter
 {
+    /// <summary>Base YAML node used after parsing so later phases do not depend directly on YamlDotNet events.</summary>
     private abstract class Node
     {
+        /// <summary>Compose merge tag such as <c>!reset</c> or <c>!override</c>, when one was present.</summary>
         public string? Tag { get; set; }
+        /// <summary>Sanitized breadcrumb used in user-facing errors instead of echoing raw paths or YAML.</summary>
         public string Source { get; set; } = "Compose input";
     }
 
+    /// <summary>Represents an explicit YAML null or a reset value after tag processing.</summary>
     private sealed class NullNode : Node;
 
+    /// <summary>Represents one scalar YAML value after interpolation.</summary>
     private sealed class ScalarNode(string value) : Node
     {
+        /// <summary>The scalar text exactly as the Compose parser should consume it.</summary>
         public string Value { get; } = value;
+        /// <summary>Line and column context used when interpolation reports a problem.</summary>
         public string Location { get; init; } = "Compose value";
+        /// <summary>True when this scalar was the special YAML merge key <c>&lt;&lt;</c>.</summary>
         public bool IsMergeKey { get; init; }
     }
 
+    /// <summary>Represents a YAML sequence, preserving item order for Compose merge and normalization rules.</summary>
     private sealed class SequenceNode(List<Node> items) : Node
     {
+        /// <summary>Child nodes in their original sequence order.</summary>
         public List<Node> Items { get; } = items;
     }
 
+    /// <summary>Represents a YAML mapping, the main shape used for services, networks, volumes, and options.</summary>
     private sealed class MappingNode(Dictionary<string, Node> map) : Node
     {
+        /// <summary>Mapping entries keyed by their Compose field name.</summary>
         public Dictionary<string, Node> Map { get; } = map;
         // Defer this default so an args-only override cannot erase an inherited build context.
+        /// <summary>Inherited build context to apply when a build block omits <c>context</c>.</summary>
         public string? DefaultBuildContext { get; set; }
 
+        /// <summary>Looks up a child value by key, returning null when the field is absent.</summary>
         public Node? Child(string key) => Map.TryGetValue(key, out var n) ? n : null;
 
+        /// <summary>Reads a child as scalar text when it has the expected shape.</summary>
         public string? Scalar(string key) => Child(key) is ScalarNode s ? s.Value : null;
     }
 
@@ -138,6 +153,7 @@ public static partial class ComposeImporter
         return ProjectRoot(root, directory, effectiveEnv, warnings);
     }
 
+    /// <summary>Converts the normalized root mapping into the persisted <c>ComposeProject</c> model.</summary>
     private static ComposeProject ProjectRoot(MappingNode root, string? baseDirectory,
         IReadOnlyDictionary<string, string> effectiveEnv, List<string> interpolationWarnings)
     {
@@ -281,13 +297,42 @@ public static partial class ComposeImporter
             var supported = field switch
             {
                 "ports" => new[] { "target", "published", "host_ip", "protocol" },
-                "volumes" => ["type", "source", "target", "read_only", "consistency"],
+                "volumes" => ["type", "source", "target", "read_only", "consistency", "bind", "volume", "tmpfs"],
                 _ => ["source", "target"],
             };
             foreach (var resource in resources.Items.OfType<MappingNode>())
-            foreach (var key in resource.Map.Keys)
-                if (!supported.Contains(key, StringComparer.Ordinal) && !key.StartsWith("x-", StringComparison.Ordinal))
-                    warnings.Add($"Service '{name}': '{field}.{key}' is not supported and was ignored.");
+            {
+                foreach (var key in resource.Map.Keys)
+                {
+                    if (!supported.Contains(key, StringComparer.Ordinal) && !key.StartsWith("x-", StringComparison.Ordinal))
+                    {
+                        warnings.Add($"Service '{name}': '{field}.{key}' is not supported and was ignored.");
+                    }
+                }
+
+                if (field == "volumes")
+                {
+                    AddUnsupportedMountOptionWarnings(name, resource, warnings);
+                }
+            }
+        }
+    }
+
+    private static void AddUnsupportedMountOptionWarnings(string service, MappingNode volume, List<string> warnings)
+    {
+        if (volume.Child("bind") is MappingNode bind && bind.Child("create_host_path") is not null)
+        {
+            warnings.Add($"Service '{service}': 'volumes.bind.create_host_path' is not supported by WSLC --mount and was ignored.");
+        }
+
+        if (volume.Child("volume") is MappingNode vol && vol.Child("nocopy") is not null)
+        {
+            warnings.Add($"Service '{service}': 'volumes.volume.nocopy' is not supported by WSLC --mount and was ignored.");
+        }
+
+        if (volume.Child("tmpfs") is MappingNode tmpfs && tmpfs.Child("size") is not null)
+        {
+            warnings.Add($"Service '{service}': 'volumes.tmpfs.size' is not supported by WSLC --mount and was ignored.");
         }
     }
 
@@ -370,6 +415,7 @@ public static partial class ComposeImporter
 
     private static ComposeService? BuildService(string serviceName, MappingNode svc, string? baseDirectory)
     {
+        var volumeEntries = CollectVolumeEntries(svc.Child("volumes"), baseDirectory);
         var options = new RunContainerOptions
         {
             Image = svc.Scalar("image")?.Trim() ?? string.Empty,
@@ -380,7 +426,8 @@ public static partial class ComposeImporter
             WorkingDir = svc.Scalar("working_dir")?.Trim(),
             Hostname = svc.Scalar("hostname")?.Trim(),
             PortMappings = CollectPorts(svc.Child("ports")),
-            Volumes = CollectVolumes(svc.Child("volumes")).Select(v => NormalizeVolumeSpec(v, baseDirectory)).ToList(),
+            Volumes = volumeEntries.Volumes,
+            Mounts = volumeEntries.Mounts,
             EnvironmentVariables = CollectKeyValues(svc.Child("environment")),
         };
 
@@ -401,6 +448,9 @@ public static partial class ComposeImporter
             throw new ComposeConfigurationException($"{svc.Source}: a Compose service has neither image nor build. Supply one before importing.");
         }
 
+        var stopGracePeriodSeconds = ParseDurationSeconds(svc.Scalar("stop_grace_period"));
+        options.StopTimeoutSeconds = stopGracePeriodSeconds;
+
         var service = new ComposeService
         {
             Name = serviceName,
@@ -411,7 +461,7 @@ public static partial class ComposeImporter
             Build = build,
             PullPolicy = pullPolicy,
             Profiles = CollectStrings(svc.Child("profiles")),
-            StopGracePeriodSeconds = ParseDurationSeconds(svc.Scalar("stop_grace_period")),
+            StopGracePeriodSeconds = stopGracePeriodSeconds,
             Secrets = ParseFileMounts(svc.Child("secrets"), "/run/secrets/"),
             Configs = ParseFileMounts(svc.Child("configs"), "/"),
         };
@@ -720,6 +770,7 @@ public static partial class ComposeImporter
                 Driver = cfg?.Scalar("driver")?.Trim(),
                 DriverOpts = CollectKeyValues(cfg?.Child("driver_opts")),
                 Labels = CollectLabels(cfg?.Child("labels")),
+                Internal = string.Equals(cfg?.Scalar("internal")?.Trim(), "true", StringComparison.OrdinalIgnoreCase),
                 External = IsExternal(cfg?.Child("external")),
             });
         }
@@ -899,17 +950,21 @@ public static partial class ComposeImporter
         return items;
     }
 
+    /// <summary>Temporary split of native volume names and bind/tmpfs mounts while parsing a service.</summary>
+    private sealed record VolumeEntries(List<string> Volumes, List<RunContainerMount> Mounts);
+
     /// <summary>
-    /// Reads a compose <c>volumes:</c> node into raw <c>source:target[:ro]</c> strings, accepting
-    /// both the short string form (<c>"./data:/data"</c>) and the long mapping form
-    /// (<c>{ type: bind, source: ./data, target: /data, read_only: true }</c>).
+    /// Reads service <c>volumes:</c>. Short strings stay as <c>-v</c>; long form maps to native
+    /// <c>--mount</c> so WSLC owns typed bind/volume/tmpfs semantics.
     /// </summary>
-    private static List<string> CollectVolumes(Node? node)
+    private static VolumeEntries CollectVolumeEntries(Node? node, string? baseDirectory)
     {
-        var items = new List<string>();
+        var volumes = new List<string>();
+        var mounts = new List<RunContainerMount>();
         if (node is not SequenceNode seq)
         {
-            return CollectStrings(node);
+            volumes.AddRange(CollectStrings(node).Select(v => NormalizeVolumeSpec(v, baseDirectory)));
+            return new(volumes, mounts);
         }
 
         foreach (var item in seq.Items)
@@ -917,7 +972,7 @@ public static partial class ComposeImporter
             switch (item)
             {
                 case ScalarNode s when !string.IsNullOrWhiteSpace(s.Value):
-                    items.Add(s.Value.Trim());
+                    volumes.Add(NormalizeVolumeSpec(s.Value, baseDirectory));
                     break;
 
                 case MappingNode map:
@@ -927,29 +982,32 @@ public static partial class ComposeImporter
                         break;
                     }
 
+                    var type = map.Scalar("type")?.Trim();
+                    if (string.IsNullOrWhiteSpace(type))
+                    {
+                        type = "volume";
+                    }
+
                     var source = map.Scalar("source")?.Trim();
-                    var readOnly = string.Equals(map.Scalar("read_only")?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
-                    string spec;
-                    if (string.IsNullOrWhiteSpace(source))
+                    if (!string.IsNullOrWhiteSpace(source) && type.Equals("bind", StringComparison.OrdinalIgnoreCase))
                     {
-                        spec = target; // anonymous volume
-                    }
-                    else
-                    {
-                        spec = $"{source}:{target}";
+                        source = ResolvePath(source, baseDirectory);
                     }
 
-                    if (readOnly)
+                    var mount = new RunContainerMount
                     {
-                        spec += ":ro";
-                    }
-
-                    items.Add(spec);
+                        Type = type,
+                        Source = string.IsNullOrWhiteSpace(source) ? null : source,
+                        Target = target,
+                        ReadOnly = string.Equals(map.Scalar("read_only")?.Trim(), "true", StringComparison.OrdinalIgnoreCase),
+                    };
+                    volumes.Add(mount.ToVolumeSpec());
+                    mounts.Add(mount);
                     break;
             }
         }
 
-        return items;
+        return new(volumes, mounts);
     }
 
     /// <summary>

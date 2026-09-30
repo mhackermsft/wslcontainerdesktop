@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers compose parsing semantics such as interpolation, YAML merges, ports, GPUs, replicas, unsupported resources, and saved schema round-trips.</summary>
 public sealed class ComposeSemanticsTests
 {
     [Theory]
@@ -516,7 +517,7 @@ public sealed class ComposeSemanticsTests
             """);
         Assert.Equal([
             "Service 'web': 'ports.mode' is not supported and was ignored.",
-            "Service 'web': 'volumes.volume' is not supported and was ignored.",
+            "Service 'web': 'volumes.volume.nocopy' is not supported by WSLC --mount and was ignored.",
             "Service 'web': 'secrets.uid' is not supported and was ignored.",
         ], project.Warnings);
     }

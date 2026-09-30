@@ -28,38 +28,49 @@ namespace WslContainerDesktop.ViewModels;
 /// <summary>Live resource row for the dashboard's running-containers table.</summary>
 public partial class DashboardStatRow : ObservableObject
 {
+    /// <summary>Value for name shown or edited by the view.</summary>
     [ObservableProperty]
     private string _name = string.Empty;
 
+    /// <summary>Value for cpu shown or edited by the view.</summary>
     [ObservableProperty]
     private string _cpu = "-";
 
+    /// <summary>Bindable state for cpu value used by the view.</summary>
     [ObservableProperty]
     private double _cpuValue;
 
+    /// <summary>Value for mem shown or edited by the view.</summary>
     [ObservableProperty]
     private string _mem = "-";
 
+    /// <summary>Bindable state for mem value used by the view.</summary>
     [ObservableProperty]
     private double _memValue;
 
+    /// <summary>Bindable state for mem usage used by the view.</summary>
     [ObservableProperty]
     private string _memUsage = "-";
 
+    /// <summary>Bindable state for net i o used by the view.</summary>
     [ObservableProperty]
     private string _netIO = "-";
 
+    /// <summary>Bindable state for block i o used by the view.</summary>
     [ObservableProperty]
     private string _blockIO = "-";
 
+    /// <summary>Bindable state for has gpu used by the view.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GpuTooltip))]
     private bool _hasGpu;
 
+    /// <summary>Bindable state for gpu name used by the view.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GpuTooltip))]
     private string? _gpuName;
 
+    /// <summary>Value for id shown or edited by the view.</summary>
     public string Id { get; set; } = string.Empty;
 
     /// <summary>True once GPU access has been probed for this row.</summary>
@@ -70,6 +81,13 @@ public partial class DashboardStatRow : ObservableObject
         ? "GPU passthrough enabled"
         : $"GPU: {GpuName}";
 
+    /// <summary>
+    /// Returns the container name. The dashboard's clickable ListView uses this as each row's
+    /// screen-reader name; without it Narrator would announce the type name.
+    /// </summary>
+    public override string ToString() => Name;
+
+    /// <summary>Provides the update operation to views or collaborating view models.</summary>
     public void Update(ContainerStats s)
     {
         Name = s.Name;
@@ -83,6 +101,7 @@ public partial class DashboardStatRow : ObservableObject
     }
 }
 
+/// <summary>Backs the Dashboard page with engine health, inventory counts and a short-lived polling loop for live container statistics.</summary>
 public partial class DashboardViewModel : ObservableObject
 {
     private readonly IWslcService _wslc;
@@ -92,38 +111,50 @@ public partial class DashboardViewModel : ObservableObject
 
     private CancellationTokenSource? _statsCts;
 
+    /// <summary>Bindable state for engine status used by the view.</summary>
     [ObservableProperty]
     private string _engineStatus = "Checking…";
 
+    /// <summary>Bindable state for engine healthy used by the view.</summary>
     [ObservableProperty]
     private bool _engineHealthy;
 
+    /// <summary>Bindable state for engine version used by the view.</summary>
     [ObservableProperty]
     private string _engineVersion = "-";
 
+    /// <summary>Bindable state for running containers used by the view.</summary>
     [ObservableProperty]
     private int _runningContainers;
 
+    /// <summary>Bindable state for total containers used by the view.</summary>
     [ObservableProperty]
     private int _totalContainers;
 
+    /// <summary>Bindable state for image count used by the view.</summary>
     [ObservableProperty]
     private int _imageCount;
 
+    /// <summary>Bindable state for volume count used by the view.</summary>
     [ObservableProperty]
     private int _volumeCount;
 
+    /// <summary>Bindable state for total cpu used by the view.</summary>
     [ObservableProperty]
     private string _totalCpu = "0%";
 
+    /// <summary>Bindable state for total cpu value used by the view.</summary>
     [ObservableProperty]
     private double _totalCpuValue;
 
+    /// <summary>Bindable state for total mem usage used by the view.</summary>
     [ObservableProperty]
     private string _totalMemUsage = "-";
 
+    /// <summary>Bindable state for live stats used by the view.</summary>
     public ObservableCollection<DashboardStatRow> LiveStats { get; } = new();
 
+    /// <summary>Creates the Dashboard view model and stores its injected services.</summary>
     public DashboardViewModel(IWslcService wslc, StatusMonitor monitor, ILogger<DashboardViewModel> logger)
     {
         _wslc = wslc;
@@ -138,8 +169,21 @@ public partial class DashboardViewModel : ObservableObject
         }
     }
 
-    private void OnStatusChanged(object? sender, EngineStatusSnapshot e) => Apply(e);
+    /// <summary>Handles status changed changes and updates related view-model state.</summary>
+    private void OnStatusChanged(object? sender, EngineStatusSnapshot e)
+    {
+        var wasHealthy = EngineHealthy;
+        Apply(e);
 
+        // The version and counts are only read on navigation; re-read them when the engine
+        // becomes usable again (engine recovery, or the WSL requirement being met after an update).
+        if (!wasHealthy && EngineHealthy)
+        {
+            _ = RefreshAsync();
+        }
+    }
+
+    /// <summary>Applies apply state to bindable properties.</summary>
     private void Apply(EngineStatusSnapshot snapshot)
     {
         EngineHealthy = snapshot.Health == EngineHealth.Healthy;
@@ -153,6 +197,7 @@ public partial class DashboardViewModel : ObservableObject
         TotalContainers = snapshot.TotalCount;
     }
 
+    /// <summary>Command handler for refresh actions triggered from the view.</summary>
     [RelayCommand]
     public async Task RefreshAsync()
     {
@@ -174,6 +219,7 @@ public partial class DashboardViewModel : ObservableObject
         }
     }
 
+    /// <summary>Provides the start stats polling operation to views or collaborating view models.</summary>
     public void StartStatsPolling()
     {
         StopStatsPolling();
@@ -211,6 +257,7 @@ public partial class DashboardViewModel : ObservableObject
         }, token);
     }
 
+    /// <summary>Applies apply stats state to bindable properties.</summary>
     private void ApplyStats(IReadOnlyList<ContainerStats> rawStats)
     {
         // `wslc stats` has been observed to report stale/orphaned entries for containers that no
@@ -264,6 +311,7 @@ public partial class DashboardViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the probe gpu workflow in this view model.</summary>
     private async Task ProbeGpuAsync(DashboardStatRow row)
     {
         row.GpuChecked = true;
@@ -279,6 +327,7 @@ public partial class DashboardViewModel : ObservableObject
         }
     }
 
+    /// <summary>Provides the stop stats polling operation to views or collaborating view models.</summary>
     public void StopStatsPolling()
     {
         try

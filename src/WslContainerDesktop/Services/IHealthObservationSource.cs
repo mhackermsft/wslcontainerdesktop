@@ -18,14 +18,22 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// One container health observation copied from the status monitor so Compose can make dependency
+/// decisions without launching a second probe.
+/// </summary>
 public sealed record HealthObservationRow(string Id, string Name, ContainerState ContainerState,
     NativeHealthState State, DateTimeOffset ObservedAt, ulong Generation = 0);
 
+/// <summary>
+/// Immutable point-in-time health inventory for the <c>wslc.exe</c> executable that produced it.
+/// </summary>
 public sealed record HealthObservationSnapshot(string ExecutablePath, DateTimeOffset ObservedAt,
     bool Available, IReadOnlyList<HealthObservationRow> Containers);
 
 /// <summary>Read-only immutable evidence from the existing status poller. Never initiates a probe.</summary>
 public interface IHealthObservationSource
 {
+    /// <summary>Returns the latest observed snapshot, or null before the status monitor has one.</summary>
     HealthObservationSnapshot? GetSnapshot();
 }

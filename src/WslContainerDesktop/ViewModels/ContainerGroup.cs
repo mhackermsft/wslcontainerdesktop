@@ -27,6 +27,7 @@ namespace WslContainerDesktop.ViewModels;
 /// </summary>
 public sealed class ContainerGroup : ObservableCollection<ContainerRowViewModel>
 {
+    /// <summary>Creates the ContainerGroup instance and stores the services it needs.</summary>
     public ContainerGroup(string key, string title, bool isProject)
     {
         Key = key;
@@ -42,4 +43,7 @@ public sealed class ContainerGroup : ObservableCollection<ContainerRowViewModel>
 
     /// <summary>True when the group represents a compose project (vs. standalone containers).</summary>
     public bool IsProject { get; }
+
+    /// <summary>Returns the header text so screen readers announce the group name, not the type.</summary>
+    public override string ToString() => Title;
 }

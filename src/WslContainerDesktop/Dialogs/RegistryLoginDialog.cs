@@ -25,10 +25,15 @@ public sealed class RegistryLoginDialog : ContentDialog
     private readonly TextBox _userBox;
     private readonly PasswordBox _passwordBox;
 
+    /// <summary>Gets or sets the username.</summary>
     public string Username { get; private set; } = string.Empty;
 
+    /// <summary>Gets or sets the password.</summary>
     public string Password { get; private set; } = string.Empty;
 
+    /// <summary>Creates a new &lt;c&gt;RegistryLoginDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="registryName">The registry name value supplied by the caller.</param>
+    /// <param name="prefillUsername">The prefill username value supplied by the caller.</param>
     public RegistryLoginDialog(string registryName, string? prefillUsername)
     {
         Title = $"Log in to {registryName}";

@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Verifies the GitHub Copilot SDK bridge preserves sanitized history and handles late tool callbacks safely.
+/// </summary>
 public sealed class GitHubCopilotProviderContractTests
 {
     private static readonly AiToolDefinition[] Tools =

@@ -22,6 +22,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Verifies that every AI provider adapter preserves trusted schema while redacting untrusted transcript evidence.
+/// </summary>
 public sealed class AiProviderContractTests
 {
     [Theory]
@@ -596,6 +599,9 @@ public sealed class AiProviderContractTests
         Assert.Single(handler.Requests);
     }
 
+    /// <summary>
+    /// Mutable in-memory credential source used to prove a provider captures configuration at the correct time.
+    /// </summary>
     private sealed class MutableCredentials : IAiCredentialStore
     {
         public string Secret { get; set; } = "synthetic-original";

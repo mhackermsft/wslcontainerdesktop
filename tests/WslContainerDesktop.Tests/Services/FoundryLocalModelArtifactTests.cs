@@ -428,6 +428,9 @@ public sealed class FoundryLocalModelArtifactTests
         Assert.Single(fixture.Http.Requests);
     }
 
+    /// <summary>
+    /// Test clock that lets download-deadline logic advance without sleeping.
+    /// </summary>
     private sealed class DeadlineClock : TimeProvider
     {
         private Action? _expire;
@@ -446,17 +449,26 @@ public sealed class FoundryLocalModelArtifactTests
         }
     }
 
+    /// <summary>
+    /// Records model artifact progress immediately on the calling thread for deterministic assertions.
+    /// </summary>
     private sealed class InlineProgress : IProgress<string>
     {
         internal List<string> Messages { get; } = [];
         public void Report(string value) => Messages.Add(value);
     }
 
+    /// <summary>
+    /// Base stream that mimics HTTP response bodies, which cannot be rewound by the downloader.
+    /// </summary>
     private class NonSeekStream(byte[] bytes) : MemoryStream(bytes)
     {
         public override bool CanSeek => false;
     }
 
+    /// <summary>
+    /// Stream that cancels during model download to exercise cleanup paths.
+    /// </summary>
     private sealed class CancelStream(byte[] bytes, CancellationTokenSource cts) : NonSeekStream(bytes)
     {
         private int _reads;
@@ -467,12 +479,18 @@ public sealed class FoundryLocalModelArtifactTests
         }
     }
 
+    /// <summary>
+    /// Stream that throws mid-read so tests can verify failed downloads do not leave trusted receipts.
+    /// </summary>
     private sealed class ThrowStream(byte[] bytes) : NonSeekStream(bytes)
     {
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
             => throw new IOException("Transport failed at ?sig=" + Fixture.Secret);
     }
 
+    /// <summary>
+    /// Builds synthetic Foundry Local model manifests, cache paths and HTTP responses for artifact setup tests.
+    /// </summary>
     private sealed class Fixture : IDisposable
     {
         internal const string Secret = "synthetic-SAS-do-not-leak";
@@ -535,6 +553,9 @@ public sealed class FoundryLocalModelArtifactTests
         }
     }
 
+    /// <summary>
+    /// Scripted HTTP handler that enforces request order for registry and blob download scenarios.
+    /// </summary>
     private sealed class HttpStub : HttpMessageHandler
     {
         internal List<Uri> Requests { get; } = [];

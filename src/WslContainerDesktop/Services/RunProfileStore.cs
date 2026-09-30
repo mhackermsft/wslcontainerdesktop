@@ -39,15 +39,18 @@ public sealed class RunProfileStore : IRunProfileStore
     private readonly ILogger<RunProfileStore> _logger;
     private readonly List<RunProfile> _profiles = new();
 
+    /// <summary>Creates the file-backed store using the app's standard local settings directory.</summary>
     public RunProfileStore(ILogger<RunProfileStore> logger)
     {
         _logger = logger;
         Load();
     }
 
+    /// <inheritdoc/>
     public IReadOnlyList<RunProfile> GetAll() =>
         _profiles.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
 
+    /// <inheritdoc/>
     public IReadOnlyList<RunProfile> GetForImage(string image)
     {
         if (string.IsNullOrWhiteSpace(image))
@@ -62,11 +65,13 @@ public sealed class RunProfileStore : IRunProfileStore
             .ToList();
     }
 
+    /// <inheritdoc/>
     public RunProfile? Get(string name) =>
         string.IsNullOrWhiteSpace(name)
             ? null
             : _profiles.FirstOrDefault(p => string.Equals(p.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
 
+    /// <inheritdoc/>
     public void Save(RunProfile profile)
     {
         if (profile is null || string.IsNullOrWhiteSpace(profile.Name))
@@ -80,6 +85,7 @@ public sealed class RunProfileStore : IRunProfileStore
         Persist();
     }
 
+    /// <inheritdoc/>
     public void Delete(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -94,6 +100,7 @@ public sealed class RunProfileStore : IRunProfileStore
         }
     }
 
+    /// <summary>Loads saved run profiles, ignoring corrupt files and duplicate names safely.</summary>
     private void Load()
     {
         try
@@ -132,6 +139,7 @@ public sealed class RunProfileStore : IRunProfileStore
         }
     }
 
+    /// <summary>Writes the ordered profile list back to the JSON settings file.</summary>
     private void Persist()
     {
         try

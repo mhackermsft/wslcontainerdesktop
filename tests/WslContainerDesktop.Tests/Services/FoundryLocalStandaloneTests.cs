@@ -155,6 +155,9 @@ public sealed class FoundryLocalStandaloneTests
         Assert.Throws<InvalidDataException>(() => FoundryLocalStandaloneRuntimeService.ParseModelIds(json.RootElement));
     }
 
+    /// <summary>
+    /// Returns synthetic local model metadata to prove standalone capability checks do not contact stale endpoints.
+    /// </summary>
     private sealed class ModelsHandler : HttpMessageHandler
     {
         internal int Requests;

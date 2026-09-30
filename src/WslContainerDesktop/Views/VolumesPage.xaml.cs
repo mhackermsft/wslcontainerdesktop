@@ -24,14 +24,17 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page that lists container volumes and supports inspect, bulk remove, and refresh operations.</summary>
 public sealed partial class VolumesPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public VolumesPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<VolumesViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Volume inventory view model bound by the page.</summary>
     public VolumesViewModel ViewModel { get; }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

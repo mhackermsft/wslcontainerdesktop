@@ -15,20 +15,26 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.Storage.Pickers;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page for WSL container engine status, storage location, and WSL session maintenance actions.</summary>
 public sealed partial class WslEnginePage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public WslEnginePage()
     {
         ViewModel = App.Current.Services.GetRequiredService<WslEngineViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>WSL engine view model bound by the page.</summary>
     public WslEngineViewModel ViewModel { get; }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -36,4 +42,20 @@ public sealed partial class WslEnginePage : Page
         base.OnNavigatedTo(e);
         await ViewModel.RefreshAsync();
     }
+
+    private void ChangeStorageLocation_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
+    {
+        var picker = new FolderPicker
+        {
+            SuggestedStartLocation = PickerLocationId.ComputerFolder,
+        };
+        picker.FileTypeFilter.Add("*");
+        var hwnd = Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is not null)
+        {
+            await ViewModel.ChangeStorageLocationAsync(folder.Path);
+        }
+    });
 }

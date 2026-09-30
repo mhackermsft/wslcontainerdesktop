@@ -20,8 +20,13 @@ using System.Text.Json;
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Model object that stores container port parser information used by services, view models, or dialogs.</summary>
 internal static class ContainerPortParser
 {
+    /// <summary>Performs the read structured helper used by this model or dialog.</summary>
+    /// <param name="value">The value value supplied by the caller.</param>
+    /// <param name="options">The options value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     internal static List<PortMapping> ReadStructured(JsonElement value, JsonSerializerOptions options)
     {
         var ports = JsonSerializer.Deserialize<List<PortMapping>>(value, options)
@@ -33,6 +38,10 @@ internal static class ContainerPortParser
     }
 
     // Only explicit single-port bindings are lossless. Empty/exposed-only/range displays need inspect.
+    /// <summary>Attempts the display helper and reports whether it succeeded.</summary>
+    /// <param name="display">The display value supplied by the caller.</param>
+    /// <param name="ports">The ports value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     internal static bool TryDisplay(string display, out List<PortMapping> ports)
     {
         ports = [];
@@ -63,6 +72,11 @@ internal static class ContainerPortParser
         return true;
     }
 
+    /// <summary>Attempts the inspect helper and reports whether it succeeded.</summary>
+    /// <param name="root">The root value supplied by the caller.</param>
+    /// <param name="options">The options value supplied by the caller.</param>
+    /// <param name="ports">The ports value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     internal static bool TryInspect(JsonElement root, JsonSerializerOptions options, out List<PortMapping> ports)
     {
         ports = [];

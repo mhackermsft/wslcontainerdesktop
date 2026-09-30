@@ -23,14 +23,34 @@ namespace WslContainerDesktop.Models;
 /// </summary>
 public sealed class ContainerDetails
 {
+    /// <summary>Gets or sets the command.</summary>
     public string Command { get; init; } = "-";
+    /// <summary>Gets or sets the ip address.</summary>
     public string IpAddress { get; init; } = "-";
+    /// <summary>Gets or sets the started at.</summary>
     public string StartedAt { get; init; } = "-";
+    /// <summary>Gets or sets the working dir.</summary>
     public string WorkingDir { get; init; } = "-";
+    /// <summary>Gets or sets the network mode.</summary>
     public string NetworkMode { get; init; } = "-";
+    /// <summary>Gets or sets the environment.</summary>
     public IReadOnlyList<string> Environment { get; init; } = Array.Empty<string>();
+    /// <summary>Gets or sets the mounts.</summary>
     public IReadOnlyList<string> Mounts { get; init; } = Array.Empty<string>();
+    /// <summary>Gets or sets the networks.</summary>
+    public IReadOnlyList<NetworkAttachment> Networks { get; init; } = Array.Empty<NetworkAttachment>();
+    /// <summary>Gets or sets the size rw bytes.</summary>
+    public long? SizeRwBytes { get; init; }
+    /// <summary>Gets or sets the size root fs bytes.</summary>
+    public long? SizeRootFsBytes { get; init; }
+    /// <summary>Gets the size rw display.</summary>
+    public string SizeRwDisplay => SizeRwBytes is long bytes ? HumanSize(bytes) : "-";
+    /// <summary>Gets the size root fs display.</summary>
+    public string SizeRootFsDisplay => SizeRootFsBytes is long bytes ? HumanSize(bytes) : "-";
 
+    /// <summary>Parses input into parse data used by the app.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static ContainerDetails Parse(string json)
     {
         try
@@ -89,6 +109,7 @@ public sealed class ContainerDetails
 
             var ip = "-";
             var networkMode = "-";
+            var networkAttachments = new List<NetworkAttachment>();
             if (el.TryGetProperty("NetworkSettings", out var ns) &&
                 ns.TryGetProperty("Networks", out var nets) &&
                 nets.ValueKind == JsonValueKind.Object)
@@ -98,12 +119,32 @@ public sealed class ContainerDetails
                 foreach (var net in nets.EnumerateObject())
                 {
                     networkNames.Add(net.Name);
+                    var attachment = new NetworkAttachment { Network = net.Name };
+                    if (net.Value.TryGetProperty("Aliases", out var aliases) && aliases.ValueKind == JsonValueKind.Array)
+                    {
+                        attachment.Aliases = aliases.EnumerateArray()
+                            .Where(a => a.ValueKind == JsonValueKind.String)
+                            .Select(a => a.GetString()!)
+                            .Where(a => !string.IsNullOrWhiteSpace(a))
+                            .Distinct(StringComparer.Ordinal)
+                            .ToList();
+                    }
+
+                    if (net.Value.TryGetProperty("IPAMConfig", out var ipam) && ipam.ValueKind == JsonValueKind.Object &&
+                        ipam.TryGetProperty("IPv4Address", out var requested) && requested.ValueKind == JsonValueKind.String)
+                    {
+                        attachment.Ipv4Address = requested.GetString();
+                    }
+
                     if (net.Value.TryGetProperty("IPAddress", out var ipEl) &&
                         ipEl.ValueKind == JsonValueKind.String &&
                         !string.IsNullOrEmpty(ipEl.GetString()))
                     {
+                        attachment.Ipv4Address = ipEl.GetString();
                         addresses.Add($"{net.Name}: {ipEl.GetString()}");
                     }
+
+                    networkAttachments.Add(attachment);
                 }
 
                 networkMode = networkNames.Count == 0 ? "-" : string.Join(", ", networkNames);
@@ -124,6 +165,9 @@ public sealed class ContainerDetails
                     ? m.Destination! : $"{m.Source ?? m.Name} -> {m.Destination}")
                 .ToList();
 
+            var sizeRw = ReadOptionalInt64(el, "SizeRw");
+            var sizeRootFs = ReadOptionalInt64(el, "SizeRootFs");
+
             return new ContainerDetails
             {
                 Command = command,
@@ -133,11 +177,43 @@ public sealed class ContainerDetails
                 IpAddress = ip,
                 NetworkMode = networkMode,
                 Mounts = mounts,
+                Networks = networkAttachments,
+                SizeRwBytes = sizeRw,
+                SizeRootFsBytes = sizeRootFs,
             };
         }
         catch
         {
             return new ContainerDetails();
         }
+    }
+
+    private static long? ReadOptionalInt64(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt64(out var number) => number,
+            JsonValueKind.String when long.TryParse(value.GetString(), out var number) => number,
+            _ => null,
+        };
+    }
+
+    private static string HumanSize(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB", "TB" };
+        double value = bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes} B" : $"{value:0.##} {units[unit]}";
     }
 }

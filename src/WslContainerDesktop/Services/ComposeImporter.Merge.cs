@@ -16,8 +16,10 @@
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>Merge and normalization portion of <c>ComposeImporter</c>; implements Compose override and <c>extends</c> rules before model projection.</summary>
 public static partial class ComposeImporter
 {
+    /// <summary>Merges two Compose mappings according to override-file rules.</summary>
     private static MappingNode MergeMappings(MappingNode basis, MappingNode overlay, string context = "")
     {
         var result = new Dictionary<string, Node>(basis.Map, StringComparer.Ordinal);
@@ -41,6 +43,7 @@ public static partial class ComposeImporter
         };
     }
 
+    /// <summary>Merges one value while honoring Compose replacement, reset, and resource identity rules.</summary>
     private static Node MergeValue(Node basis, Node overlay, string context)
     {
         if (overlay.Tag is "!reset" or "!override") return overlay;
@@ -83,6 +86,7 @@ public static partial class ComposeImporter
         return overlay;
     }
 
+    /// <summary>Applies <c>!reset</c> and removes tag metadata once merge semantics have used it.</summary>
     private static Node ApplyTags(Node node)
     {
         if (node.Tag == "!reset") return new NullNode();
@@ -99,6 +103,7 @@ public static partial class ComposeImporter
         return result;
     }
 
+    /// <summary>Combines an extended base service with the child service definition.</summary>
     private static MappingNode ExtendService(MappingNode basis, MappingNode child)
     {
         if (child.Child("healthcheck") is MappingNode health && health.Tag != "!reset" &&
@@ -110,9 +115,11 @@ public static partial class ComposeImporter
         return (MappingNode)ExtendValue(basis, child, "");
     }
 
+    /// <summary>Reads YAML boolean-like scalar nodes used by Compose options.</summary>
     private static bool IsTrue(Node? node) =>
         node is ScalarNode scalar && bool.TryParse(scalar.Value, out var value) && value;
 
+    /// <summary>Implements Compose <c>extends</c> field-specific merge behavior.</summary>
     private static Node ExtendValue(Node basis, Node child, string field)
     {
         if (child.Tag is "!reset" or "!override") return child;
@@ -179,6 +186,7 @@ public static partial class ComposeImporter
         return child;
     }
 
+    /// <summary>Builds a canonical identity for sequence items that <c>extends</c> must de-duplicate.</summary>
     private static Node ExtendsSequenceIdentity(Node node, string field)
     {
         if (node is not MappingNode map || field is not ("ports" or "secrets" or "configs")) return node;
@@ -190,6 +198,7 @@ public static partial class ComposeImporter
         return new MappingNode(canonical);
     }
 
+    /// <summary>Returns the target path or resource key that identifies an extendable sequence item.</summary>
     private static string ExtendsTarget(Node node, string field) => field switch
     {
         "volumes" => ResourceKey(node, "service.volumes"),
@@ -199,6 +208,7 @@ public static partial class ComposeImporter
         _ => RequiredScalar((node as MappingNode)?.Child("path"), "extends " + field + ".path"),
     };
 
+    /// <summary>Performs structural equality over the internal node tree.</summary>
     private static bool EqualNodes(Node left, Node right) => (left, right) switch
     {
         (NullNode, NullNode) => true,
@@ -210,13 +220,17 @@ public static partial class ComposeImporter
         _ => false,
     };
 
+    /// <summary>Structural comparer used when Compose requires de-duplicating equivalent nodes.</summary>
     private sealed class NodeEqualityComparer : IEqualityComparer<Node>
     {
+    /// <summary>Singleton comparer instance to avoid repeated allocations.</summary>
         public static NodeEqualityComparer Instance { get; } = new();
 
+    /// <summary>Compares two nodes using the importer's structural equality rules.</summary>
         public bool Equals(Node? left, Node? right) =>
             ReferenceEquals(left, right) || left is not null && right is not null && EqualNodes(left, right);
 
+    /// <summary>Computes a structural hash code compatible with <c>Equals</c>.</summary>
         public int GetHashCode(Node node)
         {
             var hash = new HashCode();
@@ -241,6 +255,7 @@ public static partial class ComposeImporter
         }
     }
 
+    /// <summary>Normalizes the whole Compose document into mapping shapes used by later parsing.</summary>
     private static MappingNode NormalizeRoot(MappingNode root)
     {
         var resourceBudget = 100_000;
@@ -260,6 +275,7 @@ public static partial class ComposeImporter
         return root;
     }
 
+    /// <summary>Normalizes short service syntax such as ports, volumes, build, labels, and environment.</summary>
     private static MappingNode NormalizeService(MappingNode service, ref int resourceBudget)
     {
         foreach (var key in service.Map.Keys.ToList())
@@ -301,6 +317,7 @@ public static partial class ComposeImporter
         return service;
     }
 
+    /// <summary>Converts <c>KEY=VALUE</c> lists into Compose mapping form.</summary>
     private static MappingNode NormalizePairs(SequenceNode pairs, string key)
     {
         var map = new Dictionary<string, Node>(StringComparer.Ordinal);
@@ -315,6 +332,7 @@ public static partial class ComposeImporter
         return new MappingNode(map) { Tag = pairs.Tag };
     }
 
+    /// <summary>Converts both list and mapping forms of <c>extra_hosts</c> to canonical strings.</summary>
     private static SequenceNode NormalizeExtraHosts(Node value)
     {
         var entries = new List<string>();
@@ -353,6 +371,7 @@ public static partial class ComposeImporter
         return new SequenceNode(normalized) { Tag = value.Tag };
     }
 
+    /// <summary>Normalizes resource lists and coalesces entries that target the same port, mount, secret, or config.</summary>
     private static SequenceNode NormalizeResources(SequenceNode resources, string key, ref int budget)
     {
         var items = new List<Node>();
@@ -379,6 +398,7 @@ public static partial class ComposeImporter
         return new SequenceNode(items);
     }
 
+    /// <summary>Expands a port range into individual normalized port mappings.</summary>
     private static List<Node> ExpandPort(MappingNode port)
     {
         var target = port.Scalar("target") ?? throw ShapeError("ports", "a target port");
@@ -413,6 +433,7 @@ public static partial class ComposeImporter
         return result;
     }
 
+    /// <summary>Parses an ascending TCP/UDP/SCTP port or port range.</summary>
     private static List<int> PortRange(string range, bool allowZero = false)
     {
         var values = range.Split('-', 2);
@@ -424,16 +445,18 @@ public static partial class ComposeImporter
         return Enumerable.Range(start, end - start + 1).ToList();
     }
 
+    /// <summary>Creates a mapping node from non-null scalar fields.</summary>
     private static MappingNode Fields(params (string Key, string? Value)[] fields) =>
         new(fields.Where(p => p.Value is not null).ToDictionary(p => p.Key,
             p => (Node)new ScalarNode(p.Value!), StringComparer.Ordinal));
 
+    /// <summary>Converts short-form port, volume, secret, or config syntax into mapping form.</summary>
     private static Node NormalizeResource(Node item, string key)
     {
         if (item is MappingNode map)
         {
-            if (key == "volumes" && map.Scalar("type") is { } type && type is not ("bind" or "volume"))
-                throw ShapeError("volumes.type", "bind or volume (other long mount types are unsupported)");
+            if (key == "volumes" && map.Scalar("type") is { } type && type is not ("bind" or "volume" or "tmpfs"))
+                throw ShapeError("volumes.type", "bind, volume, or tmpfs");
             if (key is "secrets" or "configs" && map.Child("target") is null && map.Scalar("source") is { } source)
                 map.Map["target"] = new ScalarNode(source);
             if (key == "ports" && map.Child("protocol") is null)
@@ -470,6 +493,7 @@ public static partial class ComposeImporter
         return result;
     }
 
+    /// <summary>Computes the Compose identity key for a normalized service resource.</summary>
     private static string ResourceKey(Node node, string context)
     {
         if (node is not MappingNode map) throw ShapeError(context, "normalized resource mappings");
@@ -482,9 +506,11 @@ public static partial class ComposeImporter
         return target;
     }
 
+    /// <summary>Builds a user-facing error for an unsupported YAML shape.</summary>
     private static ComposeConfigurationException ShapeError(string field, string expected) =>
         new($"Compose field '{field}' requires {expected}. Check the field's YAML shape.");
 
+    /// <summary>Validates service value shapes after normalization and before model projection.</summary>
     private static void ValidateServices(MappingNode root)
     {
         if (root.Child("services") is null or NullNode) return;

@@ -25,4 +25,5 @@ namespace WslContainerDesktop.Services;
 /// designed is not a configuration problem, and saying so sends the user looking for a setting that
 /// will not help.
 /// </summary>
+/// <param name="message">User-facing explanation of why the assistant turn was stopped.</param>
 public sealed class AssistantIterationLimitException(string message) : InvalidOperationException(message);

@@ -22,6 +22,9 @@ namespace WslContainerDesktop.Models;
 /// <summary>The immutable Windows working directory and scripts for one start or rebuild.</summary>
 public sealed class DevContainerHostCommandReview
 {
+    /// <summary>Creates a new &lt;c&gt;DevContainerHostCommandReview&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="workspacePath">The workspace path value supplied by the caller.</param>
+    /// <param name="commands">The commands value supplied by the caller.</param>
     internal DevContainerHostCommandReview(string workspacePath, IEnumerable<string> commands)
     {
         Commands = Array.AsReadOnly(commands.Where(c => !string.IsNullOrWhiteSpace(c)).ToArray());
@@ -32,11 +35,14 @@ public sealed class DevContainerHostCommandReview
     }
 
     // Only these original values may be used for execution.
+    /// <summary>Gets the workspace path.</summary>
     public string WorkspacePath { get; }
+    /// <summary>Gets the commands.</summary>
     public IReadOnlyList<string> Commands { get; }
 
     /// <summary>Display-only escaping prevents invisible characters from concealing the reviewed inputs.</summary>
     public string DisplayWorkspacePath { get; }
+    /// <summary>Gets the display commands.</summary>
     public IReadOnlyList<string> DisplayCommands { get; }
 
     private static string ResolveWorkspace(string workspacePath)
@@ -52,6 +58,9 @@ public sealed class DevContainerHostCommandReview
         return fullPath;
     }
 
+    /// <summary>Performs the escape for display helper used by this model or dialog.</summary>
+    /// <param name="text">The text value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     internal static string EscapeForDisplay(string text)
     {
         var display = new StringBuilder(text.Length);

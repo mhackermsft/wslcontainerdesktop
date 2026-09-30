@@ -19,10 +19,29 @@ namespace WslContainerDesktop.Models;
 /// <summary>Desired endpoint settings, scoped to one network rather than to the container.</summary>
 public sealed class NetworkAttachment
 {
+    /// <summary>
+    /// Returns the network name. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Network;
+
+    /// <summary>Gets or sets the network.</summary>
     public string Network { get; set; } = string.Empty;
+    /// <summary>Gets or sets the aliases.</summary>
     public List<string> Aliases { get; set; } = new();
+    /// <summary>Gets or sets the ipv4 address.</summary>
     public string? Ipv4Address { get; set; }
 
+    /// <summary>Gets the aliases display.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string AliasesDisplay => Aliases.Count == 0 ? "-" : string.Join(", ", Aliases);
+
+    /// <summary>Gets the ipv4 display.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Ipv4Display => string.IsNullOrWhiteSpace(Ipv4Address) ? "-" : Ipv4Address!;
+
+    /// <summary>Creates a copy so callers can edit options without mutating the original instance.</summary>
+    /// <returns>The requested value for the caller.</returns>
     public NetworkAttachment Clone() => new()
     {
         Network = Network,
@@ -30,6 +49,9 @@ public sealed class NetworkAttachment
         Ipv4Address = Ipv4Address,
     };
 
+    /// <summary>Converts model data for to connect arguments scenarios.</summary>
+    /// <param name="containerId">The container id value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public List<string> ToConnectArguments(string containerId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(Network);
@@ -41,6 +63,8 @@ public sealed class NetworkAttachment
         return args;
     }
 
+    /// <summary>Performs the add endpoint arguments helper used by this model or dialog.</summary>
+    /// <param name="args">The args value supplied by the caller.</param>
     public void AddEndpointArguments(List<string> args)
     {
         foreach (var alias in Aliases.Where(a => !string.IsNullOrWhiteSpace(a))

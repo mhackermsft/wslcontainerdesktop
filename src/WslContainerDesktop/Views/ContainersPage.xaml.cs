@@ -18,14 +18,18 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Navigation;
+using Windows.Storage.Pickers;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page that lists WSL containers, groups them by project, and routes row actions to <c>ContainersViewModel</c>.</summary>
 public sealed partial class ContainersPage : Page
 {
     private readonly CollectionViewSource _groupedContainers = new() { IsSourceGrouped = true };
 
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public ContainersPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<ContainersViewModel>();
@@ -36,7 +40,14 @@ public sealed partial class ContainersPage : Page
         ContainersList.ItemsSource = _groupedContainers.View;
     }
 
+    /// <summary>Container list/detail view model bound by the page.</summary>
     public ContainersViewModel ViewModel { get; }
+
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        _ = ViewModel.RefreshSizesAsync();
+    }
 
     private void ContainersList_ItemClick(object sender, ItemClickEventArgs e)
     {
@@ -137,6 +148,34 @@ public sealed partial class ContainersPage : Page
         }
     }
 
+    private async void ExportMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is not { } row)
+        {
+            return;
+        }
+
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = row.Name + "-filesystem",
+        };
+        picker.FileTypeChoices.Add("Tar archive", [".tar"]);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+        if (await picker.PickSaveFileAsync() is { } file)
+        {
+            await ViewModel.ExportContainerAsync(row, file.Path);
+        }
+    }
+
+    private void AttachMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            ViewModel.AttachCommand.Execute(row);
+        }
+    }
+
     private void RemoveMenu_Click(object sender, RoutedEventArgs e)
     {
         if (RowOf(sender) is { } row)
@@ -144,4 +183,7 @@ public sealed partial class ContainersPage : Page
             ViewModel.RemoveCommand.Execute(row);
         }
     }
+
+    private static nint GetMainWindowHandle() =>
+        Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
 }

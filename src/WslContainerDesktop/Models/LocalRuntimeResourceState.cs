@@ -19,8 +19,12 @@ namespace WslContainerDesktop.Models;
 /// <summary>Observed outcome for a runtime or its data, independent of the runtime backend.</summary>
 public enum LocalRuntimeResourceState
 {
+    /// <summary>Represents the unknown option.</summary>
     Unknown,
+    /// <summary>Represents the absent option.</summary>
     Absent,
+    /// <summary>Represents the retained option.</summary>
     Retained,
+    /// <summary>Represents the removed option.</summary>
     Removed,
 }

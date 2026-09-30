@@ -27,6 +27,10 @@ internal sealed class ContainerPortResolver
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private sealed record Entry(long CreatedAt, int State, string Name, DateTimeOffset Expires, List<PortMapping>? Ports);
 
+    /// <summary>
+    /// Enriches containers missing port metadata by inspecting a small number per refresh and caching
+    /// results until the container identity or state changes.
+    /// </summary>
     internal async Task ResolveAsync(
         IReadOnlyList<ContainerInfo> containers,
         bool completeInventory,
@@ -93,6 +97,7 @@ internal sealed class ContainerPortResolver
     }
 
     // Inspect resolves one engine identifier, never an arbitrary prefix match across inventory rows.
+    /// <summary>Checks that inspect returned the exact container requested, allowing Docker-style short IDs.</summary>
     internal static bool MatchesId(string requested, string inspected) =>
         string.Equals(requested, inspected, StringComparison.Ordinal) ||
         requested.Length >= 12 && inspected.StartsWith(requested, StringComparison.Ordinal);

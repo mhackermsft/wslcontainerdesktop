@@ -20,6 +20,16 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Defines the controlled tools the AI assistant may call to inspect or mutate WSL containers,
+/// Compose projects, registries, and k3s resources. Each tool is resolved to a permission category
+/// and an immutable execution delegate so the approval UI shows exactly what will run.
+/// </summary>
+/// <remarks>
+/// This class is the safety boundary between model output and app services: it validates JSON
+/// arguments, withholds disabled or unavailable tools, sanitizes all returned text, and rechecks
+/// mutable targets after approval before running state-changing operations.
+/// </remarks>
 public sealed partial class AssistantToolset(
     IWslcService wslc,
     IKubernetesService kubernetes,
@@ -34,6 +44,7 @@ public sealed partial class AssistantToolset(
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<AiToolDefinition>> GetDefinitionsAsync(CancellationToken ct)
     {
         var definitions = new List<AiToolDefinition>
@@ -45,6 +56,7 @@ public sealed partial class AssistantToolset(
             Tool("list_volumes", "List volumes."),
             Tool("list_networks", "List networks."),
             Tool("engine_status", "Check WSL container engine availability and version."),
+            Tool("engine_system_info", "Read sanitized wslc system info: versions, settings path, sessions and platform versions."),
             Tool("engine_capabilities", "Read Supported/Unsupported/Unknown engine evidence. Unknown is not permission; never infer flags from versions."),
             Tool("get_health_observations", "Read cached native/app health and staleness. No probes or auto-heal."),
             Tool("get_volume_usage", "Scan mount users including stopped containers. Not disk usage or deletion permission."),
@@ -137,6 +149,7 @@ public sealed partial class AssistantToolset(
         return definitions;
     }
 
+    /// <inheritdoc/>
     public async Task<AssistantResolvedToolCall> ResolveAsync(AiToolCall call, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -150,6 +163,7 @@ public sealed partial class AssistantToolset(
             "list_volumes" => Resolved(call, AssistantPermissionCategory.ReadOnly, "List volumes", "", token => ListVolumesAsync(token)),
             "list_networks" => Resolved(call, AssistantPermissionCategory.ReadOnly, "List networks", "", token => ListNetworksAsync(token)),
             "engine_status" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Check engine status", "", token => EngineStatusAsync(token)),
+            "engine_system_info" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Read engine system info", "", token => EngineSystemInfoAsync(token)),
             "engine_capabilities" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Read engine capabilities", "", token => AiCapabilityGuidance.GetAsync(engineCapabilities, token)),
             "get_health_observations" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Read cached native health", "", _ => Task.FromResult(GetHealthObservations())),
             "get_volume_usage" => Resolved(call, AssistantPermissionCategory.ReadOnly, "Read volume usage", "", GetVolumeUsageAsync),
@@ -183,13 +197,15 @@ public sealed partial class AssistantToolset(
         };
     }
 
+    /// <summary>Lists all containers as sanitized JSON for the assistant.</summary>
     [Description("Read-only: list containers, including stopped containers.")]
     public async Task<string> ListContainersAsync(CancellationToken ct)
     {
-        var containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+        var containers = await wslc.ListContainersAsync(all: true, ct, includeSize: true).ConfigureAwait(false);
         return JsonSerializer.Serialize(containers, JsonOptions);
     }
 
+    /// <summary>Inspects one container and returns bounded, sanitized CLI output.</summary>
     [Description("Read-only: inspect a container by id or name.")]
     public async Task<string> InspectContainerAsync(string id, CancellationToken ct)
     {
@@ -197,6 +213,7 @@ public sealed partial class AssistantToolset(
         return Summarize(result);
     }
 
+    /// <summary>Reads a bounded tail of container logs for diagnostic questions.</summary>
     [Description("Read-only: get recent container logs.")]
     public async Task<string> GetContainerLogsAsync(string id, int tail, CancellationToken ct)
     {
@@ -204,18 +221,22 @@ public sealed partial class AssistantToolset(
         return Summarize(result);
     }
 
+    /// <summary>Lists local container images as JSON.</summary>
     [Description("Read-only: list local images.")]
     public async Task<string> ListImagesAsync(CancellationToken ct) =>
         JsonSerializer.Serialize(await wslc.ListImagesAsync(ct).ConfigureAwait(false), JsonOptions);
 
+    /// <summary>Lists local container volumes as JSON.</summary>
     [Description("Read-only: list volumes.")]
     public async Task<string> ListVolumesAsync(CancellationToken ct) =>
         JsonSerializer.Serialize(await wslc.ListVolumesAsync(ct).ConfigureAwait(false), JsonOptions);
 
+    /// <summary>Lists local container networks as JSON.</summary>
     [Description("Read-only: list networks.")]
     public async Task<string> ListNetworksAsync(CancellationToken ct) =>
         JsonSerializer.Serialize(await wslc.ListNetworksAsync(ct).ConfigureAwait(false), JsonOptions);
 
+    /// <summary>Reports whether the configured <c>wslc</c> engine is reachable and which version it reports.</summary>
     [Description("Read-only: get engine status.")]
     public async Task<string> EngineStatusAsync(CancellationToken ct)
     {
@@ -224,6 +245,12 @@ public sealed partial class AssistantToolset(
         return available ? $"Engine is available. {Summarize(version!)}" : "Engine is not available.";
     }
 
+    /// <summary>Returns the engine's sanitized system information for troubleshooting.</summary>
+    [Description("Read-only: get sanitized wslc system info.")]
+    public async Task<string> EngineSystemInfoAsync(CancellationToken ct) =>
+        JsonSerializer.Serialize((await wslc.GetSystemInfoAsync(ct).ConfigureAwait(false)).Sanitized(), JsonOptions);
+
+    /// <summary>Lists saved Compose project names and service names for assistant selection.</summary>
     [Description("Read-only: list saved compose projects.")]
     public string ListComposeProjects() =>
         JsonSerializer.Serialize(composeStore.GetAll().Select(p => new
@@ -232,6 +259,7 @@ public sealed partial class AssistantToolset(
             Services = p.Services.Select(s => s.Name).ToList(),
         }), JsonOptions);
 
+    /// <summary>Runs a standalone container after validating options and resolving name or port conflicts.</summary>
     [Description("State-changing: run a new container from structured options.")]
     public async Task<string> RunContainerAsync(RunContainerOptions options, CancellationToken ct)
     {
@@ -252,22 +280,27 @@ public sealed partial class AssistantToolset(
         return adjustment.Adjusted ? adjustment.Summary + "\n" + result : result;
     }
 
+    /// <summary>Pulls an image reference through <c>wslc</c> and returns sanitized output.</summary>
     [Description("State-changing: pull an image reference.")]
     public async Task<string> PullImageAsync(string reference, CancellationToken ct) =>
         Summarize(await wslc.PullImageAsync(RequireValue(reference, "image"), ct).ConfigureAwait(false));
 
+    /// <summary>Starts one container selected by id or name.</summary>
     [Description("State-changing: start a container.")]
     public async Task<string> StartContainerAsync(string id, CancellationToken ct) =>
         Summarize(await wslc.StartContainerAsync(RequireValue(id, "container"), ct).ConfigureAwait(false));
 
+    /// <summary>Stops one container selected by id or name.</summary>
     [Description("State-changing: stop a container.")]
     public async Task<string> StopContainerAsync(string id, CancellationToken ct) =>
         Summarize(await wslc.StopContainerAsync(RequireValue(id, "container"), ct).ConfigureAwait(false));
 
+    /// <summary>Restarts one container selected by id or name.</summary>
     [Description("State-changing: restart a container.")]
     public async Task<string> RestartContainerAsync(string id, CancellationToken ct) =>
         Summarize(await wslc.RestartContainerAsync(RequireValue(id, "container"), ct).ConfigureAwait(false));
 
+    /// <summary>Removes one container selected by id or name after destructive-tool permission is enabled.</summary>
     [Description("High-risk: remove a container.")]
     public async Task<string> RemoveContainerAsync(string id, CancellationToken ct) =>
         Summarize(await wslc.RemoveContainerAsync(RequireValue(id, "container"), force: true, ct).ConfigureAwait(false));
@@ -303,6 +336,7 @@ public sealed partial class AssistantToolset(
         return string.IsNullOrWhiteSpace(sanitized) ? "ai-compose" : sanitized;
     }
 
+    /// <summary>Creates sample options for a simple Nginx container exposed on host port 8080.</summary>
     public static RunContainerOptions CreateNginxHelloWorldOptions() => new()
     {
         Image = "nginx:alpine",
@@ -310,12 +344,14 @@ public sealed partial class AssistantToolset(
         PortMappings = { "8080:80" },
     };
 
+    /// <summary>Creates sample options for the standard <c>hello-world</c> image.</summary>
     public static RunContainerOptions CreateHelloWorldOptions() => new()
     {
         Image = "hello-world:latest",
         Name = "hello-world",
     };
 
+    /// <summary>Converts command output to bounded, sanitized text safe to return to an AI conversation.</summary>
     public static string Summarize(CommandResult result)
     {
         var text = result.Success ? result.StandardOutput : result.ErrorText;
@@ -323,18 +359,23 @@ public sealed partial class AssistantToolset(
         return AiTextSanitizer.Sanitize(text, 4000);
     }
 
+    /// <summary>Creates a named volume and returns sanitized CLI output.</summary>
     public async Task<string> CreateVolumeAsync(string name, CancellationToken ct) =>
         Summarize(await wslc.CreateVolumeAsync(RequireValue(name, "volume"), ct: ct).ConfigureAwait(false));
 
+    /// <summary>Removes a named volume after destructive-tool permission is enabled.</summary>
     public async Task<string> RemoveVolumeAsync(string name, CancellationToken ct) =>
         Summarize(await wslc.RemoveVolumeAsync(RequireValue(name, "volume"), ct).ConfigureAwait(false));
 
+    /// <summary>Creates a named container network and returns sanitized CLI output.</summary>
     public async Task<string> CreateNetworkAsync(string name, CancellationToken ct) =>
         Summarize(await wslc.CreateNetworkAsync(RequireValue(name, "network"), ct: ct).ConfigureAwait(false));
 
+    /// <summary>Removes a named container network after destructive-tool permission is enabled.</summary>
     public async Task<string> RemoveNetworkAsync(string name, CancellationToken ct) =>
         Summarize(await wslc.RemoveNetworkAsync(RequireValue(name, "network"), ct).ConfigureAwait(false));
 
+    /// <summary>Lists repositories from a configured browsable registry.</summary>
     [Description("Read-only: list repositories available in a configured remote registry.")]
     public async Task<string> ListRegistryRepositoriesAsync(string registry, CancellationToken ct)
     {
@@ -348,6 +389,7 @@ public sealed partial class AssistantToolset(
         return DescribeCatalogResult(result, $"repositories in registry '{DisplayName(entry)}'");
     }
 
+    /// <summary>Lists tags for one repository in a configured browsable registry.</summary>
     [Description("Read-only: list the tags/versions of a repository in a configured remote registry.")]
     public async Task<string> ListRegistryTagsAsync(string registry, string repository, CancellationToken ct)
     {
@@ -413,6 +455,7 @@ public sealed partial class AssistantToolset(
     private static string DisplayName(RegistryEntry entry) =>
         string.IsNullOrWhiteSpace(entry.Name) ? entry.Host : entry.Name;
 
+    /// <summary>Returns observed k3s cluster state without starting speculative probes.</summary>
     public async Task<string> K8sStatusAsync(CancellationToken ct)
     {
         try
@@ -429,6 +472,7 @@ public sealed partial class AssistantToolset(
         }
     }
 
+    /// <summary>Lists one supported kind of k3s resource, optionally within a namespace.</summary>
     public async Task<string> ListK8sResourcesAsync(string kind, string? ns, CancellationToken ct)
     {
         var normalized = RequireValue(kind, "kind").ToLowerInvariant();
@@ -449,24 +493,31 @@ public sealed partial class AssistantToolset(
         return JsonSerializer.Serialize(resources, JsonOptions);
     }
 
+    /// <summary>Reads a bounded tail of logs for one k3s pod.</summary>
     public async Task<string> GetK8sLogsAsync(string ns, string name, int tail, CancellationToken ct) =>
         Summarize(await kubernetes.GetPodLogsAsync(ns, RequireValue(name, "pod"), Math.Clamp(tail, 1, 1000), ct).ConfigureAwait(false));
 
+    /// <summary>Applies a Kubernetes manifest through the app's Kubernetes service.</summary>
     public async Task<string> ApplyYamlAsync(string yaml, CancellationToken ct) =>
         Summarize(await kubernetes.ApplyManifestAsync(RequireValue(yaml, "yaml"), ct).ConfigureAwait(false));
 
+    /// <summary>Scales one k3s deployment to a bounded replica count.</summary>
     public async Task<string> ScaleDeploymentAsync(string ns, string name, int replicas, CancellationToken ct) =>
         Summarize(await kubernetes.ScaleDeploymentAsync(ns, RequireValue(name, "deployment"), Math.Clamp(replicas, 0, 100), ct).ConfigureAwait(false));
 
+    /// <summary>Requests a rollout restart for one k3s deployment.</summary>
     public async Task<string> RestartDeploymentAsync(string ns, string name, CancellationToken ct) =>
         Summarize(await kubernetes.RestartDeploymentAsync(ns, RequireValue(name, "deployment"), ct).ConfigureAwait(false));
 
+    /// <summary>Deletes one Kubernetes resource after the assistant's Kubernetes permission gate approves it.</summary>
     public async Task<string> DeleteResourceAsync(string kind, string ns, string name, CancellationToken ct) =>
         Summarize(await kubernetes.DeleteResourceAsync(RequireValue(kind, "kind"), ns, RequireValue(name, "resource"), ct).ConfigureAwait(false));
 
+    /// <summary>Starts the app-managed k3s service inside WSL.</summary>
     public async Task<string> ClusterStartAsync(CancellationToken ct) =>
         Summarize(await kubernetes.StartAsync(ct).ConfigureAwait(false));
 
+    /// <summary>Stops the app-managed k3s service inside WSL.</summary>
     public async Task<string> ClusterStopAsync(CancellationToken ct) =>
         Summarize(await kubernetes.StopAsync(ct).ConfigureAwait(false));
 
@@ -788,6 +839,7 @@ public sealed partial class AssistantToolset(
     private static string ArgumentSchema(string tool) => tool switch
     {
         "list_containers" or "list_images" or "list_volumes" or "list_networks" or "engine_status" or
+            "engine_system_info" or
             "engine_capabilities" or "get_health_observations" or "get_volume_usage" or
             "list_compose_projects" or "k8s_status" or "cluster_start" or "cluster_stop" =>
             """{"type":"object","properties":{},"additionalProperties":false}""",

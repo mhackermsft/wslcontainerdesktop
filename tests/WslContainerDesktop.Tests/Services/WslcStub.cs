@@ -29,7 +29,8 @@ internal sealed class WslcStub : IDisposable
         Directory = Path.Combine(Path.GetTempPath(), "wcd-wslc-stub-" + Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(Directory);
         Write("quiet", "echo ARGS=%*\r\nexit /b 0\r\n");
-        // Mirrors WSLC 2.9.12+ prune: prompts unless --force is passed, and a declined prompt exits 0.
+        Write("json", "echo []\r\nexit /b 0\r\n");
+        // Mirrors baseline prune: prompts unless --force is passed, and a declined prompt exits 0.
         Write("prompt",
             "echo ARGS=%*\r\n" +
             "echo(%* | findstr /c:\"--force\" >nul && (echo PRUNED& exit /b 0)\r\n" +
@@ -44,6 +45,7 @@ internal sealed class WslcStub : IDisposable
 
     public string Directory { get; }
     public string Quiet => Script("quiet");
+    public string Json => Script("json");
     public string Prompt => Script("prompt");
     public string Sleep => Script("sleep");
     public string Fail => Script("fail");

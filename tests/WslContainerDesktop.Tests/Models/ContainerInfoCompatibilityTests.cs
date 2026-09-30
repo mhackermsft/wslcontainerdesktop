@@ -18,10 +18,12 @@ using System.Globalization;
 using System.Text.Json;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
+using WslContainerDesktop.ViewModels;
 using Xunit;
 
 namespace WslContainerDesktop.Tests.Models;
 
+/// <summary>Covers tolerant parsing of <c>wslc</c> container inventory and inspect JSON so old, new, partial, and malformed schemas are handled safely.</summary>
 public sealed class ContainerInfoCompatibilityTests
 {
     [Theory]
@@ -33,7 +35,7 @@ public sealed class ContainerInfoCompatibilityTests
             {"Id":"legacy","Name":"/old","Image":"nginx","State":2,"CreatedAt":1,"StateChangedAt":2,
              "Ports":[{"BindingAddress":"127.0.0.1","ContainerPort":80,"HostPort":8080,"Protocol":6}]}
             """;
-        // Observed WSLC 2.9.11 list representation, including stopped-container empty display ports.
+        // Display-oriented list representation, including stopped-container empty display ports.
         const string current = """
             {"ID":"fe1efb58e1ab","Names":"wslcd-ollama","Image":"ollama/ollama","State":"exited",
              "CreatedAt":"2026-07-17 14:19:31 -0400 EDT","Ports":"","Status":"Exited (0) 6 days ago",
@@ -199,6 +201,55 @@ public sealed class ContainerInfoCompatibilityTests
     {
         var row = Parse("""{"Id":"a","Ports":""}""");
         Assert.False(Parse(JsonSerializer.Serialize(row)).PortsKnown);
+    }
+
+    [Theory]
+    [InlineData("""{"Id":"a","Size":"53.3MB (virtual 5.52GB)"}""", 53_300_000L, 5_520_000_000L)]
+    [InlineData("""{"Id":"a","Size":"0B"}""", null, null)]
+    [InlineData("""{"Id":"a","Size":"bad (virtual nope)"}""", null, null)]
+    public void SizeDisplay_IsParsedTolerantly(string json, long? writable, long? rootFs)
+    {
+        var row = Parse(json);
+        Assert.Equal(writable, row.SizeRwBytes);
+        Assert.Equal(rootFs, row.SizeRootFsBytes);
+    }
+
+    [Fact]
+    public void NoSizeListPlaceholder_IsNotKnownSize()
+    {
+        var row = Parse("""
+            {"ID":"fe1efb58e1ab","Names":"wslcd-ollama","Image":"ollama/ollama","State":"exited",
+             "CreatedAt":"2026-07-17 14:19:31 -0400 EDT","Ports":"","Status":"Exited (0) 6 days ago",
+             "Networks":"bridge","Mounts":"wslcd-ollama","Size":"0B"}
+            """);
+
+        Assert.False(row.SizeKnown);
+        Assert.Null(row.SizeRwBytes);
+        Assert.Null(row.SizeRootFsBytes);
+        Assert.Equal("-", row.SizeDisplay);
+    }
+
+    [Fact]
+    public void Reconcile_PreservesKnownSizeWhenIncomingSizeIsUnknown()
+    {
+        var row = new ContainerRowViewModel(Parse("""{"Id":"a","Size":"53.3MB (virtual 5.52GB)"}"""));
+
+        row.Update(Parse("""{"Id":"a","State":"running","Size":"0B"}"""));
+
+        Assert.True(row.Model.SizeKnown);
+        Assert.Equal(53_300_000, row.Model.SizeRwBytes);
+        Assert.Equal(5_520_000_000, row.Model.SizeRootFsBytes);
+        Assert.Equal("50.83 MB (virtual 5.14 GB)", row.SizeDisplay);
+        Assert.Equal("50.83 MB", row.SizeShort);
+    }
+
+    [Fact]
+    public void InspectSizeFields_AreParsedForDetails()
+    {
+        var details = ContainerDetails.Parse("""{"SizeRw":53300000,"SizeRootFs":5520000000}""");
+
+        Assert.Equal(53_300_000, details.SizeRwBytes);
+        Assert.Equal(5_520_000_000, details.SizeRootFsBytes);
     }
 
     [Fact]

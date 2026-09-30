@@ -26,6 +26,7 @@ namespace WslContainerDesktop.Helpers;
 /// </summary>
 public static class AiFeedbackDisplay
 {
+    /// <summary>Maps app feedback severity to the WinUI <c>InfoBar</c> severity enum.</summary>
     public static InfoBarSeverity ToInfoBarSeverity(AiFeedbackSeverity severity) => severity switch
     {
         AiFeedbackSeverity.Success => InfoBarSeverity.Success,

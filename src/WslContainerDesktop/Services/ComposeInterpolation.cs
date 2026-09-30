@@ -18,8 +18,19 @@ using System.Text;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Expands Docker Compose-style environment variables in imported YAML values before they are
+/// converted to run options. The parser supports the common <c>${VAR}</c> operators and reports
+/// safe diagnostics instead of echoing secret operands.
+/// </summary>
 internal static class ComposeInterpolation
 {
+    /// <summary>
+    /// Expands variables in <paramref name="text"/> using the supplied environment and emits warnings
+    /// for optional unset values that Compose treats as empty.
+    /// </summary>
+    /// <param name="location">Human-readable field name used in safe diagnostics.</param>
+    /// <param name="warning">Optional callback for non-fatal interpolation warnings.</param>
     public static string Expand(string text, IReadOnlyDictionary<string, string>? environment,
         string location = "Compose value", Action<string>? warning = null)
     {

@@ -60,8 +60,10 @@ public sealed class HealthCheckConfig
     /// <summary>Upper bound for the restart budget offered in the UI.</summary>
     public const int MaxRestartLimit = 20;
 
+    /// <summary>Gets or sets the container name.</summary>
     public string ContainerName { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the kind.</summary>
     public HealthProbeKind Kind { get; set; } = HealthProbeKind.Command;
 
     /// <summary>Shell command run inside the container for <see cref="HealthProbeKind.Command"/>.</summary>
@@ -70,16 +72,20 @@ public sealed class HealthCheckConfig
     /// <summary>Published host port dialed for <see cref="HealthProbeKind.Tcp"/>.</summary>
     public int TcpPort { get; set; }
 
+    /// <summary>Gets or sets the interval seconds.</summary>
     public int IntervalSeconds { get; set; } = 30;
 
     /// <summary>Number of auto-restarts on unhealthy before giving up. 0 = alert only.</summary>
     public int MaxRestarts { get; set; } = 3;
 
+    /// <summary>Gets or sets a value indicating whether this value is enabled.</summary>
     public bool Enabled { get; set; } = true;
 
     /// <summary>Additive desired timing/argv settings. Null preserves old saved probe behavior.</summary>
     public NativeHealthOptions? DesiredHealth { get; set; }
 
+    /// <summary>Creates a copy so callers can edit options without mutating the original instance.</summary>
+    /// <returns>The requested value for the caller.</returns>
     public HealthCheckConfig Clone() => new()
     {
         ContainerName = ContainerName, Kind = Kind, Command = Command, TcpPort = TcpPort,
@@ -102,13 +108,23 @@ public sealed class HealthCheckConfig
 /// <summary>Immutable health result for a single container, published by the watchdog.</summary>
 public sealed class ContainerHealthSnapshot
 {
+    /// <summary>Gets or sets the container name.</summary>
     public string ContainerName { get; init; } = string.Empty;
+    /// <summary>Gets or sets the container id.</summary>
     public string ContainerId { get; init; } = string.Empty;
+    /// <summary>Gets or sets the container generation.</summary>
     public ulong ContainerGeneration { get; init; }
+    /// <summary>Gets or sets the observed at.</summary>
     public DateTimeOffset ObservedAt { get; init; }
+    /// <summary>Converts model data for from seconds scenarios.</summary>
+    /// <returns>The requested value for the caller.</returns>
     public TimeSpan ObservationMaxAge { get; init; } = TimeSpan.FromSeconds(15);
+    /// <summary>Gets or sets the state.</summary>
     public ContainerHealthState State { get; init; }
+    /// <summary>Gets or sets the restart count.</summary>
     public int RestartCount { get; init; }
+    /// <summary>Gets or sets the max restarts.</summary>
     public int MaxRestarts { get; init; }
+    /// <summary>Gets or sets the detail.</summary>
     public string Detail { get; init; } = string.Empty;
 }

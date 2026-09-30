@@ -20,6 +20,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Covers the stopped-container port resolver and cache that feed details pages when live port data is unavailable.
+/// </summary>
 public sealed class ContainerPortResolverTests
 {
     private const string Inspect = """

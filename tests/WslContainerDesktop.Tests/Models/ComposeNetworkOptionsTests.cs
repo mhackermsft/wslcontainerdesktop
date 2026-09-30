@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Models;
 
+/// <summary>
+/// Exercises the Compose network options model so imports, saved profiles and generated <c>wslc</c> arguments agree.
+/// </summary>
 public sealed class ComposeNetworkOptionsTests
 {
     [Fact]
@@ -31,6 +34,71 @@ public sealed class ComposeNetworkOptionsTests
         Assert.True(clone.NeverPull);
         Assert.Equal(["create", "--pull", "never", options.Image], clone.ToCreateArguments());
         Assert.DoesNotContain("--pull", new RunContainerOptions { Image = options.Image }.ToCreateArguments());
+    }
+
+    [Fact]
+    public void StopTimeoutAndNativeMountsBuildRunAndCreateArguments()
+    {
+        var options = new RunContainerOptions
+        {
+            Image = "nginx:alpine",
+            StopTimeoutSeconds = -1,
+            Mounts =
+            [
+                new()
+                {
+                    Type = "bind",
+                    Source = @"C:\data",
+                    Target = "/data",
+                    ReadOnly = true,
+                    Options = ["x-safe.key=value"],
+                },
+                new() { Type = "tmpfs", Target = "/scratch" },
+            ],
+        };
+
+        var run = options.ToArguments();
+        Assert.Contains("--stop-timeout", run);
+        Assert.Equal("-1", run[run.IndexOf("--stop-timeout") + 1]);
+        Assert.Equal(
+            ["type=bind,source=C:\\data,target=/data,readonly,x-safe.key=value", "type=tmpfs,target=/scratch"],
+            run.Select((arg, index) => (arg, index))
+                .Where(item => item.arg == "--mount")
+                .Select(item => run[item.index + 1])
+                .ToList());
+
+        var create = options.ToCreateArguments();
+        Assert.Equal("create", create[0]);
+        Assert.Equal(run.Where(a => a is not "-d").Skip(1), create.Skip(1));
+    }
+
+    [Theory]
+    [InlineData("bad,key")]
+    [InlineData(" bad")]
+    public void MountValidationRejectsUnsafeDelimitedValues(string source)
+    {
+        var mount = new RunContainerMount { Type = "bind", Source = source, Target = "/data" };
+
+        Assert.Throws<ArgumentException>(() => mount.ToArgument());
+    }
+
+    [Fact]
+    public void ProfileJsonRoundTripsNewFieldsAndOldFilesKeepDefaults()
+    {
+        var options = new RunContainerOptions
+        {
+            Image = "image",
+            StopTimeoutSeconds = 15,
+            Mounts = [new() { Type = "volume", Source = "data", Target = "/data" }],
+        };
+
+        var restored = JsonSerializer.Deserialize<RunContainerOptions>(JsonSerializer.Serialize(options))!.Clone();
+        Assert.Equal(15, restored.StopTimeoutSeconds);
+        Assert.Equal("type=volume,source=data,target=/data", Assert.Single(restored.Mounts).ToArgument());
+
+        var legacy = JsonSerializer.Deserialize<RunContainerOptions>("""{"Image":"image"}""")!;
+        Assert.Null(legacy.StopTimeoutSeconds);
+        Assert.Empty(legacy.Mounts);
     }
 
     [Fact]
@@ -75,6 +143,64 @@ public sealed class ComposeNetworkOptionsTests
         Assert.Equal("172.28.0.0/24", project.Networks[0].Subnet);
         Assert.True(project.Networks[1].External);
         Assert.DoesNotContain(project.Warnings, w => w.Contains("single-network limitation"));
+    }
+
+    [Fact]
+    public void ComposeMapsStopGraceLongFormVolumesAndNetworkOptions()
+    {
+        var project = ComposeImporter.ParseProject("""
+            name: demo
+            services:
+              web:
+                image: nginx:alpine
+                stop_grace_period: 1500ms
+                stop_signal: SIGQUIT
+                volumes:
+                  - type: bind
+                    source: ./data
+                    target: /data
+                    read_only: true
+                    bind:
+                      create_host_path: true
+                  - type: volume
+                    source: cache
+                    target: /cache
+                    volume:
+                      nocopy: true
+                  - type: tmpfs
+                    target: /scratch
+                    tmpfs:
+                      size: 65536
+            networks:
+              default:
+                driver_opts:
+                  com.example.mode: fast
+                internal: true
+                labels:
+                  com.example.owner: tests
+            """, baseDirectory: @"C:\compose");
+        project.ApplyProjectNamespacing();
+
+        var service = Assert.Single(project.Services);
+        Assert.Equal(2, service.StopGracePeriodSeconds);
+        Assert.Equal(2, service.Options.StopTimeoutSeconds);
+        Assert.Equal("SIGQUIT", service.Options.StopSignal);
+        Assert.Equal(["C:\\compose\\data:/data:ro", "cache:/cache", "/scratch"], service.Options.Volumes);
+        Assert.Equal(
+            ["type=bind,source=C:\\compose\\data,target=/data,readonly",
+             "type=volume,source=cache,target=/cache",
+             "type=tmpfs,target=/scratch"],
+            service.Options.Mounts.Select(m => m.ToArgument()).ToList());
+        var args = service.Options.ToArguments();
+        Assert.DoesNotContain("-v", args);
+        Assert.Equal(3, args.Count(a => a == "--mount"));
+        var network = Assert.Single(project.Networks);
+        Assert.True(network.Internal);
+        Assert.Equal("com.example.mode=fast", Assert.Single(network.DriverOpts));
+        Assert.Equal("tests", network.Labels["com.example.owner"]);
+        Assert.Contains(project.Warnings, w => w.Contains("bind.create_host_path", StringComparison.Ordinal));
+        Assert.Contains(project.Warnings, w => w.Contains("volume.nocopy", StringComparison.Ordinal));
+        Assert.Contains(project.Warnings, w => w.Contains("tmpfs.size", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -228,6 +354,8 @@ public sealed class ComposeNetworkOptionsTests
         Assert.True(state.HasLabel(ComposeProject.ProjectLabel, "demo"));
         Assert.Equal("a, b", ContainerDetails.Parse(json).NetworkMode);
         Assert.Contains("b: 172.29.0.2", ContainerDetails.Parse(json).IpAddress);
+        Assert.Equal(["a", "b"], ContainerDetails.Parse(json).Networks.Select(n => n.Network));
+        Assert.Equal("172.28.0.2", ContainerDetails.Parse(json).Networks[0].Ipv4Address);
         Assert.Throws<InvalidOperationException>(() => ContainerNetworkState.Parse("""{"Id":"id"}"""));
     }
 }

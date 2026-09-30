@@ -19,6 +19,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <inheritdoc/>
 public sealed partial class AssistantToolset
 {
     private async Task<AssistantResolvedToolCall> ResolveComposeLifecycleAsync(

@@ -25,11 +25,14 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class AiHttpClient : HttpClient
 {
+    /// <summary>Creates the long-timeout AI HTTP client using the default handler.</summary>
     public AiHttpClient()
     {
         Timeout = TimeSpan.FromMinutes(5);
     }
 
+    /// <summary>Creates the long-timeout AI HTTP client with an injected handler for tests or custom transports.</summary>
+    /// <param name="handler">The HTTP message handler to wrap.</param>
     public AiHttpClient(HttpMessageHandler handler) : base(handler)
     {
         Timeout = TimeSpan.FromMinutes(5);

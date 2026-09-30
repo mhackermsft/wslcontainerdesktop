@@ -25,6 +25,7 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <summary>View model for the Volumes page, listing <c>wslc</c> volumes and running create, inspect, remove, prune, and bulk-remove commands.</summary>
 public partial class VolumesViewModel : ObservableObject
 {
     private readonly IWslcService _wslc;
@@ -32,19 +33,24 @@ public partial class VolumesViewModel : ObservableObject
     private readonly ILogger<VolumesViewModel> _logger;
     private CancellationTokenSource? _refreshCancellation;
 
+    /// <summary>Generated busy flag used to disable volume commands while an operation is running.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Status text shown at the top of the Volumes page.</summary>
     [ObservableProperty]
     private string _statusMessage = "Ready";
 
+    /// <summary>Currently selected volume row, or <c>null</c> when nothing is selected.</summary>
     [ObservableProperty]
     private VolumeInfo? _selected;
 
+    /// <summary>True while the page is showing bulk-selection actions.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionSummary))]
     private bool _isSelectionMode;
 
+    /// <summary>Number of rows currently selected for a bulk operation.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionSummary))]
     private int _selectedCount;
@@ -52,8 +58,10 @@ public partial class VolumesViewModel : ObservableObject
     /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
     public string SelectionSummary => $"{SelectedCount} selected";
 
+    /// <summary>Volume rows displayed by the page.</summary>
     public ObservableCollection<VolumeInfo> Volumes { get; } = new();
 
+    /// <summary>Creates the volume page model with the services that talk to <c>wslc</c> and show dialogs.</summary>
     public VolumesViewModel(IWslcService wslc, DialogService dialogs, ILogger<VolumesViewModel> logger)
     {
         _wslc = wslc;
@@ -61,6 +69,7 @@ public partial class VolumesViewModel : ObservableObject
         _logger = logger;
     }
 
+    /// <summary>Reloads volumes, enriches them with inspect metadata, and resolves which containers use them.</summary>
     [RelayCommand]
     public async Task RefreshAsync(CancellationToken ct = default)
     {
@@ -90,7 +99,8 @@ public partial class VolumesViewModel : ObservableObject
             }
 
             var containers = await _wslc.ListContainersAsync(all: true, ct: ct);
-            var warnings = await VolumeUsageResolver.ResolveAsync(volumes, containers, _wslc.InspectContainerAsync, ct);
+            var warnings = await VolumeUsageResolver.ResolveAsync(volumes, containers,
+                (id, token) => _wslc.InspectContainerAsync(id, token), ct);
             foreach (var warning in warnings)
             {
                 _logger.LogWarning("Volume usage: {Warning}", warning);
@@ -134,8 +144,10 @@ public partial class VolumesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Cancels the current refresh when the page is leaving or being replaced.</summary>
     public void CancelRefresh() => _refreshCancellation?.Cancel();
 
+    /// <summary>Prompts for a volume name and creates it with <c>wslc</c>.</summary>
     [RelayCommand]
     private async Task CreateAsync()
     {
@@ -154,6 +166,7 @@ public partial class VolumesViewModel : ObservableObject
         await ExecuteAsync(() => _wslc.CreateVolumeAsync(name));
     }
 
+    /// <summary>Confirms and removes one selected volume.</summary>
     [RelayCommand]
     private async Task RemoveAsync(VolumeInfo? volume)
     {
@@ -175,6 +188,7 @@ public partial class VolumesViewModel : ObservableObject
         await ExecuteAsync(() => _wslc.RemoveVolumeAsync(volume.Name), volume.Name);
     }
 
+    /// <summary>Shows raw inspect output for the selected volume.</summary>
     [RelayCommand]
     private async Task InspectAsync(VolumeInfo? volume)
     {
@@ -197,6 +211,7 @@ public partial class VolumesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Confirms and asks the engine to remove every volume it considers unused.</summary>
     [RelayCommand]
     private async Task PruneAsync()
     {

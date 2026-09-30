@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests tolerant <c>wslc</c> JSON parsing for arrays, object streams, BOMs and malformed mixed output.
+/// </summary>
 public sealed class WslcJsonParserTests
 {
     [Theory]
@@ -126,6 +129,9 @@ public sealed class WslcJsonParserTests
         Assert.Throws<JsonException>(() => WslcJsonParser.ParseList<TestImage>(output));
     }
 
+    /// <summary>
+    /// Minimal image DTO used to verify shared JSON parser behavior without depending on service models.
+    /// </summary>
     private sealed class TestImage
     {
         public string Id { get; set; } = string.Empty;

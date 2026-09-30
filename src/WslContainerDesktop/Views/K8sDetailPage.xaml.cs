@@ -23,8 +23,10 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Detail page for one Kubernetes resource, showing summary, YAML, describe output, and logs when available.</summary>
 public sealed partial class K8sDetailPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public K8sDetailPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<K8sDetailViewModel>();
@@ -32,6 +34,7 @@ public sealed partial class K8sDetailPage : Page
         ViewModel.Deleted += OnDeleted;
     }
 
+    /// <summary>Kubernetes resource detail view model bound by the page.</summary>
     public K8sDetailViewModel ViewModel { get; }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)

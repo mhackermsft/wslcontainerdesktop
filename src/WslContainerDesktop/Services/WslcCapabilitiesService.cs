@@ -15,12 +15,17 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.ComponentModel;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Detects which optional <c>wslc</c> commands and flags are available on the installed preview CLI.
+/// </summary>
+/// <remarks>
+/// Capability detection is cached because probing the CLI is relatively expensive and some features must gracefully fall back when the installed preview CLI is older.
+/// </remarks>
 public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposable
 {
     private readonly object _gate = new();
@@ -35,6 +40,9 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
     private CacheEntry? _entry;
     private bool _disposed;
 
+    /// <summary>
+    /// Initializes a new <c>WslcCapabilitiesService</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public WslcCapabilitiesService(ISettingsService settings, ILogger<WslcCapabilitiesService> logger)
         : this(() => settings.WslcPath, WslcExecutableIdentity.Read, ProcessRunner.RunAtPathAsync,
             message => logger.LogWarning("{CapabilityDiagnostic}", message))
@@ -43,6 +51,9 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
         settings.Changed += OnSettingsChanged;
     }
 
+    /// <summary>
+    /// Initializes a new <c>WslcCapabilitiesService</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     internal WslcCapabilitiesService(
         Func<string> getPath,
         Func<string, WslcExecutableIdentity> readIdentity,
@@ -59,6 +70,9 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
         _probeTimeout = probeTimeout ?? TimeSpan.FromSeconds(3);
     }
 
+    /// <summary>
+    /// Gets  information for callers in the service or view-model layer.
+    /// </summary>
     public async Task<WslcCapabilities> GetAsync(CancellationToken cancellationToken = default)
     {
         while (true)
@@ -96,6 +110,9 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
         }
     }
 
+    /// <summary>
+    /// Clears cached capability results so the next call probes the installed CLI again.
+    /// </summary>
     public void Invalidate()
     {
         lock (_gate)
@@ -143,43 +160,21 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
 
         var versionResult = await RunProbeAsync(identity.ExecutablePath, ["--version"], lifetimeToken).ConfigureAwait(false);
         var versionText = versionResult.StandardOutput + "\n" + versionResult.StandardError;
-        var versionMatch = Regex.Match(versionText, @"(?m)^wslc\s+(\d+(?:\.\d+){2,3})\s*$",
-            RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-        var version = versionResult.Success && versionMatch.Success ? versionMatch.Groups[1].Value : null;
+        var version = versionResult.Success && WslcVersionParser.TryParseOutput(versionText, out var parsedVersion, out _)
+            ? parsedVersion
+            : null;
         var versionDiagnostic = version is null
             ? Failure(identity.ExecutablePath, "--version", versionResult, "Unrecognized version output.")
             : null;
 
-        await ProbeHelpAsync("network", false,
-            [(WslcFeature.NetworkConnect, "connect"), (WslcFeature.NetworkDisconnect, "disconnect")]).ConfigureAwait(false);
-        await ProbeHelpAsync("container", false, [(WslcFeature.ContainerCp, "cp")]).ConfigureAwait(false);
         await ProbeHelpAsync("run", true,
         [
-            (WslcFeature.HealthCmd, "--health-cmd"),
-            (WslcFeature.HealthInterval, "--health-interval"),
-            (WslcFeature.HealthRetries, "--health-retries"),
-            (WslcFeature.HealthStartPeriod, "--health-start-period"),
-            (WslcFeature.HealthTimeout, "--health-timeout"),
             (WslcFeature.HealthStartInterval, "--health-start-interval"),
-            (WslcFeature.NoHealthcheck, "--no-healthcheck"),
         ]).ConfigureAwait(false);
         await ProbeHelpAsync("create", true,
         [
-            (WslcFeature.CreateHealthCmd, "--health-cmd"),
-            (WslcFeature.CreateHealthInterval, "--health-interval"),
-            (WslcFeature.CreateHealthRetries, "--health-retries"),
-            (WslcFeature.CreateHealthStartPeriod, "--health-start-period"),
-            (WslcFeature.CreateHealthTimeout, "--health-timeout"),
             (WslcFeature.CreateHealthStartInterval, "--health-start-interval"),
-            (WslcFeature.CreateNoHealthcheck, "--no-healthcheck"),
-            (WslcFeature.CreateGpus, "--gpus"),
-            (WslcFeature.CreatePull, "--pull"),
         ]).ConfigureAwait(false);
-        await ProbeHelpAsync("remove", true, [(WslcFeature.RemoveVolumes, "--volumes")]).ConfigureAwait(false);
-        await ProbeHelpAsync("container prune", true, [(WslcFeature.ContainerPruneForce, "--force")]).ConfigureAwait(false);
-        await ProbeHelpAsync("image prune", true, [(WslcFeature.ImagePruneForce, "--force")]).ConfigureAwait(false);
-        await ProbeHelpAsync("volume prune", true, [(WslcFeature.VolumePruneForce, "--force")]).ConfigureAwait(false);
-        await ProbeHelpAsync("network prune", true, [(WslcFeature.NetworkPruneForce, "--force")]).ConfigureAwait(false);
         return new(identity.ExecutablePath, version, features, versionDiagnostic);
 
         async Task ProbeHelpAsync(string command, bool options, (WslcFeature Feature, string Token)[] expected)
@@ -240,6 +235,9 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
         return diagnostic;
     }
 
+    /// <summary>
+    /// Releases long-lived resources owned by this service.
+    /// </summary>
     public void Dispose()
     {
         lock (_gate)
@@ -261,7 +259,13 @@ public sealed class WslcCapabilitiesService : IWslcCapabilitiesService, IDisposa
         _lifetime.Dispose();
     }
 
+    /// <summary>
+    /// Carries immutable service data between WSL Container Desktop components.
+    /// </summary>
     private sealed record ProbeResult(WslcCapabilities Capabilities, DateTimeOffset CompletedAt);
 
+    /// <summary>
+    /// Carries immutable service data between WSL Container Desktop components.
+    /// </summary>
     private sealed record CacheEntry(WslcExecutableIdentity Identity, Task<ProbeResult> Task);
 }

@@ -59,10 +59,11 @@
                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                 Text="running" />
                         </StackPanel>
-                        <TextBlock
-                            FontSize="12"
-                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                            Text="{x:Bind ViewModel.TotalContainers, Mode=OneWay}" />
+                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}">
+                            <Run Text="of" />
+                            <Run Text="{x:Bind ViewModel.TotalContainers, Mode=OneWay}" />
+                            <Run Text="total" />
+                        </TextBlock>
                     </StackPanel>
                 </Border>
 
@@ -188,11 +189,25 @@
                         <TextBlock Grid.Column="4" Style="{ThemeResource CaptionTextBlockStyle}" Text="BLOCK I/O" />
                     </Grid>
 
-                    <ItemsControl
+                    <!--  Clicking a row opens that container's detail page, like the Containers list.  -->
+                    <ListView
                         x:Name="PerfList"
                         Margin="0,40,0,6"
-                        ItemsSource="{x:Bind ViewModel.LiveStats, Mode=OneWay}">
-                        <ItemsControl.ItemTemplate>
+                        AutomationProperties.Name="Live container performance"
+                        IsItemClickEnabled="True"
+                        ItemClick="PerfList_ItemClick"
+                        ItemsSource="{x:Bind ViewModel.LiveStats, Mode=OneWay}"
+                        ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                        ScrollViewer.VerticalScrollMode="Disabled"
+                        SelectionMode="None">
+                        <ListView.ItemContainerStyle>
+                            <Style BasedOn="{StaticResource DefaultListViewItemStyle}" TargetType="ListViewItem">
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="MinHeight" Value="0" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
                             <DataTemplate x:DataType="vm:DashboardStatRow">
                                 <Grid x:Name="PerfRowRoot">
                                     <VisualStateManager.VisualStateGroups>
@@ -370,8 +385,8 @@
                                 </StackPanel>
                                 </Grid>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                        </ListView.ItemTemplate>
+                    </ListView>
 
                     <StackPanel
                         Margin="0,70,0,20"

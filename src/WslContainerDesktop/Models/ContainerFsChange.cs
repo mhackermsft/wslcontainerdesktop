@@ -35,8 +35,16 @@ public enum FsChangeKind
 /// </summary>
 public sealed class ContainerFsChange
 {
+    /// <summary>
+    /// Returns the changed path. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Path;
+
+    /// <summary>Gets or sets the kind.</summary>
     public FsChangeKind Kind { get; init; }
 
+    /// <summary>Gets or sets the path.</summary>
     public string Path { get; init; } = string.Empty;
 
     /// <summary>Single-letter marker shown in the badge (A / C / D), matching `docker diff`.</summary>

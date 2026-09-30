@@ -22,6 +22,9 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Shared synthetic assistant harness that keeps provider replies, tool execution and secrets under test control.
+/// </summary>
 internal sealed class AiContractHarness
 {
     public Dictionary<string, object?> SettingsValues { get; } = new()
@@ -106,6 +109,9 @@ internal sealed class AiContractHarness
     public static TaskCompletionSource<T> Signal<T>() =>
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    /// <summary>
+    /// Fake chat provider that returns queued responses and captures the requests sent by orchestration code.
+    /// </summary>
     internal sealed class ScriptedProvider : IAiChatProvider
     {
         public AiProviderKind Kind => AiProviderKind.OpenAi;
@@ -130,6 +136,9 @@ internal sealed class AiContractHarness
         public List<AiChatConfiguration> Configurations { get; } = [];
     }
 
+    /// <summary>
+    /// Provides deterministic assistant tool definitions and executions for contract tests.
+    /// </summary>
     internal sealed class ScriptedTools : IAssistantToolset
     {
         public AssistantPermissionCategory Category { get; set; } = AssistantPermissionCategory.Lifecycle;
@@ -163,6 +172,9 @@ internal sealed class AiContractHarness
         }
     }
 
+    /// <summary>
+    /// In-memory credential store used by tests so no real AI provider secret is read or written.
+    /// </summary>
     internal sealed class Credentials(string? secret = "synthetic-key-not-a-credential") : IAiCredentialStore
     {
         public bool TryReadSecret(AiProviderKind provider, out string? value)
@@ -178,6 +190,9 @@ internal sealed class AiContractHarness
             throw new InvalidOperationException("Tests must not modify credentials.");
     }
 
+    /// <summary>
+    /// HTTP handler that records outbound requests and returns scripted responses without reaching the network.
+    /// </summary>
     internal sealed class ScriptedHttpHandler : HttpMessageHandler
     {
         public List<CapturedRequest> Requests { get; } = [];
@@ -206,10 +221,16 @@ internal sealed class AiContractHarness
         }
     }
 
+    /// <summary>
+    /// Snapshot of one synthetic HTTP request, including the sanitized body and headers that tests inspect.
+    /// </summary>
     internal sealed record CapturedRequest(Uri Uri, HttpMethod Method, string Body, Dictionary<string, string> Headers);
 
     // Existing orchestration scenarios explicitly begin with positive capability evidence.
     // Capability-layer tests override this; production has no permissive default.
+    /// <summary>
+    /// Capability service whose values can be changed by a test before each assistant turn.
+    /// </summary>
     internal sealed class ObservedCapabilities : IAiCapabilityService
     {
         public AiSupport Chat { get; set; } = AiSupport.Supported;

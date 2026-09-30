@@ -19,8 +19,14 @@ namespace WslContainerDesktop.Services;
 /// <summary>An update could not be checked, downloaded, verified or installed. The message is user-facing.</summary>
 public sealed class AppUpdateException : Exception
 {
+    /// <summary>
+    /// Initializes a new <c>AppUpdateException</c> with a message safe to show in update UI.
+    /// </summary>
     public AppUpdateException(string message) : base(message) { }
 
+    /// <summary>
+    /// Initializes a new <c>AppUpdateException</c> with a message safe to show in update UI.
+    /// </summary>
     public AppUpdateException(string message, Exception inner) : base(message, inner) { }
 
     /// <summary>

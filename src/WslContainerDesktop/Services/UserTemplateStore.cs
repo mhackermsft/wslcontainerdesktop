@@ -44,25 +44,43 @@ public sealed class UserTemplateStore : IUserTemplateStore
     private readonly ILogger<UserTemplateStore> _logger;
     private readonly List<StackTemplate> _templates = new();
 
+    /// <summary>
+    /// Initializes a new <c>UserTemplateStore</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public UserTemplateStore(ILogger<UserTemplateStore> logger)
     {
         _logger = logger;
         Load();
     }
 
+    /// <summary>
+    /// Raised when stored data changes and bound UI should refresh.
+    /// </summary>
     public event EventHandler? Changed;
 
+    /// <summary>
+    /// Gets the in-memory user template collection.
+    /// </summary>
     public IReadOnlyList<StackTemplate> Templates => _templates;
 
+    /// <summary>
+    /// Checks whether the template collection contains the requested id used by WSL Container Desktop.
+    /// </summary>
     public bool Contains(string id) =>
         !string.IsNullOrWhiteSpace(id)
         && _templates.Any(t => string.Equals(t.Id, id.Trim(), StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// Returns the requested item by id, or null when it is missing.
+    /// </summary>
     public StackTemplate? Get(string id) =>
         string.IsNullOrWhiteSpace(id)
             ? null
             : _templates.FirstOrDefault(t => string.Equals(t.Id, id.Trim(), StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// Saves the current data so the app can restore it later.
+    /// </summary>
     public void Save(StackTemplate template)
     {
         if (!Upsert(template))
@@ -74,6 +92,9 @@ public sealed class UserTemplateStore : IUserTemplateStore
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Saves range so the app can restore it later.
+    /// </summary>
     public void SaveRange(IEnumerable<StackTemplate> templates)
     {
         var any = false;
@@ -91,6 +112,9 @@ public sealed class UserTemplateStore : IUserTemplateStore
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Removes delete from persisted state or the engine.
+    /// </summary>
     public bool Delete(string id)
     {
         if (string.IsNullOrWhiteSpace(id))

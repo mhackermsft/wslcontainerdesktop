@@ -99,16 +99,10 @@ internal sealed class ComposeRuntimeLease : IAsyncDisposable
         var id = root.GetProperty("Id").GetString();
         if (id?.Replace("sha256:", "", StringComparison.Ordinal) != Image)
             throw new InvalidOperationException("Inspected image ID does not match approved immutable local image.");
-        var snapshot = await capabilities.GetAsync(ct);
-        foreach (var feature in new[] { WslcFeature.NetworkConnect, WslcFeature.NetworkDisconnect })
-            if (snapshot[feature].Support != WslcCapabilitySupport.Supported)
-                throw new InvalidOperationException($"Runtime multi-network prerequisite {feature}: {snapshot[feature].Diagnostic}. No mutation attempted.");
         Record("preflight", new
         {
             version = (await real.GetVersionAsync(ct)).StandardOutput.Trim(),
             baselineNetworks, baselineVolumes,
-            networkConnect = snapshot[WslcFeature.NetworkConnect],
-            networkDisconnect = snapshot[WslcFeature.NetworkDisconnect],
         });
         initialized = true;
     }

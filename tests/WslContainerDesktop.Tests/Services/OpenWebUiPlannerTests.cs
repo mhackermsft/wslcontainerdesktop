@@ -37,7 +37,8 @@ public class OpenWebUiPlannerTests
         var plan = await fake.Planner.PlanAsync();
 
         Assert.False(plan.ReusesExistingRuntime);
-        Assert.Equal(OpenWebUiPlanner.BundledYaml, plan.Yaml);
+        Assert.True(plan.UsesGpu);
+        Assert.Equal(OpenWebUiPlanner.BundledGpuYaml, plan.Yaml);
         Assert.Null(plan.ExistingOllamaId);
         // The bundled runtime must not publish 11434, or it competes with a runtime added later.
         Assert.DoesNotContain("11434:11434", plan.Yaml);
@@ -195,12 +196,11 @@ public class OpenWebUiPlannerTests
         Assert.All(OpenWebUiPlanner.SuggestedModels, m => Assert.True(OpenWebUiPlanner.IsValidModelName(m)));
     }
 
-    /// <summary>CPU-only inference is dramatically slower, so a fresh runtime must ask for the GPU
-    /// when the engine advertises it.</summary>
+    /// <summary>CPU-only inference is dramatically slower, so a fresh runtime asks for baseline GPU support.</summary>
     [Fact]
-    public async Task GpuSupported_DeploysTheStackWithAGpuReservation()
+    public async Task FreshRuntime_DeploysTheStackWithAGpuReservation()
     {
-        var fake = new FakeWslc { Gpu = WslcCapabilitySupport.Supported };
+        var fake = new FakeWslc();
 
         var plan = await fake.Planner.PlanAsync();
 
@@ -209,39 +209,12 @@ public class OpenWebUiPlannerTests
         Assert.Contains("capabilities: [gpu]", plan.Yaml);
     }
 
-    /// <summary>Anything short of definite support stays on CPU rather than risking a launch that
-    /// fails on a flag the engine does not know.</summary>
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Unsupported)]
-    [InlineData(WslcCapabilitySupport.Unknown)]
-    public async Task GpuNotDefinitelySupported_DeploysTheCpuStack(WslcCapabilitySupport support)
-    {
-        var fake = new FakeWslc { Gpu = support };
-
-        var plan = await fake.Planner.PlanAsync();
-
-        Assert.False(plan.UsesGpu);
-        Assert.Equal(OpenWebUiPlanner.BundledYaml, plan.Yaml);
-        Assert.DoesNotContain("gpu", plan.Yaml, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task CapabilityProbeFailure_DeploysTheCpuStackInsteadOfFailingTheLaunch()
-    {
-        var fake = new FakeWslc { FailCapabilities = true };
-
-        var plan = await fake.Planner.PlanAsync();
-
-        Assert.False(plan.UsesGpu);
-        Assert.Equal(OpenWebUiPlanner.BundledYaml, plan.Yaml);
-    }
-
     /// <summary>A reused runtime keeps the access it was created with; the template must not claim
     /// to have enabled a GPU it never configured.</summary>
     [Fact]
     public async Task ReusedRuntime_IsNeverReportedAsGpuEnabled()
     {
-        var fake = new FakeWslc { Gpu = WslcCapabilitySupport.Supported };
+        var fake = new FakeWslc();
         fake.Containers.Add(new() { Id = "abc123abc123", Name = "my-ollama", Image = "ollama/ollama", StateValue = (int)ContainerState.Running });
 
         var plan = await fake.Planner.PlanAsync();
@@ -289,6 +262,7 @@ public class OpenWebUiPlannerTests
         Assert.All(ComposeImporter.ParseProject(OpenWebUiPlanner.BundledYaml).Services,
             s => Assert.False(s.Options.AllGpus));
 
+    /// <summary>Records fake <c>wslc</c> inventory and calls so planner tests do not mutate a real engine.</summary>
     private sealed class FakeWslc
     {
         public List<ContainerInfo> Containers { get; } = [];
@@ -297,28 +271,15 @@ public class OpenWebUiPlannerTests
 
         /// <summary>Engine GPU-create support. Defaults to unsupported so a test that cares about
         /// GPU selection must opt in explicitly.</summary>
-        public WslcCapabilitySupport Gpu { get; init; } = WslcCapabilitySupport.Unsupported;
-
-        /// <summary>Makes the capability probe throw, standing in for an unreadable engine.</summary>
-        public bool FailCapabilities { get; init; }
-
         public List<(NetworkAttachment Attachment, string ContainerId)> Connections { get; } = [];
         public List<(string Container, string Command)> Execs { get; } = [];
 
         /// <summary>The planner under test, wired to this harness.</summary>
-        public OpenWebUiPlanner Planner => new(Service, Capabilities);
+        public OpenWebUiPlanner Planner => new(Service);
 
         public IWslcCapabilitiesService Capabilities => NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) =>
         {
-            if (method.Name != nameof(IWslcCapabilitiesService.GetAsync))
-                throw new InvalidOperationException($"Unexpected capability call: {method.Name}");
-            if (FailCapabilities)
-                return Task.FromException<WslcCapabilities>(new InvalidOperationException("capabilities unavailable"));
-            return Task.FromResult(new WslcCapabilities("synthetic-wslc-not-executable", "synthetic",
-                new Dictionary<WslcFeature, WslcCapability>
-                {
-                    [WslcFeature.CreateGpus] = new(Gpu, "synthetic GPU help evidence"),
-                }));
+            throw new InvalidOperationException($"Unexpected capability call: {method.Name}");
         });
 
         /// <summary>Any engine call these tests do not script fails, so an unexpected operation
@@ -347,4 +308,3 @@ public class OpenWebUiPlannerTests
         }
     }
 }
-

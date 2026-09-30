@@ -21,5 +21,8 @@ namespace WslContainerDesktop.Services;
 /// <summary>Existing watchdog results only; reading cannot execute a command/TCP probe or auto-heal.</summary>
 public interface IAppHealthObservationSource
 {
+    /// <summary>
+    /// Gets observations information for callers that should not run commands directly.
+    /// </summary>
     IReadOnlyList<ContainerHealthSnapshot> GetObservations();
 }

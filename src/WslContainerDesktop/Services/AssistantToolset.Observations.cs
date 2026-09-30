@@ -19,6 +19,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <inheritdoc/>
 public sealed partial class AssistantToolset
 {
     private static bool IsEvidenceFailure(Exception ex) => ex is IOException or InvalidOperationException or
@@ -81,7 +82,7 @@ public sealed partial class AssistantToolset
             var volumes = await wslc.ListVolumesAsync(ct).ConfigureAwait(false);
             var containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
             var diagnostics = await VolumeUsageResolver.ResolveAsync(volumes, containers,
-                wslc.InspectContainerAsync, ct).ConfigureAwait(false);
+                (id, token) => wslc.InspectContainerAsync(id, token), ct).ConfigureAwait(false);
             if (!string.Equals(executable, settings.WslcPath, StringComparison.OrdinalIgnoreCase))
                 return JsonSerializer.Serialize(new { status = "unavailable",
                     message = "Engine configuration changed during scan; usage is Unknown. Refresh before any decision." });

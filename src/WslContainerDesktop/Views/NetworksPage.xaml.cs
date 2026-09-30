@@ -23,14 +23,17 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page that lists container networks, including built-in networks and removable user-created networks.</summary>
 public sealed partial class NetworksPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public NetworksPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<NetworksViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Network inventory view model bound by the page.</summary>
     public NetworksViewModel ViewModel { get; }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)

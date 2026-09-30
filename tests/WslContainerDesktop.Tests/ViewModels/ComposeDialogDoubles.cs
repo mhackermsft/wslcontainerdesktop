@@ -19,11 +19,13 @@ using WslContainerDesktop.Models;
 // Only the dialog boundary is replaced: the source-linked VM and generated commands are real.
 namespace Microsoft.UI.Xaml
 {
+    /// <summary>Minimal WinUI text-wrapping enum used by source-linked dialog view-model tests.</summary>
     public enum TextWrapping { Wrap }
 }
 
 namespace Microsoft.UI.Xaml.Controls
 {
+    /// <summary>Minimal WinUI dialog result enum used by dialog service tests.</summary>
     public enum ContentDialogResult { None, Primary, Secondary }
     public enum ContentDialogButton { Close }
     public sealed class ContentDialog
@@ -36,6 +38,7 @@ namespace Microsoft.UI.Xaml.Controls
         public ContentDialogButton DefaultButton { get; set; }
     }
 
+    /// <summary>Small stand-in for WinUI <c>TextBlock</c> used when dialogs create explanatory content.</summary>
     public sealed class TextBlock
     {
         public string Text { get; set; } = "";
@@ -45,24 +48,28 @@ namespace Microsoft.UI.Xaml.Controls
 
 namespace WslContainerDesktop.Dialogs
 {
+    /// <summary>Captures the compose compatibility preview that a real dialog would show to the user.</summary>
     public sealed class ComposePreviewDialog
     {
         public ComposePreviewDialog(ComposeCompatibilityPreview preview) => Preview = preview;
         public ComposeCompatibilityPreview Preview { get; }
     }
 
+    /// <summary>Placeholder import dialog that prevents tests from opening real UI.</summary>
     public sealed class ImportComposeDialog
     {
         public string Yaml => throw new NotSupportedException();
         public string BaseDirectory => throw new NotSupportedException();
     }
 
+    /// <summary>Stores the default value supplied to a simple input dialog without rendering WinUI.</summary>
     public sealed class SimpleInputDialog
     {
         public SimpleInputDialog(string title, string label, string value) => Value = value;
         public string Value { get; set; }
     }
 
+    /// <summary>Holds a compose operation request that tests can inspect instead of showing the real services dialog.</summary>
     public sealed class ComposeServicesDialog
     {
         public ComposeServicesDialog(ComposeProject project) { }
@@ -74,6 +81,7 @@ namespace WslContainerDesktop.Dialogs
 
 namespace WslContainerDesktop.Services
 {
+    /// <summary>Test dialog service that returns controlled results and exposes message-display synchronization points.</summary>
     public sealed class DialogService
     {
         public TaskCompletionSource MessageShown { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

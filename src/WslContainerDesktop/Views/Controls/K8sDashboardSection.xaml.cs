@@ -27,6 +27,7 @@ namespace WslContainerDesktop.Views.Controls;
 /// </summary>
 public sealed partial class K8sDashboardSection : UserControl
 {
+    /// <summary>Dependency property backing <see cref="ViewModel"/> so the host page can bind into the control.</summary>
     public static readonly DependencyProperty ViewModelProperty =
         DependencyProperty.Register(
             nameof(ViewModel),
@@ -34,11 +35,13 @@ public sealed partial class K8sDashboardSection : UserControl
             typeof(K8sDashboardSection),
             new PropertyMetadata(null, OnViewModelChanged));
 
+    /// <summary>Initializes the dashboard section control.</summary>
     public K8sDashboardSection()
     {
         InitializeComponent();
     }
 
+    /// <summary>Kubernetes page view model supplied by the host page for compiled bindings.</summary>
     public KubernetesViewModel? ViewModel
     {
         get => (KubernetesViewModel?)GetValue(ViewModelProperty);

@@ -35,6 +35,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
     private readonly int _retainDays;
     private bool _prunedOnce;
 
+    /// <summary>Creates a daily file logger with size and retention limits.</summary>
     public FileLoggerProvider(LogLevel minLevel = LogLevel.Information, long maxBytes = 5 * 1024 * 1024, int retainDays = 14)
     {
         _minLevel = minLevel;
@@ -71,13 +72,16 @@ public sealed class FileLoggerProvider : ILoggerProvider
         }
     }
 
+    /// <inheritdoc/>
     public ILogger CreateLogger(string categoryName) => new FileLogger(this, categoryName);
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         // Nothing to dispose; writes are opened/closed per line to stay robust across crashes.
     }
 
+    /// <summary>Serializes one formatted log line to the current daily file.</summary>
     private void Write(LogLevel level, string category, EventId eventId, string message, Exception? exception)
     {
         if (level < _minLevel || level == LogLevel.None)
@@ -125,6 +129,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
         }
     }
 
+    /// <summary>Renames the active log when it reaches the configured size limit.</summary>
     private void RollIfTooLargeLocked(string path)
     {
         try
@@ -142,6 +147,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
         }
     }
 
+    /// <summary>Deletes old log files once per provider lifetime.</summary>
     private void PruneOldLogsLocked()
     {
         if (_prunedOnce)
@@ -167,6 +173,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
         }
     }
 
+    /// <summary>Maps Microsoft log levels to compact file tags.</summary>
     private static string LevelTag(LogLevel level) => level switch
     {
         LogLevel.Trace => "TRC",
@@ -178,21 +185,26 @@ public sealed class FileLoggerProvider : ILoggerProvider
         _ => "???",
     };
 
+    /// <summary>Per-category logger that forwards formatted messages to the shared provider.</summary>
     private sealed class FileLogger : ILogger
     {
         private readonly FileLoggerProvider _provider;
         private readonly string _category;
 
+        /// <summary>Creates a logger for one Microsoft.Extensions.Logging category.</summary>
         public FileLogger(FileLoggerProvider provider, string category)
         {
             _provider = provider;
             _category = category;
         }
 
+        /// <summary>Scopes are intentionally ignored because this simple file logger writes flat lines.</summary>
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
+        /// <summary>Returns whether a level should be written to disk.</summary>
         public bool IsEnabled(LogLevel logLevel) => logLevel >= _provider._minLevel && logLevel != LogLevel.None;
 
+        /// <summary>Formats and writes a log entry when the level is enabled.</summary>
         public void Log<TState>(
             LogLevel logLevel,
             EventId eventId,

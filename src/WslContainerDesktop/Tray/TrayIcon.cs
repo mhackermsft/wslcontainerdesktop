@@ -22,6 +22,7 @@ namespace WslContainerDesktop.Tray;
 /// <summary>Requests a start/stop of a container from the tray quick-actions menu.</summary>
 public sealed class TrayContainerAction
 {
+    /// <summary>Full container identifier passed back to the app when the menu item is chosen.</summary>
     public required string ContainerId { get; init; }
 
     /// <summary>True to start the container; false to stop it.</summary>
@@ -67,8 +68,19 @@ public sealed class TrayIcon : IDisposable
     private IReadOnlyList<ContainerInfo> _containers = Array.Empty<ContainerInfo>();
     private bool _notificationsEnabled = true;
 
+    /// <summary>Raised when the user clicks Open or left-clicks the tray icon.</summary>
     public event Action? OpenRequested;
+    /// <summary>Raised when the user chooses Quit from the tray context menu.</summary>
     public event Action? QuitRequested;
+
+    /// <summary>Windows asked whether the app can close (WM_QUERYENDSESSION). Raised on the UI thread.</summary>
+    public event Action? SessionEnding;
+
+    /// <summary>
+    /// Windows finished the close request (WM_ENDSESSION): true means the app must close now,
+    /// false means the shutdown was cancelled. Raised on the UI thread.
+    /// </summary>
+    public event Action<bool>? SessionEnded;
 
     /// <summary>Raised when the user starts/stops a container from the tray menu.</summary>
     public event Action<TrayContainerAction>? ContainerActionRequested;
@@ -76,12 +88,14 @@ public sealed class TrayIcon : IDisposable
     /// <summary>Raised when the user toggles the notifications mute item in the tray menu.</summary>
     public event Action? MuteToggleRequested;
 
+    /// <summary>Registers the callback delegate and discovers the Explorer restart message.</summary>
     public TrayIcon()
     {
         _wndProcDelegate = WndProc;
         _taskbarCreatedMessage = NativeMethods.RegisterWindowMessageW("TaskbarCreated");
     }
 
+    /// <summary>Creates the hidden Win32 window and adds the notification-area icon.</summary>
     public void Initialize()
     {
         var hInstance = NativeMethods.GetModuleHandleW(null);
@@ -216,6 +230,17 @@ public sealed class TrayIcon : IDisposable
                 return nint.Zero;
 
             case NativeMethods.WM_DESTROY:
+                return nint.Zero;
+
+            // Sign-out, shutdown, and Restart Manager / package servicing (updates) ask running
+            // apps to close with these. Close-to-tray must not veto them, or Windows waits for a
+            // timeout, reports the app as hung, and then terminates it without cleanup.
+            case NativeMethods.WM_QUERYENDSESSION:
+                SessionEnding?.Invoke();
+                return 1;
+
+            case NativeMethods.WM_ENDSESSION:
+                SessionEnded?.Invoke(wParam != nint.Zero);
                 return nint.Zero;
         }
 
@@ -361,6 +386,7 @@ public sealed class TrayIcon : IDisposable
         }
     }
 
+    /// <summary>Removes the notification-area icon and destroys the hidden message window.</summary>
     public void Dispose()
     {
         if (_disposed)

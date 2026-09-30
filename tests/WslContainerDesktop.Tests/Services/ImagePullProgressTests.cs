@@ -19,9 +19,10 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers image pull progress parsing so layer updates are counted once, move forward only, and ignore unrelated output.</summary>
 public sealed class ImagePullProgressTests
 {
-    // Captured verbatim from `wslc pull alpine:3.20` with output redirected (wslc 2.9.12.0).
+    // Captured verbatim from `wslc pull alpine:3.20` with output redirected.
     private static readonly string[] RealAlpinePull =
     [
         "3.20: Pulling from library/alpine",

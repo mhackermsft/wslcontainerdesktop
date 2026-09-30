@@ -18,11 +18,13 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Helpers;
 
+/// <summary>Builds the Networks page list with built-in networks marked and sorted first.</summary>
 internal static class NetworkDisplayList
 {
     private static readonly HashSet<string> BuiltInNames =
         new(StringComparer.OrdinalIgnoreCase) { "bridge", "host", "none" };
 
+    /// <summary>Returns a display-ready network list, adding the implicit default bridge when <c>wslc</c> omits it.</summary>
     internal static IReadOnlyList<NetworkInfo> Create(IEnumerable<NetworkInfo> networks)
     {
         ArgumentNullException.ThrowIfNull(networks);

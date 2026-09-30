@@ -27,7 +27,7 @@ The reference is pinned in `reference-provenance.json`:
 | Binary integrity | `docker-compose-windows-x86_64.exe`, 77,505,536 bytes, SHA-256 `6b3bccfabcdd172e1d9e15d011b54c9b5b13b93b1153148108f55e4349055955`; checked against current authoritative GitHub release asset metadata before execution |
 | Binary license | [Apache-2.0](https://github.com/docker/compose/blob/v2.39.4/LICENSE); binary cached only in session artifact tools, not committed or installed on PATH |
 | Fixture origin | Original synthetic YAML and spec-derived projected expectations; `reference.json` files are actual config-only CLI output with per-case provenance |
-| Runtime / legacy status | None; legacy help fixtures elsewhere in the suite are not certification on WSLC 2.9.9.0 |
+| Runtime status | None; help fixtures are 3.0.1 recordings for optional capability probes, not runtime certification |
 
 Semantic sources are the pinned spec's [interpolation](https://github.com/compose-spec/compose-spec/blob/c0c3dba71a73260cf9649e05370dcad6fe29e11c/12-interpolation.md),
 [merge](https://github.com/compose-spec/compose-spec/blob/c0c3dba71a73260cf9649e05370dcad6fe29e11c/13-merge.md),
@@ -101,7 +101,7 @@ retain `referenceError` for future CLI capture; rejecting configuration is not a
 | `extends` | Cross-file inheritance with child environment override agrees for this example |
 | `profiles` | Profile metadata retained; no claim about activation or explicit-service selection |
 | `mounts-ports` | Short/long named read-only mounts and TCP/UDP ports agree for these examples |
-| `networks` | Per-network aliases/IP retained; exact actionable legacy capability warning |
+| `networks` | Per-network aliases/IP retained; native multi-network startup is the baseline |
 | `health-dependencies` | Health test argv/timing/retries and all three dependency conditions retained; not proof of startup behavior |
 | `unsupported` | Exact ignored-privileged diagnostic and local replica count; not a safe-to-launch assertion |
 | `required-variable`, `required-override` | Required variables reject without leaking custom error text, even if the override would replace the invalid base value |
@@ -185,10 +185,9 @@ app semantic divergence or modifying captured output.
 
 **`ComposeRuntimeTests` is implemented but has not been executed against a real engine.** Existing
 `ComposeNetworkOrchestratorTests`, `ComposeNetworkSupervisorTests`, and `NativeHealthTests` use test
-doubles for mutation ordering, capability decisions, failure cleanup and supervision. In particular,
-`LegacyFallbackIsExplicitAndUnknownDoesNotDowngrade` checks a documented fallback versus unknown
-capability rejection; creation/connect failures check that start is not attempted and only owned
-objects are removed. These are not evidence from an installed legacy engine.
+doubles for mutation ordering, optional health-start-interval decisions, failure cleanup and
+supervision. Creation/connect failures check that start is not attempted and only owned objects are
+removed. These are not evidence from an installed engine.
 
 The opt-in test uses the real `WslcService`, `ComposeProjectSupervisor`, and
 `ComposeNetworkOrchestrator` behind a deny-by-default test lease. It requires an explicitly approved

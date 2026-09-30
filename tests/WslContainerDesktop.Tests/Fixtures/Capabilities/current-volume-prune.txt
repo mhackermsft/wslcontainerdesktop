@@ -3,7 +3,7 @@ For privacy information about this product please visit https://aka.ms/privacy.
 
 Removes all unused anonymous local volumes. If --all is specified, also removes unused named volumes. A volume is considered unused when it is not referenced by any container.
 
-Usage: wslc volume prune [options]
+Usage:  wslc volume prune [options]
 
 Options:
   -a  --all      Remove all unused volumes, not just anonymous ones.
@@ -11,5 +11,5 @@ Options:
   -f  --force    Do not prompt for confirmation
   -?  --help     Shows help about the selected command
 
-Global Options:
+Global Options for 'wslc':
       --session  Specify the session to use

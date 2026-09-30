@@ -213,8 +213,8 @@ their existing error boundaries.
 - Argv construction retains empty tokens, mixed quotes, newlines and Windows paths without adding
   shell escaping to user data. Clearing image command/entrypoint defaults at engine runtime is
   still not certified. No saved model schema migration was introduced.
-- Reconciliation (#85), replicas (#84), preview (#87) and engine behavior/capability tri-state
-  are unchanged. WSLC 2.9.9.0 is still the supported baseline; no runtime certification is claimed.
+- Reconciliation (#85), replicas (#84), preview (#87) and engine behavior are unchanged. WSL/wslc
+  3.0.1 is the supported baseline; no runtime certification is claimed.
 
 ## Maintenance invariants
 

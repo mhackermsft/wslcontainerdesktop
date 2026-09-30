@@ -22,14 +22,26 @@ namespace WslContainerDesktop.Services;
 /// <summary>A manual start can consume only the stop intent that preceded that operation.</summary>
 public sealed class RestartSuppressionState
 {
+    /// <summary>
+    /// Carries immutable service data between WSL Container Desktop components.
+    /// </summary>
     public readonly record struct ResumeToken(string ContainerName, long StopVersion);
 
     private readonly ConcurrentDictionary<string, long> _stops = new(StringComparer.Ordinal);
     private long _version;
 
+    /// <summary>
+    /// Gets whether has suppressed containers for the current app or engine state.
+    /// </summary>
     public bool HasSuppressedContainers => !_stops.IsEmpty;
+    /// <summary>
+    /// Gets version for callers in the service or view-model layer.
+    /// </summary>
     public long Version => Volatile.Read(ref _version);
 
+    /// <summary>
+    /// Temporarily suppresses restart reactions for a container.
+    /// </summary>
     public void Suppress(string containerName)
     {
         var name = Normalize(containerName);
@@ -37,8 +49,14 @@ public sealed class RestartSuppressionState
         _stops.AddOrUpdate(name, version, (_, current) => Math.Max(current, version));
     }
 
+    /// <summary>
+    /// Gets whether automatic restart handling is currently suppressed for the container.
+    /// </summary>
     public bool IsSuppressed(string containerName) => _stops.ContainsKey(Normalize(containerName));
 
+    /// <summary>
+    /// Records that the next observed restart came from a user-requested start.
+    /// </summary>
     public ResumeToken CaptureExplicitStart(string containerName, long maximumVersion = long.MaxValue)
     {
         var name = Normalize(containerName);
@@ -46,6 +64,9 @@ public sealed class RestartSuppressionState
         return new(name, version <= maximumVersion ? version : 0);
     }
 
+    /// <summary>
+    /// Clears explicit-start tracking after the restart observation has been consumed.
+    /// </summary>
     public bool CompleteExplicitStart(ResumeToken token, bool success)
     {
         if (!success || token.StopVersion == 0)
@@ -55,6 +76,9 @@ public sealed class RestartSuppressionState
             .Remove(new(token.ContainerName, token.StopVersion));
     }
 
+    /// <summary>
+    /// Records that a restart came from an explicit user start operation used by WSL Container Desktop.
+    /// </summary>
     public async Task<CommandResult> RunExplicitStartAsync(string containerName,
         Func<CancellationToken, Task<CommandResult>> operation, CancellationToken ct = default)
     {

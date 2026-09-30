@@ -26,6 +26,7 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <summary>View model for the AI Assistant page, managing the chat transcript, approval prompts, provider status, and cancellation.</summary>
 public partial class AssistantViewModel : ObservableObject
 {
     private readonly IContainerAssistant _assistant;
@@ -42,32 +43,40 @@ public partial class AssistantViewModel : ObservableObject
     private const string GreetingText =
         "I can manage WSL containers, images, volumes, networks, compose templates, and scoped k3s actions through approved tools only. What would you like to do?";
 
+    /// <summary>Transcript rows displayed by the Assistant page.</summary>
     public ObservableCollection<AssistantTimelineEntry> Messages { get; } = new()
     {
         new(0, null, null, "Assistant", GreetingText),
     };
 
+    /// <summary>Generated status text that explains what the current assistant turn is doing.</summary>
     [ObservableProperty]
     private string _statusText = "Ready";
 
+    /// <summary>Generated flag set after the user requests cancellation of the active turn.</summary>
     [ObservableProperty]
     private bool _isCancellationRequested;
 
+    /// <summary>Generated flag that tells the UI older timeline entries were trimmed.</summary>
     [ObservableProperty]
     private bool _hasOmittedActivity;
 
+    /// <summary>Generated text bound to the chat input box.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     private string _draft = string.Empty;
 
+    /// <summary>Generated flag used while a turn is running or waiting for approval.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     private bool _isBusy;
 
+    /// <summary>Generated approval request currently shown to the user.</summary>
     [ObservableProperty]
     private AssistantApprovalRequest? _pendingApproval;
 
+    /// <summary>Generated label naming the configured AI provider and model.</summary>
     [ObservableProperty]
     private string _providerLabel = string.Empty;
 
@@ -90,10 +99,13 @@ public partial class AssistantViewModel : ObservableObject
     [ObservableProperty]
     private AiFeedback _feedback = AiFeedback.None;
 
+    /// <summary>True when a tool call is waiting for an approve/reject decision.</summary>
     public bool HasPendingApproval => PendingApproval is not null;
 
+    /// <summary>True while the assistant is doing work that is not blocked on approval.</summary>
     public bool IsWorking => IsBusy && PendingApproval is null;
 
+    /// <summary>True when approve/reject commands should be enabled.</summary>
     public bool CanDecideApproval => IsBusy && HasPendingApproval && !IsCancellationRequested;
 
     partial void OnIsBusyChanged(bool value)
@@ -118,6 +130,7 @@ public partial class AssistantViewModel : ObservableObject
         NotifyApprovalCommands();
     }
 
+    /// <summary>Creates the assistant view model and subscribes to provider/settings changes.</summary>
     public AssistantViewModel(
         IContainerAssistant assistant,
         ISettingsService settings,
@@ -218,6 +231,7 @@ public partial class AssistantViewModel : ObservableObject
 
     private bool CanSend() => !IsBusy && !string.IsNullOrWhiteSpace(Draft);
 
+    /// <summary>Sends the current draft to the assistant as a new turn.</summary>
     [RelayCommand(CanExecute = nameof(CanSend), AllowConcurrentExecutions = true)]
     private async Task SendAsync()
     {
@@ -226,6 +240,7 @@ public partial class AssistantViewModel : ObservableObject
         await RunAssistantAsync(text);
     }
 
+    /// <summary>Requests cancellation of the active assistant turn; completed tool actions are not rolled back.</summary>
     [RelayCommand(CanExecute = nameof(IsBusy))]
     private void Cancel()
     {
@@ -234,6 +249,7 @@ public partial class AssistantViewModel : ObservableObject
         _sendCts?.Cancel();
     }
 
+    /// <summary>Approves the pending tool request.</summary>
     [RelayCommand(CanExecute = nameof(CanDecideApproval))]
     private async Task ApproveAsync()
     {
@@ -245,6 +261,7 @@ public partial class AssistantViewModel : ObservableObject
         await DecideApprovalAsync(approval, true);
     }
 
+    /// <summary>Rejects the pending tool request.</summary>
     [RelayCommand(CanExecute = nameof(CanDecideApproval))]
     private async Task RejectAsync()
     {
@@ -275,6 +292,7 @@ public partial class AssistantViewModel : ObservableObject
         }
     }
 
+    /// <summary>Starts a fresh transcript and invalidates any in-flight turn updates.</summary>
     [RelayCommand]
     private void NewChat()
     {
@@ -294,9 +312,11 @@ public partial class AssistantViewModel : ObservableObject
         StatusText = "New chat. Any previously completed actions have not been rolled back.";
     }
 
+    /// <summary>Clears the assistant feedback banner.</summary>
     [RelayCommand]
     private void DismissFeedback() => Feedback = AiFeedback.None;
 
+    /// <summary>Copies technical feedback details to the clipboard for troubleshooting.</summary>
     [RelayCommand]
     private void CopyFeedbackDetails()
     {
@@ -355,7 +375,7 @@ public partial class AssistantViewModel : ObservableObject
                     else if (!Messages.Any(entry => entry.Generation == generation &&
                         entry.Kind == AiChatProgressKind.ToolResult && entry.Text == message.Text))
                     {
-                        AddEntry(new(generation, AiChatProgressKind.ToolResult, null, "Tool finished — show what it returned",
+                        AddEntry(new(generation, AiChatProgressKind.ToolResult, null, ToolResultLabel(message.Text),
                             AiTextSanitizer.Sanitize(message.Text, MaxEntryCharacters)));
                     }
                 }
@@ -403,6 +423,16 @@ public partial class AssistantViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Heading for a collapsed tool-result row. The service prefixes outcomes it never executed
+    /// with "Not run" and part-way failures with "Invocation failed", so the heading must not
+    /// claim the tool finished in those cases.
+    /// </summary>
+    private static string ToolResultLabel(string? text) =>
+        text?.StartsWith("Not run", StringComparison.Ordinal) == true ? "Tool was not run — show why"
+        : text?.StartsWith("Invocation failed", StringComparison.Ordinal) == true ? "Tool failed — show details"
+        : "Tool finished — show what it returned";
+
     private void ApplyProgress(int generation, AiChatProgress progress)
     {
         if (!IsCancellationRequested || progress.Kind is AiChatProgressKind.Completed or AiChatProgressKind.Failed or AiChatProgressKind.Cancelled)
@@ -433,7 +463,7 @@ public partial class AssistantViewModel : ObservableObject
                 AiChatProgressKind.ExecutingTool => "Running a tool…",
                 // Collapsed rows are read at a glance, so lead with the outcome rather than a
                 // category the reader has to open the row to interpret.
-                _ => "Tool finished — show what it returned",
+                _ => ToolResultLabel(progress.Text),
             };
             var entry = new AssistantTimelineEntry(generation, progress.Kind, progress.ToolCallId, label,
                 AiTextSanitizer.Sanitize(progress.Text, MaxEntryCharacters));

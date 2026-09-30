@@ -19,13 +19,22 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Centralizes JSON settings for AI provider payloads so service code uses the same casing and enum rules.
+/// </summary>
 internal static class AiProviderJson
 {
+    /// <summary>
+    /// Gets the shared JSON options used when reading AI provider responses.
+    /// </summary>
     public static readonly JsonSerializerOptions Options = new()
     {
         PropertyNameCaseInsensitive = true,
     };
 
+    /// <summary>
+    /// Parses diagnosis text into the app's normalized model.
+    /// </summary>
     public static AiDiagnosis ParseDiagnosis(string content)
     {
         var json = ExtractJson(content);

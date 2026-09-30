@@ -20,9 +20,14 @@ using System.Text.Json.Serialization;
 
 namespace WslContainerDesktop.Models;
 
-/// <summary>Normalizes legacy numeric rows and the display-oriented WSLC 2.9.11 rows.</summary>
+/// <summary>Normalizes numeric/textual state rows and display-oriented list output.</summary>
 public sealed class ContainerInfoJsonConverter : JsonConverter<ContainerInfo>
 {
+    /// <summary>Reads this model during JSON serialization.</summary>
+    /// <param name="reader">The reader value supplied by the caller.</param>
+    /// <param name="typeToConvert">The type to convert value supplied by the caller.</param>
+    /// <param name="options">The options value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public override ContainerInfo Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         using var document = JsonDocument.ParseValue(ref reader);
@@ -80,9 +85,65 @@ public sealed class ContainerInfoJsonConverter : JsonConverter<ContainerInfo>
         }
         else if (ports.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
             throw new JsonException("Invalid container Ports.");
+
+        var size = Property(root, "Size");
+        if (size.ValueKind == JsonValueKind.String)
+        {
+            var sizeText = size.GetString() ?? string.Empty;
+            if (TryParseContainerSize(sizeText, out var rw, out var rootFs))
+            {
+                result.Size = sizeText;
+                result.SizeRwBytes = rw;
+                result.SizeRootFsBytes = rootFs;
+            }
+        }
+        else if (size.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+            throw new JsonException("Invalid container Size.");
         return result;
     }
 
+    /// <summary>Parses input into try parse container size data used by the app.</summary>
+    /// <param name="value">The value value supplied by the caller.</param>
+    /// <param name="writableBytes">The writable bytes value supplied by the caller.</param>
+    /// <param name="rootFsBytes">The root fs bytes value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
+    internal static bool TryParseContainerSize(string? value, out long? writableBytes, out long? rootFsBytes)
+    {
+        writableBytes = null;
+        rootFsBytes = null;
+        var text = value?.Trim();
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        var virtualIndex = text.IndexOf("(virtual", StringComparison.OrdinalIgnoreCase);
+        if (virtualIndex < 0)
+        {
+            return false;
+        }
+
+        var writableText = text[..virtualIndex].Trim();
+        if (WslcByteSizeJsonConverter.TryParseHumanSize(writableText, out var writable))
+        {
+            writableBytes = writable;
+        }
+
+        var start = virtualIndex + "(virtual".Length;
+        var end = text.IndexOf(')', start);
+        var virtualText = (end >= 0 ? text[start..end] : text[start..]).Trim();
+        if (WslcByteSizeJsonConverter.TryParseHumanSize(virtualText, out var rootFs))
+        {
+            rootFsBytes = rootFs;
+        }
+
+        return writableBytes is not null || rootFsBytes is not null;
+    }
+
+    /// <summary>Performs the property helper used by this model or dialog.</summary>
+    /// <param name="root">The root value supplied by the caller.</param>
+    /// <param name="name">The name value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     internal static JsonElement Property(JsonElement root, string name)
     {
         if (root.ValueKind == JsonValueKind.Object)
@@ -92,6 +153,10 @@ public sealed class ContainerInfoJsonConverter : JsonConverter<ContainerInfo>
         return default;
     }
 
+    /// <summary>Performs the read string helper used by this model or dialog.</summary>
+    /// <param name="root">The root value supplied by the caller.</param>
+    /// <param name="name">The name value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     internal static string ReadString(JsonElement root, string name)
     {
         var value = Property(root, name);
@@ -103,6 +168,10 @@ public sealed class ContainerInfoJsonConverter : JsonConverter<ContainerInfo>
         };
     }
 
+    /// <summary>Attempts the timestamp helper and reports whether it succeeded.</summary>
+    /// <param name="value">The value value supplied by the caller.</param>
+    /// <param name="seconds">The seconds value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     internal static bool TryTimestamp(JsonElement value, out long seconds)
     {
         seconds = 0;
@@ -124,6 +193,10 @@ public sealed class ContainerInfoJsonConverter : JsonConverter<ContainerInfo>
         return false;
     }
 
+    /// <summary>Writes this model during JSON serialization.</summary>
+    /// <param name="writer">The writer value supplied by the caller.</param>
+    /// <param name="value">The value value supplied by the caller.</param>
+    /// <param name="options">The options value supplied by the caller.</param>
     public override void Write(Utf8JsonWriter writer, ContainerInfo value, JsonSerializerOptions options)
     {
         writer.WriteStartObject();
@@ -138,6 +211,8 @@ public sealed class ContainerInfoJsonConverter : JsonConverter<ContainerInfo>
             JsonSerializer.Serialize(writer, value.Ports, options);
         else
             writer.WriteNullValue();
+        if (!string.IsNullOrWhiteSpace(value.Size))
+            writer.WriteString("Size", value.Size);
         writer.WriteBoolean("PortsKnown", value.PortsKnown);
         writer.WriteEndObject();
     }

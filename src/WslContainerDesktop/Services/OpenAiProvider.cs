@@ -21,22 +21,29 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// AI provider for OpenAI-compatible chat completion endpoints, including OpenAI and local compatible runtimes.
+/// </summary>
 public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings, IAiCredentialStore credentials,
     IAiCapabilityService? capabilities = null) : IAiProvider, IAiChatProvider
 {
+    /// <inheritdoc/>
     public AiProviderKind Kind => AiProviderKind.OpenAi;
 
     /// <summary>Base URL used when the user has not configured one.</summary>
     public const string DefaultEndpoint = "https://api.openai.com/v1";
 
+    /// <inheritdoc/>
     public string DisplayName => Kind.DisplayName();
 
+    /// <inheritdoc/>
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
         var content = await SendAsync(request, "Diagnosis", ct).ConfigureAwait(false);
         return AiProviderJson.ParseDiagnosis(content);
     }
 
+    /// <inheritdoc/>
     public async Task<string> TestAsync(CancellationToken ct)
     {
         _ = await SendAsync(new AiPromptRequest("Return JSON only.", "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), "Provider test", ct).ConfigureAwait(false);
@@ -78,6 +85,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
     }
 
+    /// <inheritdoc/>
     public async Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
@@ -86,6 +94,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         => (await RunTurnAsync(new AiChatRequest(AiConversationContext.Capture(settings, Kind), history),
             tools, invokeToolAsync, ct).ConfigureAwait(false)).FinalText;
 
+    /// <inheritdoc/>
     public async Task<AiChatTurnResult> RunTurnAsync(
         AiChatRequest request,
         IReadOnlyList<AiToolDefinition> tools,
@@ -100,6 +109,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
 
     // Shared wire transport, not shared provider configuration or credentials. Foundry supplies
     // its own restricted client, no key, and a guard rechecked before every request/tool callback.
+    /// <summary>Shared implementation for OpenAI-compatible chat turns, including tool-call loops.</summary>
     internal static async Task<AiChatTurnResult> RunTurnCoreAsync(
         AiHttpClient http, AiChatRequest request, IReadOnlyList<AiToolDefinition> tools,
         Func<AiToolCall, CancellationToken, Task<string>> invokeToolAsync,
@@ -241,6 +251,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         return uri;
     }
 
+    /// <summary>Converts a provider-neutral chat message into the JSON shape expected by OpenAI-compatible APIs.</summary>
     internal static object ToOpenAiMessage(AiChatMessage message)
     {
         message = AiTextSanitizer.SanitizeMessage(message);
@@ -273,6 +284,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         return new { role = message.Role, content = message.Content ?? string.Empty };
     }
 
+    /// <summary>Converts an app tool definition into an OpenAI-compatible tool declaration.</summary>
     internal static object ToOpenAiTool(AiToolDefinition tool)
     {
         tool = AiTextSanitizer.SanitizeDefinition(tool);
@@ -289,6 +301,7 @@ public sealed class OpenAiProvider(AiHttpClient http, ISettingsService settings,
         };
     }
 
+    /// <summary>Parses tool-call requests from an OpenAI-compatible assistant message.</summary>
     internal static AiToolTurn ParseToolTurn(JsonElement message)
     {
         var text = message.TryGetProperty("content", out var content) && content.ValueKind != JsonValueKind.Null

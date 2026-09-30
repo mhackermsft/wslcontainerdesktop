@@ -26,13 +26,16 @@ public static class ComposeReconciliationPlanner
     /// <summary>Local safety budget across all selected services, including retained and surplus instances.</summary>
     public const int MaximumPlanInstances = 1024;
 
+    /// <summary>Returns the trusted one-based runtime instance index for a selected service.</summary>
     public static int InstanceIndex(ComposeService service) =>
         service.RuntimeInstanceIndex > 0 ? service.RuntimeInstanceIndex :
         throw new InvalidOperationException("The trusted runtime instance index must be positive.");
 
+    /// <summary>Returns the persisted key for a service instance, using <c>name#N</c> for replicas.</summary>
     public static string InstanceKey(ComposeService service) =>
         InstanceIndex(service) == 1 ? service.Name : $"{service.Name}#{InstanceIndex(service)}";
 
+    /// <summary>Clones a service definition and stamps it with the one-based replica instance index.</summary>
     public static ComposeService ForInstance(ComposeService service, int index)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(index);
@@ -41,24 +44,29 @@ public static class ComposeReconciliationPlanner
         return instance;
     }
 
+    /// <summary>Checks whether inspected labels prove that a container belongs to this Compose service instance.</summary>
     public static bool IsOwnedInstance(ContainerNetworkState state, ComposeProject project, ComposeService service) =>
         state.IsOwnedBy(project, service) &&
         (state.HasLabel(ComposeProject.InstanceLabel, InstanceIndex(service).ToString(System.Globalization.CultureInfo.InvariantCulture)) ||
          InstanceIndex(service) == 1 && !state.Labels.ContainsKey(ComposeProject.InstanceLabel));
 
+    /// <summary>Returns the expected container name for a service using its runtime instance index.</summary>
     public static string ContainerName(ComposeProject project, ComposeService service) =>
         ContainerName(project, service, InstanceIndex(service));
 
+    /// <summary>Returns the expected container name for a service replica index.</summary>
     public static string ContainerName(ComposeProject project, ComposeService service, int index) =>
         index > 1 ? $"{project.ContainerNameFor(service.Name)}_{index}" :
         string.IsNullOrWhiteSpace(service.Options.Name)
             ? project.ContainerNameFor(service.Name)
             : service.Options.Name.Trim();
 
+    /// <summary>Resolves the desired replica count from the request, saved overrides, or service default.</summary>
     public static int DesiredReplicas(ComposeProject project, ComposeService service, ComposeOperationRequest request) =>
         request.Replicas.TryGetValue(service.Name, out var runtime) ? runtime :
         project.ReplicaOverrides.TryGetValue(service.Name, out var saved) ? saved : service.Replicas;
 
+    /// <summary>Infers a Compose replica index from an observed container name, or null if it is unrelated.</summary>
     public static int? ObservedInstanceIndex(ComposeProject project, ComposeService service, string containerName)
     {
         var name = containerName.TrimStart('/');
@@ -76,10 +84,13 @@ public static class ComposeReconciliationPlanner
             ObservedInstanceIndex(project, service, c.Name) is not null))
             .Select(c => c.Id).Distinct(StringComparer.Ordinal).Count();
 
+    /// <summary>Creates a deep copy of a service definition for safe planning mutations.</summary>
     public static ComposeService DeepCloneService(ComposeService service) => CloneService(service);
 
+    /// <summary>Builds the stable hash used to compare effective build configuration.</summary>
     public static string BuildFingerprint(ComposeBuildConfig? build) => HashConfiguration(BuildConfiguration(build));
 
+    /// <summary>Clones a service, including nested options, dependencies, build settings, and file mounts.</summary>
     public static ComposeService CloneService(ComposeService service) => new()
     {
         Name = service.Name,
@@ -135,6 +146,7 @@ public static class ComposeReconciliationPlanner
         return dependencies;
     }
 
+    /// <summary>Selects and dependency-orders the services affected by a Compose lifecycle request.</summary>
     public static IReadOnlyList<ComposeService> SelectServices(ComposeProject project, ComposeOperationRequest request)
     {
         if (!Enum.IsDefined(request.Operation))
@@ -227,6 +239,7 @@ public static class ComposeReconciliationPlanner
         return ordered.Select(CloneService).ToArray();
     }
 
+    /// <summary>Compares desired Compose configuration with one observed inventory and returns the needed actions.</summary>
     public static ComposeReconciliationPlan Plan(
         ComposeProject project, ComposeOperationRequest request,
         IReadOnlyList<ContainerInfo> inventory,

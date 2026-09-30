@@ -48,16 +48,23 @@ public sealed class AppUpdateService : IAppUpdateService
 
     private readonly Lazy<PackageContext?> _package;
 
+    /// <summary>
+    /// Creates the update service and defers reading MSIX package identity until update operations need it.
+    /// </summary>
+    /// <param name="logger">Logger used for update diagnostics that are safe to show only in logs.</param>
     public AppUpdateService(ILogger<AppUpdateService> logger)
     {
         _logger = logger;
         _package = new Lazy<PackageContext?>(ReadPackageContext);
     }
 
+    /// <inheritdoc/>
     public Version? CurrentVersion => _package.Value?.Identity.Version;
 
+    /// <inheritdoc/>
     public bool CanInstallInPlace => _package.Value?.SignerThumbprint is not null;
 
+    /// <inheritdoc/>
     public async Task<AppUpdateRelease?> CheckAsync(CancellationToken ct = default)
     {
         var package = _package.Value
@@ -125,6 +132,7 @@ public sealed class AppUpdateService : IAppUpdateService
         return newer ? release : null;
     }
 
+    /// <inheritdoc/>
     public async Task InstallAsync(AppUpdateRelease release, IProgress<AppUpdateProgress>? progress, Action? beforeInstall, CancellationToken ct = default)
     {
         // No ConfigureAwait(false) here: beforeInstall and everything after the download must run on
@@ -278,6 +286,7 @@ public sealed class AppUpdateService : IAppUpdateService
         throw new AppUpdateException($"Windows could not install the update. {detail}".Trim());
     }
 
+    /// <inheritdoc/>
     public AppUpdateOutcome? CompleteLaunch()
     {
         var package = _package.Value;
@@ -358,6 +367,9 @@ public sealed class AppUpdateService : IAppUpdateService
         }
     }
 
+    /// <summary>
+    /// Writes a small marker so the next launch can tell the user whether the handoff to Windows package deployment finished.
+    /// </summary>
     private void WritePendingMarker(string folder, Version target, Version from)
     {
         try
@@ -372,6 +384,9 @@ public sealed class AppUpdateService : IAppUpdateService
         }
     }
 
+    /// <summary>
+    /// Reads the current MSIX identity and signer so releases can be compared and verified before in-place installation.
+    /// </summary>
     private PackageContext? ReadPackageContext()
     {
         Package package;
@@ -417,6 +432,9 @@ public sealed class AppUpdateService : IAppUpdateService
     private static string ArchitectureName(Windows.System.ProcessorArchitecture architecture) =>
         architecture.ToString().ToLowerInvariant();
 
+    /// <summary>
+    /// Best-effort cleanup helper; update temp files should not block app startup or error reporting.
+    /// </summary>
     private void TryDelete(string path)
     {
         try
@@ -432,17 +450,28 @@ public sealed class AppUpdateService : IAppUpdateService
         }
     }
 
+    /// <summary>
+    /// Cached package identity plus signer evidence for the installed MSIX package.
+    /// </summary>
     private sealed record PackageContext(MsixIdentity Identity, string? SignerThumbprint);
 
+    /// <summary>
+    /// JSON shape stored before handing the update to Windows so the next process can report the outcome.
+    /// </summary>
     private sealed class PendingUpdate
     {
+        /// <summary>Version the previous app instance attempted to install.</summary>
         public string? TargetVersion { get; set; }
+        /// <summary>Version that started the update handoff.</summary>
         public string? FromVersion { get; set; }
     }
 
     /// <summary>Reports synchronously; the caller's <see cref="Progress{T}"/> marshals to the UI.</summary>
     private sealed class InlineProgress(Action<double> report) : IProgress<double>
     {
+        /// <summary>
+        /// Forwards downloader progress to the caller-provided callback immediately.
+        /// </summary>
         public void Report(double value) => report(value);
     }
 }

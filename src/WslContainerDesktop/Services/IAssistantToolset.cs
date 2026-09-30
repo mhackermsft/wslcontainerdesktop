@@ -18,9 +18,15 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Exposes the app operations that an AI provider may request. The implementation turns model
+/// tool calls into permission-categorized delegates rather than running them immediately.
+/// </summary>
 public interface IAssistantToolset
 {
+    /// <summary>Returns the tools currently safe and useful to advertise to the AI provider.</summary>
     Task<IReadOnlyList<AiToolDefinition>> GetDefinitionsAsync(CancellationToken ct);
 
+    /// <summary>Validates one requested tool call and prepares the execution delegate for approval.</summary>
     Task<AssistantResolvedToolCall> ResolveAsync(AiToolCall call, CancellationToken ct);
 }

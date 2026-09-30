@@ -19,10 +19,16 @@ namespace WslContainerDesktop.Services;
 /// <summary>Probe failures and startup grace, deliberately independent of the autoheal restart budget.</summary>
 public sealed class HealthProbeProgress
 {
+    /// <summary>Number of failing probe results since the last successful probe.</summary>
     public int ConsecutiveFailures { get; private set; }
+
+    /// <summary>Whether this container has ever reported healthy during the current run.</summary>
     public bool HasSucceeded { get; private set; }
+
+    /// <summary>When the current run began; used to honor Compose's startup grace period.</summary>
     public DateTimeOffset StartedAt { get; private set; }
 
+    /// <summary>Starts a fresh observation window for a newly started container.</summary>
     public void Reset(DateTimeOffset startedAt)
     {
         StartedAt = startedAt;
@@ -30,6 +36,7 @@ public sealed class HealthProbeProgress
         HasSucceeded = false;
     }
 
+    /// <summary>Records one probe result and decides whether it should count as unhealthy.</summary>
     /// <returns>True only when an unhealthy threshold has been reached.</returns>
     public bool Record(bool healthy, bool native, int retries, TimeSpan startPeriod, DateTimeOffset now)
     {

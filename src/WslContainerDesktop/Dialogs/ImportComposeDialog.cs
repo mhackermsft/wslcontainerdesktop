@@ -42,6 +42,7 @@ public sealed class ImportComposeDialog : ContentDialog
     public string? BaseDirectory =>
         string.IsNullOrEmpty(FilePath) ? null : Path.GetDirectoryName(FilePath);
 
+    /// <summary>Creates a new &lt;c&gt;ImportComposeDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public ImportComposeDialog()
     {
         Title = "Import compose file";

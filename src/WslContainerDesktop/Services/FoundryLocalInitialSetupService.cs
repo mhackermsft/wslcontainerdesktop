@@ -35,6 +35,9 @@ public sealed class FoundryLocalInitialSetupService(FoundryLocalCli cli,
         FoundryLocalStandaloneRuntimeService.AcquisitionGuidance + "\n" +
         "Cancellation is not rollback: registered packages, completed/partial files, and a started daemon or loaded model may remain. No automatic uninstall, stop or deletion.\n";
 
+    /// <summary>
+    /// Prepares Foundry Local for first use by the assistant.
+    /// </summary>
     public async Task<FoundryLocalInitialSetupResult> PrepareAsync(AiChatConfiguration original,
         Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent,
         IProgress<string>? progress, CancellationToken ct)
@@ -120,6 +123,9 @@ public sealed class FoundryLocalInitialSetupService(FoundryLocalCli cli,
         }
     }
 
+    /// <summary>
+    /// Stops the background work requested by the UI or a supervisor.
+    /// </summary>
     public async Task<FoundryLocalInitialSetupResult> StopAsync(AiChatConfiguration original,
         Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent, CancellationToken ct)
     {
@@ -156,4 +162,7 @@ public sealed class FoundryLocalInitialSetupService(FoundryLocalCli cli,
         && a.Endpoints.SequenceEqual(b.Endpoints, StringComparer.Ordinal);
 }
 
+/// <summary>
+/// Summarizes whether local AI setup succeeded and what guidance should be shown next.
+/// </summary>
 public sealed record FoundryLocalInitialSetupResult(bool Success, string Guidance, AiChatConfiguration? Configuration = null);

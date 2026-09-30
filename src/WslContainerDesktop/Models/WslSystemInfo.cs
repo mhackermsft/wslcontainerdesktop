@@ -19,6 +19,12 @@ namespace WslContainerDesktop.Models;
 /// <summary>One registered WSL distro and its current run state (from <c>wsl -l -v</c>).</summary>
 public sealed class WslDistroStatus
 {
+    /// <summary>
+    /// Returns the distribution name. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Name;
+
     /// <summary>Distro name, e.g. "Ubuntu".</summary>
     public string Name { get; init; } = string.Empty;
 

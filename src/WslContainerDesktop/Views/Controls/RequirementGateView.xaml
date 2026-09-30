@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="WslContainerDesktop.Views.Controls.RequirementGateView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:WslContainerDesktop"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <converters:InverseBoolConverter x:Key="InverseBool" />
+    </UserControl.Resources>
+
+    <Grid Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+        <Border
+            MaxWidth="760"
+            Margin="32"
+            Padding="28"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="12">
+            <StackPanel Spacing="16">
+                <StackPanel Spacing="6">
+                    <TextBlock
+                        Style="{ThemeResource TitleTextBlockStyle}"
+                        Text="{x:Bind ViewModel.Title, Mode=OneWay}" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind ViewModel.Explanation, Mode=OneWay}"
+                        TextWrapping="WrapWholeWords" />
+                    <TextBlock
+                        FontFamily="Consolas"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind ViewModel.FoundVersionText, Mode=OneWay}"
+                        Visibility="{x:Bind ViewModel.FoundVersionVisibility, Mode=OneWay}" />
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="True"
+                        Message="{x:Bind ViewModel.Status.Diagnostic, Mode=OneWay}"
+                        Severity="Warning"
+                        Visibility="{x:Bind ViewModel.DiagnosticVisibility, Mode=OneWay}" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button
+                        Command="{x:Bind ViewModel.UpdateWslCommand}"
+                        Content="Update WSL"
+                        IsEnabled="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource InverseBool}}"
+                        Style="{ThemeResource AccentButtonStyle}"
+                        Visibility="{x:Bind local:MainWindow.ToVisibility(ViewModel.IsUpdateVisible), Mode=OneWay}" />
+                    <Button
+                        Command="{x:Bind ViewModel.RecheckCommand}"
+                        Content="Re-check" />
+                    <Button
+                        Command="{x:Bind ViewModel.OpenSettingsCommand}"
+                        Content="Open Settings"
+                        Visibility="{x:Bind local:MainWindow.ToVisibility(ViewModel.IsOpenSettingsVisible), Mode=OneWay}" />
+                    <HyperlinkButton
+                        Command="{x:Bind ViewModel.OpenAnnouncementCommand}"
+                        Content="Read the WSL containers GA announcement" />
+                </StackPanel>
+
+                <StackPanel
+                    Orientation="Horizontal"
+                    Spacing="10"
+                    Visibility="{x:Bind local:MainWindow.ToVisibility(ViewModel.IsBusy), Mode=OneWay}">
+                    <ProgressRing
+                        Width="18"
+                        Height="18"
+                        IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

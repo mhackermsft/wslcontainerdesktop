@@ -51,6 +51,7 @@ public sealed class RegistryCredentialStore(ILogger<RegistryCredentialStore> log
     private const string TargetPrefix = "wslc-credential/";
     private const int CRED_TYPE_GENERIC = 1;
 
+    /// <inheritdoc/>
     public bool IsLoggedIn(string server, out string? username)
     {
         username = null;
@@ -70,6 +71,7 @@ public sealed class RegistryCredentialStore(ILogger<RegistryCredentialStore> log
         return false;
     }
 
+    /// <inheritdoc/>
     public bool TryGetCredential(string server, out string? username, out string? password)
     {
         username = null;
@@ -89,7 +91,8 @@ public sealed class RegistryCredentialStore(ILogger<RegistryCredentialStore> log
 
         return false;
     }
-    /// any of Docker's canonical aliases depending on how the server was passed, so all are checked.
+    /// <summary>
+    /// Returns the requested server plus Docker Hub aliases because <c>wslc</c> may store any canonical form.
     /// </summary>
     private static IEnumerable<string> CandidateServers(string server)
     {
@@ -186,6 +189,9 @@ public sealed class RegistryCredentialStore(ILogger<RegistryCredentialStore> log
     [DllImport("advapi32.dll")]
     private static extern void CredFree(IntPtr cred);
 
+    /// <summary>
+    /// Managed projection of the Win32 <c>CREDENTIAL</c> structure used to read registry secrets.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct CREDENTIAL
     {

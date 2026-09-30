@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers foreground interactive run-profile imports so terminal prompts, detach warnings, mounts, and stop timeouts are preserved correctly.</summary>
 public sealed class ForegroundInteractiveRunTests
 {
     [Theory]
@@ -90,5 +91,32 @@ public sealed class ForegroundInteractiveRunTests
         Assert.Equal(2, parsed.Warnings.Count);
         Assert.Contains(parsed.Warnings, w => w.Contains("--frobnicate"));
         Assert.Contains(parsed.Warnings, w => w.Contains("'-i' without '-d'"));
+    }
+
+    [Fact]
+    public void Parser_ImportsNativeMountAndStopTimeout()
+    {
+        var parsed = DockerRunParser.Parse(
+            """docker run -d --stop-timeout=-1 --mount type=bind,source=C:\data,target=/data,readonly nginx:alpine""");
+
+        var options = Assert.IsType<RunContainerOptions>(parsed.Options);
+        Assert.Empty(parsed.Warnings);
+        Assert.Equal(-1, options.StopTimeoutSeconds);
+        Assert.Equal("type=bind,source=C:\\data,target=/data,readonly", Assert.Single(options.Mounts).ToArgument());
+        var args = options.ToArguments();
+        Assert.Contains("--mount", args);
+        Assert.DoesNotContain("-v", args);
+    }
+
+    [Fact]
+    public void Parser_WarnsForInvalidStopTimeoutAndMount()
+    {
+        var parsed = DockerRunParser.Parse("""docker run --stop-timeout=nope --mount type=bind,target=/data nginx""");
+
+        var options = Assert.IsType<RunContainerOptions>(parsed.Options);
+        Assert.Null(options.StopTimeoutSeconds);
+        Assert.Empty(options.Mounts);
+        Assert.Contains(parsed.Warnings, w => w.Contains("--stop-timeout nope", StringComparison.Ordinal));
+        Assert.Contains(parsed.Warnings, w => w.Contains("--mount type=bind,target=/data", StringComparison.Ordinal));
     }
 }

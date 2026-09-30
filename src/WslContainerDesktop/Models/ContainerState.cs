@@ -22,15 +22,24 @@ namespace WslContainerDesktop.Models;
 /// </summary>
 public enum ContainerState
 {
+    /// <summary>Represents the unknown option.</summary>
     Unknown = 0,
+    /// <summary>Represents the created option.</summary>
     Created = 1,
+    /// <summary>Represents the running option.</summary>
     Running = 2,
+    /// <summary>Represents the stopped option.</summary>
     Stopped = 3,
+    /// <summary>Represents the paused option.</summary>
     Paused = 4,
 }
 
+/// <summary>Model object that stores container state extensions information used by services, view models, or dialogs.</summary>
 public static class ContainerStateExtensions
 {
+    /// <summary>Converts model data for to display string scenarios.</summary>
+    /// <param name="state">The state value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static string ToDisplayString(this ContainerState state) => state switch
     {
         ContainerState.Created => "Created",
@@ -40,5 +49,8 @@ public static class ContainerStateExtensions
         _ => "Unknown",
     };
 
+    /// <summary>Checks whether this value is running.</summary>
+    /// <param name="state">The state value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static bool IsRunning(this ContainerState state) => state == ContainerState.Running;
 }

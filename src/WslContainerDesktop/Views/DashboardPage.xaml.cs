@@ -21,14 +21,17 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Home page that summarizes engine health, resource counts, and running-container performance.</summary>
 public sealed partial class DashboardPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public DashboardPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<DashboardViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Dashboard summary view model bound by the page.</summary>
     public DashboardViewModel ViewModel { get; }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -36,6 +39,14 @@ public sealed partial class DashboardPage : Page
         base.OnNavigatedTo(e);
         await ViewModel.RefreshAsync();
         ViewModel.StartStatsPolling();
+    }
+
+    private void PerfList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is DashboardStatRow row)
+        {
+            App.Current.MainWindow?.OpenContainerLogs(row.Id, row.Name);
+        }
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)

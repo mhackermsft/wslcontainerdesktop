@@ -20,6 +20,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers conversion of provider stream fragments into safe assistant text so partial sentences and secrets do not leak to the UI.</summary>
 public sealed class AiStreamingTextTests
 {
     [Fact]

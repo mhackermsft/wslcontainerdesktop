@@ -24,18 +24,23 @@ namespace WslContainerDesktop.Models;
 /// </summary>
 public sealed class PortMapping
 {
+    /// <summary>Gets or sets the binding address.</summary>
     [JsonPropertyName("BindingAddress")]
     public string? BindingAddress { get; set; }
 
+    /// <summary>Gets or sets the container port.</summary>
     [JsonPropertyName("ContainerPort")]
     public int ContainerPort { get; set; }
 
+    /// <summary>Gets or sets the host port.</summary>
     [JsonPropertyName("HostPort")]
     public int HostPort { get; set; }
 
+    /// <summary>Gets or sets the protocol.</summary>
     [JsonPropertyName("Protocol")]
     public int Protocol { get; set; }
 
+    /// <summary>Gets the protocol name.</summary>
     [JsonIgnore]
     public string ProtocolName => Protocol switch
     {
@@ -44,6 +49,7 @@ public sealed class PortMapping
         _ => Protocol.ToString(),
     };
 
+    /// <summary>Gets the display.</summary>
     [JsonIgnore]
     public string Display =>
         $"{(string.IsNullOrEmpty(BindingAddress) ? "0.0.0.0" : BindingAddress)}:{HostPort} -> {ContainerPort}/{ProtocolName}";

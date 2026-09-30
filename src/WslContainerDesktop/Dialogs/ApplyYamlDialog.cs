@@ -35,6 +35,7 @@ public sealed class ApplyYamlDialog : ContentDialog
     /// <summary>The manifest text the user chose to apply.</summary>
     public string Yaml { get; private set; } = string.Empty;
 
+    /// <summary>Creates a new &lt;c&gt;ApplyYamlDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public ApplyYamlDialog()
     {
         Title = "Apply YAML manifest";

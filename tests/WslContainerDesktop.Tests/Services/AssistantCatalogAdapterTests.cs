@@ -25,12 +25,15 @@ using static WslContainerDesktop.Tests.Services.ComposeNetworkSupervisorTests;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests the production assistant catalog adapters so tool evidence stays complete while fitting provider budgets.
+/// </summary>
 public sealed class AssistantCatalogAdapterTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(15);
     internal static readonly string[] NewTools =
     [
-        "engine_capabilities", "get_health_observations", "get_volume_usage",
+        "engine_system_info", "engine_capabilities", "get_health_observations", "get_volume_usage",
         "start_compose_project", "stop_compose_project", "restart_compose_project", "down_compose_project",
     ];
 
@@ -160,7 +163,7 @@ public sealed class AssistantCatalogAdapterTests(ITestOutputHelper output)
             AssertPairedEvidence(sdkHistories[1], call.Name, mutate);
             Assert.Contains("call_id=opaque-catalog-call", sdkPrompts[1]);
             Assert.Contains("tool result for " + call.Name, sdkPrompts[1]);
-            Assert.Contains("NetworkConnect: Supported", sdkHistories[0][0].Content);
+            Assert.Contains("HealthStartInterval: Unknown", sdkHistories[0][0].Content);
         }
         else
         {
@@ -193,7 +196,7 @@ public sealed class AssistantCatalogAdapterTests(ITestOutputHelper output)
             }
             using var followUp = JsonDocument.Parse(handler.Requests[^1].Body);
             var messages = followUp.RootElement.GetProperty("messages").EnumerateArray().ToArray();
-            Assert.Contains("NetworkConnect: Supported", messages[0].GetProperty("content").GetString());
+            Assert.Contains("HealthStartInterval: Unknown", messages[0].GetProperty("content").GetString());
             var outcome = Assert.Single(messages, m => m.GetProperty("role").GetString() == "tool");
             Assert.Contains(mutate ? "\"stopped\"" : "StatusMonitor", outcome.GetProperty("content").GetString());
             var requested = Assert.Single(messages, m => m.TryGetProperty("tool_calls", out _)).GetProperty("tool_calls")[0];
@@ -218,7 +221,7 @@ public sealed class AssistantCatalogAdapterTests(ITestOutputHelper output)
 
     internal static void AssertFullCatalog(IReadOnlyList<AiToolDefinition> definitions)
     {
-        Assert.Equal(40, definitions.Count);
+        Assert.Equal(41, definitions.Count);
         foreach (var name in NewTools.Concat(["list_registry_tags", "list_registry_repositories", "cluster_start", "apply_yaml"]))
             Assert.Contains(definitions, d => d.Name == name);
         foreach (var name in NewTools)
@@ -258,6 +261,9 @@ public sealed class AssistantCatalogAdapterTests(ITestOutputHelper output)
             JsonSerializer.Serialize(new { choices = new[] { new { message } } });
     }
 
+    /// <summary>
+    /// Adapts the Copilot bridge runner to the provider interface used by the shared contract tests.
+    /// </summary>
     private sealed class CopilotBridgeProvider(CopilotChatTurnRunner runner) : IAiChatProvider
     {
         public AiProviderKind Kind => AiProviderKind.GitHubCopilot;
@@ -266,6 +272,9 @@ public sealed class AssistantCatalogAdapterTests(ITestOutputHelper output)
             runner.RunTurnAsync(request, tools, invokeToolAsync, ct);
     }
 
+    /// <summary>
+    /// Wraps a provider so the test can compare the outgoing request and returned assistant turn.
+    /// </summary>
     private sealed class CapturedProvider(IAiChatProvider inner, List<AiChatRequest> requests,
         List<AiChatTurnResult> results) : IAiChatProvider
     {
@@ -280,6 +289,9 @@ public sealed class AssistantCatalogAdapterTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Supplies deterministic app and engine observations for catalog tools that normally read live status.
+    /// </summary>
     internal sealed class CatalogFixture : IHealthObservationSource, IAppHealthObservationSource
     {
         internal ClusterState Cluster { get; init; } = ClusterState.Running;

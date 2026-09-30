@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers assistant observation queries so engine, cluster, app health, and volume evidence are sanitized and never inferred from stale data.</summary>
 public sealed class AssistantObservationContractTests
 {
     [Theory]
@@ -34,17 +35,17 @@ public sealed class AssistantObservationContractTests
         h.SettingsValues[nameof(ISettingsService.Registries)] = new List<RegistryEntry>();
         h.Provider.Turns.Enqueue(async (invoke, ct) =>
         {
-            Assert.Contains($"NetworkConnect: {support}", h.Provider.Requests[^1][0].Content);
+            Assert.Contains($"HealthStartInterval: {support}", h.Provider.Requests[^1][0].Content);
             f.Support = support == WslcCapabilitySupport.Supported ? WslcCapabilitySupport.Unsupported : WslcCapabilitySupport.Supported;
             var result = await invoke(AiContractHarness.Call("engine_capabilities", "{}"), ct);
-            Assert.Contains($"NetworkConnect: {f.Support}", result);
+            Assert.Contains($"HealthStartInterval: {f.Support}", result);
             Assert.DoesNotContain("private-", result);
             return result;
         });
         await h.Assistant.SendAsync("capabilities");
         h.Provider.Turns.Enqueue((_, _) => Task.FromResult("next"));
         await h.Assistant.SendAsync("again");
-        Assert.Contains($"NetworkConnect: {f.Support}", h.Provider.Requests[^1][0].Content);
+        Assert.Contains($"HealthStartInterval: {f.Support}", h.Provider.Requests[^1][0].Content);
         Assert.DoesNotContain("private-", JsonSerializer.Serialize(h.Provider.Requests));
         Assert.Equal(0, f.Inspects);
     }
@@ -166,6 +167,7 @@ public sealed class AssistantObservationContractTests
     }
 
     [Theory]
+    [InlineData("engine_system_info")]
     [InlineData("engine_capabilities")]
     [InlineData("get_health_observations")]
     [InlineData("get_volume_usage")]
@@ -180,6 +182,7 @@ public sealed class AssistantObservationContractTests
         Assert.Equal(0, f.Inspects);
     }
 
+    /// <summary>Combines fake health sources and settings so observation tests can control every piece of evidence.</summary>
     private sealed class Fixture : IHealthObservationSource, IAppHealthObservationSource
     {
         public WslcCapabilitySupport Support = WslcCapabilitySupport.Supported;

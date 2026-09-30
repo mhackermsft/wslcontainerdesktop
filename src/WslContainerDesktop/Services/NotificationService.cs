@@ -45,8 +45,10 @@ public sealed class NotificationService : INotificationService
 
     private bool _registered;
 
+    /// <summary>Raised on the UI dispatcher when a toast body or action button is clicked.</summary>
     public event EventHandler<NotificationActivation>? ActivationRequested;
 
+    /// <summary>Creates a notification wrapper tied to the UI dispatcher used for navigation callbacks.</summary>
     public NotificationService(ISettingsService settings, DispatcherQueue dispatcher, ILogger<NotificationService> logger)
     {
         _settings = settings;
@@ -54,6 +56,7 @@ public sealed class NotificationService : INotificationService
         _logger = logger;
     }
 
+    /// <summary>Registers the packaged app with Windows App SDK notifications.</summary>
     public void Register()
     {
         if (_registered)
@@ -75,6 +78,7 @@ public sealed class NotificationService : INotificationService
         }
     }
 
+    /// <summary>Unregisters notification callbacks during shutdown.</summary>
     public void Unregister()
     {
         if (!_registered)
@@ -98,6 +102,7 @@ public sealed class NotificationService : INotificationService
         }
     }
 
+    /// <summary>Shows an image-pull completion or failure toast when that category is enabled.</summary>
     public void NotifyImagePull(string reference, bool success, string? error = null)
     {
         if (!IsCategoryEnabled(_settings.NotifyImageEvents))
@@ -115,6 +120,7 @@ public sealed class NotificationService : INotificationService
         }
     }
 
+    /// <summary>Shows an image-build completion or failure toast when that category is enabled.</summary>
     public void NotifyImageBuild(string tag, bool success, string? error = null)
     {
         if (!IsCategoryEnabled(_settings.NotifyImageEvents))
@@ -132,6 +138,7 @@ public sealed class NotificationService : INotificationService
         }
     }
 
+    /// <summary>Shows a toast for an exited container with a button that routes to logs.</summary>
     public void NotifyContainerExited(string containerName, string containerId)
     {
         if (!IsCategoryEnabled(_settings.NotifyContainerEvents))
@@ -149,6 +156,7 @@ public sealed class NotificationService : INotificationService
                 .AddArgument(PageKey, "containers"));
     }
 
+    /// <summary>Shows a toast when the WSL container engine becomes unreachable.</summary>
     public void NotifyEngineDown()
     {
         if (!IsCategoryEnabled(_settings.NotifyEngineEvents))
@@ -159,6 +167,7 @@ public sealed class NotificationService : INotificationService
         Show("Engine unavailable", "The WSL container engine became unreachable.", "dashboard");
     }
 
+    /// <summary>Shows a toast when engine connectivity recovers.</summary>
     public void NotifyEngineRecovered()
     {
         if (!IsCategoryEnabled(_settings.NotifyEngineEvents))
@@ -169,6 +178,7 @@ public sealed class NotificationService : INotificationService
         Show("Engine recovered", "The WSL container engine is reachable again.", "dashboard");
     }
 
+    /// <summary>Shows an update toast with either an install or release-notes action.</summary>
     public void NotifyUpdateAvailable(string version, bool canInstall)
     {
         if (!_settings.NotificationsEnabled)
@@ -186,11 +196,14 @@ public sealed class NotificationService : INotificationService
                 .AddArgument(ActionKey, canInstall ? UpdateAction : ReleaseNotesAction));
     }
 
+    /// <summary>Combines the master notification switch with a per-category switch.</summary>
     private bool IsCategoryEnabled(bool categoryEnabled) => _settings.NotificationsEnabled && categoryEnabled;
 
+    /// <summary>Formats optional engine error text for a toast body.</summary>
     private static string FormatError(string? error) =>
         string.IsNullOrWhiteSpace(error) ? string.Empty : $" {error.Trim()}";
 
+    /// <summary>Builds and displays a toast, adding routing arguments for page navigation or buttons.</summary>
     private void Show(string title, string body, string? page, AppNotificationButton? button = null)
     {
         if (!_registered)
@@ -223,6 +236,7 @@ public sealed class NotificationService : INotificationService
         }
     }
 
+    /// <summary>Handles Windows toast activation and re-raises it on the UI dispatcher.</summary>
     private void OnNotificationInvoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args)
     {
         // Fires on a background thread; marshal onto the UI thread before navigating.

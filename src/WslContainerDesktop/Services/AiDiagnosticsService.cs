@@ -20,6 +20,13 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Builds and sends AI diagnostic prompts for a selected container.
+/// The containers page uses this service to gather logs, inspect JSON, system details, and recent activity before an assistant provider sees anything.
+/// </summary>
+/// <remarks>
+/// Evidence collection is best-effort: unavailable sections become short placeholders, and all text is sanitized before preview or send. Provider settings are rechecked after capability probes so a destination change cannot silently receive old evidence.
+/// </remarks>
 public sealed class AiDiagnosticsService(
     IWslcService wslc,
     IActivityLog activity,
@@ -33,6 +40,7 @@ public sealed class AiDiagnosticsService(
     private const int MaxSectionChars = 16_000;
     private const int MaxDiffEntries = 120;
 
+    /// <inheritdoc/>
     public async Task<AiDiagnosticPreview> BuildPreviewAsync(ContainerInfo container, CancellationToken ct = default)
     {
         var evidence = new StringBuilder();
@@ -55,6 +63,7 @@ public sealed class AiDiagnosticsService(
 
         await AddCommandSectionAsync(evidence, "Recent logs", () => wslc.GetLogsAsync(container.Id, LogTail, ct)).ConfigureAwait(false);
         await AddCommandSectionAsync(evidence, "Inspect JSON", () => wslc.InspectContainerAsync(container.Id, ct)).ConfigureAwait(false);
+        await AddSystemInfoSectionAsync(evidence, ct).ConfigureAwait(false);
 
         if (container.State == ContainerState.Running)
         {
@@ -83,6 +92,7 @@ public sealed class AiDiagnosticsService(
         return new AiDiagnosticPreview(new AiPromptRequest(systemPrompt, payload), payload);
     }
 
+    /// <inheritdoc/>
     public async Task<AiDiagnosis> DiagnoseAsync(AiPromptRequest request, CancellationToken ct = default)
     {
         if (!settings.AiFeaturesEnabled)
@@ -115,6 +125,7 @@ public sealed class AiDiagnosticsService(
         return await provider.CompleteAsync(safeRequest, ct).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public async Task<string> TestProviderAsync(CancellationToken ct = default)
     {
         if (!settings.AiFeaturesEnabled)
@@ -136,6 +147,7 @@ public sealed class AiDiagnosticsService(
         return observation.StatusText;
     }
 
+    /// <summary>Adds one command-output section while hiding failures behind an unavailable marker.</summary>
     private async Task AddCommandSectionAsync(StringBuilder builder, string title, Func<Task<CommandResult>> command)
     {
         try
@@ -151,6 +163,23 @@ public sealed class AiDiagnosticsService(
         }
     }
 
+    /// <summary>Adds sanitized engine environment information to the evidence payload.</summary>
+    private async Task AddSystemInfoSectionAsync(StringBuilder builder, CancellationToken ct)
+    {
+        try
+        {
+            var info = await wslc.GetSystemInfoAsync(ct).ConfigureAwait(false);
+            Append(builder, "Container environment", System.Text.Json.JsonSerializer.Serialize(info.Sanitized(),
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug("AI diagnostics system info collection failed: {Detail}", AiTextSanitizer.Sanitize(ex.Message));
+            Append(builder, "Container environment", "Unavailable.");
+        }
+    }
+
+    /// <summary>Appends one bounded Markdown section to the diagnostic evidence buffer.</summary>
     private static void Append(StringBuilder builder, string title, string? content)
     {
         builder.AppendLine($"## {title}");

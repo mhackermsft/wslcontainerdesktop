@@ -18,10 +18,19 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Opt-in xUnit fact for tests that may create disposable Compose resources in a real <c>wslc</c> engine.
+/// </summary>
 public sealed class ComposeRuntimeFactAttribute : FactAttribute
 {
+    /// <summary>
+    /// Environment variable value required to prove the developer intentionally enabled real-engine Compose tests.
+    /// </summary>
     public const string Consent = "I-authorize-disposable-WSLC-resources";
 
+    /// <summary>
+    /// Skips the test unless the opt-in environment variable matches <see cref="Consent"/> exactly.
+    /// </summary>
     public ComposeRuntimeFactAttribute()
     {
         if (Environment.GetEnvironmentVariable("WCD_COMPOSE_RUNTIME") != Consent)

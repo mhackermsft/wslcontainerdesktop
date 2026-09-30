@@ -22,14 +22,14 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers compose network orchestration so networks, endpoints, starts, rollbacks, and cancellation remain ordered and idempotent.</summary>
 public sealed class ComposeNetworkOrchestratorTests
 {
-    internal static WslcCapabilities Capabilities(WslcCapabilitySupport support = WslcCapabilitySupport.Supported) =>
-        new("wslc.exe", "fixture", new Dictionary<WslcFeature, WslcCapability>
-        {
-            [WslcFeature.NetworkConnect] = new(support, "fixture diagnostic"),
-            [WslcFeature.NetworkDisconnect] = new(support, "fixture diagnostic"),
-        });
+    internal static WslcCapabilities Capabilities(WslcCapabilitySupport support = WslcCapabilitySupport.Supported)
+    {
+        _ = support;
+        return new("wslc.exe", "fixture", new Dictionary<WslcFeature, WslcCapability>());
+    }
 
     internal static RunContainerOptions Options(string name = "demo_web") => new()
     {
@@ -203,21 +203,20 @@ public sealed class ComposeNetworkOrchestratorTests
     }
 
     [Fact]
-    public void LegacyFallbackIsExplicitAndUnknownDoesNotDowngrade()
+    public void MultiNetworkAlwaysSelectsNativeBaseline()
     {
         var options = Options();
-        Assert.False(ComposeNetworkOrchestrator.SelectNative(options,
-            Capabilities(WslcCapabilitySupport.Unsupported), out var warning));
-        Assert.Contains("Only network 'a'", warning);
-        Assert.Contains("'b'", warning);
+        Assert.True(ComposeNetworkOrchestrator.SelectNative(options, Capabilities(WslcCapabilitySupport.Unsupported), out var warning));
+        Assert.Null(warning);
         Assert.Equal(2, options.NetworkAttachments.Count);
-        var error = Assert.Throws<InvalidOperationException>(() =>
-            ComposeNetworkOrchestrator.SelectNative(options, Capabilities(WslcCapabilitySupport.Unknown), out _));
-        Assert.Contains("fixture diagnostic", error.Message);
-        options.NetworkMode = "none";
-        Assert.False(ComposeNetworkOrchestrator.SelectNative(options, Capabilities(WslcCapabilitySupport.Unknown), out _));
+
+        options.Networks = ["a"];
+        options.NetworkAttachments = [options.NetworkAttachments[0]];
+        Assert.False(ComposeNetworkOrchestrator.SelectNative(options, Capabilities(WslcCapabilitySupport.Unknown), out warning));
+        Assert.Null(warning);
     }
 
+    /// <summary>Records fake engine calls so network tests can assert ordering without using a real <c>wslc</c> daemon.</summary>
     internal sealed class Engine
     {
         public Dictionary<string, RunContainerOptions> Containers { get; } = new();

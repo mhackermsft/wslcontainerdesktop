@@ -24,16 +24,13 @@ using static WslContainerDesktop.Tests.Services.ComposeNetworkSupervisorTests;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers compose review supervision so previewed plans, tokens, validation, conflict detection, cancellation, and outcomes stay trustworthy.</summary>
 public sealed class ComposeReviewSupervisorTests
 {
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Supported, "NativeCreateConnectStart", ComposeSettingDisposition.Supported)]
-    [InlineData(WslcCapabilitySupport.Unsupported, "LegacyRun", ComposeSettingDisposition.Approximated)]
-    [InlineData(WslcCapabilitySupport.Unknown, "Unknown", ComposeSettingDisposition.Blocked)]
-    public async Task PreviewMatchesActualTriStateBackendAndNeverMutates(
-        WslcCapabilitySupport support, string backend, ComposeSettingDisposition disposition)
+    [Fact]
+    public async Task PreviewMatchesNativeBaselineBackendAndNeverMutates()
     {
-        var fixture = new Fixture(support);
+        var fixture = new Fixture();
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
         var before = JsonSerializer.Serialize(fixture.Project);
         var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
@@ -44,45 +41,38 @@ public sealed class ComposeReviewSupervisorTests
         Assert.Empty(fixture.HealthChecks);
         Assert.Empty(fixture.RestartPolicies);
         var backendRow = Row(review, "backend");
-        Assert.Equal(backend, backendRow.EffectiveValue);
-        Assert.Equal(disposition, backendRow.Disposition);
-        Assert.Equal(support, backendRow.Capability);
+        Assert.Equal("NativeCreateConnectStart", backendRow.EffectiveValue);
+        Assert.Equal(ComposeSettingDisposition.Supported, backendRow.Disposition);
+        Assert.Equal(WslcCapabilitySupport.Supported, backendRow.Capability);
         Assert.Contains("application", Row(review, "restart").EffectiveValue);
-        Assert.Equal(support != WslcCapabilitySupport.Unknown, review.Preview.CanApply);
+        Assert.True(review.Preview.CanApply);
         Assert.Equal(1, fixture.CapabilityInvalidations);
 
         var outcome = await fixture.Supervisor.ApplyReviewedAsync(review, true);
-        if (support == WslcCapabilitySupport.Unknown)
-        {
-            Assert.Equal(ComposeReviewOutcomeKind.Blocked, outcome.Kind);
-            Assert.Empty(fixture.Engine.Mutations);
-        }
-        else
-        {
-            Assert.Equal(ComposeReviewOutcomeKind.Applied, outcome.Kind);
-            Assert.Equal(2, fixture.CapabilityInvalidations);
-            Assert.Contains(support == WslcCapabilitySupport.Supported ? "create:demo_web" : "run:demo_web", fixture.Engine.Mutations);
-            Assert.Equal(2, fixture.SavedProject!.Services[0].Options.GetNetworkAttachments().Count);
-            if (support == WslcCapabilitySupport.Unsupported)
-                Assert.Equal(ComposeSettingDisposition.Ignored, Row(review, "networks[2]").Disposition);
-        }
+        Assert.Equal(ComposeReviewOutcomeKind.Applied, outcome.Kind);
+        Assert.Equal(2, fixture.CapabilityInvalidations);
+        Assert.Contains("create:demo_web", fixture.Engine.Mutations);
+        Assert.Equal(2, fixture.SavedProject!.Services[0].Options.GetNetworkAttachments().Count);
     }
 
     [Theory]
     [InlineData(WslcCapabilitySupport.Supported, ComposePolicyOwner.Engine)]
     [InlineData(WslcCapabilitySupport.Unsupported, ComposePolicyOwner.Application)]
-    [InlineData(WslcCapabilitySupport.Unknown, ComposePolicyOwner.Unknown)]
+    [InlineData(WslcCapabilitySupport.Unknown, ComposePolicyOwner.Application)]
     public async Task NativeHealthFallbackAndUnknownHaveDistinctOwners(WslcCapabilitySupport support, ComposePolicyOwner owner)
     {
         var fixture = new Fixture();
-        fixture.Project.Services[0].Options.Health = new() { Test = ["CMD-SHELL", "true"] };
+        fixture.Project.Services[0].Options.Health = new() { Test = ["CMD-SHELL", "true"], StartInterval = "2s" };
         fixture.Snapshot = new("wslc.exe", "fixture", Enum.GetValues<WslcFeature>().ToDictionary(f => f,
-            f => new WslcCapability(f.ToString().StartsWith("CreateHealth", StringComparison.Ordinal)
-                ? support : WslcCapabilitySupport.Supported, "not-for-display")));
+            f => new WslcCapability(f == WslcFeature.CreateHealthStartInterval
+                ? support : WslcCapabilitySupport.Supported, "health-start-interval unavailable")));
         var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
         Assert.Contains($"Probe owner: {owner}", Row(review, "healthcheck").EffectiveValue);
-        Assert.Equal(support != WslcCapabilitySupport.Unknown, review.Preview.CanApply);
-        Assert.DoesNotContain("not-for-display", JsonSerializer.Serialize(review));
+        Assert.True(review.Preview.CanApply);
+        if (support == WslcCapabilitySupport.Unknown)
+            Assert.Contains("health-start-interval unavailable", JsonSerializer.Serialize(review));
+        else
+            Assert.DoesNotContain("health-start-interval unavailable", JsonSerializer.Serialize(review));
         Assert.Empty(fixture.Engine.Mutations);
     }
 
@@ -126,7 +116,7 @@ public sealed class ComposeReviewSupervisorTests
         Assert.Equal(ComposePlanValidation.Valid, await fixture.Supervisor.ValidateReviewAsync(review));
         Assert.Equal(2, fixture.CapabilityInvalidations);
         Assert.Empty(fixture.Engine.Mutations);
-        fixture.Snapshot = Capabilities(WslcCapabilitySupport.Unsupported);
+        fixture.Project.Services[0].Options.NetworkAttachments[1].Ipv4Address = "changed-after-review";
 
         Assert.Equal(ComposeReviewOutcomeKind.Stale, (await fixture.Supervisor.ApplyReviewedAsync(review, true)).Kind);
         Assert.Equal(3, fixture.CapabilityInvalidations);
@@ -164,17 +154,6 @@ public sealed class ComposeReviewSupervisorTests
         Assert.Equal(ComposeReviewOutcomeKind.Stale, (await fixture.Supervisor.ApplyReviewedAsync(review, true, true)).Kind);
         Assert.Empty(fixture.Engine.Mutations);
         Assert.Empty(fixture.SavedSnapshots);
-    }
-
-    [Fact]
-    public async Task CapabilityBecomingUnknownIsBlockedNotLegacyFallback()
-    {
-        var fixture = new Fixture();
-        var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
-        fixture.Snapshot = Capabilities(WslcCapabilitySupport.Unknown);
-        Assert.Equal(ComposePlanValidation.Blocked, await fixture.Supervisor.ValidateReviewAsync(review));
-        Assert.Equal(ComposeReviewOutcomeKind.Blocked, (await fixture.Supervisor.ApplyReviewedAsync(review, true)).Kind);
-        Assert.Empty(fixture.Engine.Mutations);
     }
 
     [Fact]
@@ -432,9 +411,9 @@ public sealed class ComposeReviewSupervisorTests
     public async Task CancelledExecutionRetainsActualPartialOutcomesAndDesiredIntent()
     {
         using var cancellation = new CancellationTokenSource();
-        var fixture = new Fixture(WslcCapabilitySupport.Unsupported);
+        var engine = new Engine { BeforeStart = () => cancellation.Cancel() };
+        var fixture = new Fixture(engine: engine);
         fixture.Project.Services.Add(new() { Name = "worker", Options = new() { Image = "fixture" } });
-        fixture.Engine.AfterRun = _ => cancellation.Cancel();
         var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
         var outcome = await fixture.Supervisor.ApplyReviewedAsync(review, true, ct: cancellation.Token);
         Assert.Equal(ComposeReviewOutcomeKind.Cancelled, outcome.Kind);
@@ -469,7 +448,7 @@ public sealed class ComposeReviewSupervisorTests
     public async Task PublicTokenAndOutcomeDoNotSerializeRawPlanOrEngineErrors()
     {
         var engine = new Engine { FailRun = "demo_web" };
-        var fixture = new Fixture(WslcCapabilitySupport.Unsupported, engine);
+        var fixture = new Fixture(engine: engine);
         fixture.Project.Services[0].Options.EnvironmentVariables.Add("ORDINARY=private-value-1974");
         fixture.Project.Services[0].Options.Command = "unstructured-command-9324";
         var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
@@ -607,12 +586,14 @@ public sealed class ComposeReviewSupervisorTests
     private static ComposeCompatibilitySetting Row(ComposeReviewToken review, string setting) =>
         Assert.Single(review.Preview.Settings, row => row.Setting == setting);
 
+    /// <summary>Provides deterministic review-token time so expiration and revalidation cases do not wait in real time.</summary>
     private sealed class ReviewClock : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = new(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
         public override DateTimeOffset GetUtcNow() => Now;
     }
 
+    /// <summary>Captures supervisor log entries so tests can verify sensitive exceptions are not exposed.</summary>
     private sealed class ReviewLogger : ILogger<ComposeProjectSupervisor>
     {
         public List<string> Messages { get; } = [];

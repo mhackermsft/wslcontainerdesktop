@@ -120,6 +120,10 @@ public sealed class ProcessRunner(ISettingsService settings)
             ct: cancellationToken);
     }
 
+    /// <summary>
+    /// Creates a <see cref="ProcessStartInfo"/> that passes arguments through <see cref="ProcessStartInfo.ArgumentList"/>
+    /// instead of building a command line string.
+    /// </summary>
     internal static ProcessStartInfo CreateStartInfo(string executablePath, IEnumerable<string> arguments, bool redirectInput)
     {
         var psi = new ProcessStartInfo

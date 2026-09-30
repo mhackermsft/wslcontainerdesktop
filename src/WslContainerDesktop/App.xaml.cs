@@ -26,6 +26,15 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop;
 
+/// <summary>
+/// WinUI application object that creates the dependency-injection container, starts the
+/// background monitors, owns the tray icon, and coordinates shutdown for WSL Container Desktop.
+/// </summary>
+/// <remarks>
+/// <c>OnLaunched</c> runs on the UI thread, so it is where singleton services that need a
+/// <c>DispatcherQueue</c> are first resolved. The class also keeps the tray icon synchronized with
+/// <c>StatusMonitor</c> and the health watchdogs.
+/// </remarks>
 public partial class App : Application
 {
     private MainWindow? _window;
@@ -42,7 +51,11 @@ public partial class App : Application
     private ContainerHealthState _worstContainerHealth = ContainerHealthState.Unknown;
     private ILogger<App>? _logger;
     private bool _isExiting;
+    private bool _sessionEnding;
 
+/// <summary>
+/// Initializes XAML resources, builds the service provider, and wires global exception logging.
+/// </summary>
 public App()
 {
     InitializeComponent();
@@ -59,14 +72,35 @@ public App()
     };
 }
 
+/// <summary>Returns the running app instance with the concrete <see cref="App"/> type.</summary>
 public new static App Current => (App)Application.Current;
 
+/// <summary>Root dependency-injection provider used by views to resolve their view models.</summary>
 public IServiceProvider Services { get; }
 
+/// <summary>The main shell window when it has been created; null during early startup or after teardown.</summary>
 public MainWindow? MainWindow => _window;
 
-/// <summary>True while a real shutdown is in progress (lets the window close for good).</summary>
-public bool IsExiting => _isExiting;
+/// <summary>
+/// True while a real shutdown is in progress, including when Windows is ending the session or
+/// servicing the package (lets the window close for good instead of hiding to the tray).
+/// </summary>
+public bool IsExiting => _isExiting || _sessionEnding;
+
+private void OnSessionEnded(bool ending)
+{
+    _sessionEnding = ending;
+    if (!ending)
+    {
+        return;
+    }
+
+    _logger?.LogInformation("Windows is ending the session or updating the app; shutting down.");
+
+    // Exit after this message returns: ExitApplication destroys the tray window that is
+    // currently dispatching WM_ENDSESSION.
+    _monitor?.Dispatcher.TryEnqueue(ExitApplication);
+}
 
 private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
 {
@@ -87,6 +121,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         // The status monitor needs the UI DispatcherQueue. It's resolved here (on the UI thread)
         // so its DI factory can capture the dispatcher; the same singleton is later injected into
         // the view models.
+        _ = Services.GetRequiredService<IWslRequirementService>().RecheckAsync();
         _monitor = Services.GetRequiredService<StatusMonitor>();
 
         // Same UI-thread-capture requirement: resolve the AI availability service here so its
@@ -101,12 +136,15 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _tray = new TrayIcon();
         _tray.OpenRequested += () => _monitor!.Dispatcher.TryEnqueue(ShowMainWindow);
         _tray.QuitRequested += () => _monitor!.Dispatcher.TryEnqueue(ExitApplication);
+        _tray.SessionEnding += () => _sessionEnding = true;
+        _tray.SessionEnded += OnSessionEnded;
         _tray.ContainerActionRequested += OnTrayContainerAction;
         _tray.MuteToggleRequested += OnTrayMuteToggle;
         _tray.Initialize();
 
         _monitor.StatusChanged += OnEngineStatusChanged;
         _monitor.Start();
+        Services.GetRequiredService<IEngineEventStream>().Start();
 
         // Activity feed: synthesizes a persisted event timeline from engine snapshot diffs.
         // Resolved and attached here (UI thread) so it captures transitions from the first poll.
@@ -349,6 +387,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _tray?.UpdateStatus(health, tooltip, statusText, _runningCount, _lastContainers, settings.NotificationsEnabled);
     }
 
+    /// <summary>Creates the main window if necessary and shows it after a tray or notification activation.</summary>
     public void ShowMainWindow()
     {
         _window ??= new MainWindow();
@@ -373,6 +412,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         }
     }
 
+    /// <summary>Performs the orderly app shutdown path: stop background services, remove the tray icon, and exit WinUI.</summary>
     public void ExitApplication()
     {
         if (_isExiting)
@@ -396,6 +436,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         _watchdog?.Dispose();
         _restartWatchdog?.Dispose();
         _autostart?.Dispose();
+        (Services.GetService<IEngineEventStream>() as IDisposable)?.Dispose();
         _monitor?.Dispose();
         _notifications?.Unregister();
         _tray?.Dispose();
@@ -412,6 +453,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         Exit();
     }
 
+    /// <summary>Registers services and view models for constructor injection across the app.</summary>
     private static ServiceProvider ConfigureServices()
     {
         var services = new ServiceCollection();
@@ -439,8 +481,11 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<ProcessRunner>();
+        services.AddSingleton<IWslPolicyRegistryReader, RegistryWslPolicyRegistryReader>();
+        services.AddSingleton<IWslPolicyService, WslPolicyService>();
         services.AddSingleton<IWslcCapabilitiesService, WslcCapabilitiesService>();
         services.AddSingleton<IWslcService, WslcService>();
+        services.AddSingleton<IWslcSettingsFileService, WslcSettingsFileService>();
         services.AddSingleton<RestartSuppressionState>();
         services.AddSingleton<IWslSystemService, WslSystemService>();
         services.AddSingleton<IKubernetesService, KubernetesService>();
@@ -518,6 +563,24 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
                 ?? throw new InvalidOperationException("NotificationService must first be resolved on the UI thread."),
             sp.GetRequiredService<ILogger<NotificationService>>()));
 
+        services.AddSingleton<IWslRequirementService>(sp =>
+        {
+            var dispatcher = DispatcherQueue.GetForCurrentThread()
+                ?? throw new InvalidOperationException("WslRequirementService must first be resolved on the UI thread.");
+            return new WslRequirementService(
+                sp.GetRequiredService<ISettingsService>(),
+                sp.GetRequiredService<IWslPolicyService>(),
+                action => dispatcher.TryEnqueue(() => action()),
+                sp.GetRequiredService<ILogger<WslRequirementService>>());
+        });
+
+        services.AddSingleton<IEngineEventStream>(sp => new EngineEventStream(
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<IWslRequirementService>(),
+            DispatcherQueue.GetForCurrentThread()
+                ?? throw new InvalidOperationException("EngineEventStream must first be resolved on the UI thread."),
+            sp.GetRequiredService<ILogger<EngineEventStream>>()));
+
         // StatusMonitor needs the UI DispatcherQueue. Because the singleton is first resolved from
         // OnLaunched (which runs on the UI thread), the factory can capture the dispatcher directly
         // here — no static bridge required. GetForCurrentThread must be non-null at that point.
@@ -527,6 +590,8 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             sp.GetRequiredService<RegistryAuthRefresher>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<INotificationService>(),
+            sp.GetRequiredService<IWslRequirementService>(),
+            sp.GetRequiredService<IEngineEventStream>(),
             DispatcherQueue.GetForCurrentThread()
                 ?? throw new InvalidOperationException("StatusMonitor must first be resolved on the UI thread."),
             sp.GetRequiredService<ILogger<StatusMonitor>>()));
@@ -557,6 +622,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<RegistriesViewModel>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<AssistantViewModel>();
+        services.AddSingleton<RequirementGateViewModel>();
         services.AddSingleton<ShellViewModel>();
         services.AddSingleton<AppUpdateViewModel>();
         services.AddSingleton<DashboardViewModel>();

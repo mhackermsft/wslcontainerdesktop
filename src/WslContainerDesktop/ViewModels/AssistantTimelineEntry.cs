@@ -18,6 +18,13 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <summary>
+/// One row in the Assistant page transcript. Conversation rows are shown inline, while tool
+/// activity rows can collapse so novice users can read the answer without losing audit evidence.
+/// </summary>
+/// <param name="Generation">The chat turn that produced this entry; stale turns are ignored.</param>
+/// <param name="Kind">The assistant progress kind, or <c>null</c> for plain user/assistant text.</param>
+/// <param name="ToolCallId">Provider-assigned tool call id used to replace progress for the same tool.</param>
 /// <param name="Label">Row heading; for activity rows this is the collapsed summary line.</param>
 /// <param name="Text">Full detail, shown inline for conversation and on expand for activity.</param>
 public sealed record AssistantTimelineEntry(
@@ -38,4 +45,10 @@ public sealed record AssistantTimelineEntry(
 
     /// <summary>True when expanding would actually reveal something.</summary>
     public bool HasDetail => !string.IsNullOrWhiteSpace(Text);
+
+    /// <summary>
+    /// The screen-reader name of the transcript row. Without this the record's generated
+    /// ToString would make Narrator read every property name and value.
+    /// </summary>
+    public override string ToString() => IsConversation && HasDetail ? $"{Label}: {Text}" : Label;
 }

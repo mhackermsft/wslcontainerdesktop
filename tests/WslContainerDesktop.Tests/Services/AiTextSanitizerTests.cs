@@ -23,6 +23,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Exercises the AI text sanitizer against structured data, terminal output and adversarial secret-shaped strings.
+/// </summary>
 public sealed class AiTextSanitizerTests
 {
     public static TheoryData<string> ColoredDiscriminators => new()
@@ -345,11 +348,17 @@ public sealed class AiTextSanitizerTests
         Assert.Null(sink.Exception);
     }
 
+    /// <summary>
+    /// Groups related secret test values so each sanitizer scenario keeps its inputs readable.
+    /// </summary>
     private sealed record ScopeState(string Password, string Name)
     {
         public override string ToString() => JsonSerializer.Serialize(this);
     }
 
+    /// <summary>
+    /// Captures sanitizer diagnostics in memory instead of writing to the test process log.
+    /// </summary>
     private sealed class LogSink : ILogger
     {
         public List<string> Entries { get; } = [];

@@ -23,11 +23,16 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 internal static class K8sStatusProtocol
 {
+    /// <summary>Probe marker emitted when k3s is not installed in the distro.</summary>
     public const string StateNotInstalled = "@@STATE=notinstalled";
+    /// <summary>Probe marker emitted when k3s is installed but not running.</summary>
     public const string StateStopped = "@@STATE=stopped";
+    /// <summary>Probe marker emitted before JSON data when k3s is running.</summary>
     public const string StateRunning = "@@STATE=running";
 
+    /// <summary>Section marker before serialized Kubernetes node data.</summary>
     public const string NodesMarker = "@@NODES";
+    /// <summary>Section marker before serialized Kubernetes pod data.</summary>
     public const string PodsMarker = "@@PODS";
 
     /// <summary>
@@ -48,6 +53,7 @@ internal static class K8sStatusProtocol
         return idx >= 0 ? output[(idx + marker.Length)..] : string.Empty;
     }
 
+    /// <summary>Returns whether a probe output contains a marker token exactly.</summary>
     public static bool Contains(string output, string marker) =>
         output.Contains(marker, StringComparison.Ordinal);
 }

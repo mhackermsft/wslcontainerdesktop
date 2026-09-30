@@ -19,8 +19,10 @@ using YamlDotNet.Core.Events;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>YAML-reading portion of <c>ComposeImporter</c>; converts YamlDotNet events into bounded internal nodes and interpolates variables.</summary>
 public static partial class ComposeImporter
 {
+    /// <summary>Reads one Compose YAML document into the importer's normalized node tree.</summary>
     private static MappingNode ReadComposeYaml(string yaml, IReadOnlyDictionary<string, string>? environment,
         List<string>? warnings = null)
     {
@@ -41,9 +43,11 @@ public static partial class ComposeImporter
         }
     }
 
+    /// <summary>Creates a line-and-column error without including the sensitive YAML value.</summary>
     private static ComposeConfigurationException YamlError(Mark mark, string message) =>
         new($"Compose YAML line {mark.Line}, column {mark.Column}: {message}");
 
+    /// <summary>Applies Compose variable interpolation while enforcing depth, node, and character budgets.</summary>
     private static Node InterpolateNode(Node node, IReadOnlyDictionary<string, string>? env,
         ref int budget, ref int characterBudget, List<string>? warnings, int depth = 0)
     {
@@ -78,6 +82,7 @@ public static partial class ComposeImporter
         return result;
     }
 
+    /// <summary>Small bounded YAML event reader that supports only the Compose shapes this importer understands.</summary>
     private sealed class YamlReader
     {
         private readonly Parser parser;
@@ -85,9 +90,11 @@ public static partial class ComposeImporter
         private readonly HashSet<string> pendingAnchors = new(StringComparer.Ordinal);
         private int remaining = 100_000;
 
+        /// <summary>Creates a reader over normalized line endings so reported positions are consistent.</summary>
         public YamlReader(string yaml) =>
             parser = new Parser(new StringReader(yaml.Replace("\r\n", "\n").Replace('\r', '\n')));
 
+        /// <summary>Reads the single supported YAML document and returns its root mapping.</summary>
         public MappingNode Read()
         {
             parser.Consume<StreamStart>();
@@ -108,6 +115,7 @@ public static partial class ComposeImporter
             };
         }
 
+        /// <summary>Reads one scalar, sequence, mapping, or alias while enforcing alias and tag safety rules.</summary>
         private Node ReadNode(int depth)
         {
             if (depth > 64 || --remaining < 0)

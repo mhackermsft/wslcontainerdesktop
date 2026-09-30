@@ -61,6 +61,7 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
         "customizations", "settings", "extensions", "hostRequirements", "securityOpt",
     };
 
+    /// <inheritdoc/>
     public async Task<DevContainerImportResult> ImportAsync(string workspacePath, CancellationToken ct = default)
     {
         try
@@ -589,12 +590,16 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
         Warnings = warnings ?? Array.Empty<string>(),
     };
 
+    /// <summary>
+    /// Variables available to simple devcontainer string substitution such as workspace paths and names.
+    /// </summary>
     private sealed record DevContainerVariables(
         string LocalWorkspaceFolder,
         string ContainerWorkspaceFolder,
         string DevContainerId,
         IReadOnlyDictionary<string, string> ContainerEnv)
     {
+        /// <summary>Replaces known devcontainer variables inside one string value.</summary>
         public string Substitute(string value)
         {
             var result = value
@@ -608,6 +613,7 @@ public sealed class DevContainerImporter(ILogger<DevContainerImporter> logger) :
             return result;
         }
 
+        /// <summary>Runs substitution only when the source value is present.</summary>
         public string? SubstituteNullable(string? value) => string.IsNullOrEmpty(value) ? value : Substitute(value);
 
         private static string SubstituteScoped(string value, string marker, Func<string, string> resolve)

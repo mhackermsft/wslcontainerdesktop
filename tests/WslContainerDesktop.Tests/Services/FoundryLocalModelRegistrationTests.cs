@@ -381,11 +381,13 @@ public sealed class FoundryLocalModelRegistrationTests
         Assert.Equal("untouched", File.ReadAllText(fixture.ForeignFile));
     }
 
+    /// <summary>Runs registration progress callbacks inline so tests can assert each reported stage.</summary>
     private sealed class InlineProgress(Action<string> report) : IProgress<string>
     {
         public void Report(string value) => report(value);
     }
 
+    /// <summary>Builds staged model files, manifests, and cache roots for secure registration tests.</summary>
     internal sealed class Fixture : IDisposable
     {
         internal string Root { get; } = Path.Combine(AppContext.BaseDirectory, "FoundryRegistrationFixtures-" + Guid.NewGuid().ToString("N"));
@@ -427,6 +429,7 @@ public sealed class FoundryLocalModelRegistrationTests
         }
     }
 
+    /// <summary>Serves pinned model files from memory so registration tests do not download from the network.</summary>
     private sealed class HttpStub(FoundryLocalModelFile[] files, Dictionary<string, byte[]> bytes) : HttpMessageHandler
     {
         internal bool Offline;

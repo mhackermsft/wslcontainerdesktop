@@ -20,6 +20,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests named-volume usage detection so cleanup does not mark volumes unused after partial or ambiguous inventory.
+/// </summary>
 public sealed class VolumeUsageResolverTests
 {
     private const string NamedMount = """

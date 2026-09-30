@@ -20,6 +20,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers AI capability diagnostics so missing evidence stays unknown and probe details are not leaked into user guidance.</summary>
 public sealed class AiCapabilityGuidanceTests
 {
     [Theory]
@@ -32,7 +33,7 @@ public sealed class AiCapabilityGuidanceTests
             : Task.FromResult(new WslcCapabilities("private-path", "private-version",
                 new Dictionary<WslcFeature, WslcCapability>
                 {
-                    [WslcFeature.NetworkConnect] = new(WslcCapabilitySupport.Unsupported),
+                    [WslcFeature.HealthStartInterval] = new(WslcCapabilitySupport.Unsupported),
                 })));
         var engine = NetworkTestProxy.Create<IWslcService>((_, _) => Task.FromResult(new CommandResult()));
         var activity = NetworkTestProxy.Create<IActivityLog>((_, _) =>
@@ -43,7 +44,7 @@ public sealed class AiCapabilityGuidanceTests
             { Name = "fixture", Id = "fixture", StateValue = (int)ContainerState.Stopped });
         Assert.Contains(await AiCapabilityGuidance.GetAsync(capabilities, default), preview.Request.SystemPrompt);
         Assert.DoesNotContain("private-", preview.Request.SystemPrompt);
-        Assert.Contains(unavailable ? "unavailable" : "NetworkConnect: Unsupported", preview.Request.SystemPrompt);
+        Assert.Contains(unavailable ? "unavailable" : "HealthStartInterval: Unsupported", preview.Request.SystemPrompt);
     }
 
     [Fact]
@@ -78,15 +79,13 @@ public sealed class AiCapabilityGuidanceTests
     {
         var capabilities = new WslcCapabilities("", null, new Dictionary<WslcFeature, WslcCapability>
         {
-            [WslcFeature.HealthCmd] = new(WslcCapabilitySupport.Supported),
-            [WslcFeature.CreateHealthCmd] = new(WslcCapabilitySupport.Unsupported),
+            [WslcFeature.HealthStartInterval] = new(WslcCapabilitySupport.Supported),
         });
 
         var guidance = AiCapabilityGuidance.Build(capabilities);
 
-        Assert.Contains("\nHealthCmd: Supported", guidance);
-        Assert.Contains("\nCreateHealthCmd: Unsupported", guidance);
-        Assert.Contains("\nContainerCp: Unknown", guidance);
-        Assert.Contains("\nNetworkConnect: Unknown", guidance);
+        Assert.Contains("\nHealthStartInterval: Supported", guidance);
+        Assert.Contains("\nCreateHealthStartInterval: Unknown", guidance);
+        Assert.Contains("3.0.1 baseline", guidance);
     }
 }

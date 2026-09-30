@@ -29,6 +29,7 @@ public sealed class OllamaModelDialog : ContentDialog
     private readonly ComboBox _model;
     private readonly TextBlock _error;
 
+    /// <summary>Creates a new &lt;c&gt;OllamaModelDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public OllamaModelDialog()
     {
         Title = "Choose a model";
@@ -93,5 +94,6 @@ public sealed class OllamaModelDialog : ContentDialog
         };
     }
 
+    /// <summary>Gets the model.</summary>
     public string Model => (_model.Text ?? string.Empty).Trim();
 }

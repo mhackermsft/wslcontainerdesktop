@@ -60,6 +60,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
     /// <summary>Raised (on the UI thread) when a restart or give-up event should surface a toast.</summary>
     public event Action<string, string>? NotificationRequested;
 
+    /// <summary>Creates the watchdog and connects it to the shared status monitor and settings.</summary>
     public RestartPolicyWatchdog(IWslcService wslc, StatusMonitor monitor, ISettingsService settings, ILogger<RestartPolicyWatchdog> logger,
         RestartSuppressionState suppression)
     {
@@ -71,6 +72,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
         _dispatcher = monitor.Dispatcher;
     }
 
+    /// <summary>Begins listening to status snapshots and running the restart loop.</summary>
     public void Start()
     {
         if (_started)
@@ -101,8 +103,10 @@ public sealed class RestartPolicyWatchdog : IDisposable
         }
     }
 
+    /// <summary>Stores the latest monitor snapshot for the background restart loop.</summary>
     private void OnStatusChanged(object? sender, EngineStatusSnapshot e) => _containers = e.Containers;
 
+    /// <summary>Periodic loop that evaluates restart policies from the most recent status snapshot.</summary>
     private async Task LoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -127,6 +131,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
         }
     }
 
+    /// <summary>Evaluates all active policies once and schedules restart attempts when needed.</summary>
     private void Tick(CancellationToken ct)
     {
         var policies = _settings.RestartPolicies
@@ -227,6 +232,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
         }
     }
 
+    /// <summary>Starts one stopped container if its policy still applies and its restart budget allows it.</summary>
     private async Task RestartAsync(RestartPolicyConfig policy, ContainerInfo container, Runtime rt, CancellationToken ct)
     {
         try
@@ -302,11 +308,14 @@ public sealed class RestartPolicyWatchdog : IDisposable
             p.Enabled && p.IsValid &&
             string.Equals(p.ContainerName, policy.ContainerName, StringComparison.Ordinal));
 
+    /// <summary>Returns whether user stop intent currently suppresses restarts for this container.</summary>
     public bool IsRestartSuppressed(string containerName) => _suppression.IsSuppressed(containerName);
 
+    /// <summary>Raises notification requests on the UI dispatcher.</summary>
     private void Notify(string title, string message) =>
         _dispatcher.TryEnqueue(() => NotificationRequested?.Invoke(title, message));
 
+    /// <summary>Stops the loop and detaches from the status monitor.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -329,6 +338,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
         _cts?.Dispose();
     }
 
+    /// <summary>Mutable restart bookkeeping for one supervised container name.</summary>
     private sealed class Runtime
     {
         public DateTimeOffset? RunningSince;

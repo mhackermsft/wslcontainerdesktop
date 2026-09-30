@@ -41,12 +41,18 @@ public sealed class TemplateCatalog : ITemplateCatalog
     private readonly IUserTemplateStore _userTemplates;
     private readonly IReadOnlyList<StackTemplate> _builtIns = Build();
 
+    /// <summary>
+    /// Initializes a new <c>TemplateCatalog</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public TemplateCatalog(IUserTemplateStore userTemplates)
     {
         _userTemplates = userTemplates;
         _userTemplates.Changed += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Raised when stored data changes and bound UI should refresh.
+    /// </summary>
     public event EventHandler? Changed;
 
     /// <summary>The built-ins followed by the user's stored/imported templates.</summary>

@@ -16,35 +16,12 @@
 
 namespace WslContainerDesktop.Models;
 
-/// <summary>Health entries without the Create prefix describe run, not create.</summary>
+/// <summary>Values that describe wslc feature states or choices in WSL Container Desktop workflows.</summary>
 public enum WslcFeature
 {
-    NetworkConnect,
-    NetworkDisconnect,
-    ContainerCp,
-    HealthCmd,
-    HealthInterval,
-    HealthRetries,
-    HealthStartPeriod,
-    HealthTimeout,
+    /// <summary><c>wslc run --health-start-interval</c>; not advertised by the 3.0.1 baseline.</summary>
     HealthStartInterval,
-    NoHealthcheck,
-    CreateHealthCmd,
-    CreateHealthInterval,
-    CreateHealthRetries,
-    CreateHealthStartPeriod,
-    CreateHealthTimeout,
+
+    /// <summary><c>wslc create --health-start-interval</c>; not advertised by the 3.0.1 baseline.</summary>
     CreateHealthStartInterval,
-    CreateNoHealthcheck,
-    CreateGpus,
-    CreatePull,
-
-    /// <summary>`remove --volumes`: deletes anonymous volumes along with the container.</summary>
-    RemoveVolumes,
-
-    // `<resource> prune --force`: engines that advertise it also prompt for confirmation without it.
-    ContainerPruneForce,
-    ImagePruneForce,
-    VolumePruneForce,
-    NetworkPruneForce,
 }

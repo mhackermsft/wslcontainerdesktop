@@ -22,9 +22,13 @@ namespace WslContainerDesktop.Tray;
 /// <summary>Overall engine/container health surfaced by the tray icon color.</summary>
 public enum EngineHealth
 {
+    /// <summary>The engine or container health is not known yet.</summary>
     Unknown,
+    /// <summary>The engine is reachable and no tracked container is unhealthy.</summary>
     Healthy,
+    /// <summary>The engine is reachable but at least one tracked container is unhealthy.</summary>
     Degraded,
+    /// <summary>The engine is unreachable or at least one tracked container is down.</summary>
     Down,
 }
 
@@ -38,6 +42,7 @@ public sealed class StatusIconFactory : IDisposable
     private readonly Dictionary<EngineHealth, nint> _cache = new();
     private bool _disposed;
 
+    /// <summary>Returns a cached native icon handle representing the requested health state.</summary>
     public nint GetIcon(EngineHealth health)
     {
         if (_cache.TryGetValue(health, out var existing))
@@ -104,6 +109,7 @@ public sealed class StatusIconFactory : IDisposable
         g.FillPath(brush, path);
     }
 
+    /// <summary>Destroys all cached native icon handles owned by this factory.</summary>
     public void Dispose()
     {
         if (_disposed)

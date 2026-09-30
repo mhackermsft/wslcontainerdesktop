@@ -20,6 +20,7 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Projects compose conformance evidence into compact summaries used by runtime tests and reports.</summary>
 internal static class ComposeConformanceProjection
 {
     public static JsonObject FromApp(ComposeProject project)

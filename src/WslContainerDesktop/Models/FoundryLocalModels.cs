@@ -22,15 +22,20 @@ public sealed record FoundryLocalModel(
     string ExecutionProvider, double? FileSizeMb, string License, string LicenseDescription,
     bool? SupportsToolCalling);
 
+/// <summary>Immutable or init-only data model that carries foundry local inventory information between services and view models.</summary>
 public sealed record FoundryLocalInventory(
     AiChatConfiguration Configuration, IReadOnlyList<FoundryLocalModel> Catalog,
     IReadOnlyList<string> Cached, IReadOnlyList<string> Loaded, string RuntimeIdentity,
     bool CacheStateKnown = true, bool LoadStateKnown = true)
 {
+    /// <summary>Gets the selected.</summary>
     public FoundryLocalModel? Selected => Catalog.SingleOrDefault(m => m.Id == Configuration.Model);
+    /// <summary>Gets a value indicating whether this value is cached.</summary>
     public bool IsCached => CacheStateKnown && Cached.Contains(Configuration.Model, StringComparer.Ordinal);
+    /// <summary>Gets a value indicating whether this value is loaded.</summary>
     public bool IsLoaded => LoadStateKnown && Loaded.Contains(Configuration.Model, StringComparer.Ordinal);
 }
 
+/// <summary>Immutable or init-only data model that carries foundry local mutation result information between services and view models.</summary>
 public sealed record FoundryLocalMutationResult(bool IsConfirmed, LocalRuntimeResourceState Memory,
     LocalRuntimeResourceState ModelData, string Guidance);

@@ -26,11 +26,13 @@ namespace WslContainerDesktop.Services;
 public sealed class HttpAiCapabilityObserver(
     AiProviderKind kind, AiHttpClient http, IAiCredentialStore credentials) : IAiCapabilityObserver
 {
+    /// <inheritdoc/>
     public AiProviderKind Kind => kind;
     private const string ProbeTool = "capability_ack";
     private static readonly AiCapabilityObservation Proven = new(AiSupport.Supported, AiObservationSource.HarmlessProbe);
     private static readonly AiCapabilityObservation Rejected = new(AiSupport.Unsupported, AiObservationSource.HarmlessProbe);
 
+    /// <inheritdoc/>
     public async Task<AiCapabilitySnapshot> ReadMetadataAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -122,6 +124,7 @@ public sealed class HttpAiCapabilityObserver(
         }
     }
 
+    /// <inheritdoc/>
     public async Task<AiCapabilitySnapshot> ProbeAsync(AiCapabilitySnapshot metadata, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -360,6 +363,7 @@ public sealed class HttpAiCapabilityObserver(
 
     private sealed record Reply(HttpStatusCode Status, string Body)
     {
+        /// <summary>True when the HTTP status is in the 2xx success range.</summary>
         public bool IsSuccess => (int)Status is >= 200 and <= 299;
     }
 }

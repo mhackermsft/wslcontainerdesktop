@@ -27,22 +27,28 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.UI;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Detail page for one container, including logs, stats, inspect output, filesystem browsing, and changes.</summary>
 public sealed partial class ContainerDetailPage : Page
 {
+    /// <summary>Converts a Boolean to the opposite visibility for detail-page bindings.</summary>
     public static Visibility InvertBoolToVisibility(bool value) =>
         value ? Visibility.Collapsed : Visibility.Visible;
 
+    /// <summary>Converts a Boolean to visibility for detail-page bindings.</summary>
     public static Visibility BoolToVisibility(bool value) =>
         value ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>Returns the Segoe Fluent icon glyph used by collapsible sections.</summary>
     public static string CollapseGlyph(bool collapsed) =>
         collapsed ? "\uE70D" : "\uE70E";
 
+    /// <summary>Returns the tooltip text for a collapsible section toggle.</summary>
     public static string CollapseTooltip(bool collapsed) =>
         collapsed ? "Expand" : "Collapse";
 
@@ -69,6 +75,7 @@ public sealed partial class ContainerDetailPage : Page
     private Task<StorageFile?>? _stagedStorageFileTask;
     private ContainerFileEntry? _stagedForEntry;
 
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public ContainerDetailPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<ContainersViewModel>();
@@ -92,6 +99,7 @@ public sealed partial class ContainerDetailPage : Page
         _backgroundContextFlyout = BuildBackgroundContextFlyout();
     }
 
+    /// <summary>Container list/detail view model bound by the page.</summary>
     public ContainersViewModel ViewModel { get; }
 
     private void OnSelectedFileChangedForDrag(ContainerFileEntry? entry)
@@ -405,6 +413,7 @@ public sealed partial class ContainerDetailPage : Page
         LogText.TextHighlighters.Add(highlighter);
     }
 
+    /// <summary>Lightweight log-line classification used only for local highlighting.</summary>
     private enum LogSeverity
     {
         None,
@@ -521,6 +530,35 @@ public sealed partial class ContainerDetailPage : Page
     {
         await ViewModel.RemoveCommand.ExecuteAsync(ViewModel.Selected);
     }
+
+    private void ExportContainer_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(async () =>
+        {
+            if (ViewModel.Selected is null)
+            {
+                return;
+            }
+
+            var picker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                SuggestedFileName = ViewModel.Selected.Name + "-filesystem",
+            };
+            picker.FileTypeChoices.Add("Tar archive", [".tar"]);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+            if (await picker.PickSaveFileAsync() is { } file)
+            {
+                await ViewModel.ExportContainerAsync(ViewModel.Selected, file.Path);
+            }
+        });
+
+    private void DisconnectNetwork_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
+    {
+        if ((sender as FrameworkElement)?.DataContext is NetworkAttachment network)
+        {
+            await ViewModel.DisconnectNetworkCommand.ExecuteAsync(network);
+        }
+    });
 
     // ---- Tab switching --------------------------------------------------
 
@@ -805,11 +843,19 @@ public sealed partial class ContainerDetailPage : Page
         var refresh = new MenuFlyoutItem { Text = "Refresh" };
         refresh.Click += FilesRefresh_Click;
 
+        // For paths the list doesn't show (hidden or outside the current folder).
+        var downloadByPath = new MenuFlyoutItem { Text = "Download by path…" };
+        downloadByPath.Click += DownloadPath_Click;
+
         var flyout = new MenuFlyout();
         flyout.Items.Add(uploadFiles);
         flyout.Items.Add(newFolder);
+        flyout.Items.Add(downloadByPath);
         flyout.Items.Add(new MenuFlyoutSeparator());
         flyout.Items.Add(refresh);
+        // New folder runs mkdir inside the container, so it needs the same running shell as listing.
+        flyout.Opening += (_, _) => newFolder.Visibility =
+            ViewModel.FilesBrowseAvailable ? Visibility.Visible : Visibility.Collapsed;
         return flyout;
     }
 

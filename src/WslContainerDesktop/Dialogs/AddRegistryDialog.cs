@@ -33,6 +33,7 @@ public sealed class AddRegistryDialog : ContentDialog
     private readonly PasswordBox _passwordBox;
     private readonly CheckBox _loginNow;
 
+    /// <summary>Gets or sets the registry.</summary>
     public RegistryEntry? Registry { get; private set; }
 
     /// <summary>The password entered for an optional immediate login (not stored).</summary>
@@ -41,6 +42,7 @@ public sealed class AddRegistryDialog : ContentDialog
     /// <summary>Whether the user asked to log in now.</summary>
     public bool LoginNow { get; private set; }
 
+    /// <summary>Creates a new &lt;c&gt;AddRegistryDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public AddRegistryDialog()
     {
         Title = "Add registry";

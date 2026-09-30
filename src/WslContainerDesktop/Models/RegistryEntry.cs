@@ -47,6 +47,12 @@ public enum RegistryLoginState
 /// </summary>
 public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
+    /// <summary>
+    /// Returns the registry name. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Name;
+
     private RegistryLoginState _loginState = RegistryLoginState.Unknown;
 
     /// <summary>Friendly display name, e.g. "Docker Hub" or "Company ACR".</summary>
@@ -152,6 +158,13 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
 
     /// <summary>True when this registry has a host that qualifies image references.</summary>
     public bool HasHost => !string.IsNullOrWhiteSpace(Host);
+
+    /// <summary>
+    /// Host shown in the Registries list. The built-in Docker Hub entry keeps <see cref="Host"/> empty
+    /// so bare names pass through unchanged, but it is still shown as <c>docker.io</c>.
+    /// </summary>
+    [JsonIgnore]
+    public string DisplayHost => HasHost ? Host : IsDefault ? "docker.io" : string.Empty;
 
     /// <summary>
     /// Qualifies a bare image reference with this registry's host when needed. References

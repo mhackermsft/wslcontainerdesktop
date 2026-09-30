@@ -23,7 +23,7 @@ namespace WslContainerDesktop.Services;
 /// several GB of models and take the same port, so an existing runtime is reused when one is
 /// present and only the web UI is deployed against it.
 /// </summary>
-public sealed class OpenWebUiPlanner(IWslcService wslc, IWslcCapabilitiesService capabilities)
+public sealed class OpenWebUiPlanner(IWslcService wslc)
 {
     public const string TemplateId = "open-webui";
 
@@ -68,9 +68,11 @@ public sealed class OpenWebUiPlanner(IWslcService wslc, IWslcCapabilitiesService
     /// <param name="UsesGpu">Whether a newly deployed runtime requests GPU passthrough.</param>
     public sealed record Plan(string Yaml, string? ExistingOllamaId, string? ExistingOllamaName, bool UsesGpu = false)
     {
+        /// <summary>True when the plan connects Open WebUI to an already-running Ollama container.</summary>
         public bool ReusesExistingRuntime => ExistingOllamaId is not null;
     }
 
+    /// <summary>Builds compose YAML for Open WebUI and decides whether to reuse an existing Ollama runtime.</summary>
     public async Task<Plan> PlanAsync(CancellationToken ct = default)
     {
         var existing = await FindOllamaAsync(ct).ConfigureAwait(false);
@@ -81,25 +83,8 @@ public sealed class OpenWebUiPlanner(IWslcService wslc, IWslcCapabilitiesService
             return new(ReuseYaml, existing.Value.Id, existing.Value.Name);
         }
 
-        // CPU-only inference is dramatically slower, so request GPU passthrough when the engine
-        // definitively supports it. Unsupported or unknown support stays on CPU rather than
-        // risking a deployment that fails on an unrecognized flag.
-        var gpu = await SupportsGpuAsync(ct).ConfigureAwait(false);
-        return new(gpu ? BundledGpuYaml : BundledYaml, null, null, gpu);
-    }
-
-    private async Task<bool> SupportsGpuAsync(CancellationToken ct)
-    {
-        try
-        {
-            var snapshot = await capabilities.GetAsync(ct).ConfigureAwait(false);
-            return snapshot[WslcFeature.CreateGpus].Support == WslcCapabilitySupport.Supported;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Without evidence of support, deploy for CPU instead of failing the launch.
-            return false;
-        }
+        // CPU-only inference is dramatically slower, and --gpus is part of the gated 3.0.1 baseline.
+        return new(BundledGpuYaml, null, null, UsesGpu: true);
     }
 
     /// <summary>

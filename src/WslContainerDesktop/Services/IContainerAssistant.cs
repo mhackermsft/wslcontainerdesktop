@@ -18,18 +18,28 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Conversation facade used by the assistant UI. It sends user text to the configured AI provider,
+/// pauses for approval when a tool may change state, and returns a safe transcript result.
+/// </summary>
 public interface IContainerAssistant
 {
+    /// <summary>Raised when the assistant is waiting for, or no longer waiting for, a tool approval.</summary>
     event EventHandler<AssistantApprovalRequest?>? ApprovalChanged;
 
+    /// <summary>Sends a user message without progress callbacks.</summary>
     Task<AssistantTurnResult> SendAsync(string userMessage, CancellationToken ct = default);
 
+    /// <summary>Sends a user message and reports streaming/progress updates to the caller.</summary>
     Task<AssistantTurnResult> SendAsync(string userMessage, Action<AiChatProgress> progress, CancellationToken ct = default)
         => SendAsync(userMessage, ct);
 
+    /// <summary>Continues the paused conversation by allowing the requested action.</summary>
     Task<AssistantTurnResult> ApproveAsync(AssistantApprovalRequest approval, CancellationToken ct = default);
 
+    /// <summary>Continues the paused conversation by denying the requested action.</summary>
     Task<AssistantTurnResult> RejectAsync(AssistantApprovalRequest approval, CancellationToken ct = default);
 
+    /// <summary>Clears conversation state and any pending approval.</summary>
     void Reset();
 }

@@ -25,8 +25,10 @@ public sealed class NativeHealthMonitor
     private readonly ConcurrentDictionary<string, (ulong Generation, DateTimeOffset Expires, NativeHealthObservation Value)> _absent = new();
     private int _offset;
 
+    /// <summary>Clears cached absent/disabled health observations so the next refresh inspects again.</summary>
     public void Invalidate() => _absent.Clear();
 
+    /// <summary>Enriches running containers with native engine health observations using bounded concurrency.</summary>
     public async Task RefreshAsync(IReadOnlyList<ContainerInfo> containers,
         Func<string, CancellationToken, Task<CommandResult>> inspect, Action<string> report,
         CancellationToken ct = default)

@@ -38,20 +38,30 @@ public enum ClusterState
 /// <summary>Snapshot of the cluster's install/run status.</summary>
 public sealed class ClusterStatus
 {
+    /// <summary>Gets or sets the state.</summary>
     public ClusterState State { get; init; } = ClusterState.Unknown;
+    /// <summary>Gets or sets the node name.</summary>
     public string NodeName { get; init; } = "-";
+    /// <summary>Gets or sets the kubernetes version.</summary>
     public string KubernetesVersion { get; init; } = "-";
+    /// <summary>Gets or sets the distro.</summary>
     public string Distro { get; init; } = "-";
+    /// <summary>Gets or sets the message.</summary>
     public string Message { get; init; } = string.Empty;
 
+    /// <summary>Gets a value indicating whether this value is installed.</summary>
     public bool IsInstalled => State is ClusterState.Stopped or ClusterState.Running;
+    /// <summary>Gets a value indicating whether this value is running.</summary>
     public bool IsRunning => State == ClusterState.Running;
 }
 
 /// <summary>Lightweight cluster snapshot for the nav footer indicator.</summary>
 public sealed class K8sFooterStatus
 {
+    /// <summary>Gets or sets the state.</summary>
     public ClusterState State { get; init; } = ClusterState.Unknown;
+    /// <summary>Gets or sets the pods running.</summary>
     public int PodsRunning { get; init; }
+    /// <summary>Gets or sets the pods total.</summary>
     public int PodsTotal { get; init; }
 }

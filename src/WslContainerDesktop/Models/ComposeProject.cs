@@ -53,12 +53,16 @@ public enum DependencyCondition
 /// <summary>A single <c>depends_on</c> edge from one service to another, with its gating condition.</summary>
 public sealed class ComposeDependency
 {
+    /// <summary>Gets or sets the service name.</summary>
     public string ServiceName { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the condition.</summary>
     public DependencyCondition Condition { get; set; } = DependencyCondition.ServiceStarted;
 
+    /// <summary>Gets or sets a value indicating whether this value is required.</summary>
     public bool Required { get; set; } = true;
 
+    /// <summary>Gets or sets a value indicating whether the restart flag is set.</summary>
     public bool Restart { get; set; }
 }
 
@@ -89,6 +93,7 @@ public sealed class ComposeBuildConfig
     /// <summary>Always attempt to pull a newer base image (compose <c>build.pull</c>, maps to <c>--pull</c>).</summary>
     public bool Pull { get; set; }
 
+    /// <summary>Gets a value indicating whether this value is valid.</summary>
     public bool IsValid => !string.IsNullOrWhiteSpace(Context);
 }
 
@@ -108,12 +113,16 @@ public sealed class ComposeFileMount
 /// <summary>A top-level named <c>network:</c> the project declares (and the app creates on up).</summary>
 public sealed class ComposeNetwork
 {
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; set; } = string.Empty;
 
     /// <summary>Compose name override; unlike the declaration key it is never project-prefixed.</summary>
     public string? ExplicitName { get; set; }
+    /// <summary>Gets or sets the subnet.</summary>
     public string? Subnet { get; set; }
+    /// <summary>Gets or sets the gateway.</summary>
     public string? Gateway { get; set; }
+    /// <summary>Gets or sets the ip range.</summary>
     public string? IpRange { get; set; }
 
     /// <summary>Network driver (compose <c>driver:</c>, maps to <c>network create --driver</c>).</summary>
@@ -125,6 +134,9 @@ public sealed class ComposeNetwork
     /// <summary>Network metadata labels (maps to repeated <c>--label</c>).</summary>
     public Dictionary<string, string> Labels { get; set; } = new(StringComparer.Ordinal);
 
+    /// <summary>When true the network is isolated from external access (compose <c>internal</c>, maps to <c>--internal</c>).</summary>
+    public bool Internal { get; set; }
+
     /// <summary>When true the network is expected to already exist and is not created.</summary>
     public bool External { get; set; }
 }
@@ -132,6 +144,7 @@ public sealed class ComposeNetwork
 /// <summary>A top-level named <c>volume:</c> the project declares (and the app creates on up).</summary>
 public sealed class ComposeVolume
 {
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; set; } = string.Empty;
 
     /// <summary>Volume driver (compose <c>driver:</c>, maps to <c>volume create --driver</c>).</summary>
@@ -153,6 +166,7 @@ public sealed class ComposeVolume
 /// </summary>
 public sealed class ComposeSecret
 {
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; set; } = string.Empty;
 
     /// <summary>Absolute host path to the source file (resolved against the compose folder on import).</summary>
@@ -177,6 +191,7 @@ public sealed class ComposeService
     /// <summary>Local desired count from scale or deploy.replicas; zero disables instances.</summary>
     public int Replicas { get; set; } = 1;
 
+    /// <summary>Gets or sets the runtime instance index.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     internal int RuntimeInstanceIndex { get; set; } = 1;
 
@@ -205,6 +220,7 @@ public sealed class ComposeService
     /// </summary>
     public ComposeBuildConfig? Build { get; set; }
 
+    /// <summary>Gets or sets the pull policy.</summary>
     public ComposeImagePolicy PullPolicy { get; set; } = ComposeImagePolicy.Missing;
 
     /// <summary>Secret references (compose service <c>secrets:</c>), bind-mounted read-only at up.</summary>
@@ -239,10 +255,13 @@ public sealed class ComposeProject
     /// <summary>Label key identifying which service within the project a container belongs to.</summary>
     public const string ServiceLabel = "com.wsldesktop.service";
 
+    /// <summary>Defines the instance label constant used when the app stores or exchanges this model data.</summary>
     public const string InstanceLabel = "com.wsldesktop.instance";
 
+    /// <summary>Defines the config hash label constant used when the app stores or exchanges this model data.</summary>
     public const string ConfigHashLabel = "com.wsldesktop.config-hash";
 
+    /// <summary>Defines the image id label constant used when the app stores or exchanges this model data.</summary>
     public const string ImageIdLabel = "com.wsldesktop.image-id";
 
     /// <summary>Project name (compose top-level <c>name:</c> or the imported file/folder name).</summary>
@@ -251,6 +270,7 @@ public sealed class ComposeProject
     /// <summary>The services that make up this project.</summary>
     public List<ComposeService> Services { get; set; } = new();
 
+    /// <summary>Gets or sets the applied services.</summary>
     public Dictionary<string, ComposeAppliedService> AppliedServices { get; set; } = new(StringComparer.Ordinal);
 
     /// <summary>Saved operator scale choices, taking precedence over imported replica counts.</summary>

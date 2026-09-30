@@ -22,9 +22,13 @@ namespace WslContainerDesktop.Models;
 /// </summary>
 public enum AiFeedbackSeverity
 {
+    /// <summary>Represents the informational option.</summary>
     Informational,
+    /// <summary>Represents the success option.</summary>
     Success,
+    /// <summary>Represents the warning option.</summary>
     Warning,
+    /// <summary>Represents the error option.</summary>
     Error,
 }
 
@@ -41,10 +45,13 @@ public sealed class AiFeedback
     /// <summary>A feedback value that renders nothing — the default until an operation runs.</summary>
     public static readonly AiFeedback None = new();
 
+    /// <summary>Gets or sets the severity.</summary>
     public AiFeedbackSeverity Severity { get; init; }
 
+    /// <summary>Gets or sets the title.</summary>
     public string Title { get; init; } = string.Empty;
 
+    /// <summary>Gets or sets the message.</summary>
     public string Message { get; init; } = string.Empty;
 
     /// <summary>Bounded, redacted diagnostic detail (provider, operation, endpoint, status, response
@@ -56,17 +63,38 @@ public sealed class AiFeedback
     /// so <see cref="None"/> renders nothing instead of an empty bar.</summary>
     public bool IsVisible => !string.IsNullOrWhiteSpace(Title) || !string.IsNullOrWhiteSpace(Message);
 
+    /// <summary>Gets a value indicating whether this value has technical details.</summary>
     public bool HasTechnicalDetails => !string.IsNullOrWhiteSpace(TechnicalDetails);
 
+    /// <summary>Performs the informational helper used by this model or dialog.</summary>
+    /// <param name="title">The title value supplied by the caller.</param>
+    /// <param name="message">The message value supplied by the caller.</param>
+    /// <param name="technicalDetails">The technical details value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static AiFeedback Informational(string title, string message, string? technicalDetails = null) =>
         new() { Severity = AiFeedbackSeverity.Informational, Title = title, Message = message, TechnicalDetails = technicalDetails };
 
+    /// <summary>Performs the success helper used by this model or dialog.</summary>
+    /// <param name="title">The title value supplied by the caller.</param>
+    /// <param name="message">The message value supplied by the caller.</param>
+    /// <param name="technicalDetails">The technical details value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static AiFeedback Success(string title, string message, string? technicalDetails = null) =>
         new() { Severity = AiFeedbackSeverity.Success, Title = title, Message = message, TechnicalDetails = technicalDetails };
 
+    /// <summary>Performs the warning helper used by this model or dialog.</summary>
+    /// <param name="title">The title value supplied by the caller.</param>
+    /// <param name="message">The message value supplied by the caller.</param>
+    /// <param name="technicalDetails">The technical details value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static AiFeedback Warning(string title, string message, string? technicalDetails = null) =>
         new() { Severity = AiFeedbackSeverity.Warning, Title = title, Message = message, TechnicalDetails = technicalDetails };
 
+    /// <summary>Performs the error helper used by this model or dialog.</summary>
+    /// <param name="title">The title value supplied by the caller.</param>
+    /// <param name="message">The message value supplied by the caller.</param>
+    /// <param name="technicalDetails">The technical details value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static AiFeedback Error(string title, string message, string? technicalDetails = null) =>
         new() { Severity = AiFeedbackSeverity.Error, Title = title, Message = message, TechnicalDetails = technicalDetails };
 }

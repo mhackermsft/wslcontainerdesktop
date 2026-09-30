@@ -18,22 +18,31 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>Adapter contract for an assistant provider that can answer diagnostics and may support chat turns.</summary>
 public interface IAiProvider
 {
+    /// <summary>Provider kind selected in settings and used to choose this adapter.</summary>
     AiProviderKind Kind { get; }
 
+    /// <summary>Friendly provider name shown in UI messages.</summary>
     string DisplayName { get; }
 
+    /// <summary>Sends one sanitized diagnostic prompt and returns the parsed diagnosis.</summary>
     Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct);
 
+    /// <summary>Performs a lightweight provider-specific health check and returns a status message.</summary>
     Task<string> TestAsync(CancellationToken ct);
 }
 
+/// <summary>Service used by the UI to preview, send, and test AI-powered container diagnostics.</summary>
 public interface IAiDiagnosticsService
 {
+    /// <summary>Collects sanitized evidence for the selected container without sending it.</summary>
     Task<AiDiagnosticPreview> BuildPreviewAsync(ContainerInfo container, CancellationToken ct = default);
 
+    /// <summary>Sends a previously previewed prompt to the currently selected provider.</summary>
     Task<AiDiagnosis> DiagnoseAsync(AiPromptRequest request, CancellationToken ct = default);
 
+    /// <summary>Tests the configured provider and returns a human-readable status.</summary>
     Task<string> TestProviderAsync(CancellationToken ct = default);
 }

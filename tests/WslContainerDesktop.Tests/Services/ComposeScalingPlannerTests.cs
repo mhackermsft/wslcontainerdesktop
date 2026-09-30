@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers compose replica planning so counts, generated names, ownership, selected services, and dependency rules match local compose semantics.</summary>
 public sealed class ComposeScalingPlannerTests
 {
     private static ComposeProject Project(int count = 1) => new()

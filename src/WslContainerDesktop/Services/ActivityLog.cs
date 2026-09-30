@@ -47,6 +47,7 @@ public sealed class ActivityLog : IActivityLog
     };
 
     private readonly StatusMonitor _monitor;
+    private readonly IEngineEventStream _events;
     private readonly ILogger<ActivityLog> _logger;
 
     // Baseline for snapshot diffing: last-seen state per container id, and last engine health.
@@ -56,15 +57,25 @@ public sealed class ActivityLog : IActivityLog
     private bool _attached;
     private bool _seeded;
 
+    /// <summary>
+    /// Gets the recent activity events displayed by the activity log UI.
+    /// </summary>
     public ObservableCollection<ActivityEvent> Events { get; } = new();
 
-    public ActivityLog(StatusMonitor monitor, ILogger<ActivityLog> logger)
+    /// <summary>
+    /// Initializes a new <c>ActivityLog</c> with the collaborators it needs from dependency injection.
+    /// </summary>
+    public ActivityLog(StatusMonitor monitor, IEngineEventStream events, ILogger<ActivityLog> logger)
     {
         _monitor = monitor;
+        _events = events;
         _logger = logger;
         Load();
     }
 
+    /// <summary>
+    /// Subscribes the activity log to monitor and engine event notifications.
+    /// </summary>
     public void Attach()
     {
         if (_attached)
@@ -74,6 +85,7 @@ public sealed class ActivityLog : IActivityLog
 
         _attached = true;
         _monitor.StatusChanged += OnStatusChanged;
+        _events.EventReceived += OnEngineEventReceived;
 
         // Seed the baseline from the latest snapshot (if any) without emitting events, so the
         // first real transition after launch is what surfaces rather than a burst of "started".
@@ -84,6 +96,9 @@ public sealed class ActivityLog : IActivityLog
         }
     }
 
+    /// <summary>
+    /// Adds a general activity entry to the in-memory and persisted activity history.
+    /// </summary>
     public void Record(ActivityEvent evt)
     {
         if (evt is null)
@@ -113,7 +128,17 @@ public sealed class ActivityLog : IActivityLog
 
     private void RecordOnDispatcher(ActivityEvent evt)
     {
-        Events.Insert(0, evt);
+        // Keep the list newest-first by event time, not arrival time: the Activity page back-fills
+        // the last hour and the live stream replays after a reconnect, so older events can arrive
+        // after newer ones. Ordinary live events still go to index 0.
+        var index = ActivityEvent.NewestFirstInsertIndex(Events, evt.Timestamp);
+
+        if (index >= MaxEvents)
+        {
+            return; // Older than everything retained in a full log.
+        }
+
+        Events.Insert(index, evt);
         while (Events.Count > MaxEvents)
         {
             Events.RemoveAt(Events.Count - 1);
@@ -122,6 +147,9 @@ public sealed class ActivityLog : IActivityLog
         Persist();
     }
 
+    /// <summary>
+    /// Adds an activity entry for an image pull.
+    /// </summary>
     public void RecordImagePull(string reference, bool success, string? error = null)
     {
         var name = string.IsNullOrWhiteSpace(reference) ? "image" : reference.Trim();
@@ -135,6 +163,9 @@ public sealed class ActivityLog : IActivityLog
         });
     }
 
+    /// <summary>
+    /// Adds an activity entry for an image build.
+    /// </summary>
     public void RecordImageBuild(string tag, bool success, string? error = null)
     {
         var name = string.IsNullOrWhiteSpace(tag) ? "image" : tag.Trim();
@@ -148,11 +179,29 @@ public sealed class ActivityLog : IActivityLog
         });
     }
 
+    /// <summary>
+    /// Adds an activity entry translated from a raw engine event.
+    /// </summary>
+    public void RecordEngineEvent(EngineEvent evt)
+    {
+        if (evt is null || Events.Any(e => string.Equals(e.SourceEventKey, evt.StableKey, StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        Record(ToActivityEvent(evt));
+    }
+
+    /// <summary>
+    /// Clears the in-memory and persisted activity history.
+    /// </summary>
     public void Clear()
     {
         Events.Clear();
         Persist();
     }
+
+    private void OnEngineEventReceived(object? sender, EngineEvent e) => RecordEngineEvent(e);
 
     private void OnStatusChanged(object? sender, EngineStatusSnapshot snapshot)
     {
@@ -192,7 +241,7 @@ public sealed class ActivityLog : IActivityLog
             // report every container as removed then re-created.
             if (isUp)
             {
-                changed |= DiffContainers(snapshot.Containers);
+                changed |= DiffContainers(snapshot.Containers, emitEvents: !_events.IsConnected);
             }
             // While the engine is down we neither diff nor clear the baseline. Keeping the
             // last-known container states means the first healthy snapshot after recovery is
@@ -215,7 +264,7 @@ public sealed class ActivityLog : IActivityLog
         }
     }
 
-    private bool DiffContainers(IReadOnlyList<ContainerInfo> containers)
+    private bool DiffContainers(IReadOnlyList<ContainerInfo> containers, bool emitEvents)
     {
         var changed = false;
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -234,22 +283,31 @@ public sealed class ActivityLog : IActivityLog
             if (!_lastContainerStates.TryGetValue(c.Id, out var prev))
             {
                 // Newly observed container. Running => started; anything else => created.
-                var kind = c.State == ContainerState.Running ? ActivityKind.ContainerStarted : ActivityKind.ContainerCreated;
-                var verb = kind == ActivityKind.ContainerStarted ? "started" : "created";
-                Events.Insert(0, ContainerEvent(kind, $"{name} {verb}", c.ShortId));
-                changed = true;
+                if (emitEvents)
+                {
+                    var kind = c.State == ContainerState.Running ? ActivityKind.ContainerStarted : ActivityKind.ContainerCreated;
+                    var verb = kind == ActivityKind.ContainerStarted ? "started" : "created";
+                    Events.Insert(0, ContainerEvent(kind, $"{name} {verb}", c.ShortId));
+                    changed = true;
+                }
             }
             else if (prev != c.State)
             {
                 if (c.State == ContainerState.Running && prev != ContainerState.Running)
                 {
-                    Events.Insert(0, ContainerEvent(ActivityKind.ContainerStarted, $"{name} started", c.ShortId));
-                    changed = true;
+                    if (emitEvents)
+                    {
+                        Events.Insert(0, ContainerEvent(ActivityKind.ContainerStarted, $"{name} started", c.ShortId));
+                        changed = true;
+                    }
                 }
                 else if (prev == ContainerState.Running && c.State != ContainerState.Running)
                 {
-                    Events.Insert(0, ContainerEvent(ActivityKind.ContainerStopped, $"{name} stopped", c.ShortId));
-                    changed = true;
+                    if (emitEvents)
+                    {
+                        Events.Insert(0, ContainerEvent(ActivityKind.ContainerStopped, $"{name} stopped", c.ShortId));
+                        changed = true;
+                    }
                 }
             }
 
@@ -261,8 +319,12 @@ public sealed class ActivityLog : IActivityLog
         {
             var name = _lastContainerNames.TryGetValue(id, out var n) ? n : (id.Length > 12 ? id[..12] : id);
             var shortId = id.Length > 12 ? id[..12] : id;
-            Events.Insert(0, ContainerEvent(ActivityKind.ContainerRemoved, $"{name} removed", shortId));
-            changed = true;
+            if (emitEvents)
+            {
+                Events.Insert(0, ContainerEvent(ActivityKind.ContainerRemoved, $"{name} removed", shortId));
+                changed = true;
+            }
+
             _lastContainerStates.Remove(id);
             _lastContainerNames.Remove(id);
         }
@@ -306,6 +368,52 @@ public sealed class ActivityLog : IActivityLog
         Detail = shortId,
     };
 
+    private static ActivityEvent ToActivityEvent(EngineEvent evt)
+    {
+        var category = evt.Type.ToLowerInvariant() switch
+        {
+            "container" => ActivityCategory.Container,
+            "image" => ActivityCategory.Image,
+            "network" => ActivityCategory.Network,
+            _ => ActivityCategory.Engine,
+        };
+        var kind = (category, evt.Action.ToLowerInvariant()) switch
+        {
+            (ActivityCategory.Container, "create") => ActivityKind.ContainerCreated,
+            (ActivityCategory.Container, "start") => ActivityKind.ContainerStarted,
+            (ActivityCategory.Container, "stop" or "die" or "kill") => ActivityKind.ContainerStopped,
+            (ActivityCategory.Container, "destroy" or "remove") => ActivityKind.ContainerRemoved,
+            (ActivityCategory.Network, "create") => ActivityKind.NetworkCreated,
+            (ActivityCategory.Network, "connect") => ActivityKind.NetworkConnected,
+            (ActivityCategory.Network, "disconnect") => ActivityKind.NetworkDisconnected,
+            (ActivityCategory.Network, "destroy" or "remove") => ActivityKind.NetworkRemoved,
+            (ActivityCategory.Image, _) => ActivityKind.ImagePulled,
+            _ => ActivityKind.EngineUp,
+        };
+
+        var attrs = evt.Attributes.Count == 0
+            ? null
+            : string.Join(", ", evt.Attributes
+                .Where(kvp => kvp.Key is "image" or "exitCode" or "network" or "name" or "container" or "type")
+                .Select(kvp => $"{kvp.Key}={kvp.Value}"));
+        var name = evt.DisplayName;
+        return new ActivityEvent
+        {
+            Timestamp = evt.Timestamp,
+            Category = category,
+            Kind = kind,
+            Title = $"{evt.Type} {evt.Action}: {name}",
+            Detail = string.IsNullOrWhiteSpace(attrs) ? evt.ActorId : attrs,
+            IsError = evt.ExitCode is > 0,
+            SourceEventKey = evt.StableKey,
+            SourceType = evt.Type,
+            SourceAction = evt.Action,
+            ActorId = evt.ActorId,
+            ContainerId = evt.ContainerId,
+            Attributes = evt.Attributes,
+        };
+    }
+
     private static string? Trim(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -333,13 +441,11 @@ public sealed class ActivityLog : IActivityLog
                 return;
             }
 
-            // File is stored newest-first; keep that order and cap.
-            foreach (var evt in loaded.Take(MaxEvents))
+            // Stored newest-first. Sort anyway (stable, so equal times keep their order) to repair
+            // files written before events were inserted by time.
+            foreach (var evt in loaded.Where(e => e is not null).OrderByDescending(e => e.Timestamp).Take(MaxEvents))
             {
-                if (evt is not null)
-                {
-                    Events.Add(evt);
-                }
+                Events.Add(evt);
             }
         }
         catch (Exception ex)

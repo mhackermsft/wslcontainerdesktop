@@ -19,38 +19,47 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-/// <summary>Selects a transfer backend before any mutation; native failures are never retried.</summary>
+/// <summary>Uses native <c>wslc container cp</c>; native failures are never retried through another backend.</summary>
 internal sealed class WslcFileTransfer(
-    IWslcCapabilitiesService capabilities,
     Func<string, IEnumerable<string>, CancellationToken, Task<CommandResult>> run,
     Func<string, IEnumerable<string>, string, CancellationToken, Task<CommandResult>> runWithInput,
+    Func<string> executablePath,
     Func<string> stagingRoot)
 {
-    public Task<CommandResult> CopyFromAsync(
-        string id, string containerPath, string hostDirectory,
-        Func<string, string, CancellationToken, Task<CommandResult>> legacy, CancellationToken ct = default)
+    /// <summary>Copies a file or directory from a container to the Windows file system.</summary>
+    public async Task<CommandResult> CopyFromAsync(
+        string id, string containerPath, string hostDirectory, CancellationToken ct = default, bool followSymlinks = false)
     {
-        return SelectAsync(token => DownloadAsync(null, token), DownloadAsync, ct);
-
-        async Task<CommandResult> DownloadAsync(string? executable, CancellationToken token)
+        try
         {
+            ct.ThrowIfCancellationRequested();
             var destination = ContainerDownloadPath.Create(containerPath, hostDirectory);
-            destination.Prepare(token);
-            if (executable is null)
+            destination.Prepare(ct);
+            var args = new List<string> { "container", "cp", "--quiet" };
+            if (followSymlinks)
             {
-                return await legacy(destination.Source, destination.Directory, token).ConfigureAwait(false);
+                args.Add("--follow-link");
             }
-            var result = await run(executable, ["container", "cp", $"{id}:{destination.Source}", destination.Directory], token)
+
+            args.Add($"{id}:{destination.Source}");
+            args.Add(destination.Directory);
+            var result = await run(executablePath(), args, ct)
                 .ConfigureAwait(false);
             return WithNativeDiagnostic(result);
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return new CommandResult { ExitCode = -1, StandardError = $"Could not copy files: {ex.Message}" };
+        }
     }
 
-    public Task<CommandResult> CopyToAsync(
-        string id, string hostPath, string containerDirectory,
-        Func<CancellationToken, Task<CommandResult>> legacy, CancellationToken ct = default) =>
-        SelectAsync(legacy, async (executable, token) =>
+    /// <summary>Copies a Windows file or directory into a container path.</summary>
+    public async Task<CommandResult> CopyToAsync(
+        string id, string hostPath, string containerDirectory, CancellationToken ct = default)
+    {
+        try
         {
+            ct.ThrowIfCancellationRequested();
             ValidateContainerPath(containerDirectory);
             var source = Path.TrimEndingDirectorySeparator(Path.GetFullPath(hostPath));
             var basename = Path.GetFileName(source);
@@ -75,16 +84,16 @@ internal sealed class WslcFileTransfer(
                     FileShare.None, 81920, FileOptions.Asynchronous))
                 {
                     archiveCreated = true;
-                    await using var writer = new TarWriter(archive, TarEntryFormat.Pax);
-                    await WriteSourceAsync(writer, source, member, token).ConfigureAwait(false);
+                    await using var writer = new System.Formats.Tar.TarWriter(archive, System.Formats.Tar.TarEntryFormat.Pax);
+                    await WriteSourceAsync(writer, source, member, ct).ConfigureAwait(false);
                 }
-                token.ThrowIfCancellationRequested();
+                ct.ThrowIfCancellationRequested();
                 // Retain a read-only handle to prevent modification during transfer. cmd's
                 // redirection does not share delete access, so DeleteOnClose cannot be used.
                 using var guard = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                // 2.9.11 accepts a seekable tar on stdin. Relative, traversal-free member names
-                // preserve mkdir-p and basename semantics without an in-container shell.
-                var result = await runWithInput(executable, ["container", "cp", "-", $"{id}:/"], archivePath, token)
+                // Native copy accepts a seekable tar on stdin. Relative, traversal-free member
+                // names preserve mkdir-p and basename semantics without an in-container shell.
+                var result = await runWithInput(executablePath(), ["container", "cp", "--quiet", "-", $"{id}:/"], archivePath, ct)
                     .ConfigureAwait(false);
                 return WithNativeDiagnostic(result);
             }
@@ -92,40 +101,9 @@ internal sealed class WslcFileTransfer(
             {
                 if (archiveCreated)
                 {
-                    await DeleteArchiveAsync(archivePath, token).ConfigureAwait(false);
+                    await DeleteArchiveAsync(archivePath, ct).ConfigureAwait(false);
                 }
             }
-        }, ct);
-
-    private async Task<CommandResult> SelectAsync(
-        Func<CancellationToken, Task<CommandResult>> legacy,
-        Func<string, CancellationToken, Task<CommandResult>> native, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        var snapshot = await capabilities.GetAsync(ct).ConfigureAwait(false);
-        var capability = snapshot[WslcFeature.ContainerCp];
-        if (capability.Support is not (WslcCapabilitySupport.Supported or WslcCapabilitySupport.Unsupported))
-        {
-            return new CommandResult
-            {
-                ExitCode = -1,
-                StandardError = $"Could not determine native container copy availability: {capability.Diagnostic}",
-            };
-        }
-
-        try
-        {
-            if (capability.Support == WslcCapabilitySupport.Unsupported)
-            {
-                var result = await legacy(ct).ConfigureAwait(false);
-                return result.Success ? result : new CommandResult
-                {
-                    ExitCode = result.ExitCode,
-                    StandardOutput = result.StandardOutput,
-                    StandardError = $"{result.ErrorText}\nThis engine uses legacy transfer: the container must be running with sh, base64 and (for directories) tar.",
-                };
-            }
-            return await native(snapshot.ExecutablePath, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -165,8 +143,9 @@ internal sealed class WslcFileTransfer(
         }
     }
 
+    /// <summary>Builds the archive or file stream passed to <c>wslc container cp</c> standard input.</summary>
     internal static async Task WriteSourceAsync(
-        TarWriter writer, string source, string member, CancellationToken ct,
+        System.Formats.Tar.TarWriter writer, string source, string member, CancellationToken ct,
         Func<string, FileAttributes>? readAttributes = null)
     {
         ct.ThrowIfCancellationRequested();
@@ -179,7 +158,9 @@ internal sealed class WslcFileTransfer(
         {
             // TarWriter's path overload assumes every Windows reparse point is a link.
             // Cloud-backed files/directories have no link target; read their normal contents.
-            var entry = new PaxTarEntry(isDirectory ? TarEntryType.Directory : TarEntryType.RegularFile, member)
+            var entry = new System.Formats.Tar.PaxTarEntry(
+                isDirectory ? System.Formats.Tar.TarEntryType.Directory : System.Formats.Tar.TarEntryType.RegularFile,
+                member)
             {
                 ModificationTime = info.LastWriteTimeUtc,
                 Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
@@ -207,6 +188,7 @@ internal sealed class WslcFileTransfer(
         }
     }
 
+    /// <summary>Prepares a destination path so replacing an existing file or directory is predictable.</summary>
     internal static void PrepareOverwrite(
         string path, CancellationToken ct, Func<string, FileAttributes>? readAttributes = null) =>
         ContainerDownloadPath.PrepareOverwrite(path, ct, readAttributes);
@@ -215,6 +197,6 @@ internal sealed class WslcFileTransfer(
     {
         ExitCode = result.ExitCode,
         StandardOutput = result.StandardOutput,
-        StandardError = $"{result.ErrorText}\nNative copy failed; no legacy retry was attempted. Check host tar.exe, staging/destination access and free space. Links and metadata follow the native archive implementation; ownership preservation is not guaranteed.",
+        StandardError = $"{result.ErrorText}\nNative copy failed; no retry was attempted. Check host tar.exe, staging/destination access and free space. Links and metadata follow the native archive implementation; ownership preservation is not guaranteed.",
     };
 }

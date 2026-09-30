@@ -18,18 +18,21 @@ using System.Text;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>File-loading portion of <c>ComposeImporter</c>; handles explicit file lists, includes, extends, and path resolution.</summary>
 public static partial class ComposeImporter
 {
     private static readonly string[] ResourceKinds = ["services", "networks", "volumes", "secrets", "configs"];
 
     // Logical source breadcrumbs identify the offending input without printing interpolated paths,
     // which may contain credentials. All state belongs to one import, never a global file cache.
+    /// <summary>Tracks one import's include and extends graph so cycles and excessive reads can be rejected.</summary>
     private sealed class FileGraph(List<string> warnings)
     {
         private readonly HashSet<string> _includes = new(PathComparer);
         private readonly HashSet<(string File, string Service)> _extends = [];
         private int _reads;
 
+        /// <summary>Loads an ordered compose-file set where later files override earlier files.</summary>
         public MappingNode LoadFiles(IReadOnlyList<string> paths, string? directory,
             IReadOnlyDictionary<string, string> env)
         {
@@ -43,6 +46,7 @@ public static partial class ComposeImporter
             return Finish(root!, directory, env, PathIdentity(paths[0]), 0, reportTopLevelWarnings: false);
         }
 
+        /// <summary>Loads the primary compose text and one implicit sibling override file when present.</summary>
         public MappingNode LoadMain(string yaml, string? directory, IReadOnlyDictionary<string, string> env)
         {
             var root = Decode(yaml, directory, env, "Compose input");
@@ -60,6 +64,7 @@ public static partial class ComposeImporter
             return Finish(root, directory, env, "<main>", 0);
         }
 
+        /// <summary>Parses, interpolates, labels, and path-normalizes one compose document.</summary>
         private MappingNode Decode(string text, string? directory,
             IReadOnlyDictionary<string, string> env, string source)
         {
@@ -83,6 +88,7 @@ public static partial class ComposeImporter
             return root;
         }
 
+        /// <summary>Resolves include and extends directives, applies tags, and validates file-backed resources.</summary>
         private MappingNode Finish(MappingNode root, string? directory,
             IReadOnlyDictionary<string, string> env, string identity, int depth, bool reportTopLevelWarnings = true)
         {
@@ -144,6 +150,7 @@ public static partial class ComposeImporter
             return root;
         }
 
+        /// <summary>Loads one <c>include:</c> entry using its own project directory and environment file rules.</summary>
         private MappingNode LoadInclude(Node item, string? directory,
             IReadOnlyDictionary<string, string> parentEnv, string source, int depth)
         {
@@ -205,6 +212,7 @@ public static partial class ComposeImporter
             }
         }
 
+        /// <summary>Resolves one service's <c>extends</c> chain inside the allowed file graph.</summary>
         private MappingNode ResolveService(string name, MappingNode service, MappingNode services,
             IReadOnlyDictionary<string, string> env, string identity, int depth)
         {
@@ -244,19 +252,24 @@ public static partial class ComposeImporter
         }
     }
 
+    /// <summary>Returns the path comparer that matches the current operating system's case rules.</summary>
     private static StringComparer PathComparer => OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
+    /// <summary>Canonicalizes a path key for cycle detection.</summary>
     private static string PathIdentity(string path) =>
         OperatingSystem.IsWindows() ? path.ToUpperInvariant() : path;
 
+    /// <summary>Builds a value-free configuration error tied to a sanitized source breadcrumb.</summary>
     private static ComposeConfigurationException FileError(string context, string reason) =>
         new($"{context}: {reason}. Check the referenced input and its configuration.");
 
+    /// <summary>Reads a required nonempty scalar or raises a shape error.</summary>
     private static string RequiredScalar(Node? node, string context) =>
         node is ScalarNode scalar && !string.IsNullOrWhiteSpace(scalar.Value)
             ? scalar.Value : throw FileError(context, "expected a nonempty string");
 
+    /// <summary>Reads a scalar path or list of scalar paths from an include option.</summary>
     private static IEnumerable<string> PathValues(Node node, string context)
     {
         if (node is ScalarNode) return [RequiredScalar(node, context)];
@@ -265,12 +278,14 @@ public static partial class ComposeImporter
         throw FileError(context, "unsupported form; expected a path or nonempty path list");
     }
 
+    /// <summary>Rejects unsupported options in restricted include and resource mappings.</summary>
     private static void CheckKeys(MappingNode map, string[] allowed, string context)
     {
         if (map.Map.Keys.Any(k => !allowed.Contains(k, StringComparer.Ordinal)))
             throw FileError(context, "unsupported option");
     }
 
+    /// <summary>Stamps source breadcrumbs onto a parsed node tree without copying raw values.</summary>
     private static void SetSource(Node node, string source)
     {
         node.Source = source;
@@ -294,6 +309,7 @@ public static partial class ComposeImporter
             foreach (var child in sequence.Items) SetSource(child, source);
     }
 
+    /// <summary>Converts compose-file-relative host paths to absolute paths before merging continues.</summary>
     private static void ResolveDocumentPaths(MappingNode root, string? directory)
     {
         if (root.Child("services") is MappingNode services && services.Tag != "!reset")
@@ -335,6 +351,7 @@ public static partial class ComposeImporter
                         resource.Map["file"] = PathNode(file, directory, resource.Source + ".file", required: true);
     }
 
+    /// <summary>Resolves one scalar path and preserves its tag and source metadata.</summary>
     private static ScalarNode PathNode(Node node, string? directory, string context, bool required = false)
     {
         var path = RequiredScalar(node, context);
@@ -350,6 +367,7 @@ public static partial class ComposeImporter
         }
     }
 
+    /// <summary>Validates and resolves a host input file path.</summary>
     private static string RequiredPath(string path, string? directory, string context)
     {
         if (path.Contains("://", StringComparison.Ordinal) || path.StartsWith("git@", StringComparison.Ordinal))
@@ -368,16 +386,19 @@ public static partial class ComposeImporter
         }
     }
 
+    /// <summary>Detects both Windows and Linux-style absolute paths accepted in Compose input.</summary>
     private static bool IsAbsolutePath(string path) =>
         path.StartsWith('/') || path.StartsWith(@"\\", StringComparison.Ordinal) ||
         (path.Length > 2 && char.IsLetter(path[0]) && path[1] == ':' && path[2] is '\\' or '/');
 
+    /// <summary>Detects short volume syntax that should be treated as a host bind source.</summary>
     private static bool IsBindSource(string path) =>
         IsAbsolutePath(path) || path is "." or ".." ||
         path.StartsWith("./", StringComparison.Ordinal) || path.StartsWith("../", StringComparison.Ordinal) ||
         path.StartsWith(@".\", StringComparison.Ordinal) || path.StartsWith(@"..\", StringComparison.Ordinal) ||
         path.StartsWith('\\') || (path.Length >= 2 && char.IsLetter(path[0]) && path[1] == ':');
 
+    /// <summary>Reads a bounded UTF-8 compose-side input file, returning null for optional missing files.</summary>
     private static string? ReadInput(string path, bool required, string context)
     {
         try
@@ -406,6 +427,7 @@ public static partial class ComposeImporter
         }
     }
 
+    /// <summary>Validates the long <c>env_file</c> form before resolving its path.</summary>
     private static bool ValidateEnvFile(MappingNode map, string context)
     {
         CheckKeys(map, ["path", "required"], context);
@@ -417,6 +439,7 @@ public static partial class ComposeImporter
         return required;
     }
 
+    /// <summary>Checks top-level resource shapes before include resources are merged.</summary>
     private static void ValidateResourceShapes(MappingNode root)
     {
         foreach (var kind in ResourceKinds)
@@ -431,6 +454,7 @@ public static partial class ComposeImporter
         }
     }
 
+    /// <summary>Checks file-backed secrets and configs without retaining their contents.</summary>
     private static void ValidateFileResources(MappingNode root)
     {
         foreach (var kind in new[] { "secrets", "configs" })

@@ -29,6 +29,7 @@ public sealed class PortForwardManager(WslRootShell shell)
     private readonly Dictionary<string, Process> _portForwards = new();
     private readonly object _pfLock = new();
 
+    /// <summary>Starts a new <c>kubectl port-forward</c> process for the requested Kubernetes object.</summary>
     public bool StartPortForward(PortForward forward)
     {
         var cmd = $"k3s kubectl port-forward --address 127.0.0.1 -n {WslRootShell.ShellEscape(forward.Namespace)} " +
@@ -65,6 +66,7 @@ public sealed class PortForwardManager(WslRootShell shell)
         }
     }
 
+    /// <summary>Stops and forgets one tracked port-forward session by its UI id.</summary>
     public void StopPortForward(string id)
     {
         Process? process;
@@ -81,6 +83,7 @@ public sealed class PortForwardManager(WslRootShell shell)
         KillProcessTree(process);
     }
 
+    /// <summary>Stops every tracked port-forward session, usually during app shutdown.</summary>
     public void StopAllPortForwards()
     {
         List<Process> all;
@@ -96,6 +99,7 @@ public sealed class PortForwardManager(WslRootShell shell)
         }
     }
 
+    /// <summary>Kills the helper process and descendants because <c>kubectl port-forward</c> is long-lived.</summary>
     private static void KillProcessTree(Process process)
     {
         try

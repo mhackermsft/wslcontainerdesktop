@@ -19,16 +19,19 @@ using WslContainerDesktop.Models;
 namespace WslContainerDesktop.Services;
 
 // Supervisor tests exercise the real orchestration with controlled snapshots, not WinUI pollers.
+/// <summary>Test double for the compose health watchdog that exposes a controllable latest health snapshot.</summary>
 public sealed class HealthWatchdog
 {
     public HealthSnapshot Latest { get; set; } = new([]);
     public sealed record HealthSnapshot(IReadOnlyList<ContainerHealthSnapshot> Containers);
 }
 
+/// <summary>Test double for the app status monitor that lets supervisor tests provide inventory and observe refresh requests.</summary>
 public sealed class StatusMonitor
 {
     public StatusSnapshot? Latest { get; set; }
     public Action? RefreshRequested { get; set; }
     public void RequestRefresh() => RefreshRequested?.Invoke();
+    /// <summary>Represents the container inventory snapshot that supervisor tests want the monitor to publish.</summary>
     public sealed record StatusSnapshot(IReadOnlyList<ContainerInfo> Containers);
 }

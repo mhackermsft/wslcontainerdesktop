@@ -21,7 +21,9 @@ namespace WslContainerDesktop.Models;
 /// <summary>Whether a template launches a single container or imports a multi-service compose stack.</summary>
 public enum StackTemplateKind
 {
+    /// <summary>Represents the single container option.</summary>
     SingleContainer,
+    /// <summary>Represents the compose option.</summary>
     Compose,
 }
 
@@ -45,6 +47,13 @@ public enum TemplateSource
 /// </summary>
 public sealed partial class StackTemplate : ObservableObject
 {
+    /// <summary>
+    /// Returns the template name. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the id.</summary>
     public required string Id { get; set; }
 
     /// <summary>Display name, e.g. "PostgreSQL".</summary>
@@ -59,6 +68,7 @@ public sealed partial class StackTemplate : ObservableObject
     /// <summary>Segoe MDL2 glyph for the card icon.</summary>
     public string Glyph { get; set; } = "\uE7B8"; // generic package
 
+    /// <summary>Gets or sets the kind.</summary>
     public StackTemplateKind Kind { get; set; } = StackTemplateKind.SingleContainer;
 
     /// <summary>Prefilled run options for <see cref="StackTemplateKind.SingleContainer"/> templates.</summary>
@@ -138,6 +148,7 @@ public sealed partial class StackTemplate : ObservableObject
     [property: System.Text.Json.Serialization.JsonIgnore]
     private int _deploymentCount;
 
+    /// <summary>Gets a value indicating whether this value has multiple deployments.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasMultipleDeployments => DeploymentCount > 1;
 

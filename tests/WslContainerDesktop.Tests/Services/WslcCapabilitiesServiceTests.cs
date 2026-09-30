@@ -23,6 +23,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Verifies <c>wslc</c> capability probing from help text, version output and nonmutating smoke checks.
+/// </summary>
 public sealed class WslcCapabilitiesServiceTests
 {
     [Fact]
@@ -31,227 +34,96 @@ public sealed class WslcCapabilitiesServiceTests
         using var fixture = new Fixture();
         var snapshot = await fixture.Service.GetAsync();
 
-        Assert.Equal("2.9.11.0", snapshot.Version);
+        Assert.Equal("3.0.1.0", snapshot.Version);
         Assert.False(snapshot.HasProbeFailures);
         foreach (var feature in Enum.GetValues<WslcFeature>())
         {
-            Assert.Equal(feature is WslcFeature.HealthStartInterval or WslcFeature.CreateHealthStartInterval
-                ? WslcCapabilitySupport.Unsupported : WslcCapabilitySupport.Supported, snapshot[feature].Support);
+            Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[feature].Support);
         }
 
-        Assert.Equal(["--version", "network --help", "container --help", "run --help", "create --help", "remove --help",
-                "container prune --help", "image prune --help", "volume prune --help", "network prune --help"],
-            fixture.Calls.Select(call => call.Arguments));
+        Assert.Equal(["--version", "run --help", "create --help"], fixture.Calls.Select(call => call.Arguments));
         Assert.All(fixture.Calls, call => Assert.Equal(fixture.Path, call.Path));
         Assert.Empty(fixture.Warnings);
     }
 
-    [Theory]
-    [InlineData("2.9.9.0")]
-    [InlineData("2.9.11.0")]
-    [InlineData("99.0.0.0")]
-    public async Task LegacyHelp_DoesNotInferSupportFromVersion(string version)
+    [Fact]
+    public async Task RunAndCreateHealthStartInterval_AreIndependentExactTokens()
     {
-        using var fixture = new Fixture(legacy: true);
-        fixture.Responses["--version"] = Ok($"wslc {version}");
+        using var fixture = new Fixture();
+        fixture.Responses["run --help"] = Ok(Help("current", "run").Replace(
+            "      --health-start-period  Start period",
+            "      --health-start-interval  Time between startup health checks\n      --health-start-period  Start period"));
         var snapshot = await fixture.Service.GetAsync();
 
+        Assert.True(snapshot.IsSupported(WslcFeature.HealthStartInterval));
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.CreateHealthStartInterval].Support);
+    }
+
+    [Theory]
+    [InlineData("<DURATION>")]
+    [InlineData("[DURATION]")]
+    public async Task OptionArgumentPlaceholder_PreservesExactFeatureEvidence(string placeholder)
+    {
+        using var fixture = new Fixture();
+        fixture.Responses["run --help"] = Ok(Help("current", "run").Replace(
+            "      --health-start-period  Start period",
+            $"      --health-start-interval {placeholder}  Time between startup health checks\n      --health-start-period  Start period"));
+
+        var snapshot = await fixture.Service.GetAsync();
+
+        Assert.True(snapshot.IsSupported(WslcFeature.HealthStartInterval));
         Assert.False(snapshot.HasProbeFailures);
-        Assert.All(Enum.GetValues<WslcFeature>(), feature =>
-            Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[feature].Support));
-    }
-
-    [Fact]
-    public async Task PruneProbes_PassSubcommandAsSeparateArguments()
-    {
-        using var fixture = new Fixture();
-        await fixture.Service.GetAsync();
-
-        // A single "container prune" token would be one argv entry that wslc cannot parse.
-        foreach (var resource in new[] { "container", "image", "volume", "network" })
-        {
-            Assert.Contains(fixture.ArgumentLists, arguments => arguments.SequenceEqual([resource, "prune", "--help"]));
-        }
-
-        Assert.DoesNotContain(fixture.ArgumentLists, arguments => arguments.Any(argument => argument.Contains(' ')));
     }
 
     [Theory]
-    [InlineData("container", WslcFeature.ContainerPruneForce)]
-    [InlineData("image", WslcFeature.ImagePruneForce)]
-    [InlineData("volume", WslcFeature.VolumePruneForce)]
-    [InlineData("network", WslcFeature.NetworkPruneForce)]
-    public async Task PruneForce_IsReadFromThatResourcesOwnHelp(string resource, WslcFeature feature)
-    {
-        using var fixture = new Fixture();
-        fixture.Responses[$"{resource} prune --help"] = Ok(Help("legacy", $"{resource}-prune"));
-        var snapshot = await fixture.Service.GetAsync();
-
-        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[feature].Support);
-        Assert.Contains($"{resource} prune --help", snapshot[feature].Diagnostic);
-        foreach (var other in PruneFeatures.Where(other => other != feature))
-        {
-            Assert.True(snapshot.IsSupported(other), $"{other} must not borrow evidence from {resource} prune --help.");
-        }
-    }
-
-    [Fact]
-    public async Task LegacyContainerPruneHelp_ListingOnlyHelp_IsUnsupportedNotUnknown()
-    {
-        // WSLC 2.9.9/2.9.11 `container prune` defines no arguments, so its Options section lists only
-        // --help. Reading that as Unknown would block container prune on the minimum supported engine.
-        using var fixture = new Fixture();
-        fixture.Responses["container prune --help"] = Ok(Help("legacy", "container-prune"));
-        var snapshot = await fixture.Service.GetAsync();
-
-        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.ContainerPruneForce].Support);
-        Assert.False(snapshot.HasProbeFailures);
-        Assert.Empty(fixture.Warnings);
-    }
-
-    [Fact]
-    public async Task PruneForce_OtherFlagsWithForceInTheirNameAreNotEvidence()
-    {
-        using var fixture = new Fixture();
-        fixture.Responses["container prune --help"] = Ok(Help("current", "container-prune")
-            .Replace("  -f  --force    ", "      --force-rm   "));
-        var snapshot = await fixture.Service.GetAsync();
-
-        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.ContainerPruneForce].Support);
-    }
-
-    [Theory]
-    [InlineData(1, "Usage: wslc container prune [options]\nOptions:\n  -f  --force  Do not prompt\n  -?  --help  Help")]
-    [InlineData(0, "Usage: wslc container [<command>] [<options>]\nCommands:\n  prune  Remove.\n\nOptions:\n  -?  --help  Help")]
     [InlineData(0, "")]
-    public async Task PruneHelpFailureOrWrongHelp_IsUnknownNotUnsupported(int exitCode, string help)
+    [InlineData(0, "Usage: wslc run [options]\nOptions:\n  --help  Show help.\n  --health-start-interval")]
+    [InlineData(0, "Usage: wslc run [options]\nOptions:\n  --help  Show help.\n  --health-start-interval <DURATION")]
+    public async Task EmptyWrongOrTruncatedHelp_IsUnknown(int exitCode, string help)
     {
         using var fixture = new Fixture();
-        fixture.Responses["container prune --help"] = new() { ExitCode = exitCode, StandardOutput = help };
+        fixture.Responses["run --help"] = new() { ExitCode = exitCode, StandardOutput = help };
         var snapshot = await fixture.Service.GetAsync();
 
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.ContainerPruneForce].Support);
-        Assert.Contains("container prune --help", snapshot[WslcFeature.ContainerPruneForce].Diagnostic);
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.HealthStartInterval].Support);
+        Assert.Contains("run --help", snapshot[WslcFeature.HealthStartInterval].Diagnostic);
         Assert.True(snapshot.HasProbeFailures);
-        Assert.True(snapshot.IsSupported(WslcFeature.ImagePruneForce));
-    }
-
-    // --version plus one help probe per command: network, container, run, create, remove, and 4 prunes.
-    private const int ProbesPerSnapshot = 10;
-
-    private static readonly WslcFeature[] PruneFeatures =
-    [
-        WslcFeature.ContainerPruneForce, WslcFeature.ImagePruneForce,
-        WslcFeature.VolumePruneForce, WslcFeature.NetworkPruneForce,
-    ];
-
-    [Fact]
-    public async Task RuntimeCreationOptions_UseCreateHelpNotVersionOrRunHelp()
-    {
-        using var fixture = new Fixture();
-        fixture.Responses["create --help"] = Ok(Help("current", "run")
-            .Replace("wslc run", "wslc create")
-            .Replace("--gpus", "--gpus-extra")
-            .Replace("--pull", "--pull-extra"));
-        var snapshot = await fixture.Service.GetAsync();
-
-        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.CreateGpus].Support);
-        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.CreatePull].Support);
-        fixture.Responses["create --help"] = new() { ExitCode = 1, StandardError = "probe failure" };
-        fixture.Service.Invalidate();
-        snapshot = await fixture.Service.GetAsync();
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.CreateGpus].Support);
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.CreatePull].Support);
-    }
-
-    [Fact]
-    public async Task RunAndCreateFlagsAndNetworkCommands_AreIndependentExactTokens()
-    {
-        using var fixture = new Fixture();
-        fixture.Responses["network --help"] = Ok(Help("current", "network")
-            .Replace("  connect     Connect a container to a network.\n", ""));
-        fixture.Responses["run --help"] = Ok(Help("current", "run")
-            .Replace("      --health-cmd           Command to run to check container health\n", "")
-            .Replace("      --health-interval      Time", "      --health-interval-extra  Time"));
-        var snapshot = await fixture.Service.GetAsync();
-
-        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.NetworkConnect].Support);
-        Assert.True(snapshot.IsSupported(WslcFeature.NetworkDisconnect));
-        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.HealthCmd].Support);
-        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.HealthInterval].Support);
-        Assert.True(snapshot.IsSupported(WslcFeature.HealthTimeout));
-        Assert.True(snapshot.IsSupported(WslcFeature.CreateHealthCmd));
-        Assert.True(snapshot.IsSupported(WslcFeature.CreateHealthInterval));
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("Usage: wslc [<command>] [<options>]\nCommands:\n  cp  Copy.\n")]
-    [InlineData("Usage: wslc container [<command>]\nCommands:\n  cp  Copy.")]
-    [InlineData("An error mentions cp and --health-cmd but is not command help.")]
-    public async Task EmptyWrongOrTruncatedHelp_IsUnknown(string help)
-    {
-        using var fixture = new Fixture();
-        fixture.Responses["container --help"] = Ok(help);
-        var snapshot = await fixture.Service.GetAsync();
-
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.ContainerCp].Support);
-        Assert.Contains("Check the executable path", snapshot[WslcFeature.ContainerCp].Diagnostic);
-        Assert.Single(fixture.Warnings);
-        Assert.True(snapshot.IsSupported(WslcFeature.NetworkConnect));
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.CreateHealthStartInterval].Support);
     }
 
     [Fact]
     public async Task FailedHelp_DoesNotTrustEvenRecognizableOutput()
     {
         using var fixture = new Fixture();
-        fixture.Responses["network --help"] = new()
+        fixture.Responses["run --help"] = new()
         {
             ExitCode = 1,
-            StandardOutput = Help("current", "network"),
+            StandardOutput = Help("current", "run"),
             StandardError = "Access denied",
         };
         var snapshot = await fixture.Service.GetAsync();
 
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.NetworkConnect].Support);
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.NetworkDisconnect].Support);
-        Assert.Contains("Access denied", snapshot[WslcFeature.NetworkConnect].Diagnostic);
-        Assert.True(snapshot.IsSupported(WslcFeature.ContainerCp));
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.HealthStartInterval].Support);
+        Assert.Contains("Access denied", snapshot[WslcFeature.HealthStartInterval].Diagnostic);
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.CreateHealthStartInterval].Support);
     }
 
     [Theory]
-    [InlineData("<COMMAND>")]
-    [InlineData("[COMMAND]")]
-    public async Task OptionArgumentPlaceholder_PreservesExactFeatureEvidence(string placeholder)
+    [InlineData("run", WslcFeature.HealthStartInterval)]
+    [InlineData("create", WslcFeature.CreateHealthStartInterval)]
+    public async Task UnparsedHelpRows_AreUnknownInsteadOfConfirmedAbsence(string command, WslcFeature feature)
     {
         using var fixture = new Fixture();
-        fixture.Responses["run --help"] = Ok(Help("current", "run")
-            .Replace("--health-cmd           ", $"--health-cmd {placeholder}  "));
-
+        fixture.Responses[$"{command} --help"] = Ok($"Usage: wslc {command} [options]\nOptions:\n  --help  Show help.\n  --health-start-interval COMMAND  Check health.");
         var snapshot = await fixture.Service.GetAsync();
 
-        Assert.True(snapshot.IsSupported(WslcFeature.HealthCmd));
-        Assert.False(snapshot.HasProbeFailures);
-    }
-
-    [Theory]
-    [InlineData("run", "Options:\n  --help  Show help.\n  --health-cmd")]
-    [InlineData("run", "Options:\n  --help  Show help.\n  --health-cmd <COMMAND")]
-    [InlineData("run", "Options:\n  --help  Show help.\n  --health-cmd COMMAND  Check health.")]
-    [InlineData("network", "Commands:\n  ls  List networks.\n  connect\n\nOptions:\n  --help  Show help.")]
-    public async Task UnparsedHelpRows_AreUnknownInsteadOfConfirmedAbsence(string command, string section)
-    {
-        using var fixture = new Fixture();
-        fixture.Responses[$"{command} --help"] = Ok($"Usage: wslc {command} [<options>]\n{section}");
-
-        var snapshot = await fixture.Service.GetAsync();
-
-        var feature = command == "run" ? WslcFeature.HealthCmd : WslcFeature.NetworkConnect;
         Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[feature].Support);
         Assert.NotNull(snapshot[feature].Diagnostic);
         Assert.Single(fixture.Warnings);
-        Assert.True(snapshot.IsSupported(WslcFeature.ContainerCp));
     }
+
+    // --version plus run/create help probes for future optional flags.
+    private const int ProbesPerSnapshot = 3;
 
     [Fact]
     public async Task VersionFailure_DoesNotEraseIndependentHelpEvidence()
@@ -263,15 +135,20 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.Null(snapshot.Version);
         Assert.Contains("Could not launch", snapshot.VersionDiagnostic);
         Assert.True(snapshot.HasProbeFailures);
-        Assert.True(snapshot.IsSupported(WslcFeature.ContainerCp));
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.HealthStartInterval].Support);
     }
 
     [Fact]
     public async Task SuccessfulHelpOnStderr_IsRecognized()
     {
         using var fixture = new Fixture();
-        fixture.Responses["container --help"] = new() { StandardError = Help("current", "container") };
-        Assert.True((await fixture.Service.GetAsync()).IsSupported(WslcFeature.ContainerCp));
+        fixture.Responses["run --help"] = new()
+        {
+            StandardError = Help("current", "run").Replace(
+                "      --health-start-period  Start period",
+                "      --health-start-interval  Time between startup health checks\n      --health-start-period  Start period"),
+        };
+        Assert.True((await fixture.Service.GetAsync()).IsSupported(WslcFeature.HealthStartInterval));
     }
 
     [Fact]
@@ -280,16 +157,16 @@ public sealed class WslcCapabilitiesServiceTests
         using var fixture = new Fixture(timeout: TimeSpan.FromMilliseconds(50));
         fixture.BeforeResponse = async (_, arguments, ct) =>
         {
-            if (arguments == "network --help")
+            if (arguments == "run --help")
             {
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct);
             }
         };
         var snapshot = await fixture.Service.GetAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.NetworkConnect].Support);
-        Assert.Contains("timed out", snapshot[WslcFeature.NetworkConnect].Diagnostic);
-        Assert.True(snapshot.IsSupported(WslcFeature.ContainerCp));
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.HealthStartInterval].Support);
+        Assert.Contains("timed out", snapshot[WslcFeature.HealthStartInterval].Diagnostic);
+        Assert.Equal(WslcCapabilitySupport.Unsupported, snapshot[WslcFeature.CreateHealthStartInterval].Support);
     }
 
     [Fact]
@@ -297,12 +174,12 @@ public sealed class WslcCapabilitiesServiceTests
     {
         using var fixture = new Fixture();
         fixture.BeforeResponse = (_, arguments, _) =>
-            arguments == "container --help"
+            arguments == "run --help"
                 ? Task.FromException(new IOException("Output pipe was closed"))
                 : Task.CompletedTask;
         var snapshot = await fixture.Service.GetAsync();
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.ContainerCp].Support);
-        Assert.Contains("Output pipe was closed", snapshot[WslcFeature.ContainerCp].Diagnostic);
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.HealthStartInterval].Support);
+        Assert.Contains("Output pipe was closed", snapshot[WslcFeature.HealthStartInterval].Diagnostic);
         Assert.Single(fixture.Warnings);
     }
 
@@ -311,13 +188,13 @@ public sealed class WslcCapabilitiesServiceTests
     {
         using var fixture = new Fixture();
         fixture.BeforeResponse = (_, arguments, _) =>
-            arguments == "container --help"
+            arguments == "run --help"
                 ? Task.FromCanceled(new CancellationToken(true))
                 : Task.CompletedTask;
         var snapshot = await fixture.Service.GetAsync();
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.ContainerCp].Support);
-        Assert.Contains("cancelled", snapshot[WslcFeature.ContainerCp].Diagnostic);
-        Assert.DoesNotContain("timed out", snapshot[WslcFeature.ContainerCp].Diagnostic);
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.HealthStartInterval].Support);
+        Assert.Contains("cancelled", snapshot[WslcFeature.HealthStartInterval].Diagnostic);
+        Assert.DoesNotContain("timed out", snapshot[WslcFeature.HealthStartInterval].Diagnostic);
     }
 
     [Fact]
@@ -361,7 +238,7 @@ public sealed class WslcCapabilitiesServiceTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
         release.SetResult();
 
-        Assert.True((await other).IsSupported(WslcFeature.ContainerCp));
+        Assert.Equal(WslcCapabilitySupport.Unsupported, (await other)[WslcFeature.HealthStartInterval].Support);
         Assert.Equal(ProbesPerSnapshot, fixture.Calls.Count);
     }
 
@@ -439,12 +316,12 @@ public sealed class WslcCapabilitiesServiceTests
     public async Task UnknownCache_RetriesAfterShortExpiry()
     {
         using var fixture = new Fixture();
-        fixture.Responses["container --help"] = new() { ExitCode = -1, StandardError = "Temporary failure" };
+        fixture.Responses["run --help"] = new() { ExitCode = -1, StandardError = "Temporary failure" };
         var unknown = await fixture.Service.GetAsync();
-        fixture.Responses["container --help"] = Ok(Help("current", "container"));
+        fixture.Responses["run --help"] = Ok(Help("current", "run"));
         Assert.Same(unknown, await fixture.Service.GetAsync());
         fixture.Clock.Advance(TimeSpan.FromSeconds(16));
-        Assert.True((await fixture.Service.GetAsync()).IsSupported(WslcFeature.ContainerCp));
+        Assert.Equal(WslcCapabilitySupport.Unsupported, (await fixture.Service.GetAsync())[WslcFeature.HealthStartInterval].Support);
         Assert.Equal(2 * ProbesPerSnapshot, fixture.Calls.Count);
     }
 
@@ -452,7 +329,7 @@ public sealed class WslcCapabilitiesServiceTests
     public async Task SlowFailedProbe_CacheLifetimeStartsAfterCompletion()
     {
         using var fixture = new Fixture();
-        fixture.Responses["network --help"] = new() { ExitCode = -1, StandardError = "Temporary failure" };
+        fixture.Responses["run --help"] = new() { ExitCode = -1, StandardError = "Temporary failure" };
         fixture.BeforeResponse = (_, _, _) =>
         {
             fixture.Clock.Advance(TimeSpan.FromSeconds(4));
@@ -475,7 +352,7 @@ public sealed class WslcCapabilitiesServiceTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         if (failedProbe)
         {
-            fixture.Responses["container --help"] = new() { ExitCode = -1, StandardError = "Temporary failure" };
+            fixture.Responses["run --help"] = new() { ExitCode = -1, StandardError = "Temporary failure" };
         }
         fixture.BeforeResponse = async (_, _, ct) =>
         {
@@ -494,7 +371,7 @@ public sealed class WslcCapabilitiesServiceTests
         release.SetResult();
         await probe.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(ProbesPerSnapshot, fixture.Calls.Count);
-        fixture.Responses["container --help"] = Ok(Help("current", "container"));
+        fixture.Responses["run --help"] = Ok(Help("current", "run"));
         fixture.Clock.Advance(failedProbe ? TimeSpan.FromSeconds(16) : TimeSpan.FromMinutes(6));
 
         var snapshot = await fixture.Service.GetAsync();
@@ -536,13 +413,13 @@ public sealed class WslcCapabilitiesServiceTests
     {
         var features = new Dictionary<WslcFeature, WslcCapability>
         {
-            [WslcFeature.ContainerCp] = new(WslcCapabilitySupport.Supported),
+            [WslcFeature.HealthStartInterval] = new(WslcCapabilitySupport.Supported),
         };
         var snapshot = new WslcCapabilities("wslc.exe", null, features);
         features.Clear();
-        Assert.True(snapshot.IsSupported(WslcFeature.ContainerCp));
-        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.NetworkConnect].Support);
-        Assert.NotNull(snapshot[WslcFeature.NetworkConnect].Diagnostic);
+        Assert.True(snapshot.IsSupported(WslcFeature.HealthStartInterval));
+        Assert.Equal(WslcCapabilitySupport.Unknown, snapshot[WslcFeature.CreateHealthStartInterval].Support);
+        Assert.NotNull(snapshot[WslcFeature.CreateHealthStartInterval].Diagnostic);
     }
 
     [Fact]
@@ -614,6 +491,9 @@ public sealed class WslcCapabilitiesServiceTests
         Assert.Same(snapshot, await service.GetAsync());
     }
 
+    /// <summary>
+    /// Opt-in xUnit fact for installed-engine smoke tests that read real <c>wslc.exe</c> help output.
+    /// </summary>
     public sealed class InstalledEngineFactAttribute : FactAttribute
     {
         public InstalledEngineFactAttribute()
@@ -625,6 +505,9 @@ public sealed class WslcCapabilitiesServiceTests
         }
     }
 
+    /// <summary>
+    /// Dynamic settings double that tracks subscribers and raises change notifications on save.
+    /// </summary>
     public class SettingsProxy : DispatchProxy
     {
         private string _path = "";
@@ -657,14 +540,14 @@ public sealed class WslcCapabilitiesServiceTests
 
     private static CommandResult Ok(string output) => new() { StandardOutput = output };
 
-    // Current fixtures are recorded help sections from 2.9.11.0, except *-prune.txt, recorded from
-    // 2.9.12.0 (the first engine seen with the prune confirmation prompt and -f/--force). Legacy
-    // fixtures model the 2.9.9 baseline without optional commands or flags, not a recording of an old binary;
-    // legacy-*-prune.txt follow the 2.9.9 source (`[<options>]` usage, no --force, container prune only --help).
+    // Current fixtures are recorded help captures from wslc 3.0.1.0.
     private static string Help(string variant, string command) =>
         File.ReadAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "Capabilities",
             $"{variant}-{command}.txt")).Replace("\r", "");
 
+    /// <summary>
+    /// Captures capability-service probes and supplies recorded command responses.
+    /// </summary>
     private sealed class Fixture : IDisposable
     {
         internal string Path = @"C:\fixture\wslc.exe";
@@ -678,21 +561,13 @@ public sealed class WslcCapabilitiesServiceTests
         internal Func<string, string, CancellationToken, Task>? BeforeResponse;
         internal readonly WslcCapabilitiesService Service;
 
-        internal Fixture(bool legacy = false, TimeSpan? timeout = null)
+        internal Fixture(TimeSpan? timeout = null)
         {
-            var variant = legacy ? "legacy" : "current";
             Responses = new()
             {
-                ["--version"] = Ok(legacy ? "wslc 2.9.9.0" : "wslc 2.9.11.0"),
-                ["network --help"] = Ok(Help(variant, "network")),
-                ["container --help"] = Ok(Help(variant, "container")),
-                ["run --help"] = Ok(Help(variant, "run")),
-                ["create --help"] = Ok(Help(variant, "run").Replace("Usage: wslc run ", "Usage: wslc create ")),
-                ["remove --help"] = Ok(Help(variant, "remove")),
-                ["container prune --help"] = Ok(Help(variant, "container-prune")),
-                ["image prune --help"] = Ok(Help(variant, "image-prune")),
-                ["volume prune --help"] = Ok(Help(variant, "volume-prune")),
-                ["network prune --help"] = Ok(Help(variant, "network-prune")),
+                ["--version"] = Ok("wslc 3.0.1.0"),
+                ["run --help"] = Ok(Help("current", "run")),
+                ["create --help"] = Ok(Help("current", "create")),
             };
             Service = new(() => Path,
                 path => new(path, path, LastWriteTicks: Revision, Diagnostic: IdentityError),
@@ -713,6 +588,9 @@ public sealed class WslcCapabilitiesServiceTests
         public void Dispose() => Service.Dispose();
     }
 
+    /// <summary>
+    /// Controllable clock for cache and timeout assertions in capability probing.
+    /// </summary>
     private sealed class TestClock : TimeProvider
     {
         private DateTimeOffset _now = DateTimeOffset.UtcNow;
@@ -720,4 +598,3 @@ public sealed class WslcCapabilitiesServiceTests
         internal void Advance(TimeSpan duration) => _now += duration;
     }
 }
-

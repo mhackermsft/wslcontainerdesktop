@@ -20,8 +20,16 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Keeps assistant chat history inside each provider's context window before a request is sent.
+/// View models and AI providers use this helper to snapshot settings, measure evidence, and replace older turns with a safety digest.
+/// </summary>
+/// <remarks>
+/// The class never executes tools; it only shapes messages. Older complete user turns are summarized mechanically so the assistant knows history was truncated and must re-check current state before acting.
+/// </remarks>
 public static class AiConversationContext
 {
+    /// <summary>Fallback system message used when older turns were removed but no detailed digest can fit.</summary>
     public const string TruncationNotice =
         "[Conversation truncated: older complete turns and their tool evidence were omitted. " +
         "Missing outcomes are unknown; inspect current state and obtain fresh approval, never replay an action.]";
@@ -39,6 +47,10 @@ public static class AiConversationContext
     /// </summary>
     private const int MaxDigestBytes = 1_536;
 
+    /// <summary>Copies the endpoint and model fields for the selected provider at one point in time.</summary>
+    /// <param name="settings">The current application settings.</param>
+    /// <param name="kind">The configured assistant provider.</param>
+    /// <returns>An immutable configuration that can be compared after asynchronous work.</returns>
     public static AiChatConfiguration Capture(ISettingsService settings, AiProviderKind kind) => kind switch
     {
         AiProviderKind.OpenAi => new(kind, Endpoint(settings.AiOpenAiEndpoint, OpenAiProvider.DefaultEndpoint),
@@ -122,6 +134,7 @@ public static class AiConversationContext
         }
     }
 
+    /// <summary>Clears a cached request-size observation for a provider configuration.</summary>
     internal static void ForgetObservedLimit(AiChatConfiguration configuration) =>
         ObservedLimits.TryRemove(configuration, out _);
 
@@ -151,6 +164,7 @@ public static class AiConversationContext
             + 2_048 + messages.Count * 128 + tools.Count * 48
             + (messages.Any(m => m.Role == "system" && IsDigest(m.Content)) ? 0 : 1_024));
 
+    /// <summary>Parses a tool definition schema into the JSON object shape expected by chat providers.</summary>
     private static JsonElement ReadSchema(AiToolDefinition tool)
     {
         try
@@ -166,6 +180,11 @@ public static class AiConversationContext
         }
     }
 
+    /// <summary>Sanitizes and compacts chat history so the next request stays within the observed input budget.</summary>
+    /// <param name="history">Conversation messages accumulated by the assistant UI.</param>
+    /// <param name="tools">Tools that may be advertised on the next turn.</param>
+    /// <param name="configuration">Provider configuration used to find the current byte limit.</param>
+    /// <returns>A safe message list ready to send to the provider.</returns>
     public static IReadOnlyList<AiChatMessage> Prepare(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
@@ -204,6 +223,7 @@ public static class AiConversationContext
         return messages.ToArray();
     }
 
+    /// <summary>Removes the previous synthetic digest before inserting a refreshed one.</summary>
     private static bool RemoveDigest(List<AiChatMessage> messages)
     {
         var index = messages.FindIndex(m => m.Role == "system" && IsDigest(m.Content));
@@ -226,6 +246,7 @@ public static class AiConversationContext
         return true;
     }
 
+    /// <summary>Returns true when a system message is one of this helper's truncation markers.</summary>
     internal static bool IsDigest(string? content) =>
         content is not null
         && (content.StartsWith(DigestPrefix, StringComparison.Ordinal) || content == TruncationNotice);
@@ -293,6 +314,7 @@ public static class AiConversationContext
         return Clip(content, 72);
     }
 
+    /// <summary>Builds a bounded summary from the surviving facts about evicted turns.</summary>
     private static string BuildDigest(List<string> facts)
     {
         // Newest facts matter most, so drop from the front when the summary will not fit.
@@ -309,12 +331,14 @@ public static class AiConversationContext
             DigestPrefix + " Facts from them:\n- " + string.Join("\n- ", lines) + DigestSuffix;
     }
 
+    /// <summary>Collapses multiline text and keeps only a short prefix for digest entries.</summary>
     private static string Clip(string value, int max)
     {
         var text = value.ReplaceLineEndings(" ").Trim();
         return text.Length <= max ? text : text[..max] + "...";
     }
 
+    /// <summary>Normalizes configured HTTP endpoints so equivalent values compare equal.</summary>
     private static string Endpoint(string? value, string fallback) =>
         (string.IsNullOrWhiteSpace(value) ? fallback : value.Trim()).TrimEnd('/');
 }

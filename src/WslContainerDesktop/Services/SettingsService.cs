@@ -20,18 +20,25 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// JSON-backed implementation of app settings. It loads from the packaged app's local data area,
+/// falls back to safe defaults on corrupt files, and raises <see cref="Changed"/> after saves.
+/// </summary>
 public sealed class SettingsService : ISettingsService
 {
+    /// <summary>Default installed location for the <c>wslc.exe</c> WSL containers CLI.</summary>
     private const string DefaultWslcPath = @"C:\Program Files\WSL\wslc.exe";
 
     private readonly ILogger<SettingsService> _logger;
     private readonly string _settingsDirectory;
     private readonly string _settingsFile;
 
+    /// <summary>Creates the user settings service using the normal app-data directory.</summary>
     public SettingsService(ILogger<SettingsService> logger) : this(logger, Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WslContainerDesktop")) { }
 
     // Allows deterministic persistence tests without reading/writing the user's settings.
+    /// <summary>Creates the service with an explicit directory for tests and migration checks.</summary>
     internal SettingsService(ILogger<SettingsService> logger, string settingsDirectory)
     {
         _logger = logger;
@@ -39,45 +46,79 @@ public sealed class SettingsService : ISettingsService
         _settingsFile = Path.Combine(settingsDirectory, "settings.json");
     }
 
+    /// <inheritdoc/>
     public string WslcPath { get; set; } = ResolveDefaultWslcPath();
+    /// <inheritdoc/>
     public int RefreshIntervalSeconds { get; set; } = 5;
+    /// <inheritdoc/>
     public bool CloseToTray { get; set; } = true;
+    /// <inheritdoc/>
     public bool StartMinimized { get; set; }
+    /// <inheritdoc/>
     public bool RestartRunningContainersOnLaunch { get; set; } = true;
+    /// <inheritdoc/>
     public string Theme { get; set; } = "Default";
+    /// <inheritdoc/>
     public bool NotificationsEnabled { get; set; } = true;
+    /// <inheritdoc/>
     public bool NotifyImageEvents { get; set; } = true;
+    /// <inheritdoc/>
     public bool NotifyContainerEvents { get; set; } = true;
+    /// <inheritdoc/>
     public bool NotifyEngineEvents { get; set; } = true;
+    /// <inheritdoc/>
     public bool CheckForUpdatesOnLaunch { get; set; } = true;
+    /// <inheritdoc/>
     public bool AiFeaturesEnabled { get; set; }
+    /// <inheritdoc/>
     public AiProviderKind AiProvider { get; set; }
+    /// <inheritdoc/>
     public string AiOllamaEndpoint { get; set; } = "http://localhost:11434";
+    /// <inheritdoc/>
     public string AiOllamaModel { get; set; } = "llama3.1";
+    /// <inheritdoc/>
     public string AiAzureOpenAiEndpoint { get; set; } = string.Empty;
+    /// <inheritdoc/>
     public string AiAzureOpenAiDeployment { get; set; } = string.Empty;
+    /// <inheritdoc/>
     public string AiOpenAiEndpoint { get; set; } = "https://api.openai.com/v1";
+    /// <inheritdoc/>
     public string AiOpenAiModel { get; set; } = "gpt-4o-mini";
+    /// <inheritdoc/>
     public string AiFoundryLocalEndpoint { get; set; } = string.Empty;
+    /// <inheritdoc/>
     public string AiFoundryLocalModel { get; set; } = string.Empty;
+    /// <inheritdoc/>
     public string AiGitHubCopilotModel { get; set; } = "auto";
+    /// <inheritdoc/>
     public bool AiAssistantAutoCreateRun { get; set; }
+    /// <inheritdoc/>
     public bool AiAssistantAutoLifecycle { get; set; }
+    /// <inheritdoc/>
     public bool AiAssistantAutoComposeTemplate { get; set; }
+    /// <inheritdoc/>
     public bool AiAssistantAutoKubernetes { get; set; }
+    /// <inheritdoc/>
     public bool AiAssistantApproveEverything { get; set; }
+    /// <inheritdoc/>
     public bool AiAssistantAllowDestructive { get; set; }
+    /// <inheritdoc/>
     public string? WslDistro { get; set; }
+    /// <inheritdoc/>
     public bool WslUpdatePreRelease { get; set; }
+    /// <inheritdoc/>
     public string? DevContainerNpmRegistry { get; set; }
 
     private HashSet<string> _autoApprovedTools = new(StringComparer.Ordinal);
 
+    /// <inheritdoc/>
     public IReadOnlyCollection<string> AiAssistantAutoApprovedTools => _autoApprovedTools;
 
+    /// <inheritdoc/>
     public bool IsAssistantToolAutoApproved(string toolName) =>
         !string.IsNullOrWhiteSpace(toolName) && _autoApprovedTools.Contains(toolName);
 
+    /// <inheritdoc/>
     public void SetAssistantToolAutoApproved(string toolName, bool autoApprove)
     {
         if (string.IsNullOrWhiteSpace(toolName))
@@ -92,13 +133,19 @@ public sealed class SettingsService : ISettingsService
         }
     }
 
+    /// <inheritdoc/>
     public event EventHandler? Changed;
 
+    /// <inheritdoc/>
     public string? K3sInstallerSha256 { get; set; }
+    /// <inheritdoc/>
     public List<RegistryEntry> Registries { get; set; } = new() { RegistryEntry.DockerHub() };
+    /// <inheritdoc/>
     public List<HealthCheckConfig> HealthChecks { get; set; } = new();
+    /// <inheritdoc/>
     public List<RestartPolicyConfig> RestartPolicies { get; set; } = new();
 
+    /// <inheritdoc/>
     public void Load()
     {
         try
@@ -153,7 +200,9 @@ public sealed class SettingsService : ISettingsService
                 ? new HashSet<string>(approvedTools.Where(t => !string.IsNullOrWhiteSpace(t)), StringComparer.Ordinal)
                 : MigrateLegacyToolApprovals(dto);
             WslDistro = string.IsNullOrWhiteSpace(dto.WslDistro) ? null : dto.WslDistro;
-            WslUpdatePreRelease = dto.WslUpdatePreRelease;
+            // Before WSL 3.0.1 containers were only on the pre-release channel, so many users enabled it.
+            // GA ships on the stable channel: switch those users back once; later choices are kept.
+            WslUpdatePreRelease = dto.WslUpdateChannelGaMigrated && dto.WslUpdatePreRelease;
             DevContainerNpmRegistry = string.IsNullOrWhiteSpace(dto.DevContainerNpmRegistry) ? null : dto.DevContainerNpmRegistry.Trim();
             K3sInstallerSha256 = string.IsNullOrWhiteSpace(dto.K3sInstallerSha256) ? null : dto.K3sInstallerSha256.Trim().ToLowerInvariant();
 
@@ -254,6 +303,7 @@ public sealed class SettingsService : ISettingsService
         }
     }
 
+    /// <inheritdoc/>
     public void Save()
     {
         try
@@ -292,6 +342,7 @@ public sealed class SettingsService : ISettingsService
                 AiAssistantAutoApprovedTools = _autoApprovedTools.ToList(),
                 WslDistro = WslDistro,
                 WslUpdatePreRelease = WslUpdatePreRelease,
+                WslUpdateChannelGaMigrated = true,
                 DevContainerNpmRegistry = DevContainerNpmRegistry,
                 K3sInstallerSha256 = K3sInstallerSha256,
                 Registries = Registries
@@ -344,6 +395,7 @@ public sealed class SettingsService : ISettingsService
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>Converts older category-level approval switches into the current per-tool approval set.</summary>
     private static HashSet<string> MigrateLegacyToolApprovals(SettingsDto dto)
     {
         var set = new HashSet<string>(StringComparer.Ordinal);
@@ -370,6 +422,7 @@ public sealed class SettingsService : ISettingsService
         return set;
     }
 
+    /// <summary>Uses the installed WSL path when present, otherwise leaves resolution to PATH at launch time.</summary>
     private static string ResolveDefaultWslcPath()
     {
         if (File.Exists(DefaultWslcPath))
@@ -381,6 +434,7 @@ public sealed class SettingsService : ISettingsService
         return "wslc.exe";
     }
 
+    /// <summary>Persisted JSON shape. Nullable fields allow older settings files to load safely.</summary>
     private sealed class SettingsDto
     {
         public string? WslcPath { get; set; }
@@ -414,6 +468,7 @@ public sealed class SettingsService : ISettingsService
         public List<string>? AiAssistantAutoApprovedTools { get; set; }
         public string? WslDistro { get; set; }
         public bool WslUpdatePreRelease { get; set; }
+        public bool WslUpdateChannelGaMigrated { get; set; }
         public string? DevContainerNpmRegistry { get; set; }
         public string? K3sInstallerSha256 { get; set; }
         public List<RegistryDto>? Registries { get; set; }
@@ -421,6 +476,7 @@ public sealed class SettingsService : ISettingsService
         public List<RestartPolicyDto>? RestartPolicies { get; set; }
     }
 
+    /// <summary>Serializable restart-policy entry stored in <c>settings.json</c>.</summary>
     private sealed class RestartPolicyDto
     {
         public string? ContainerName { get; set; }
@@ -429,6 +485,7 @@ public sealed class SettingsService : ISettingsService
         public bool Enabled { get; set; } = true;
     }
 
+    /// <summary>Serializable health-check entry stored in <c>settings.json</c>.</summary>
     private sealed class HealthCheckDto
     {
         public NativeHealthOptions? DesiredHealth { get; set; }
@@ -441,6 +498,7 @@ public sealed class SettingsService : ISettingsService
         public bool Enabled { get; set; } = true;
     }
 
+    /// <summary>Serializable registry entry; credentials are intentionally stored elsewhere.</summary>
     private sealed class RegistryDto
     {
         public string? Name { get; set; }

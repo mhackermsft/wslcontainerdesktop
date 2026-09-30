@@ -22,11 +22,14 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Windows.ApplicationModel.DataTransfer;
 using WslContainerDesktop.Dialogs;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <summary>View model for the main Containers page, coordinating container inventory, detail tabs, file browsing, logs, stats, bulk actions, and AI diagnosis.</summary>
+/// <remarks>It listens to the shared <see cref="StatusMonitor"/> for live inventory, calls <c>wslc</c> through services, and keeps bound collections stable so selection and grouping do not flicker during polling.</remarks>
 public partial class ContainersViewModel : ObservableObject, IDisposable
 {
     private const int MaxInlinePreviewBytes = 65_536;
@@ -48,19 +51,24 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private readonly DispatcherQueue _dispatcher;
     private readonly LogStreamer _logStreamer;
 
+    /// <summary>Generated busy flag used by container commands that should not overlap.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Status text displayed above the container list.</summary>
     [ObservableProperty]
     private string _statusMessage = "Ready";
 
+    /// <summary>Generated filter flag: true shows stopped containers as well as running ones.</summary>
     [ObservableProperty]
     private bool _showAll = true;
 
+    /// <summary>Generated flag that switches the list into bulk-selection mode.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionSummary))]
     private bool _isSelectionMode;
 
+    /// <summary>Generated count of rows selected for bulk actions.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionSummary))]
     private int _selectedCount;
@@ -68,58 +76,113 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
     public string SelectionSummary => $"{SelectedCount} selected";
 
+    /// <summary>Generated selected row; changing it refreshes detail tabs and log streaming.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
     private ContainerRowViewModel? _selected;
 
     // ---- Detail fields (populated from inspect on selection) ----
+    /// <summary>Command line from container inspect for the details tab.</summary>
     [ObservableProperty]
     private string _detailCommand = "-";
 
+    /// <summary>Container IP address from inspect, or a placeholder when unavailable.</summary>
     [ObservableProperty]
     private string _detailIp = "-";
 
+    /// <summary>Human-readable start time shown in the details tab.</summary>
     [ObservableProperty]
     private string _detailStarted = "-";
 
+    /// <summary>Primary network mode shown in the details tab.</summary>
     [ObservableProperty]
     private string _detailNetwork = "-";
 
+    /// <summary>Working directory reported by container inspect.</summary>
     [ObservableProperty]
     private string _detailWorkingDir = "-";
 
+    /// <summary>Writable-layer size shown in details.</summary>
+    [ObservableProperty]
+    private string _detailSizeRw = "-";
+
+    /// <summary>Root filesystem size shown in details.</summary>
+    [ObservableProperty]
+    private string _detailSizeRootFs = "-";
+
+    /// <summary>Raw inspect JSON displayed for advanced troubleshooting.</summary>
     [ObservableProperty]
     private string _detailInspectJson = string.Empty;
 
+    /// <summary>Current container directory shown in the Files tab.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanNavigateUp))]
     private string _filesCurrentPath = "/";
 
+    /// <summary>Status or error text for the Files tab.</summary>
     [ObservableProperty]
     private string _filesStatusMessage = "Open the Files tab to browse the container filesystem.";
 
+    /// <summary>Generated busy flag for file-list and copy operations.</summary>
     [ObservableProperty]
     private bool _isFilesBusy;
 
+    /// <summary>
+    /// True when the file list can't be shown (container stopped, or listing failed, e.g. no shell).
+    /// The Files tab then explains why and offers Download by path, which only needs native copy.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FilesBrowseAvailable))]
+    private bool _filesBrowseUnavailable;
+
+    // Short image ID -> "repo:tag", used only to display names in place of IDs (see ApplyImageNames).
+    private Dictionary<string, string> _imageNames = new(StringComparer.Ordinal);
+    private DateTimeOffset _imageNamesLoadedAt = DateTimeOffset.MinValue;
+    private bool _imageNamesLoading;
+
+    /// <summary>Inverse of <see cref="FilesBrowseUnavailable"/>; gates actions that need a listing shell (New folder).</summary>
+    public bool FilesBrowseAvailable => !FilesBrowseUnavailable;
+
+    /// <summary>Why the file list is unavailable, shown in the empty-state panel (the footer keeps later status).</summary>
+    [ObservableProperty]
+    private string _filesUnavailableReason = string.Empty;
+
+    // Downloading a symbolic link almost always means "the file it points to"; copying the bare link
+    // would produce a Windows symlink or fail. -L resolves the link inside the container (source only).
+    private const bool FollowSymlinksOnDownload = true;
+
+    private const string StoppedFilesMessage =
+        "This container isn't running, so its files can't be listed. You can still upload files.";
+
+    /// <summary>Generated flag that controls whether streamed logs include timestamps.</summary>
+    [ObservableProperty]
+    private bool _logTimestamps;
+
+    /// <summary>Generated selected filesystem entry in the Files tab.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelectedFile))]
     private ContainerFileEntry? _selectedFile;
 
     // ---- Filesystem changes (Changes tab) ----
+    /// <summary>Generated busy flag for the filesystem Changes tab.</summary>
     [ObservableProperty]
     private bool _isChangesBusy;
 
+    /// <summary>Status or error text for the Changes tab.</summary>
     [ObservableProperty]
     private string _changesStatusMessage = "Open the Changes tab to compare the container against its image.";
 
+    /// <summary>Generated busy flag for evidence collection or AI diagnosis requests.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsAiPanelVisible))]
     private bool _isAiBusy;
 
+    /// <summary>Generated flag that shows the redacted evidence preview.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsAiPanelVisible))]
     private bool _aiHasPreview;
 
+    /// <summary>Redacted evidence payload prepared for the AI diagnosis panel.</summary>
     [ObservableProperty]
     private string _aiPreviewPayload = string.Empty;
 
@@ -129,24 +192,31 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(IsAiPanelVisible))]
     private AiFeedback _diagnosisFeedback = AiFeedback.None;
 
+    /// <summary>AI-generated high-level diagnosis summary.</summary>
     [ObservableProperty]
     private string _aiSummary = string.Empty;
 
+    /// <summary>AI-generated likely cause text.</summary>
     [ObservableProperty]
     private string _aiLikelyCause = string.Empty;
 
+    /// <summary>AI-generated explanation of the recommended fix.</summary>
     [ObservableProperty]
     private string _aiSuggestedFixDescription = string.Empty;
 
+    /// <summary>AI-generated confidence label.</summary>
     [ObservableProperty]
     private string _aiConfidence = string.Empty;
 
+    /// <summary>Generated flag indicating that diagnosis results are available.</summary>
     [ObservableProperty]
     private bool _aiHasDiagnosis;
 
+    /// <summary>Generated flag that collapses or expands the AI diagnosis panel.</summary>
     [ObservableProperty]
     private bool _aiPanelCollapsed;
 
+    /// <summary>Generated flag that enables diagnosis actions when an AI provider with tools is available.</summary>
     [ObservableProperty]
     private bool _isAiAvailable;
 
@@ -159,27 +229,35 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private bool _hasAttemptedChangesLoad;
 
     // ---- Live stats (Stats tab) ----
+    /// <summary>Formatted CPU usage text for the Stats tab.</summary>
     [ObservableProperty]
     private string _statCpu = "-";
 
+    /// <summary>Numeric CPU usage value for progress-style UI.</summary>
     [ObservableProperty]
     private double _statCpuValue;
 
+    /// <summary>Formatted memory usage percentage for the Stats tab.</summary>
     [ObservableProperty]
     private string _statMem = "-";
 
+    /// <summary>Numeric memory usage percentage for progress-style UI.</summary>
     [ObservableProperty]
     private double _statMemValue;
 
+    /// <summary>Formatted current and limit memory usage text.</summary>
     [ObservableProperty]
     private string _statMemUsage = "-";
 
+    /// <summary>Formatted network I/O text from container stats.</summary>
     [ObservableProperty]
     private string _statNetIO = "-";
 
+    /// <summary>Formatted block I/O text from container stats.</summary>
     [ObservableProperty]
     private string _statBlockIO = "-";
 
+    /// <summary>Process count from container stats.</summary>
     [ObservableProperty]
     private int _statPids;
 
@@ -189,24 +267,37 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private Task<string?>? _dragStagingTask;
     private ContainerFileEntry? _dragStagingEntry;
 
+    /// <summary>Environment variables from inspect, shown in the details tab.</summary>
     public ObservableCollection<string> DetailEnvironment { get; } = new();
 
+    /// <summary>Mount rows from inspect, shown in the details tab.</summary>
     public ObservableCollection<string> DetailMounts { get; } = new();
 
+    /// <summary>Network attachments for the selected container.</summary>
+    public ObservableCollection<NetworkAttachment> DetailNetworks { get; } = new();
+
+    /// <summary>Filesystem entries for the current directory in the Files tab.</summary>
     public ObservableCollection<ContainerFileEntry> DetailFiles { get; } = new();
 
+    /// <summary>Filesystem differences between the container and its image.</summary>
     public ObservableCollection<ContainerFsChange> DetailChanges { get; } = new();
 
+    /// <summary>Citations describing which redacted evidence was sent for diagnosis.</summary>
     public ObservableCollection<string> AiEvidenceCitations { get; } = new();
 
+    /// <summary>AI-suggested commands displayed as copyable guidance.</summary>
     public ObservableCollection<string> AiSuggestedCommands { get; } = new();
 
+    /// <summary>AI-suggested file edits displayed as copyable guidance.</summary>
     public ObservableCollection<string> AiSuggestedFileEdits { get; } = new();
 
+    /// <summary>True when a container row is selected.</summary>
     public bool HasSelection => Selected is not null;
 
+    /// <summary>True when a file or directory is selected in the Files tab.</summary>
     public bool HasSelectedFile => SelectedFile is not null;
 
+    /// <summary>True when the Files tab can navigate to a parent directory.</summary>
     public bool CanNavigateUp => FilesCurrentPath != "/";
 
     /// <summary>Returns the in-progress or completed temp-file staging task for the currently selected file entry.</summary>
@@ -221,6 +312,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Raised when the current selection was removed (detail page should go back).</summary>
     public event Action? SelectionCleared;
 
+    /// <summary>Container rows displayed by the list before grouping is applied.</summary>
     public ObservableCollection<ContainerRowViewModel> Containers { get; } = new();
 
     /// <summary>
@@ -230,6 +322,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// </summary>
     public ObservableCollection<ContainerGroup> Groups { get; } = new();
 
+    /// <summary>Creates the Containers page model and subscribes to inventory, health, and AI availability updates.</summary>
     public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, IAiDiagnosticsService aiDiagnostics, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, ILocalAiSetupService localAi, ILogger<ContainersViewModel> logger)
     {
         _wslc = wslc;
@@ -271,11 +364,14 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         LogCleared?.Invoke();
         DetailEnvironment.Clear();
         DetailMounts.Clear();
+        DetailNetworks.Clear();
         DetailCommand = "-";
         DetailIp = "-";
         DetailStarted = "-";
         DetailNetwork = "-";
         DetailWorkingDir = "-";
+        DetailSizeRw = "-";
+        DetailSizeRootFs = "-";
         DetailInspectJson = string.Empty;
         ResetFilesState(value);
         ResetChangesState(value);
@@ -286,8 +382,22 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _logStreamer.Start(value.Id);
+        _logStreamer.Start(value.Id, timestamps: LogTimestamps);
         _ = LoadDetailsAsync(value.Id);
+    }
+
+
+    partial void OnLogTimestampsChanged(bool value) => RestartSelectedLogStream();
+
+    private void RestartSelectedLogStream()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        _logStreamer.Start(Selected.Id, timestamps: LogTimestamps);
+        LogCleared?.Invoke();
     }
 
     private void ResetAiState()
@@ -330,7 +440,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     {
         try
         {
-            var result = await _wslc.InspectContainerAsync(id);
+            var result = await _wslc.InspectContainerAsync(id, includeSize: true);
             if (!result.Success)
             {
                 return;
@@ -348,6 +458,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             DetailStarted = details.StartedAt;
             DetailNetwork = details.NetworkMode;
             DetailWorkingDir = details.WorkingDir;
+            DetailSizeRw = details.SizeRwDisplay;
+            DetailSizeRootFs = details.SizeRootFsDisplay;
             DetailInspectJson = result.StandardOutput.Trim();
 
             DetailEnvironment.Clear();
@@ -361,6 +473,12 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             {
                 DetailMounts.Add(m);
             }
+
+            DetailNetworks.Clear();
+            foreach (var network in details.Networks)
+            {
+                DetailNetworks.Add(network);
+            }
         }
         catch (Exception ex)
         {
@@ -369,6 +487,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Loads the Files tab once for the selected running container.</summary>
     public Task EnsureFilesLoadedAsync()
     {
         if (_hasAttemptedFilesLoad || Selected is null)
@@ -379,8 +498,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         return LoadFilesAsync(FilesCurrentPath);
     }
 
+    /// <summary>Reloads the current Files tab directory.</summary>
     public Task RefreshFilesAsync() => LoadFilesAsync(FilesCurrentPath);
 
+    /// <summary>Loads the Changes tab once for the selected container.</summary>
     public Task EnsureChangesLoadedAsync()
     {
         if (_hasAttemptedChangesLoad || Selected is null)
@@ -391,6 +512,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         return LoadChangesAsync();
     }
 
+    /// <summary>Reloads the Changes tab for the selected container.</summary>
     public Task RefreshChangesAsync() => LoadChangesAsync();
 
     private async Task LoadChangesAsync()
@@ -461,6 +583,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             : "The container must be running to compare it against its image.";
     }
 
+    /// <summary>Navigates the Files tab to the parent container directory.</summary>
     public Task NavigateUpAsync()
     {
         if (!CanNavigateUp)
@@ -471,6 +594,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         return LoadFilesAsync(GetParentPath(FilesCurrentPath));
     }
 
+    /// <summary>Opens a directory in the Files tab or previews/downloads a file entry.</summary>
     public async Task OpenFileEntryAsync(ContainerFileEntry? entry)
     {
         if (entry is null)
@@ -488,6 +612,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Copies the file to a temp location and opens it read-only with the OS default handler.</summary>
+    /// <summary>Copies a selected container file to the app cache and opens it with the default Windows handler.</summary>
     public async Task OpenFileAsync(ContainerFileEntry? entry = null)
     {
         entry ??= SelectedFile;
@@ -501,7 +626,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         try
         {
             var tempDir = GetTempDir(Selected.Id);
-            var result = await _wslc.CopyFromContainerAsync(Selected.Id, entry.Path, tempDir);
+            var result = await _wslc.CopyFromContainerAsync(Selected.Id, entry.Path, tempDir, followSymlinks: FollowSymlinksOnDownload);
             if (!result.Success)
             {
                 FilesStatusMessage = DescribeFileCommandFailure(result, "Could not open this file.");
@@ -545,6 +670,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Copies the selected entry's container path to the Windows clipboard.</summary>
+    /// <summary>Copies a container path from the Files tab to the Windows clipboard.</summary>
     public void CopyPathToClipboard(ContainerFileEntry? entry = null)
     {
         entry ??= SelectedFile;
@@ -560,6 +686,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Prompts for a new name and renames the selected entry.</summary>
+    /// <summary>Prompts for a new name and renames a file or directory inside the container.</summary>
     public async Task RenameAsync(ContainerFileEntry? entry = null)
     {
         entry ??= SelectedFile;
@@ -592,6 +719,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Prompts for a folder name and creates a new directory in the current path.</summary>
+    /// <summary>Prompts for a folder name and creates it in the current container directory.</summary>
     public async Task CreateFolderAsync()
     {
         if (Selected is null)
@@ -622,6 +750,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Uploads one host file or folder into the current container directory.</summary>
     public async Task CopyIntoCurrentDirectoryAsync(string hostPath)
     {
         if (Selected is null || string.IsNullOrWhiteSpace(hostPath))
@@ -639,6 +768,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Copies multiple host paths into the current container directory (used for multi-file drag-in).</summary>
+    /// <summary>Uploads multiple host paths into the current container directory.</summary>
     public async Task CopyMultipleIntoCurrentDirectoryAsync(IEnumerable<string> hostPaths)
     {
         if (Selected is null)
@@ -683,6 +813,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Downloads the selected container file or directory to a host directory.</summary>
     public async Task CopySelectedFileOutAsync(string hostDirectory)
     {
         if (Selected is null || SelectedFile is null || string.IsNullOrWhiteSpace(hostDirectory))
@@ -691,10 +822,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         await ExecuteAsync($"Copying {SelectedFile.Name} to the host…",
-            () => _wslc.CopyFromContainerAsync(Selected.Id, SelectedFile.Path, hostDirectory));
+            () => _wslc.CopyFromContainerAsync(Selected.Id, SelectedFile.Path, hostDirectory, followSymlinks: FollowSymlinksOnDownload));
     }
 
     /// <summary>Downloads a known path without requiring a shell-backed directory listing.</summary>
+    /// <summary>Downloads an explicitly supplied container path to a host directory.</summary>
     public async Task CopyPathOutAsync(string hostDirectory)
     {
         var selected = Selected;
@@ -703,7 +835,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var dialog = new Dialogs.SimpleInputDialog("Download from container", "Absolute file or directory path", "/path/to/file")
+        var dialog = new Dialogs.SimpleInputDialog(
+            "Download by path",
+            "Full path of a file or folder inside the container",
+            "/var/log/app.log")
         {
             Value = SelectedFile?.Path ?? FilesCurrentPath,
         };
@@ -713,9 +848,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
         var path = dialog.Value;
         await ExecuteAsync($"Copying from {selected.Name}...",
-            () => _wslc.CopyFromContainerAsync(selected.Id, path, hostDirectory));
+            () => _wslc.CopyFromContainerAsync(selected.Id, path, hostDirectory, followSymlinks: FollowSymlinksOnDownload));
     }
 
+    /// <summary>Confirms and deletes the selected file or directory inside the container.</summary>
     public async Task DeleteSelectedFileAsync()
     {
         if (Selected is null || SelectedFile is null)
@@ -758,7 +894,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             DetailFiles.Clear();
             SelectedFile = null;
             FilesCurrentPath = requestedPath;
-            FilesStatusMessage = "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
+            FilesUnavailableReason = StoppedFilesMessage;
+            FilesStatusMessage = string.Empty;
+            FilesBrowseUnavailable = true;
             return;
         }
 
@@ -781,7 +919,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             {
                 DetailFiles.Clear();
                 SelectedFile = null;
-                FilesStatusMessage = DescribeFileCommandFailure(result, "Could not list this directory.");
+                FilesUnavailableReason = DescribeFileCommandFailure(result, "Could not list this directory.");
+                FilesStatusMessage = string.Empty;
+                FilesBrowseUnavailable = true;
                 return;
             }
 
@@ -794,15 +934,18 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
             FilesCurrentPath = currentPath;
             SelectedFile = null;
+            FilesBrowseUnavailable = false;
             FilesStatusMessage = entries.Count == 0
                 ? $"No files in {currentPath}"
                 : $"{entries.Count} item(s) in {currentPath}";
         }
         catch (Exception ex)
         {
-            FilesStatusMessage = ex.Message;
+            FilesUnavailableReason = ex.Message;
+            FilesStatusMessage = string.Empty;
             DetailFiles.Clear();
             SelectedFile = null;
+            FilesBrowseUnavailable = true;
         }
         finally
         {
@@ -818,9 +961,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         DetailFiles.Clear();
         SelectedFile = null;
         FilesCurrentPath = "/";
+        FilesBrowseUnavailable = selected is not null && !selected.IsRunning;
+        FilesUnavailableReason = FilesBrowseUnavailable ? StoppedFilesMessage : string.Empty;
         FilesStatusMessage = selected?.IsRunning == true
             ? "Open the Files tab to browse the container filesystem."
-            : "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
+            : string.Empty;
     }
 
     /// <summary>Background-copies the selected file to a temp folder for drag-out support.</summary>
@@ -829,7 +974,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         try
         {
             var tempDir = GetTempDir(containerId);
-            var result = await _wslc.CopyFromContainerAsync(containerId, entry.Path, tempDir)
+            var result = await _wslc.CopyFromContainerAsync(containerId, entry.Path, tempDir, followSymlinks: FollowSymlinksOnDownload)
                 .ConfigureAwait(false);
             if (!result.Success)
             {
@@ -871,6 +1016,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// before deletion. Run at startup (rather than only on Dispose) so files left behind by a
     /// crash or forced exit are still reclaimed.
     /// </summary>
+    /// <summary>Removes cached file previews created by the Files tab.</summary>
     public static void ClearTempFiles(ILogger? logger = null)
     {
         try
@@ -942,28 +1088,31 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         if (combined.Contains("not running", StringComparison.OrdinalIgnoreCase) ||
             combined.Contains("stopped", StringComparison.OrdinalIgnoreCase))
         {
-            return "Files can be browsed while the container is running. Copy in/out may still work for stopped containers.";
+            return StoppedFilesMessage;
         }
 
         return string.IsNullOrWhiteSpace(combined) ? fallback : combined;
     }
 
     /// <summary>Stops the live log stream (call when navigating away from the page).</summary>
+    /// <summary>Stops following logs for the selected container.</summary>
     public void StopStreaming() => _logStreamer.Stop();
 
     /// <summary>Restarts the live log stream for the current selection (e.g., page re-entry).</summary>
+    /// <summary>Restarts log streaming for the selected row when the log panel becomes visible.</summary>
     public void ResumeStreaming()
     {
         if (Selected is not null && _logStreamer.CurrentContainerId != Selected.Id)
         {
             LogCleared?.Invoke();
-            _logStreamer.Start(Selected.Id);
+            _logStreamer.Start(Selected.Id, timestamps: LogTimestamps);
         }
     }
 
     private CancellationTokenSource? _statsCts;
 
     /// <summary>Starts polling live resource stats for the selected container.</summary>
+    /// <summary>Starts polling live stats for the selected running container.</summary>
     public void StartStatsPolling()
     {
         StopStatsPolling();
@@ -1037,6 +1186,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }, token);
     }
 
+    /// <summary>Stops the live stats poller and clears its cancellation token.</summary>
     public void StopStatsPolling()
     {
         try
@@ -1056,6 +1206,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// Tears down the log stream (and its wsl.exe child) and any stats polling. Invoked when the
     /// DI container is disposed at app shutdown, since this view model is a singleton.
     /// </summary>
+    /// <summary>Unsubscribes from shared services and stops background work owned by this view model.</summary>
     public void Dispose()
     {
         StopStatsPolling();
@@ -1120,6 +1271,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             }
         }
 
+        ApplyImageNames();
+
         // Resolve network names for rows that don't have one yet (via inspect, cached per row).
         foreach (var row in Containers.Where(r => !r.NetworkResolved))
         {
@@ -1138,6 +1291,72 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         RefreshHealth();
+    }
+
+    /// <summary>
+    /// Shows an image name instead of a bare image ID in the list. Compose starts containers by
+    /// exact image ID (so a project never silently picks up a different image), and the engine then
+    /// reports that ID as the container's image. Display only: <see cref="ContainerRowViewModel.Model"/>
+    /// keeps the real value for commands. The image list is reloaded at most every 30 seconds, and
+    /// only when a row shows an ID that isn't known yet.
+    /// </summary>
+    private void ApplyImageNames()
+    {
+        var missing = false;
+        foreach (var row in Containers)
+        {
+            var key = ImageIdKey(row.Model.Image);
+            if (key is null)
+                continue;
+            if (_imageNames.TryGetValue(key, out var name))
+                row.Image = name;
+            else
+                missing = true;
+        }
+
+        if (missing && !_imageNamesLoading && DateTimeOffset.UtcNow - _imageNamesLoadedAt > TimeSpan.FromSeconds(30))
+            _ = LoadImageNamesAsync();
+    }
+
+    /// <summary>Loads image ID to name pairs, then re-applies them to the rows.</summary>
+    private async Task LoadImageNamesAsync()
+    {
+        _imageNamesLoading = true;
+        try
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var image in await _wslc.ListImagesAsync())
+            {
+                var key = ImageIdKey(image.Id);
+                if (key is not null && !string.IsNullOrWhiteSpace(image.Repository) && image.Repository != "<none>")
+                    map.TryAdd(key, image.Reference);
+            }
+
+            _imageNames = map;
+            ApplyImageNames();
+        }
+        catch (Exception ex)
+        {
+            // Names are cosmetic; the list still shows the ID when they can't be loaded.
+            _logger.LogDebug(ex, "Could not load image names for the Containers list.");
+        }
+        finally
+        {
+            _imageNamesLoadedAt = DateTimeOffset.UtcNow;
+            _imageNamesLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Returns the 12-character short form when <paramref name="image"/> is an image ID (bare hex or
+    /// <c>sha256:</c>-prefixed), or null when it is already a name such as <c>nginx:alpine</c>.
+    /// </summary>
+    internal static string? ImageIdKey(string? image)
+    {
+        var value = (image ?? string.Empty).Trim();
+        if (value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+            value = value[7..];
+        return value.Length >= 12 && value.All(char.IsAsciiHexDigit) ? value[..12].ToLowerInvariant() : null;
     }
 
     /// <summary>
@@ -1338,9 +1557,29 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     private void RequestRefresh() => _monitor.RequestRefresh();
 
+    /// <summary>Requests a fresh engine poll and refreshes size metadata.</summary>
     [RelayCommand]
-    private void Refresh() => RequestRefresh();
+    private async Task Refresh()
+    {
+        RequestRefresh();
+        await RefreshSizesAsync();
+    }
 
+    /// <summary>Refreshes container size metadata without showing an error dialog on failure.</summary>
+    public async Task RefreshSizesAsync()
+    {
+        try
+        {
+            var containers = await _wslc.ListContainersAsync(ShowAll, includeSize: true);
+            Reconcile(containers);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Container size refresh failed.");
+        }
+    }
+
+    /// <summary>Opens the Run Container dialog for a new container.</summary>
     [RelayCommand]
     private Task RunAsync() => ShowRunDialogAsync(null, null);
 
@@ -1382,11 +1621,13 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             });
     }
 
+    /// <summary>Starts the selected container.</summary>
     [RelayCommand]
     private Task StartAsync(ContainerRowViewModel? row) =>
         row is null ? Task.CompletedTask :
         ExecuteAsync($"Starting {row.Name}…", () => _wslc.StartContainerAsync(row.Id));
 
+    /// <summary>Stops the selected container after confirmation when appropriate.</summary>
     [RelayCommand]
     private Task StopAsync(ContainerRowViewModel? row)
     {
@@ -1400,6 +1641,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         return ExecuteAsync($"Stopping {row.Name}…", () => _wslc.StopContainerAsync(row.Id));
     }
 
+    /// <summary>Restarts the selected container.</summary>
     [RelayCommand]
     private Task RestartAsync(ContainerRowViewModel? row)
     {
@@ -1412,6 +1654,73 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         return ExecuteAsync($"Restarting {row.Name}…", () => _wslc.RestartContainerAsync(row.Id));
     }
 
+    /// <summary>Prompts for a network and connects the selected container to it.</summary>
+    [RelayCommand]
+    private async Task ConnectNetworkAsync()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<NetworkInfo> networks;
+        try
+        {
+            networks = NetworkDisplayList.Create(await _wslc.ListNetworksAsync());
+        }
+        catch (Exception ex)
+        {
+            await _dialogs.ShowMessageAsync("Failed to load networks", ex.Message);
+            return;
+        }
+
+        var dialog = new ConnectNetworkDialog(networks, DetailNetworks.Select(n => n.Network));
+        if (await _dialogs.ShowDialogAsync(dialog) != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary ||
+            dialog.Attachment is null)
+        {
+            return;
+        }
+
+        var id = Selected.Id;
+        await ExecuteAsync($"Connecting {Selected.Name} to {dialog.Attachment.Network}…",
+            () => _wslc.ConnectNetworkAsync(dialog.Attachment, id));
+        if (Selected?.Id == id)
+        {
+            await LoadDetailsAsync(id);
+        }
+    }
+
+    /// <summary>Disconnects the selected container from the chosen network attachment.</summary>
+    [RelayCommand]
+    private async Task DisconnectNetworkAsync(NetworkAttachment? network)
+    {
+        if (Selected is null || network is null)
+        {
+            return;
+        }
+
+        if (DetailNetworks.Count <= 1)
+        {
+            var ok = await _dialogs.ShowConfirmAsync(
+                "Disconnect last network",
+                $"Disconnect \"{Selected.Name}\" from its only network \"{network.Network}\"? The container will have no network attachments.",
+                "Disconnect");
+            if (!ok)
+            {
+                return;
+            }
+        }
+
+        var id = Selected.Id;
+        await ExecuteAsync($"Disconnecting {Selected.Name} from {network.Network}…",
+            () => _wslc.DisconnectNetworkAsync(network.Network, id));
+        if (Selected?.Id == id)
+        {
+            await LoadDetailsAsync(id);
+        }
+    }
+
+    /// <summary>Force-stops the selected container after confirmation.</summary>
     [RelayCommand]
     private Task KillAsync(ContainerRowViewModel? row)
     {
@@ -1424,6 +1733,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         return ExecuteAsync($"Killing {row.Name}…", () => _wslc.KillContainerAsync(row.Id));
     }
 
+    /// <summary>Removes the selected container after confirmation.</summary>
     [RelayCommand]
     private async Task RemoveAsync(ContainerRowViewModel? row)
     {
@@ -1511,6 +1821,22 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Exports a container to the chosen archive path.</summary>
+    public async Task ExportContainerAsync(ContainerRowViewModel? row, string outputPath)
+    {
+        row ??= Selected;
+        if (row is null || string.IsNullOrWhiteSpace(outputPath))
+        {
+            return;
+        }
+
+        await ExecuteAsync($"Exporting {row.Name} filesystem…", () => _wslc.ExportContainerAsync(row.Id, outputPath));
+        if (StatusMessage == "Done")
+        {
+            StatusMessage = $"Exported {row.Name} to {Path.GetFileName(outputPath)}. To make an image from it, use Images → Import → Create image from exported files….";
+        }
+    }
+
     partial void OnIsSelectionModeChanged(bool value)
     {
         if (!value)
@@ -1520,6 +1846,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Starts every selected stopped container, then exits selection mode.</summary>
+    /// <summary>Starts every selected stopped container.</summary>
     public async Task BulkStartAsync(IReadOnlyList<ContainerRowViewModel> rows)
     {
         var items = (rows ?? Array.Empty<ContainerRowViewModel>()).Where(r => r is not null && !r.IsRunning).ToList();
@@ -1533,6 +1860,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Stops every selected running container (suppressing exit toasts/restarts), then exits selection mode.</summary>
+    /// <summary>Stops every selected running container.</summary>
     public async Task BulkStopAsync(IReadOnlyList<ContainerRowViewModel> rows)
     {
         var items = (rows ?? Array.Empty<ContainerRowViewModel>()).Where(r => r is not null && r.IsRunning).ToList();
@@ -1552,6 +1880,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Removes every selected container after one confirmation, then exits selection mode.</summary>
+    /// <summary>Removes selected containers after a single confirmation.</summary>
     public async Task BulkRemoveAsync(IReadOnlyList<ContainerRowViewModel> rows)
     {
         var items = (rows ?? Array.Empty<ContainerRowViewModel>()).Where(r => r is not null).ToList();
@@ -1667,6 +1996,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
     }
 
+    /// <summary>Shows a one-time log snapshot for the selected container.</summary>
     [RelayCommand]
     private async Task LogsAsync(ContainerRowViewModel? row)
     {
@@ -1692,6 +2022,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Opens an interactive shell in the selected running container.</summary>
     [RelayCommand]
     private void Terminal(ContainerRowViewModel? row)
     {
@@ -1704,6 +2035,30 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         StatusMessage = $"Opened terminal for {row.Name}";
     }
 
+    /// <summary>Attaches to the selected container's console through <c>wslc</c>.</summary>
+    [RelayCommand]
+    private async Task AttachAsync(ContainerRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        var ok = await _dialogs.ShowConfirmAsync(
+            "Attach to container",
+            "Attach opens an interactive terminal connected to the container's main process. " +
+            "The wslc help does not document a detach key sequence; pressing Ctrl+C may stop the container's main process.",
+            "Attach");
+        if (!ok)
+        {
+            return;
+        }
+
+        _wslc.AttachContainer(row.Id);
+        StatusMessage = $"Attached to {row.Name}";
+    }
+
+    /// <summary>Runs or displays the selected container's health check result.</summary>
     [RelayCommand]
     private async Task HealthCheckAsync(ContainerRowViewModel? row)
     {
@@ -1752,6 +2107,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         RefreshHealth();
     }
 
+    /// <summary>Starts streaming logs for the selected container.</summary>
     [RelayCommand]
     private void FollowLogs(ContainerRowViewModel? row)
     {
@@ -1760,10 +2116,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _wslc.FollowLogs(row.Id);
+        _wslc.FollowLogs(row.Id, timestamps: LogTimestamps);
         StatusMessage = $"Streaming logs for {row.Name}";
     }
 
+    /// <summary>Shows raw inspect output for the selected container.</summary>
     [RelayCommand]
     private async Task InspectAsync(ContainerRowViewModel? row)
     {
@@ -1790,6 +2147,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// a reusable run profile. Recoverable mounts are included; storage limitations and hostname
     /// are reported before saving.
     /// </summary>
+    /// <summary>Saves the selected container's run settings as a reusable run profile.</summary>
     [RelayCommand]
     private async Task SaveAsProfileAsync(ContainerRowViewModel? row)
     {
@@ -1812,7 +2170,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             string? imageJson = null;
             try
             {
-                var imageRef = string.IsNullOrWhiteSpace(row.Image) ? null : row.Image;
+                var imageRef = string.IsNullOrWhiteSpace(row.Model.Image) ? null : row.Model.Image;
                 if (imageRef is not null)
                 {
                     var imageResult = await _wslc.InspectImageAsync(imageRef);
@@ -1855,6 +2213,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Opens the selected container's primary published port in the browser.</summary>
     [RelayCommand]
     private void OpenPort(ContainerRowViewModel? row)
     {
@@ -1878,15 +2237,19 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Expands or collapses the AI diagnosis panel.</summary>
     [RelayCommand]
     private void ToggleAiPanelCollapsed() => AiPanelCollapsed = !AiPanelCollapsed;
 
+    /// <summary>Clears the current AI diagnosis preview and result.</summary>
     [RelayCommand]
     private void DismissAiDiagnosis() => ResetAiState();
 
+    /// <summary>Clears the AI diagnosis feedback banner.</summary>
     [RelayCommand]
     private void DismissDiagnosisFeedback() => DiagnosisFeedback = AiFeedback.None;
 
+    /// <summary>Copies AI diagnosis technical details to the clipboard.</summary>
     [RelayCommand]
     private void CopyDiagnosisFeedbackDetails()
     {
@@ -1900,6 +2263,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         Clipboard.SetContent(package);
     }
 
+    /// <summary>Collects and redacts evidence for the selected container before sending it to AI.</summary>
     [RelayCommand]
     private async Task PrepareAiDiagnosisAsync()
     {
@@ -1930,6 +2294,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Sends the prepared redacted evidence to the configured AI diagnosis service.</summary>
     [RelayCommand]
     private async Task SendAiDiagnosisAsync()
     {
@@ -1985,6 +2350,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Copies the AI suggested fix, commands, and edits to the clipboard.</summary>
     [RelayCommand]
     private void CopyAiSuggestedFix()
     {
@@ -2010,6 +2376,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         DiagnosisFeedback = AiFeedback.Success("Copied", "Copied suggested fix to the clipboard.");
     }
 
+    /// <summary>Confirms and removes unused containers/images through the engine prune command.</summary>
     [RelayCommand]
     private async Task PruneAsync()
     {

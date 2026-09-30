@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Covers process execution safeguards that close stdin and fail fast when an engine unexpectedly prompts.
+/// </summary>
 public sealed class ProcessRunnerNonInteractiveTests
 {
     private static readonly TimeSpan Guard = TimeSpan.FromSeconds(30);

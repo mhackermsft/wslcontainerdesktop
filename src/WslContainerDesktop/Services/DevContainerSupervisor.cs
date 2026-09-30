@@ -36,6 +36,9 @@ public sealed class DevContainerSupervisor(
         (psi, ct) => ProcessExecutor.RunAsync(psi, launchErrorContext: "Could not run initializeCommand.", ct: ct);
 
     // Tests capture the proposed host process without launching scripts or containers.
+    /// <summary>
+    /// Creates a supervisor with injectable collaborators used by tests and dependency injection.
+    /// </summary>
     internal DevContainerSupervisor(
         IWslcService wslc, IDevContainerStore store, IDevContainerFeatureResolver features,
         ComposeProjectSupervisor composeSupervisor, ProcessRunner runner, ILogger<DevContainerSupervisor> logger,
@@ -45,6 +48,7 @@ public sealed class DevContainerSupervisor(
         _runHostCommandAsync = runHostCommandAsync;
     }
 
+    /// <summary>Builds or creates the dev container if needed, starts it, and runs post-create setup.</summary>
     public async Task<DevContainerOperationResult> UpAsync(
         DevContainerConfig config,
         bool rebuild = false,
@@ -368,6 +372,7 @@ public sealed class DevContainerSupervisor(
         return new DevContainerOperationResult(true, "Image ready.");
     }
 
+    /// <summary>Stops the running dev container for the supplied configuration.</summary>
     public async Task StopAsync(DevContainerConfig config, CancellationToken ct = default)
     {
         if (config.Compose is not null)
@@ -383,6 +388,7 @@ public sealed class DevContainerSupervisor(
         }
     }
 
+    /// <summary>Stops and removes the dev container associated with the supplied configuration.</summary>
     public async Task RemoveAsync(DevContainerConfig config, CancellationToken ct = default)
     {
         if (config.Compose is not null)
@@ -398,6 +404,7 @@ public sealed class DevContainerSupervisor(
         store.Delete(config.Id);
     }
 
+    /// <summary>Opens a Windows terminal session attached to the dev container.</summary>
     public void OpenTerminal(DevContainerConfig config, string containerId)
     {
         _ = RunPostAttachAsync(config, containerId);
@@ -581,7 +588,7 @@ public sealed class DevContainerSupervisor(
         if (IsVolumeMountLimit(result))
         {
             return "The WSL container engine hit its per-session volume mount limit (15 volumes). " +
-                   "This is a known wslc preview limitation. Restart the container session with " +
+                   "This is a known wslc session limitation. Restart the container session with " +
                    "\"wslc system session terminate\" (or restart WSL), then try again. " +
                    "Original error: " + text;
         }

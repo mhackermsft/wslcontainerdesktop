@@ -26,9 +26,11 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class K8sInstaller(WslRootShell shell)
 {
+    /// <summary>Installs k3s using the latest stable script and optional installer SHA-256 pin.</summary>
     public Task<K3sInstallResult> InstallAsync(string? expectedInstallerHash, Action<string> onOutput, CancellationToken ct = default) =>
         RunInstallerAsync(version: null, expectedInstallerHash, onOutput, ct);
 
+    /// <summary>Runs the k3s installer in upgrade mode, optionally pinning the target k3s version.</summary>
     public Task<K3sInstallResult> UpgradeAsync(string? version, string? expectedInstallerHash, Action<string> onOutput, CancellationToken ct = default) =>
         // Re-running the install script performs an in-place upgrade: it swaps the k3s
         // binary and restarts the service, preserving cluster data and workloads. Omitting
@@ -96,6 +98,7 @@ public sealed class K8sInstaller(WslRootShell shell)
         };
     }
 
+    /// <summary>Returns the installed k3s version string reported inside WSL, or null when absent.</summary>
     public async Task<string?> GetInstalledVersionAsync(CancellationToken ct = default)
     {
         var r = await shell.RunAsync("k3s --version 2>/dev/null | head -n1", ct).ConfigureAwait(false);
@@ -109,9 +112,11 @@ public sealed class K8sInstaller(WslRootShell shell)
         return match.Success ? match.Value : null;
     }
 
+    /// <summary>Returns the current k3s stable channel version.</summary>
     public Task<string?> GetLatestStableVersionAsync(CancellationToken ct = default) =>
         GetChannelVersionAsync("stable", ct);
 
+    /// <summary>Resolves a k3s release channel to the version tag it currently redirects to.</summary>
     public async Task<string?> GetChannelVersionAsync(string channel, CancellationToken ct = default)
     {
         // The channel server 302-redirects to the GitHub release for the channel's current tag.
@@ -127,14 +132,17 @@ public sealed class K8sInstaller(WslRootShell shell)
         return match.Success ? match.Value : null;
     }
 
+    /// <summary>Runs the k3s uninstall script inside WSL when it is present.</summary>
     public Task<CommandResult> UninstallAsync(Action<string> onOutput, CancellationToken ct = default) =>
         shell.RunStreamingAsync(
             "if [ -f /usr/local/bin/k3s-uninstall.sh ]; then /usr/local/bin/k3s-uninstall.sh; else echo 'k3s already removed'; fi",
             onOutput, ct);
 
+    /// <summary>Starts the k3s systemd service inside WSL.</summary>
     public Task<CommandResult> StartAsync(CancellationToken ct = default) =>
         shell.RunAsync("systemctl start k3s", ct);
 
+    /// <summary>Stops the k3s systemd service inside WSL.</summary>
     public Task<CommandResult> StopAsync(CancellationToken ct = default) =>
         shell.RunAsync("systemctl stop k3s", ct);
 }

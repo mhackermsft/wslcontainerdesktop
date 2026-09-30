@@ -23,6 +23,7 @@ public partial class AssistantToolPermission : ObservableObject
 {
     private readonly Action<string, bool> _onChanged;
 
+    /// <summary>Creates a permission row and remembers how to persist changes.</summary>
     public AssistantToolPermission(string name, string displayName, bool autoApprove, Action<string, bool> onChanged)
     {
         Name = name;
@@ -31,8 +32,10 @@ public partial class AssistantToolPermission : ObservableObject
         _onChanged = onChanged;
     }
 
+    /// <summary>Stable tool/action identifier used in settings.</summary>
     public string Name { get; }
 
+    /// <summary>Human-readable label shown in the settings page.</summary>
     public string DisplayName { get; }
 
     /// <summary>True when this action destroys state the app cannot restore.</summary>
@@ -46,16 +49,25 @@ public partial class AssistantToolPermission : ObservableObject
     [ObservableProperty]
     private bool _isEnabled = true;
 
+    /// <summary>Generated setting bound to the toggle that decides whether safe actions may run without prompting.</summary>
     [ObservableProperty]
     private bool _autoApprove;
 
     partial void OnAutoApproveChanged(bool value) => _onChanged(Name, value);
+
+    /// <summary>Returns the label so screen readers announce the tool name, not the type.</summary>
+    public override string ToString() => DisplayName;
 }
 
 /// <summary>A named group of <see cref="AssistantToolPermission"/> toggles.</summary>
 public sealed class AssistantToolPermissionGroup
 {
+    /// <summary>Section heading shown above a related group of tools.</summary>
     public required string Header { get; init; }
 
+    /// <summary>The permission rows displayed under <see cref="Header"/>.</summary>
     public required IReadOnlyList<AssistantToolPermission> Tools { get; init; }
+
+    /// <summary>Returns the heading so screen readers announce the group name, not the type.</summary>
+    public override string ToString() => Header;
 }

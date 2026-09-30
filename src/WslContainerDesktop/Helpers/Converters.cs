@@ -26,6 +26,7 @@ namespace WslContainerDesktop.Helpers;
 /// <summary>Maps a <see cref="ContainerState"/> to a status color brush.</summary>
 public sealed class StateToBrushConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var state = value is ContainerState s ? s : ContainerState.Unknown;
@@ -41,6 +42,7 @@ public sealed class StateToBrushConverter : IValueConverter
         return new SolidColorBrush(color);
     }
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -48,9 +50,11 @@ public sealed class StateToBrushConverter : IValueConverter
 /// <summary>ContainerState -> friendly display string.</summary>
 public sealed class StateToStringConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value is ContainerState s ? s.ToDisplayString() : "Unknown";
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -58,9 +62,11 @@ public sealed class StateToStringConverter : IValueConverter
 /// <summary>Byte count -> human readable size string.</summary>
 public sealed class BytesToSizeConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value is long bytes ? FormatHelpers.HumanSize(bytes) : "-";
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -68,6 +74,7 @@ public sealed class BytesToSizeConverter : IValueConverter
 /// <summary>DateTimeOffset -> relative time string ("5 minutes ago").</summary>
 public sealed class RelativeTimeConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language) => value switch
     {
         DateTimeOffset dt => FormatHelpers.RelativeTime(dt),
@@ -75,6 +82,7 @@ public sealed class RelativeTimeConverter : IValueConverter
         _ => "-",
     };
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -82,6 +90,7 @@ public sealed class RelativeTimeConverter : IValueConverter
 /// <summary>bool -> Visibility. Pass parameter "invert" to reverse.</summary>
 public sealed class BoolToVisibilityConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var flag = value is bool b && b;
@@ -93,6 +102,7 @@ public sealed class BoolToVisibilityConverter : IValueConverter
         return flag ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Converts visible UI state back to a Boolean for two-way bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         value is Visibility v && v == Visibility.Visible;
 }
@@ -100,9 +110,11 @@ public sealed class BoolToVisibilityConverter : IValueConverter
 /// <summary>Inverts a boolean (used to enable/disable controls during work).</summary>
 public sealed class InverseBoolConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value is not bool b || !b;
 
+    /// <summary>Converts the inverted Boolean back for two-way bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         value is bool b && !b;
 }
@@ -110,6 +122,7 @@ public sealed class InverseBoolConverter : IValueConverter
 /// <summary>Empty collection/string -> Visible (used to show "no items" placeholders).</summary>
 public sealed class EmptyToVisibilityConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var isEmpty = value switch
@@ -129,6 +142,7 @@ public sealed class EmptyToVisibilityConverter : IValueConverter
         return isEmpty ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -137,6 +151,7 @@ public sealed class EmptyToVisibilityConverter : IValueConverter
 /// ConverterParameter is "None" (used by the containers list, whose default is None).</summary>
 public sealed class BoolToSelectionModeConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var multi = value is bool b && b;
@@ -150,6 +165,7 @@ public sealed class BoolToSelectionModeConverter : IValueConverter
             : Microsoft.UI.Xaml.Controls.ListViewSelectionMode.Single;
     }
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -157,6 +173,7 @@ public sealed class BoolToSelectionModeConverter : IValueConverter
 /// <summary>bool -> brush for activity rows (true = error red, false = accent).</summary>
 public sealed class ErrorToBrushConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var isError = value is bool b && b;
@@ -165,6 +182,7 @@ public sealed class ErrorToBrushConverter : IValueConverter
             : (object)Application.Current.Resources["AccentTextFillColorPrimaryBrush"];
     }
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -172,6 +190,7 @@ public sealed class ErrorToBrushConverter : IValueConverter
 /// <summary>bool -> status brush (true = green healthy, false = red).</summary>
 public sealed class BoolToStatusBrushConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var healthy = value is bool b && b;
@@ -181,6 +200,7 @@ public sealed class BoolToStatusBrushConverter : IValueConverter
         return new SolidColorBrush(color);
     }
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -188,6 +208,7 @@ public sealed class BoolToStatusBrushConverter : IValueConverter
 /// <summary>Maps a <see cref="ContainerHealthState"/> to a badge color brush.</summary>
 public sealed class HealthToBrushConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var state = value is ContainerHealthState s ? s : ContainerHealthState.Unknown;
@@ -202,6 +223,7 @@ public sealed class HealthToBrushConverter : IValueConverter
         return new SolidColorBrush(color);
     }
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -212,6 +234,7 @@ public sealed class StringEqualsToVisibilityConverter : IValueConverter
     /// <summary>When true, visibility is inverted (visible when the values differ).</summary>
     public bool IsInverse { get; set; }
 
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var current = value as string ?? string.Empty;
@@ -225,6 +248,7 @@ public sealed class StringEqualsToVisibilityConverter : IValueConverter
         return equal ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
@@ -232,6 +256,7 @@ public sealed class StringEqualsToVisibilityConverter : IValueConverter
 /// <summary>Converts a "#AARRGGBB" or "#RRGGBB" hex string to a SolidColorBrush.</summary>
 public sealed class HexToBrushConverter : IValueConverter
 {
+    /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language)
     {
         var hex = (value as string ?? "#9AA0A6").TrimStart('#');
@@ -260,6 +285,7 @@ public sealed class HexToBrushConverter : IValueConverter
         return new SolidColorBrush(Color.FromArgb(a, r, g, b));
     }
 
+    /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }

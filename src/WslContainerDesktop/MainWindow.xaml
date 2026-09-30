@@ -68,6 +68,7 @@
             PaneDisplayMode="Auto"
             PaneClosing="NavView_PaneClosing"
             PaneOpening="NavView_PaneOpening"
+            ItemInvoked="NavView_ItemInvoked"
             SelectionChanged="NavView_SelectionChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Dashboard" IsSelected="True" Tag="dashboard">
@@ -112,7 +113,7 @@
                 </NavigationViewItem>
                 <NavigationViewItem Content="Compose" Tag="compose">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE7F4;" />
+                        <FontIcon Glyph="&#xE81E;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <!-- Hidden until we have a better VS Code integration; re-enable by removing Visibility="Collapsed" -->
@@ -226,7 +227,12 @@
                     </InfoBar.Content>
                 </InfoBar>
 
-                <Frame x:Name="NavFrame" Grid.Row="1" />
+                <Grid Grid.Row="1">
+                    <Frame x:Name="NavFrame" />
+                    <controls:RequirementGateView
+                        x:Name="RequirementGate"
+                        Visibility="Collapsed" />
+                </Grid>
             </Grid>
         </NavigationView>
 

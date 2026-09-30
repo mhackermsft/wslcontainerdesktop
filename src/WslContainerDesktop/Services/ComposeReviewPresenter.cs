@@ -24,6 +24,7 @@ namespace WslContainerDesktop.Services;
 /// <summary>Marshals service/assistant callers to the UI thread; absent UI always declines.</summary>
 public sealed class ComposeReviewPresenter(DialogService dialogs) : IComposeReviewPresenter
 {
+    /// <summary>Shows the Compose compatibility dialog and returns true only for an accepted, still-valid preview.</summary>
     public async Task<bool> ConfirmAsync(ComposeCompatibilityPreview preview, CancellationToken ct = default)
     {
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -35,6 +36,7 @@ public sealed class ComposeReviewPresenter(DialogService dialogs) : IComposeRevi
         return await completion.Task.ConfigureAwait(false);
     }
 
+    /// <summary>Runs on the WinUI dispatcher to display and close the dialog safely.</summary>
     // UI callback is exception-contained, including cancellation while a dialog is open.
     private async Task ShowAsync(ComposeCompatibilityPreview preview, TaskCompletionSource<bool> completion,
         DispatcherQueue dispatcher, CancellationToken ct)

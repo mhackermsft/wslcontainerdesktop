@@ -19,7 +19,10 @@ namespace WslContainerDesktop.Models;
 /// <summary>Pending hooks for an observed Compose container, not its reusable name.</summary>
 public sealed class DevContainerComposeLifecycleProgress
 {
+    /// <summary>Gets or sets the container id.</summary>
     public string ContainerId { get; set; } = string.Empty;
+    /// <summary>Gets or sets the pending create.</summary>
     public List<DevContainerLifecycleCommand> PendingCreate { get; set; } = new();
+    /// <summary>Gets or sets the pending start.</summary>
     public List<DevContainerLifecycleCommand> PendingStart { get; set; } = new();
 }

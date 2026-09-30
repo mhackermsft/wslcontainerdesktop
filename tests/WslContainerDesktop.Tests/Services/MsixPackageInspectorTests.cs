@@ -24,6 +24,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests MSIX package inspection for identity and signature data used by the app update flow.
+/// </summary>
 public sealed class MsixPackageInspectorTests : IDisposable
 {
     private const string Manifest = """

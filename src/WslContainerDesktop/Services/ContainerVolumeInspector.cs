@@ -38,6 +38,7 @@ public sealed record ContainerVolumeImpact(
     public IReadOnlyList<ContainerVolumeUsage> SharedNamed =>
         Named.Where(v => v.OtherContainers.Count > 0).ToArray();
 
+    /// <summary>True when removing the container can delete anonymous volumes or orphaned named volumes.</summary>
     public bool HasDeletableData => Anonymous.Count > 0 || OrphanedNamed.Count > 0;
 }
 
@@ -52,6 +53,9 @@ public sealed record ContainerVolumeUsage(string Name, string Destination, IRead
 /// </summary>
 public sealed class ContainerVolumeInspector(IWslcService wslc)
 {
+    /// <summary>
+    /// Inspects the target container and other containers to classify anonymous, orphaned and shared volumes before removal.
+    /// </summary>
     public async Task<ContainerVolumeImpact> InspectAsync(string containerId, CancellationToken ct = default)
     {
         var inspect = await wslc.InspectContainerAsync(containerId, ct).ConfigureAwait(false);

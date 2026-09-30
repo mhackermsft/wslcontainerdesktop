@@ -26,12 +26,26 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 internal static class ComposeResourceErrors
 {
+    /// <summary>Returns true when a network inspect error means the network is absent.</summary>
     public static bool IsNetworkNotFound(string? errorText) =>
         Matches(errorText, "WSLC_E_NETWORK_NOT_FOUND", "network not found");
 
+    /// <summary>Returns true when a volume inspect error means the volume is absent.</summary>
     public static bool IsVolumeNotFound(string? errorText) =>
         Matches(errorText, "WSLC_E_VOLUME_NOT_FOUND", "volume not found");
 
+    /// <summary>
+    /// Returns true when a container inspect error means the container is absent. WSL 3.0.1 reports
+    /// this as <c>Object not found: name</c> (plain <c>inspect</c>) or <c>Container 'name' not found.</c>
+    /// (<c>container inspect</c>) rather than a <c>WSLC_E_*</c> code.
+    /// </summary>
+    public static bool IsContainerNotFound(string? errorText) =>
+        Matches(errorText, "WSLC_E_CONTAINER_NOT_FOUND", "object not found")
+        || (errorText is not null
+            && errorText.Contains("container '", StringComparison.OrdinalIgnoreCase)
+            && errorText.Contains("' not found", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Dispatches not-found matching for the compose resource kind currently being inspected.</summary>
     public static bool IsNotFound(string kind, string? errorText) =>
         kind == "network" ? IsNetworkNotFound(errorText) : IsVolumeNotFound(errorText);
 

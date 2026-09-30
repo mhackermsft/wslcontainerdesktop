@@ -25,24 +25,37 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <summary>Backs the Networks page, listing WSL container networks and exposing create, inspect, prune and removal commands.</summary>
 public partial class NetworksViewModel : ObservableObject
 {
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
 
+    /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
     private bool _isBusy;
 
+    /// <summary>
+    /// True when the empty-list message should show: not while a refresh is still loading, which
+    /// would briefly (and wrongly) claim there are no networks.
+    /// </summary>
+    public bool ShowEmptyState => !IsBusy && Networks.Count == 0;
+
+    /// <summary>Bindable state for status message used by the view.</summary>
     [ObservableProperty]
     private string _statusMessage = "Ready";
 
+    /// <summary>Value for selected shown or edited by the view.</summary>
     [ObservableProperty]
     private NetworkInfo? _selected;
 
+    /// <summary>Whether selection mode for view binding.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionSummary))]
     private bool _isSelectionMode;
 
+    /// <summary>Bindable state for selected count used by the view.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionSummary))]
     private int _selectedCount;
@@ -50,14 +63,18 @@ public partial class NetworksViewModel : ObservableObject
     /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
     public string SelectionSummary => $"{SelectedCount} selected";
 
+    /// <summary>Value for networks shown or edited by the view.</summary>
     public ObservableCollection<NetworkInfo> Networks { get; } = new();
 
+    /// <summary>Creates the Networks view model and stores its injected services.</summary>
     public NetworksViewModel(IWslcService wslc, DialogService dialogs)
     {
         _wslc = wslc;
         _dialogs = dialogs;
+        Networks.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowEmptyState));
     }
 
+    /// <summary>Command handler for refresh actions triggered from the view.</summary>
     [RelayCommand]
     public async Task RefreshAsync()
     {
@@ -66,6 +83,7 @@ public partial class NetworksViewModel : ObservableObject
         try
         {
             var networks = NetworkDisplayList.Create(await _wslc.ListNetworksAsync());
+            await ResolveUsageAsync(networks);
             Networks.Clear();
 
             foreach (var n in networks)
@@ -91,24 +109,53 @@ public partial class NetworksViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Fills in which containers use each network. The "Used by" column is extra detail, so a
+    /// failure here leaves every network's usage as "Unknown" instead of failing the page.
+    /// </summary>
+    private async Task ResolveUsageAsync(IReadOnlyList<NetworkInfo> networks)
+    {
+        try
+        {
+            var containers = await _wslc.ListContainersAsync(all: true);
+            await NetworkUsageResolver.ResolveAsync(networks, containers,
+                (id, ct) => _wslc.InspectContainerAsync(id, ct));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Usage stays "Unknown" (UsageComplete is false by default); the network list itself is still valid.
+            System.Diagnostics.Debug.WriteLine($"Network usage could not be resolved: {ex.Message}");
+        }
+    }
+
+    /// <summary>Command handler for create actions triggered from the view.</summary>
     [RelayCommand]
     private async Task CreateAsync()
     {
-        var dialog = new SimpleInputDialog("Create network", "Network name", "e.g. app-net");
+        var dialog = new CreateNetworkDialog();
         if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary)
         {
             return;
         }
 
-        var name = dialog.Value.Trim();
+        var name = dialog.NetworkName.Trim();
         if (string.IsNullOrEmpty(name))
         {
             return;
         }
 
-        await ExecuteAsync(() => _wslc.CreateNetworkAsync(name));
+        await ExecuteAsync(() => _wslc.CreateNetworkAsync(
+            name,
+            dialog.Driver,
+            dialog.DriverOptions,
+            dialog.Labels,
+            dialog.Subnet,
+            dialog.Gateway,
+            dialog.IpRange,
+            internalNetwork: dialog.InternalNetwork));
     }
 
+    /// <summary>Command handler for remove actions triggered from the view.</summary>
     [RelayCommand]
     private async Task RemoveAsync(NetworkInfo? network)
     {
@@ -130,6 +177,7 @@ public partial class NetworksViewModel : ObservableObject
         await ExecuteAsync(() => _wslc.RemoveNetworkAsync(network.Name));
     }
 
+    /// <summary>Command handler for inspect actions triggered from the view.</summary>
     [RelayCommand]
     private async Task InspectAsync(NetworkInfo? network)
     {
@@ -152,6 +200,7 @@ public partial class NetworksViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for prune actions triggered from the view.</summary>
     [RelayCommand]
     private async Task PruneAsync()
     {
@@ -164,6 +213,7 @@ public partial class NetworksViewModel : ObservableObject
         await ExecuteAsync(() => _wslc.PruneNetworksAsync());
     }
 
+    /// <summary>Handles is selection mode changed changes and updates related view-model state.</summary>
     partial void OnIsSelectionModeChanged(bool value)
     {
         if (!value)
@@ -220,6 +270,7 @@ public partial class NetworksViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the bulk names workflow in this view model.</summary>
     private static string BulkNames(IEnumerable<string> names)
     {
         var list = names.ToList();
@@ -228,6 +279,7 @@ public partial class NetworksViewModel : ObservableObject
         return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
     }
 
+    /// <summary>Helper for the execute workflow in this view model.</summary>
     private async Task ExecuteAsync(Func<Task<CommandResult>> action)
     {
         IsBusy = true;

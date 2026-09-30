@@ -20,11 +20,16 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Reports whether the local Foundry runtime is configured, reachable and ready to serve the selected model.
+/// </summary>
 public sealed class FoundryLocalCapabilityObserver(
     IFoundryLocalRuntimeService runtime, FoundryLocalHttpClient http) : IAiCapabilityObserver
 {
+    /// <inheritdoc/>
     public AiProviderKind Kind => AiProviderKind.FoundryLocal;
 
+    /// <inheritdoc/>
     public async Task<AiCapabilitySnapshot> ReadMetadataAsync(AiChatConfiguration configuration, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -71,12 +76,14 @@ public sealed class FoundryLocalCapabilityObserver(
         }
     }
 
+    /// <summary>Creates a stable identity string for the currently loaded Foundry model inventory.</summary>
     internal static string ModelIdentity(FoundryLocalInventory inventory) =>
         AiCapabilityService.HashIdentity(JsonSerializer.Serialize(new
         {
             inventory.Selected, inventory.IsCached, inventory.IsLoaded, inventory.CacheStateKnown, inventory.LoadStateKnown,
         }));
 
+    /// <inheritdoc/>
     public async Task<AiCapabilitySnapshot> ProbeAsync(AiCapabilitySnapshot metadata, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -144,11 +151,18 @@ public sealed class FoundryLocalCapabilityObserver(
         return state;
     }
 
+    /// <summary>
+    /// Credential store stub used because Foundry Local is reached without an API key.
+    /// </summary>
     private sealed class NoCredentials : IAiCredentialStore
     {
+        /// <summary>Shared no-op credential store instance.</summary>
         internal static readonly NoCredentials Instance = new();
+        /// <inheritdoc/>
         public bool TryReadSecret(AiProviderKind provider, out string secret) { secret = ""; return false; }
+        /// <inheritdoc/>
         public void WriteSecret(AiProviderKind provider, string secret) => throw new NotSupportedException();
+        /// <inheritdoc/>
         public void DeleteSecret(AiProviderKind provider) => throw new NotSupportedException();
     }
 }

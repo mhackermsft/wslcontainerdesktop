@@ -42,6 +42,9 @@ public interface IActivityLog
     /// <summary>Records an image build outcome.</summary>
     void RecordImageBuild(string tag, bool success, string? error = null);
 
+    /// <summary>Records one exact engine event from <c>wslc events</c>.</summary>
+    void RecordEngineEvent(EngineEvent evt);
+
     /// <summary>Clears the entire timeline (and the persisted file).</summary>
     void Clear();
 }

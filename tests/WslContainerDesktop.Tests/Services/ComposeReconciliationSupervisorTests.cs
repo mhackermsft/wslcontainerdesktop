@@ -21,6 +21,9 @@ using static WslContainerDesktop.Tests.Services.ComposeNetworkSupervisorTests;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Covers repeated Compose <c>up</c>, restart, stop and down reconciliation so only necessary container mutations occur.
+/// </summary>
 public sealed class ComposeReconciliationSupervisorTests
 {
     [Theory]
@@ -742,61 +745,21 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.DoesNotContain("remove:demo_web", fixture.Engine.Mutations);
     }
 
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Supported)]
-    [InlineData(WslcCapabilitySupport.Unsupported)]
-    public async Task CancellationAfterAcknowledgedStartupStillPersistsTheSuccessfulIdentity(WslcCapabilitySupport support)
+    [Fact]
+    public async Task CancellationAfterAcknowledgedStartupStillPersistsTheSuccessfulIdentity()
     {
         using var cts = new CancellationTokenSource();
-        var fixture = new Fixture(support);
+        var fixture = new Fixture();
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
         AddService(fixture, "worker");
         fixture.Engine.AfterStart = _ => cts.Cancel();
-        fixture.Engine.AfterRun = name =>
-        {
-            fixture.Engine.ContainerIds[name] = "verified-run-id";
-            cts.Cancel();
-        };
 
         Assert.True((await fixture.Supervisor.UpAsync(fixture.Project, cts.Token)).IsCancelled);
 
-        Assert.Equal(support == WslcCapabilitySupport.Supported ? "demo_web" : "verified-run-id",
-            fixture.SavedProject!.AppliedServices["web"].ContainerId);
+        Assert.Equal("demo_web", fixture.SavedProject!.AppliedServices["web"].ContainerId);
         Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
         Assert.True(fixture.Engine.Containers.ContainsKey("demo_web"));
         Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo_worker") || m.StartsWith("remove:"));
-    }
-
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task PartialLegacyRunCleanupRequiresMatchingOperationOwnership(bool cancel, bool replaced)
-    {
-        using var cts = new CancellationTokenSource();
-        var fixture = new Fixture(WslcCapabilitySupport.Unsupported);
-        fixture.Engine.FailRunAfterCreate = true;
-        fixture.Engine.AfterRun = name =>
-        {
-            if (replaced)
-                fixture.Engine.Containers[name].Labels.Clear();
-            if (cancel)
-            {
-                cts.Cancel();
-                cts.Token.ThrowIfCancellationRequested();
-            }
-        };
-
-        if (cancel)
-            Assert.True((await fixture.Supervisor.UpAsync(fixture.Project, cts.Token)).IsCancelled);
-        else
-            Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
-
-        Assert.Equal(replaced, fixture.Engine.Containers.ContainsKey("demo_web"));
-        Assert.Equal(!replaced, fixture.Engine.Mutations.Contains("remove:demo_web"));
-        Assert.Empty(fixture.SavedProject!.AppliedServices);
-        Assert.Empty(fixture.RestartPolicies);
     }
 
     [Fact]

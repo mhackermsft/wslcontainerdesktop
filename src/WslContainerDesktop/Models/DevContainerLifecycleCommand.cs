@@ -16,8 +16,11 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Model object that stores dev container lifecycle command information used by services, view models, or dialogs.</summary>
 public sealed class DevContainerLifecycleCommand
 {
+    /// <summary>Gets or sets the step.</summary>
     public string Step { get; set; } = string.Empty;
+    /// <summary>Gets or sets the command.</summary>
     public string Command { get; set; } = string.Empty;
 }

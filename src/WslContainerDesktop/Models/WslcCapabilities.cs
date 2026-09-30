@@ -20,12 +20,13 @@ namespace WslContainerDesktop.Models;
 
 /// <summary>
 /// Immutable availability evidence, not an operation result. Choose a backend before mutating;
-/// never retry a failed native operation through a legacy backend.
+/// never retry a failed native operation through another backend.
 /// </summary>
 public sealed class WslcCapabilities
 {
     private readonly FrozenDictionary<WslcFeature, WslcCapability> _features;
 
+    /// <summary>Creates a capabilities snapshot from the probed executable, version, and feature support map.</summary>
     public WslcCapabilities(
         string executablePath,
         string? version,
@@ -34,21 +35,29 @@ public sealed class WslcCapabilities
     {
         ExecutablePath = executablePath;
         Version = version;
+        ParsedVersion = Services.WslcVersionParser.ParseVersion(version);
         VersionDiagnostic = versionDiagnostic;
         _features = features.ToFrozenDictionary();
     }
 
+    /// <summary>Gets the executable path.</summary>
     public string ExecutablePath { get; }
+    /// <summary>Gets the version.</summary>
     public string? Version { get; }
+    /// <summary>Gets the parsed version.</summary>
+    public Version? ParsedVersion { get; }
+    /// <summary>Gets the version diagnostic.</summary>
     public string? VersionDiagnostic { get; }
 
+    /// <summary>Gets the value.</summary>
     public WslcCapability this[WslcFeature feature] => _features.TryGetValue(feature, out var capability)
         ? capability
         : new(WslcCapabilitySupport.Unknown, $"No capability evidence for {feature}.");
 
-    /// <summary>False includes Unknown; inspect Support/Diagnostic before selecting a fallback.</summary>
+    /// <summary>False includes Unknown; inspect Support/Diagnostic before selecting optional behavior.</summary>
     public bool IsSupported(WslcFeature feature) => this[feature].Support == WslcCapabilitySupport.Supported;
 
+    /// <summary>Gets a value indicating whether this value has probe failures.</summary>
     public bool HasProbeFailures => VersionDiagnostic is not null ||
         Enum.GetValues<WslcFeature>().Any(feature => this[feature].Support == WslcCapabilitySupport.Unknown);
 }

@@ -25,49 +25,78 @@ namespace WslContainerDesktop.ViewModels;
 /// </summary>
 public partial class ContainerRowViewModel : ObservableObject
 {
+    /// <summary>
+    /// Returns the container name. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Name;
+
+    /// <summary>Container name shown in the main grid.</summary>
     [ObservableProperty]
     private string _name = string.Empty;
 
+    /// <summary>Image reference the container was created from.</summary>
     [ObservableProperty]
     private string _image = string.Empty;
 
+    /// <summary>Container lifecycle state from <c>wslc</c>, with dependent UI flags refreshed when it changes.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsRunning))]
     [NotifyPropertyChangedFor(nameof(IsStopped))]
+    [NotifyPropertyChangedFor(nameof(CanOpenInBrowser))]
     private ContainerState _state;
 
+    /// <summary>Comma-separated published-port display text for the grid.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanOpenInBrowser))]
     private string _portsDisplay = string.Empty;
 
+    /// <summary>Primary network name resolved from container inspect.</summary>
     [ObservableProperty]
     private string _network = "-";
 
+    /// <summary>Full size text for details, including virtual size when known.</summary>
+    [ObservableProperty]
+    private string _sizeDisplay = "-";
+
+    /// <summary>Compact list-column size: the writable layer only; <see cref="SizeDisplay"/> adds the virtual size.</summary>
+    [ObservableProperty]
+    private string _sizeShort = "-";
+
+    /// <summary>Container creation time used for sorting and display.</summary>
     [ObservableProperty]
     private DateTimeOffset _created;
 
+    /// <summary>True when a probe found GPU passthrough in the running container.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GpuTooltip))]
     private bool _hasGpu;
 
+    /// <summary>GPU name returned by the probe, if the runtime reported one.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GpuTooltip))]
     private string? _gpuName;
 
+    /// <summary>App-owned health state used by the health badge.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HealthTooltip))]
     private ContainerHealthState _health = ContainerHealthState.Unknown;
 
+    /// <summary>True when the container has either native or app-supervised health check metadata.</summary>
     [ObservableProperty]
     private bool _hasHealthCheck;
 
+    /// <summary>Number of auto-restart attempts already made for the health watchdog.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HealthTooltip))]
     private int _healthRestartCount;
 
+    /// <summary>Maximum app-owned restarts allowed before the row reports a down state.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HealthTooltip))]
     private int _healthMaxRestarts;
 
+    /// <summary>Detailed health message shown in the badge tooltip.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HealthTooltip))]
     private string _healthDetail = string.Empty;
@@ -103,26 +132,44 @@ public partial class ContainerRowViewModel : ObservableObject
         _ => "Health check: pending",
     };
 
+    /// <summary>Creates a grid row from the latest container model.</summary>
     public ContainerRowViewModel(ContainerInfo model)
     {
         Update(model);
     }
 
+    /// <summary>Full container id used for <c>wslc</c> operations.</summary>
     public string Id { get; private set; } = string.Empty;
 
+    /// <summary>Latest raw container model backing this row.</summary>
     public ContainerInfo Model { get; private set; } = new();
 
+    /// <summary>Short id displayed in compact UI surfaces.</summary>
     public string ShortId => Model.ShortId;
 
+    /// <summary>True when commands that require a running container should be enabled.</summary>
     public bool IsRunning => State == ContainerState.Running;
 
+    /// <summary>True when start-like commands should be enabled.</summary>
     public bool IsStopped => State is ContainerState.Stopped or ContainerState.Created;
 
+    /// <summary>First published host port, used as the default browser target.</summary>
     public PortMapping? PrimaryHttpPort =>
         Model.Ports.FirstOrDefault(p => p.HostPort > 0);
 
+    /// <summary>True when there is a running, published port to open; otherwise the browser action is hidden.</summary>
+    public bool CanOpenInBrowser => IsRunning && PrimaryHttpPort is not null;
+
+    /// <summary>Refreshes this row in place so selection and group position can be preserved.</summary>
     public void Update(ContainerInfo model)
     {
+        if (!model.SizeKnown && Model.SizeKnown)
+        {
+            model.Size = Model.Size;
+            model.SizeRwBytes = Model.SizeRwBytes;
+            model.SizeRootFsBytes = Model.SizeRootFsBytes;
+        }
+
         Model = model;
         Id = model.Id;
         Name = model.Name;
@@ -131,6 +178,12 @@ public partial class ContainerRowViewModel : ObservableObject
         PortsDisplay = !model.PortsKnown ? "Unknown" : model.Ports.Count == 0
             ? "-"
             : string.Join(", ", model.Ports.Select(p => p.Display));
+        if (model.SizeKnown)
+        {
+            SizeDisplay = model.SizeDisplay;
+            SizeShort = model.SizeRwBytes is long ? model.SizeRwDisplay : model.SizeDisplay;
+        }
+
         Created = model.CreatedUtc;
 
         // GPU access is a property of the running instance; clear it when not running so it

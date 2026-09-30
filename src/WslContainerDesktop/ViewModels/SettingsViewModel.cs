@@ -28,6 +28,7 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <summary>Backs the Settings page, mirroring persisted options into bindable properties and exposing commands for engine, startup, theme, notification and AI-provider setup.</summary>
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsService _settings;
@@ -53,52 +54,68 @@ public partial class SettingsViewModel : ObservableObject
     /// assistant works immediately after setup.</summary>
     private const string DefaultOllamaModel = "qwen2.5:7b";
 
+    /// <summary>Bindable state for wslc path used by the view.</summary>
     [ObservableProperty]
     private string _wslcPath;
 
+    /// <summary>Bindable state for refresh interval seconds used by the view.</summary>
     [ObservableProperty]
     private int _refreshIntervalSeconds;
 
+    /// <summary>Bindable state for close to tray used by the view.</summary>
     [ObservableProperty]
     private bool _closeToTray;
 
+    /// <summary>Bindable state for start minimized used by the view.</summary>
     [ObservableProperty]
     private bool _startMinimized;
 
+    /// <summary>Bindable state for restart running containers on launch used by the view.</summary>
     [ObservableProperty]
     private bool _restartRunningContainersOnLaunch;
 
+    /// <summary>Bindable state for run at login used by the view.</summary>
     [ObservableProperty]
     private bool _runAtLogin;
 
+    /// <summary>Bindable state for run at login enabled used by the view.</summary>
     [ObservableProperty]
     private bool _runAtLoginEnabled = true;
 
+    /// <summary>Bindable state for run at login note used by the view.</summary>
     [ObservableProperty]
     private string _runAtLoginNote =
         "Automatically launch WSL Container Desktop when you sign in to Windows.";
 
+    /// <summary>Bindable state for selected theme index used by the view.</summary>
     [ObservableProperty]
     private int _selectedThemeIndex;
 
+    /// <summary>Bindable state for notifications enabled used by the view.</summary>
     [ObservableProperty]
     private bool _notificationsEnabled;
 
+    /// <summary>Bindable state for notify image events used by the view.</summary>
     [ObservableProperty]
     private bool _notifyImageEvents;
 
+    /// <summary>Bindable state for notify container events used by the view.</summary>
     [ObservableProperty]
     private bool _notifyContainerEvents;
 
+    /// <summary>Bindable state for notify engine events used by the view.</summary>
     [ObservableProperty]
     private bool _notifyEngineEvents;
 
+    /// <summary>Bindable state for check for updates on launch used by the view.</summary>
     [ObservableProperty]
     private bool _checkForUpdatesOnLaunch;
 
+    /// <summary>Bindable state for dev container npm registry used by the view.</summary>
     [ObservableProperty]
     private string _devContainerNpmRegistry = string.Empty;
 
+    /// <summary>Whether ollama runtime present for view binding.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowRemoveOllama))]
     [NotifyPropertyChangedFor(nameof(ShowLocalSetupButtons))]
@@ -106,10 +123,12 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(QuickStartHint))]
     private bool _isOllamaRuntimePresent;
 
+    /// <summary>Bindable state for ai features enabled used by the view.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActiveProviderDetail))]
     private bool _aiFeaturesEnabled;
 
+    /// <summary>Bindable state for selected ai provider index used by the view.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowAiProviderSettings))]
     [NotifyPropertyChangedFor(nameof(ShowGitHubCopilotSettings))]
@@ -124,17 +143,21 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowRemoveOllama))]
     private int _selectedAiProviderIndex;
 
+    /// <summary>Bindable state for ai ollama endpoint used by the view.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActiveProviderDetail))]
     private string _aiOllamaEndpoint = string.Empty;
 
+    /// <summary>Bindable state for ai ollama model used by the view.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActiveProviderDetail))]
     private string _aiOllamaModel = string.Empty;
 
+    /// <summary>Bindable state for ollama pull model used by the view.</summary>
     [ObservableProperty]
     private string _ollamaPullModel = string.Empty;
 
+    /// <summary>Whether ollama busy for view binding.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshOllamaModelsCommand))]
     [NotifyCanExecuteChangedFor(nameof(RefreshOpenAiModelsCommand))]
@@ -144,21 +167,27 @@ public partial class SettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanQuickStartOllama))]
     private bool _isOllamaBusy;
 
+    /// <summary>Bindable state for ai azure open ai endpoint used by the view.</summary>
     [ObservableProperty]
     private string _aiAzureOpenAiEndpoint = string.Empty;
 
+    /// <summary>Bindable state for ai azure open ai deployment used by the view.</summary>
     [ObservableProperty]
     private string _aiAzureOpenAiDeployment = string.Empty;
 
+    /// <summary>Bindable state for ai open ai endpoint used by the view.</summary>
     [ObservableProperty]
     private string _aiOpenAiEndpoint = string.Empty;
 
+    /// <summary>Bindable state for ai open ai model used by the view.</summary>
     [ObservableProperty]
     private string _aiOpenAiModel = string.Empty;
 
+    /// <summary>Bindable state for ai git hub copilot model used by the view.</summary>
     [ObservableProperty]
     private string _aiGitHubCopilotModel = string.Empty;
 
+    /// <summary>Bindable state for ai api key used by the view.</summary>
     [ObservableProperty]
     private string _aiApiKey = string.Empty;
 
@@ -174,27 +203,38 @@ public partial class SettingsViewModel : ObservableObject
         "AI features are off",
         "AI features are off by default. Enable them and review the payload preview before sending diagnostics.");
 
+    /// <summary>Bindable state for engine version used by the view.</summary>
     [ObservableProperty]
     private string _engineVersion = "Unknown";
 
+    /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Bindable state for app version used by the view.</summary>
     public string AppVersion { get; } = ResolveAppVersion();
 
+    /// <summary>Bindable state for show ai provider settings used by the view.</summary>
     public bool ShowAiProviderSettings => CurrentAiProvider != AiProviderKind.None;
 
+    /// <summary>Bindable state for show git hub copilot settings used by the view.</summary>
     public bool ShowGitHubCopilotSettings => CurrentAiProvider == AiProviderKind.GitHubCopilot;
 
+    /// <summary>Bindable state for show ollama settings used by the view.</summary>
     public bool ShowOllamaSettings => CurrentAiProvider == AiProviderKind.Ollama;
 
+    /// <summary>Bindable state for show azure open ai settings used by the view.</summary>
     public bool ShowAzureOpenAiSettings => CurrentAiProvider == AiProviderKind.AzureOpenAi;
 
+    /// <summary>Bindable state for show open ai settings used by the view.</summary>
     public bool ShowOpenAiSettings => CurrentAiProvider == AiProviderKind.OpenAi;
 
+    /// <summary>Bindable state for show foundry local settings used by the view.</summary>
     public bool ShowFoundryLocalSettings => CurrentAiProvider == AiProviderKind.FoundryLocal;
+    /// <summary>Bindable state for foundry local used by the view.</summary>
     public FoundryLocalSettingsViewModel FoundryLocal { get; }
 
+    /// <summary>Bindable state for show ai secret settings used by the view.</summary>
     public bool ShowAiSecretSettings => CurrentAiProvider is AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi;
 
     private AiProviderKind CurrentAiProvider => Enum.IsDefined(typeof(AiProviderKind), SelectedAiProviderIndex)
@@ -205,11 +245,13 @@ public partial class SettingsViewModel : ObservableObject
     /// manual configuration. Foundry Local is implemented but hidden from the UI for now.</summary>
     public bool ShowLocalSetupButtons => !IsOllamaRuntimePresent;
 
+    /// <summary>Whether the user can quick start ollama from the view.</summary>
     public bool CanQuickStartOllama => ShowLocalSetupButtons && !IsOllamaBusy;
 
     /// <summary>Removal is offered only for the local runtime that is actually installed.</summary>
     public bool ShowRemoveOllama => IsOllamaRuntimePresent;
 
+    /// <summary>Bindable state for quick start hint used by the view.</summary>
     public string QuickStartHint => IsOllamaRuntimePresent
         ? "Ollama is set up and selected as your provider."
         : "Run a model on this machine, or use Provider below to configure a service yourself.";
@@ -265,6 +307,7 @@ public partial class SettingsViewModel : ObservableObject
         RefreshActiveProviderSummary();
     }
 
+    /// <summary>Refreshes active provider summary state for the view model.</summary>
     public void RefreshActiveProviderSummary()
     {
         OnPropertyChanged(nameof(ActiveProviderName));
@@ -280,18 +323,23 @@ public partial class SettingsViewModel : ObservableObject
     private static AiErrorContext LocalAiContext(string operation) =>
         AiErrorContext.For(AiProviderKind.Ollama, operation);
 
+    /// <summary>Command handler for dismiss local ai feedback actions triggered from the view.</summary>
     [RelayCommand]
     private void DismissLocalAiFeedback() => LocalAiFeedback = AiFeedback.None;
 
+    /// <summary>Command handler for dismiss provider feedback actions triggered from the view.</summary>
     [RelayCommand]
     private void DismissProviderFeedback() => ProviderFeedback = AiFeedback.None;
 
+    /// <summary>Command handler for copy local ai feedback details actions triggered from the view.</summary>
     [RelayCommand]
     private void CopyLocalAiFeedbackDetails() => CopyFeedbackDetails(LocalAiFeedback);
 
+    /// <summary>Command handler for copy provider feedback details actions triggered from the view.</summary>
     [RelayCommand]
     private void CopyProviderFeedbackDetails() => CopyFeedbackDetails(ProviderFeedback);
 
+    /// <summary>Helper for the copy feedback details workflow in this view model.</summary>
     private static void CopyFeedbackDetails(AiFeedback feedback)
     {
         if (!feedback.HasTechnicalDetails)
@@ -322,8 +370,10 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Bindable state for git hub copilot models used by the view.</summary>
     public ObservableCollection<AiModelOption> GitHubCopilotModels { get; } = new() { new AiModelOption("auto", "auto") };
 
+    /// <summary>Bindable state for ollama models used by the view.</summary>
     public ObservableCollection<AiModelOption> OllamaModels { get; } = new();
 
     /// <summary>
@@ -332,6 +382,7 @@ public partial class SettingsViewModel : ObservableObject
     /// </summary>
     public ObservableCollection<string> OpenAiModels { get; } = new();
 
+    /// <summary>Bindable state for assistant tool permissions used by the view.</summary>
     public ObservableCollection<AssistantToolPermissionGroup> AssistantToolPermissions { get; }
 
     /// <summary>
@@ -451,6 +502,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the build assistant tool permissions workflow in this view model.</summary>
     private ObservableCollection<AssistantToolPermissionGroup> BuildAssistantToolPermissions()
     {
         var groups = new ObservableCollection<AssistantToolPermissionGroup>();
@@ -474,6 +526,7 @@ public partial class SettingsViewModel : ObservableObject
         return groups;
     }
 
+    /// <summary>Creates the Settings view model and stores its injected services.</summary>
     public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger, FoundryLocalSettingsViewModel foundryLocal)
     {
         FoundryLocal = foundryLocal;
@@ -529,78 +582,91 @@ public partial class SettingsViewModel : ObservableObject
         };
     }
 
+    /// <summary>Handles wslc path changed changes and updates related view-model state.</summary>
     partial void OnWslcPathChanged(string value)
     {
         _settings.WslcPath = value;
         _settings.Save();
     }
 
+    /// <summary>Handles refresh interval seconds changed changes and updates related view-model state.</summary>
     partial void OnRefreshIntervalSecondsChanged(int value)
     {
         _settings.RefreshIntervalSeconds = Math.Clamp(value, AppConstants.RefreshIntervalMinSeconds, AppConstants.RefreshIntervalMaxSeconds);
         _settings.Save();
     }
 
+    /// <summary>Handles close to tray changed changes and updates related view-model state.</summary>
     partial void OnCloseToTrayChanged(bool value)
     {
         _settings.CloseToTray = value;
         _settings.Save();
     }
 
+    /// <summary>Handles start minimized changed changes and updates related view-model state.</summary>
     partial void OnStartMinimizedChanged(bool value)
     {
         _settings.StartMinimized = value;
         _settings.Save();
     }
 
+    /// <summary>Handles restart running containers on launch changed changes and updates related view-model state.</summary>
     partial void OnRestartRunningContainersOnLaunchChanged(bool value)
     {
         _settings.RestartRunningContainersOnLaunch = value;
         _settings.Save();
     }
 
+    /// <summary>Handles notifications enabled changed changes and updates related view-model state.</summary>
     partial void OnNotificationsEnabledChanged(bool value)
     {
         _settings.NotificationsEnabled = value;
         _settings.Save();
     }
 
+    /// <summary>Handles notify image events changed changes and updates related view-model state.</summary>
     partial void OnNotifyImageEventsChanged(bool value)
     {
         _settings.NotifyImageEvents = value;
         _settings.Save();
     }
 
+    /// <summary>Handles notify container events changed changes and updates related view-model state.</summary>
     partial void OnNotifyContainerEventsChanged(bool value)
     {
         _settings.NotifyContainerEvents = value;
         _settings.Save();
     }
 
+    /// <summary>Handles notify engine events changed changes and updates related view-model state.</summary>
     partial void OnNotifyEngineEventsChanged(bool value)
     {
         _settings.NotifyEngineEvents = value;
         _settings.Save();
     }
 
+    /// <summary>Handles check for updates on launch changed changes and updates related view-model state.</summary>
     partial void OnCheckForUpdatesOnLaunchChanged(bool value)
     {
         _settings.CheckForUpdatesOnLaunch = value;
         _settings.Save();
     }
 
+    /// <summary>Handles dev container npm registry changed changes and updates related view-model state.</summary>
     partial void OnDevContainerNpmRegistryChanged(string value)
     {
         _settings.DevContainerNpmRegistry = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         _settings.Save();
     }
 
+    /// <summary>Handles ai features enabled changed changes and updates related view-model state.</summary>
     partial void OnAiFeaturesEnabledChanged(bool value)
     {
         _settings.AiFeaturesEnabled = value;
         _settings.Save();
     }
 
+    /// <summary>Handles selected ai provider index changed changes and updates related view-model state.</summary>
     partial void OnSelectedAiProviderIndexChanged(int value)
     {
         _settings.AiProvider = Enum.IsDefined(typeof(AiProviderKind), value)
@@ -619,12 +685,14 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Handles ai ollama endpoint changed changes and updates related view-model state.</summary>
     partial void OnAiOllamaEndpointChanged(string value)
     {
         _settings.AiOllamaEndpoint = value;
         _settings.Save();
     }
 
+    /// <summary>Handles ai ollama model changed changes and updates related view-model state.</summary>
     partial void OnAiOllamaModelChanged(string value)
     {
         if (_suppressAiOllamaModelWrite)
@@ -636,30 +704,35 @@ public partial class SettingsViewModel : ObservableObject
         _settings.Save();
     }
 
+    /// <summary>Handles ai azure open ai endpoint changed changes and updates related view-model state.</summary>
     partial void OnAiAzureOpenAiEndpointChanged(string value)
     {
         _settings.AiAzureOpenAiEndpoint = value;
         _settings.Save();
     }
 
+    /// <summary>Handles ai azure open ai deployment changed changes and updates related view-model state.</summary>
     partial void OnAiAzureOpenAiDeploymentChanged(string value)
     {
         _settings.AiAzureOpenAiDeployment = value;
         _settings.Save();
     }
 
+    /// <summary>Handles ai open ai endpoint changed changes and updates related view-model state.</summary>
     partial void OnAiOpenAiEndpointChanged(string value)
     {
         _settings.AiOpenAiEndpoint = value;
         _settings.Save();
     }
 
+    /// <summary>Handles ai open ai model changed changes and updates related view-model state.</summary>
     partial void OnAiOpenAiModelChanged(string value)
     {
         _settings.AiOpenAiModel = value;
         _settings.Save();
     }
 
+    /// <summary>Handles ai git hub copilot model changed changes and updates related view-model state.</summary>
     partial void OnAiGitHubCopilotModelChanged(string value)
     {
         if (_suppressAiModelWrite)
@@ -678,6 +751,7 @@ public partial class SettingsViewModel : ObservableObject
         _settings.Save();
     }
 
+    /// <summary>Provides the save ai api key operation to views or collaborating view models.</summary>
     public void SaveAiApiKey(string secret)
     {
         if (_settings.AiProvider is not (AiProviderKind.AzureOpenAi or AiProviderKind.OpenAi) || string.IsNullOrWhiteSpace(secret))
@@ -694,6 +768,7 @@ public partial class SettingsViewModel : ObservableObject
             $"Saved {_settings.AiProvider.DisplayName()} credential in Windows Credential Manager.");
     }
 
+    /// <summary>Refreshes load stored ai secret indicator state for the view model.</summary>
     private void LoadStoredAiSecretIndicator()
     {
         AiApiKey = string.Empty;
@@ -735,6 +810,7 @@ public partial class SettingsViewModel : ObservableObject
             : AiFeedback.Warning(_settings.AiProvider.DisplayName(), "No credential is saved for the selected provider.");
     }
 
+    /// <summary>Handles run at login changed changes and updates related view-model state.</summary>
     partial void OnRunAtLoginChanged(bool value)
     {
         if (_suppressStartupWrite)
@@ -745,6 +821,7 @@ public partial class SettingsViewModel : ObservableObject
         _ = ApplyRunAtLoginAsync(value);
     }
 
+    /// <summary>Applies apply run at login state to bindable properties.</summary>
     private async Task ApplyRunAtLoginAsync(bool value)
     {
         var result = await _startup.SetEnabledAsync(value);
@@ -804,6 +881,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the set run at login silently workflow in this view model.</summary>
     private void SetRunAtLoginSilently(bool value)
     {
         _suppressStartupWrite = true;
@@ -811,6 +889,7 @@ public partial class SettingsViewModel : ObservableObject
         _suppressStartupWrite = false;
     }
 
+    /// <summary>Handles selected theme index changed changes and updates related view-model state.</summary>
     partial void OnSelectedThemeIndexChanged(int value)
     {
         _settings.Theme = value switch
@@ -849,6 +928,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for test connection actions triggered from the view.</summary>
     [RelayCommand]
     private async Task TestConnectionAsync()
     {
@@ -874,6 +954,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Bindable state for ai capability status used by the view.</summary>
     public string AiCapabilityStatus => _aiAvailability.Observation?.StatusText
         ?? "Enable AI and choose a provider. Capability observations are unknown until checked.";
 
@@ -897,6 +978,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for test ai provider actions triggered from the view.</summary>
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task TestAiProviderAsync(CancellationToken ct)
     {
@@ -925,6 +1007,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for sign in git hub copilot actions triggered from the view.</summary>
     [RelayCommand]
     private void SignInGitHubCopilot()
     {
@@ -933,9 +1016,11 @@ public partial class SettingsViewModel : ObservableObject
             "GitHub Copilot uses your logged-in Copilot CLI account. Run `copilot login` outside the app if you need to sign in.");
     }
 
+    /// <summary>Command handler for refresh git hub copilot models actions triggered from the view.</summary>
     [RelayCommand]
     private async Task RefreshGitHubCopilotModelsAsync() => await LoadGitHubCopilotModelsAsync();
 
+    /// <summary>Refreshes load git hub copilot models state for the view model.</summary>
     public async Task LoadGitHubCopilotModelsAsync()
     {
         if (CurrentAiProvider != AiProviderKind.GitHubCopilot)
@@ -991,6 +1076,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the seed github copilot models workflow in this view model.</summary>
     private void SeedGitHubCopilotModels(string persisted)
     {
         ReplaceGitHubCopilotModels([
@@ -1002,6 +1088,7 @@ public partial class SettingsViewModel : ObservableObject
         ReapplyGitHubCopilotModel(persisted);
     }
 
+    /// <summary>Helper for the ensure github copilot model option workflow in this view model.</summary>
     private void EnsureGitHubCopilotModelOption(string id)
     {
         if (string.IsNullOrWhiteSpace(id)
@@ -1013,6 +1100,7 @@ public partial class SettingsViewModel : ObservableObject
         GitHubCopilotModels.Add(new AiModelOption(id, $"{id} (configured)"));
     }
 
+    /// <summary>Helper for the reapply github copilot model workflow in this view model.</summary>
     private void ReapplyGitHubCopilotModel(string model)
     {
         var value = string.IsNullOrWhiteSpace(model) ? "auto" : model;
@@ -1023,6 +1111,7 @@ public partial class SettingsViewModel : ObservableObject
         AiGitHubCopilotModel = value;
     }
 
+    /// <summary>Helper for the replace github copilot models workflow in this view model.</summary>
     private void ReplaceGitHubCopilotModels(IEnumerable<AiModelOption> models)
     {
         _suppressAiModelWrite = true;
@@ -1043,6 +1132,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the ensure option workflow in this view model.</summary>
     private static void EnsureOption(List<AiModelOption> options, string id, string displayName)
     {
         if (!options.Any(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase)))
@@ -1051,11 +1141,14 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Returns whether the can run ollama command command can run now.</summary>
     private bool CanRunOllamaCommand() => !IsOllamaBusy;
 
+    /// <summary>Command handler for refresh ollama models actions triggered from the view.</summary>
     [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
     private async Task RefreshOllamaModelsAsync() => await LoadOllamaModelsAsync();
 
+    /// <summary>Refreshes load ollama models state for the view model.</summary>
     public async Task LoadOllamaModelsAsync()
     {
         if (CurrentAiProvider != AiProviderKind.Ollama)
@@ -1089,6 +1182,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for refresh open ai models actions triggered from the view.</summary>
     [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
     private async Task RefreshOpenAiModelsAsync() => await LoadOpenAiModelsAsync();
 
@@ -1162,6 +1256,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the replace openai models workflow in this view model.</summary>
     private void ReplaceOpenAiModels(IEnumerable<string> ids, string persisted)
     {
         var ordered = ids
@@ -1189,6 +1284,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for pull ollama model actions triggered from the view.</summary>
     [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
     private async Task PullOllamaModelAsync()
     {
@@ -1316,6 +1412,7 @@ public partial class SettingsViewModel : ObservableObject
         return false;
     }
 
+    /// <summary>Command handler for set up local ai actions triggered from the view.</summary>
     [RelayCommand(CanExecute = nameof(CanRunOllamaCommand), IncludeCancelCommand = true)]
     private async Task SetUpLocalAiAsync(CancellationToken ct)
     {
@@ -1463,6 +1560,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for remove local ai actions triggered from the view.</summary>
     [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
     private async Task RemoveLocalAiAsync()
     {
@@ -1536,6 +1634,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the is ollama healthy workflow in this view model.</summary>
     private async Task<bool> IsOllamaHealthyAsync(Uri endpoint, CancellationToken ct)
     {
         try
@@ -1559,6 +1658,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the wait for ollama ready workflow in this view model.</summary>
     private async Task<bool> WaitForOllamaReadyAsync(Uri endpoint, TimeSpan timeout, CancellationToken ct)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -1578,6 +1678,7 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the read installed ollama models workflow in this view model.</summary>
     private async Task<IReadOnlyCollection<string>> ReadInstalledOllamaModelsAsync(Uri endpoint, CancellationToken ct)
     {
         using var response = await _http.GetAsync(new Uri(endpoint, "api/tags"), ct);
@@ -1607,6 +1708,7 @@ public partial class SettingsViewModel : ObservableObject
         return names;
     }
 
+    /// <summary>Helper for the replace ollama models workflow in this view model.</summary>
     private void ReplaceOllamaModels(IReadOnlyCollection<string> names, string persisted)
     {
         _suppressAiOllamaModelWrite = true;
@@ -1641,12 +1743,14 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the normalize ollama endpoint workflow in this view model.</summary>
     private static Uri NormalizeOllamaEndpoint(string? value)
     {
         var text = string.IsNullOrWhiteSpace(value) ? "http://localhost:11434" : value.Trim();
         return new Uri(text.EndsWith('/') ? text : text + "/", UriKind.Absolute);
     }
 
+    /// <summary>Helper for the format bytes workflow in this view model.</summary>
     private static string FormatBytes(long bytes)
     {
         string[] units = ["B", "KB", "MB", "GB", "TB"];
@@ -1661,6 +1765,7 @@ public partial class SettingsViewModel : ObservableObject
         return $"{size:0.#} {units[unit]}";
     }
 
+    /// <summary>Refreshes load version state for the view model.</summary>
     public async Task LoadVersionAsync()
     {
         try
@@ -1674,7 +1779,9 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Refreshes load ai secret state state for the view model.</summary>
     public void LoadAiSecretState() => LoadStoredAiSecretIndicator();
 }
 
+/// <summary>Defines the AiModelOption type used by WSL Container Desktop.</summary>
 public sealed record AiModelOption(string Id, string DisplayName);

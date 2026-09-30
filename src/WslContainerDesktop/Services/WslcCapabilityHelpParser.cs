@@ -18,10 +18,18 @@ using System.Text.RegularExpressions;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Extracts advertised subcommands or options from <c>wslc --help</c> output so optional engine
+/// features are enabled only when the current CLI proves they exist.
+/// </summary>
 internal static class WslcCapabilityHelpParser
 {
+    /// <summary>Bound for help-output regular expressions so malformed text cannot hang startup.</summary>
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
 
+    /// <summary>
+    /// Returns parsed command/option names, or null when the help text is missing, truncated or ambiguous.
+    /// </summary>
     internal static HashSet<string>? ReadEntries(string text, string command, bool options)
     {
         // A successful exit alone is not evidence: some CLIs return root help for unknown commands.

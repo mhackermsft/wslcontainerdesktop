@@ -21,15 +21,28 @@ namespace WslContainerDesktop.Models;
 /// <summary>Strict inspect data for ownership and endpoint reconciliation; unknown is not empty.</summary>
 public sealed class ContainerNetworkState
 {
+    /// <summary>Gets or sets the id.</summary>
     public string Id { get; private init; } = string.Empty;
+    /// <summary>Gets the labels.</summary>
     public Dictionary<string, string> Labels { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets the networks.</summary>
     public Dictionary<string, NetworkAttachment> Networks { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Checks whether this value has label.</summary>
+    /// <param name="key">The key value supplied by the caller.</param>
+    /// <param name="value">The value value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public bool HasLabel(string key, string value) => Labels.TryGetValue(key, out var actual) && actual == value;
 
+    /// <summary>Checks whether this value is owned by.</summary>
+    /// <param name="project">The project value supplied by the caller.</param>
+    /// <param name="service">The service value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public bool IsOwnedBy(ComposeProject project, ComposeService service) =>
         HasLabel(ComposeProject.ProjectLabel, project.Name) && HasLabel(ComposeProject.ServiceLabel, service.Name);
 
+    /// <summary>Performs the require compatible helper used by this model or dialog.</summary>
+    /// <param name="desired">The desired value supplied by the caller.</param>
     public void RequireCompatible(NetworkAttachment desired)
     {
         if (!Networks.TryGetValue(desired.Network, out var actual))
@@ -45,6 +58,9 @@ public sealed class ContainerNetworkState
         }
     }
 
+    /// <summary>Parses input into parse data used by the app.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static ContainerNetworkState Parse(string json)
     {
         using var document = JsonDocument.Parse(json);

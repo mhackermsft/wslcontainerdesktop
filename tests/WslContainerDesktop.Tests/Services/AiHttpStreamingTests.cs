@@ -23,6 +23,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers streaming AI provider transport behavior, including fragmented UTF-8, tool-call assembly, cancellation, limits, and secret redaction.</summary>
 public sealed class AiHttpStreamingTests
 {
     public static TheoryData<AiProviderKind> Providers => new()
@@ -559,6 +560,7 @@ public sealed class AiHttpStreamingTests
         Assert.DoesNotContain(progress, p => p.Kind == AiChatProgressKind.TextDelta);
     }
 
+    /// <summary>Supplies fixed AI capability evidence so streaming tests can choose a provider path without probing a real runtime.</summary>
     private sealed class StreamingCapabilities(AiSupport support) : IAiCapabilityService
     {
         internal AiSupport Support { get; set; } = support;
@@ -574,6 +576,7 @@ public sealed class AiHttpStreamingTests
         public event EventHandler? Changed { add { } remove { } }
     }
 
+    /// <summary>Feeds controlled HTTP response streams to exercise streaming parsers without contacting an external AI service.</summary>
     private sealed class StreamingHandler(params FragmentStream[] streams) : HttpMessageHandler
     {
         internal int Count { get; private set; }
@@ -590,6 +593,7 @@ public sealed class AiHttpStreamingTests
         }
     }
 
+    /// <summary>Returns response bytes in small chunks so tests cover split JSON, SSE, and UTF-8 boundaries.</summary>
     private sealed class FragmentStream(string text, int fragmentSize = 4096) : Stream
     {
         private readonly byte[] _bytes = Encoding.UTF8.GetBytes(text);

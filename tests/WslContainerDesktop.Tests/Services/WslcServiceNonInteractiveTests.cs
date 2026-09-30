@@ -29,20 +29,19 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
 
     public void Dispose() => _stub.Dispose();
 
-    public static TheoryData<string, WslcFeature, string> Prunes => new()
+    public static TheoryData<string, string> Prunes => new()
     {
-        { nameof(IWslcService.PruneContainersAsync), WslcFeature.ContainerPruneForce, "container prune" },
-        { nameof(IWslcService.PruneImagesAsync), WslcFeature.ImagePruneForce, "image prune" },
-        { nameof(IWslcService.PruneVolumesAsync), WslcFeature.VolumePruneForce, "volume prune --all" },
-        { nameof(IWslcService.PruneNetworksAsync), WslcFeature.NetworkPruneForce, "network prune" },
+        { nameof(IWslcService.PruneContainersAsync), "container prune" },
+        { nameof(IWslcService.PruneImagesAsync), "image prune" },
+        { nameof(IWslcService.PruneVolumesAsync), "volume prune --all" },
+        { nameof(IWslcService.PruneNetworksAsync), "network prune" },
     };
 
     [Theory]
     [MemberData(nameof(Prunes))]
-    public async Task Prune_OnAPromptingEngine_PassesForceAndActuallyPrunes(string method, WslcFeature feature, string command)
+    public async Task Prune_OnAPromptingEngine_PassesForceAndActuallyPrunes(string method, string command)
     {
-        // The issue #120 engine: without --force this stub waits for [y/N] like WSLC 2.9.12+.
-        var service = Service(_stub.Prompt, feature, WslcCapabilitySupport.Supported);
+        var service = Service(_stub.Prompt);
 
         var result = await Prune(service, method);
 
@@ -51,69 +50,10 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
         Assert.Equal([command + " --force"], _stub.Invocations(_stub.Prompt));
     }
 
-    [Theory]
-    [MemberData(nameof(Prunes))]
-    public async Task Prune_OnALegacyEngine_RunsTheUnchangedCommand(string method, WslcFeature feature, string command)
-    {
-        var service = Service(_stub.Quiet, feature, WslcCapabilitySupport.Unsupported);
-
-        var result = await Prune(service, method);
-
-        Assert.True(result.Success, result.ErrorText);
-        Assert.Equal([command], _stub.Invocations(_stub.Quiet));
-    }
-
-    [Theory]
-    [MemberData(nameof(Prunes))]
-    public async Task Prune_WithUnknownSupport_LaunchesNothingAndExplainsWhy(string method, WslcFeature feature, string command)
-    {
-        _ = command;
-        var service = Service(_stub.Quiet, feature, WslcCapabilitySupport.Unknown, "help probe timed out");
-
-        var result = await Prune(service, method);
-
-        Assert.False(result.Success);
-        Assert.Contains("Nothing was pruned", result.StandardError);
-        Assert.Contains("help probe timed out", result.StandardError);
-        Assert.Empty(_stub.Invocations(_stub.Quiet));
-    }
-
-    [Theory]
-    [MemberData(nameof(Prunes))]
-    public async Task Prune_WhenTheEnginePromptsAnyway_FailsInsteadOfHangingOrFakingSuccess(
-        string method, WslcFeature feature, string command)
-    {
-        // An engine whose help omits --force but still prompts: stdin must be closed, and the
-        // declined prompt (exit 0) must not be reported as a successful prune.
-        var service = Service(_stub.Prompt, feature, WslcCapabilitySupport.Unsupported);
-
-        var result = await Prune(service, method);
-
-        Assert.False(result.Success);
-        Assert.Contains("DECLINED", result.StandardOutput);
-        Assert.Contains("asked for confirmation", result.StandardError);
-        Assert.Equal([command], _stub.Invocations(_stub.Prompt));
-    }
-
-    [Fact]
-    public async Task Prune_UsesTheCapabilitySnapshotsEngine_NotAStaleSettingsPath()
-    {
-        // The --force decision was made for the snapshot's engine; running another engine could mismatch.
-        var service = Service(_stub.Quiet, WslcFeature.ContainerPruneForce, WslcCapabilitySupport.Supported,
-            settingsPath: _stub.Fail);
-
-        var result = await service.PruneContainersAsync().WaitAsync(Guard);
-
-        Assert.True(result.Success, result.ErrorText);
-        Assert.Equal(["container prune --force"], _stub.Invocations(_stub.Quiet));
-        Assert.Empty(_stub.Invocations(_stub.Fail));
-    }
-
     [Fact]
     public async Task Deletes_RunNonInteractively_SoAnUnexpectedPromptFailsFast()
     {
-        var service = Service(_stub.Prompt, WslcFeature.ContainerPruneForce, WslcCapabilitySupport.Supported,
-            settingsPath: _stub.Prompt);
+        var service = Service(_stub.Prompt);
 
         // force: false so the stub (like wslc) has no --force to skip its prompt on.
         var results = new[]
@@ -136,8 +76,7 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
     [Fact]
     public async Task Deletes_KeepTheirArgumentsAndSucceedOnANonPromptingEngine()
     {
-        var service = Service(_stub.Quiet, WslcFeature.ContainerPruneForce, WslcCapabilitySupport.Supported,
-            settingsPath: _stub.Quiet);
+        var service = Service(_stub.Quiet);
 
         Assert.True((await service.RemoveContainerAsync("web").WaitAsync(Guard)).Success);
         Assert.True((await service.RemoveImageAsync("nginx:alpine").WaitAsync(Guard)).Success);
@@ -152,8 +91,7 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
     [Fact]
     public async Task Run_InteractiveInTheForeground_IsRefusedWithoutLaunching()
     {
-        var service = Service(_stub.Quiet, WslcFeature.ContainerPruneForce, WslcCapabilitySupport.Supported,
-            settingsPath: _stub.Quiet);
+        var service = Service(_stub.Quiet);
 
         var result = await service.RunContainerAsync(new RunContainerOptions
         {
@@ -171,8 +109,7 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
     [InlineData(false, false, "run ubuntu bash")]
     public async Task Run_EveryOtherCombination_IsUnchanged(bool detached, bool interactive, string expected)
     {
-        var service = Service(_stub.Quiet, WslcFeature.ContainerPruneForce, WslcCapabilitySupport.Supported,
-            settingsPath: _stub.Quiet);
+        var service = Service(_stub.Quiet);
 
         var result = await service.RunContainerAsync(new RunContainerOptions
         {
@@ -183,13 +120,105 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
         Assert.Equal([expected], _stub.Invocations(_stub.Quiet));
     }
 
+    [Fact]
+    public async Task Restart_UsesNativeRestartWithTimeoutAndSignal()
+    {
+        var service = Service(_stub.Quiet);
+
+        var result = await service.RestartContainerAsync("web", 10, "SIGQUIT").WaitAsync(Guard);
+
+        Assert.True(result.Success, result.ErrorText);
+        Assert.Equal(["restart -t 10 -s SIGQUIT web"], _stub.Invocations(_stub.Quiet));
+    }
+
+    [Fact]
+    public async Task PullAndPush_AllTags_BuildDockerParityArguments()
+    {
+        var service = Service(_stub.Quiet);
+
+        // WSLC 3.0.1 rejects a tag with --all-tags for both pull and push, so the tag is stripped.
+        Assert.True((await service.PullImageAsync("ghcr.io/owner/app:1", allTags: true).WaitAsync(Guard)).Success);
+        Assert.True((await service.PullImageAsync("localhost:5000/team/app@sha256:abc", _ => { }, allTags: true).WaitAsync(Guard)).Success);
+        Assert.True((await service.PushImageAsync("ghcr.io/owner/app:1", allTags: true).WaitAsync(Guard)).Success);
+        Assert.True((await service.PullImageAsync("localhost:5000/team/app:2").WaitAsync(Guard)).Success);
+
+        Assert.Equal(
+            ["pull --all-tags ghcr.io/owner/app", "pull --all-tags localhost:5000/team/app", "push --all-tags ghcr.io/owner/app",
+             "pull localhost:5000/team/app:2"],
+            _stub.Invocations(_stub.Quiet));
+    }
+
+    [Fact]
+    public async Task SaveLoadImportExport_UseNativeArguments()
+    {
+        var service = Service(_stub.Quiet);
+
+        Assert.True((await service.SaveImagesAsync(["app:1", "app:2"], @"C:\temp\images.tar").WaitAsync(Guard)).Success);
+        Assert.True((await service.LoadImageAsync(@"C:\temp\images.tar").WaitAsync(Guard)).Success);
+        Assert.True((await service.ImportImageAsync(@"C:\temp\rootfs.tar", "localhost/imported:latest").WaitAsync(Guard)).Success);
+        Assert.True((await service.ExportContainerAsync("web", @"C:\temp\web.tar").WaitAsync(Guard)).Success);
+
+        Assert.Equal([
+            @"save --output C:\temp\images.tar app:1 app:2",
+            @"load --input C:\temp\images.tar --quiet",
+            @"import C:\temp\rootfs.tar localhost/imported:latest",
+            @"export --output C:\temp\web.tar web",
+        ], _stub.Invocations(_stub.Quiet));
+    }
+
+    [Fact]
+    public async Task LogsInspectAndListSize_UseRequestedFlags()
+    {
+        var service = Service(_stub.Json);
+
+        await service.ListContainersAsync(all: true, includeSize: true).WaitAsync(Guard);
+        await service.ListImagesAsync(showAll: true).WaitAsync(Guard);
+
+        var quietService = Service(_stub.Quiet);
+        Assert.True((await quietService.GetLogsAsync("web", 42, details: true, timestamps: true).WaitAsync(Guard)).Success);
+        Assert.True((await quietService.InspectContainerAsync("web", includeSize: true).WaitAsync(Guard)).Success);
+
+        Assert.Equal(["list --format json --all --size", "images --digests --format json --all"],
+            _stub.Invocations(_stub.Json));
+        Assert.Equal(["logs --details --timestamps --tail 42 web", "inspect --type container --size web"],
+            _stub.Invocations(_stub.Quiet));
+    }
+
+    [Fact]
+    public void StripTag_KeepsRegistryPorts()
+    {
+        Assert.Equal("localhost:5000/team/app", WslcService.StripTag("localhost:5000/team/app:1.0"));
+        Assert.Equal("ghcr.io/team/app", WslcService.StripTag("ghcr.io/team/app@sha256:abc"));
+        Assert.Equal("ubuntu", WslcService.StripTag("ubuntu"));
+    }
+
+    [Fact]
+    public async Task CreateNetwork_EmitsDriverOptionsLabelsAndInternal()
+    {
+        var service = Service(_stub.Quiet);
+
+        var result = await service.CreateNetworkAsync(
+            "app-net",
+            "bridge",
+            ["com.example.mode=fast"],
+            new Dictionary<string, string> { ["com.example.owner"] = "tests" },
+            subnet: "172.28.0.0/24",
+            gateway: "172.28.0.1",
+            ipRange: "172.28.0.128/25",
+            internalNetwork: true).WaitAsync(Guard);
+
+        Assert.True(result.Success, result.ErrorText);
+        Assert.Equal(
+            ["network create --driver bridge --opt com.example.mode=fast --label com.example.owner=tests --internal --subnet 172.28.0.0/24 --gateway 172.28.0.1 --ip-range 172.28.0.128/25 app-net"],
+            _stub.Invocations(_stub.Quiet));
+    }
+
     [Theory]
     [InlineData("-")]
     [InlineData(" - ")]
     public async Task Build_WithStdinDockerfile_IsRefusedWithoutLaunching(string dockerfile)
     {
-        var service = Service(_stub.Quiet, WslcFeature.ContainerPruneForce, WslcCapabilitySupport.Supported,
-            settingsPath: _stub.Quiet);
+        var service = Service(_stub.Quiet);
 
         var result = await service.BuildImageAsync("ctx", "app:1", dockerfile).WaitAsync(Guard);
 
@@ -204,8 +233,7 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
     [InlineData("docker/-", "build -t app:1 -f docker/- ctx")]
     public async Task Build_WithADockerfilePath_IsUnchanged(string? dockerfile, string expected)
     {
-        var service = Service(_stub.Quiet, WslcFeature.ContainerPruneForce, WslcCapabilitySupport.Supported,
-            settingsPath: _stub.Quiet);
+        var service = Service(_stub.Quiet);
 
         var result = await service.BuildImageAsync("ctx", "app:1", dockerfile).WaitAsync(Guard);
 
@@ -223,6 +251,63 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
     public void IsStdinDockerfile_MatchesOnlyTheBareDash(string? dockerfile, bool expected) =>
         Assert.Equal(expected, WslcService.IsStdinDockerfile(dockerfile));
 
+    [Theory]
+    [InlineData(nameof(IWslcService.PullImageAsync))]
+    [InlineData(nameof(IWslcService.PushImageAsync))]
+    [InlineData(nameof(IWslcService.RunContainerAsync))]
+    public async Task RegistryAllowlist_BlocksRegistryMutationsBeforeLaunch(string method)
+    {
+        var policy = new StaticPolicy(new WslRegistryAllowlist(WslRegistryAllowlistState.Configured, ["ghcr.io"]));
+        var service = Service(_stub.Quiet, policy: policy);
+
+        var result = method switch
+        {
+            nameof(IWslcService.PullImageAsync) => await service.PullImageAsync("docker.io/library/nginx"),
+            nameof(IWslcService.PushImageAsync) => await service.PushImageAsync("docker.io/library/nginx"),
+            nameof(IWslcService.RunContainerAsync) => await service.RunContainerAsync(new RunContainerOptions
+            {
+                Image = "docker.io/library/nginx",
+            }),
+            _ => throw new ArgumentOutOfRangeException(nameof(method)),
+        };
+
+        Assert.False(result.Success);
+        Assert.Contains("not on your organization's approved registry list", result.ErrorText);
+        Assert.Empty(_stub.Invocations(_stub.Quiet));
+    }
+
+    [Fact]
+    public async Task Build_WhenAllowlistConfigured_IsRefusedBeforeLaunch()
+    {
+        var policy = new StaticPolicy(new WslRegistryAllowlist(WslRegistryAllowlistState.Configured, ["ghcr.io"]));
+        var service = Service(_stub.Quiet, policy: policy);
+
+        var result = await service.BuildImageAsync("ctx", "ghcr.io/owner/app:1", null).WaitAsync(Guard);
+
+        Assert.False(result.Success);
+        Assert.Equal(WslRegistryPolicyGuard.BuildBlockedMessage, result.ErrorText);
+        Assert.Empty(_stub.Invocations(_stub.Quiet));
+    }
+
+    [Fact]
+    public async Task RegistryAllowlist_DoesNotBlockLocalImageArchiveOperations()
+    {
+        var policy = new StaticPolicy(new WslRegistryAllowlist(WslRegistryAllowlistState.Configured, ["ghcr.io"]));
+        var service = Service(_stub.Quiet, policy: policy);
+
+        Assert.True((await service.SaveImagesAsync(["docker.io/library/nginx:local"], @"C:\temp\images.tar").WaitAsync(Guard)).Success);
+        Assert.True((await service.LoadImageAsync(@"C:\temp\images.tar").WaitAsync(Guard)).Success);
+        Assert.True((await service.ImportImageAsync(@"C:\temp\rootfs.tar", "docker.io/library/imported:local").WaitAsync(Guard)).Success);
+        Assert.True((await service.TagImageAsync("sha256:abc", "docker.io/library/retagged:local").WaitAsync(Guard)).Success);
+
+        Assert.Equal([
+            @"save --output C:\temp\images.tar docker.io/library/nginx:local",
+            @"load --input C:\temp\images.tar --quiet",
+            @"import C:\temp\rootfs.tar docker.io/library/imported:local",
+            "tag sha256:abc docker.io/library/retagged:local",
+        ], _stub.Invocations(_stub.Quiet));
+    }
+
     private static Task<CommandResult> Prune(IWslcService service, string method) => (method switch
     {
         nameof(IWslcService.PruneContainersAsync) => service.PruneContainersAsync(),
@@ -232,14 +317,9 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(method)),
     }).WaitAsync(Guard);
 
-    private static WslcService Service(string engine, WslcFeature feature, WslcCapabilitySupport support,
-        string? diagnostic = null, string? settingsPath = null)
+    private static WslcService Service(string engine, string? settingsPath = null, IWslPolicyService? policy = null)
     {
-        var features = new Dictionary<WslcFeature, WslcCapability>
-        {
-            [feature] = new(support, support == WslcCapabilitySupport.Supported ? null : diagnostic ?? $"{feature} {support}"),
-        };
-        var snapshot = new WslcCapabilities(engine, "2.9.12.0", features);
+        var snapshot = new WslcCapabilities(engine, "3.0.1.0", new Dictionary<WslcFeature, WslcCapability>());
         var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) => method.Name switch
         {
             nameof(IWslcCapabilitiesService.GetAsync) => Task.FromResult(snapshot),
@@ -255,6 +335,14 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
             _ => throw new NotSupportedException(method.Name),
         });
         return new WslcService(new ProcessRunner(settings), NullLogger<WslcService>.Instance, capabilities, settings,
-            new RestartSuppressionState());
+            new RestartSuppressionState(), policy);
+    }
+
+    /// <summary>
+    /// Supplies a fixed registry allowlist so <c>WslcService</c> command tests can focus on argument generation.
+    /// </summary>
+    private sealed class StaticPolicy(WslRegistryAllowlist allowlist) : IWslPolicyService
+    {
+        public WslPolicySnapshot GetPolicy() => new(true, true, allowlist);
     }
 }

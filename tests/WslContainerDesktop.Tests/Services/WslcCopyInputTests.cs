@@ -20,6 +20,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers native copy command input construction so shell metacharacters stay environment data and unsafe delimiters are rejected.</summary>
 public sealed class WslcCopyInputTests
 {
     [Theory]
@@ -34,7 +35,7 @@ public sealed class WslcCopyInputTests
     {
         var executable = $@"C:\{component}\wslc.exe";
         var archive = $@"C:\{component}\payload.tar";
-        var info = WslcCopyInput.CreateStartInfo(executable, ["container", "cp", "-", "id:/"], archive);
+        var info = WslcCopyInput.CreateStartInfo(executable, ["container", "cp", "--quiet", "-", "id:/"], archive);
         var baseline = WslcCopyInput.CreateStartInfo(@"C:\wslc.exe", ["container", "cp", "-", "id:/"], @"C:\payload.tar");
         Assert.Equal(baseline.Arguments, info.Arguments);
         Assert.Equal(executable, info.Environment["WCD_CP_EXE"]);
@@ -64,6 +65,16 @@ public sealed class WslcCopyInputTests
     {
         Assert.Throws<ArgumentException>(() => WslcCopyInput.CreateStartInfo(
             @"C:\wslc.exe", ["exec", "id", "sh", "-c"], @"C:\input.tar"));
+    }
+
+    [Fact]
+    public void OptionalQuietFlagIsAcceptedForNativeCopy()
+    {
+        var info = WslcCopyInput.CreateStartInfo(
+            @"C:\wslc.exe", ["container", "cp", "--quiet", "-", "id:/"], @"C:\input.tar");
+
+        Assert.Equal("id:/", info.Environment["WCD_CP_TARGET"]);
+        Assert.Contains("container cp --quiet -", info.Arguments);
     }
 
     [Fact]

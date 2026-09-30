@@ -54,6 +54,10 @@ public enum AiFailureKind
 /// </summary>
 public sealed class AiProviderException : Exception
 {
+    /// <summary>
+    /// Creates a sanitized AI-provider failure. Pass only bounded response details; the constructor
+    /// applies a final sanitizer before storing values used by UI feedback.
+    /// </summary>
     public AiProviderException(
         AiProviderKind provider,
         string operation,
@@ -79,18 +83,23 @@ public sealed class AiProviderException : Exception
             : AiTextSanitizer.Sanitize(detail, 400);
     }
 
+    /// <summary>Provider whose request or configuration failed.</summary>
     public AiProviderKind Provider { get; }
 
     /// <summary>Short, friendly verb phrase for the attempted operation (e.g. "Refresh models",
     /// "Provider test", "Assistant chat"), used to build titles and technical details.</summary>
     public string Operation { get; }
 
+    /// <summary>Machine-readable class of failure used to choose friendly UI wording.</summary>
     public AiFailureKind Kind { get; }
 
+    /// <summary>HTTP status code when the provider returned one.</summary>
     public int? StatusCode { get; }
 
+    /// <summary>Sanitized endpoint involved in the request, when useful for troubleshooting.</summary>
     public string? Endpoint { get; }
 
+    /// <summary>Sanitized model or deployment name involved in the request.</summary>
     public string? ModelOrDeployment { get; }
 
     /// <summary>Bounded response detail with recognized secret fields/shapes masked.</summary>

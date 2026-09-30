@@ -34,7 +34,7 @@ public static class DockerRunParser
         "--name", "--network", "--net", "--network-alias", "--publish", "--env", "--env-file",
         "--volume", "--mount", "--workdir", "--user", "--hostname", "--entrypoint", "--gpus",
         "--label", "--cpus", "--memory", "--memory-swap", "--shm-size", "--stop-signal", "--dns",
-        "--dns-search", "--dns-option", "--tmpfs", "--ulimit", "--domainname", "--restart",
+        "--stop-timeout", "--dns-search", "--dns-option", "--tmpfs", "--ulimit", "--domainname", "--restart",
         "--platform", "--pull", "--add-host", "--cap-add", "--cap-drop", "--device", "--expose",
         "--health-cmd", "--label-file", "--log-driver", "--pid", "--ipc", "--userns",
     };
@@ -318,6 +318,18 @@ public static class DockerRunParser
             case "--stop-signal":
                 options.StopSignal = value;
                 break;
+            case "--stop-timeout":
+                if (int.TryParse(value, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var timeout) && timeout >= -1)
+                {
+                    options.StopTimeoutSeconds = timeout;
+                }
+                else
+                {
+                    warnings.Add($"'--stop-timeout {value}' is invalid; expected -1 or whole seconds. Skipped.");
+                }
+
+                break;
             case "--dns":
                 options.Dns.Add(value);
                 break;
@@ -337,7 +349,15 @@ public static class DockerRunParser
                 options.Domainname = value;
                 break;
             case "--mount":
-                warnings.Add("'--mount' isn't supported; use '-v source:destination' instead. Skipped.");
+                if (RunContainerMount.TryParse(value, out var mount, out var error))
+                {
+                    options.Mounts.Add(mount!);
+                }
+                else
+                {
+                    warnings.Add($"'--mount {value}' could not be imported: {error}");
+                }
+
                 break;
             case "--env-file":
                 warnings.Add($"'--env-file {value}' isn't read on import; add the variables manually. Skipped.");
@@ -450,11 +470,9 @@ public static class DockerRunParser
                             i++;
                         }
                     }
-                    else if (i + 1 < input.Length)
+                    else
                     {
-                        // Escaped character: keep the next char literally.
-                        sb.Append(input[i + 1]);
-                        i++;
+                        sb.Append(c);
                         inToken = true;
                     }
 

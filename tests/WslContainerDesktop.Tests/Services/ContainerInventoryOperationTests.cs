@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers inventory-wrapped operations so preflight and postflight container reads report failures without duplicating cleanup or hiding cancellation.</summary>
 public sealed class ContainerInventoryOperationTests
 {
     [Theory]

@@ -16,7 +16,9 @@
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Views.Controls;
 using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Dialogs;
@@ -49,6 +51,7 @@ public sealed class RunContainerDialog : ContentDialog
     private readonly CheckBox _removeOnExit;
     private readonly CheckBox _interactive;
     private readonly CheckBox _gpus;
+    private readonly TextBox _stopTimeoutBox;
     private readonly TextBlock _interactiveWarning;
 
     private readonly List<RunProfile> _profileItems = new();
@@ -63,8 +66,10 @@ public sealed class RunContainerDialog : ContentDialog
     private RunContainerOptions? _pendingPrefill;
     private IReadOnlyList<string>? _pendingWarnings;
 
+    /// <summary>Gets or sets the options.</summary>
     public RunContainerOptions? Options { get; private set; }
 
+    /// <summary>Creates the run dialog with services used to validate images, registries, and saved profiles.</summary>
     public RunContainerDialog(
         IWslcService wslc,
         IReadOnlyList<RegistryEntry> registries,
@@ -110,7 +115,7 @@ public sealed class RunContainerDialog : ContentDialog
 
         _networkBox = new ComboBox
         {
-            Header = "Network",
+            Header = InfoTip.Header("Network", FlagHelp.RunNetwork),
             IsEditable = true,
             MinWidth = 460,
             PlaceholderText = "Default (bridge)",
@@ -186,10 +191,16 @@ public sealed class RunContainerDialog : ContentDialog
             PlaceholderText = "sleep infinity",
         };
 
-        _detached = new CheckBox { Content = "Run in background (-d)", IsChecked = true };
-        _removeOnExit = new CheckBox { Content = "Remove when it exits (--rm)" };
-        _interactive = new CheckBox { Content = "Keep STDIN open (-i)" };
-        _gpus = new CheckBox { Content = "Pass all GPUs (--gpus all)" };
+        _detached = new CheckBox { Content = OptionLabel("Run in background (-d)", FlagHelp.RunDetach), IsChecked = true };
+        _removeOnExit = new CheckBox { Content = OptionLabel("Remove when it exits (--rm)", FlagHelp.RunRemove) };
+        _interactive = new CheckBox { Content = OptionLabel("Keep STDIN open (-i)", FlagHelp.RunInteractive) };
+        _gpus = new CheckBox { Content = OptionLabel("Pass all GPUs (--gpus all)", FlagHelp.RunGpus) };
+        _stopTimeoutBox = new TextBox
+        {
+            Header = InfoTip.Header("Stop timeout (seconds)", FlagHelp.RunStopTimeout),
+            PlaceholderText = "Engine default; -1 never kills",
+            MinWidth = 220,
+        };
 
         // 2x2 grid so long checkbox labels never clip on the dialog width.
         var toggles = new Grid { ColumnSpacing = 16, RowSpacing = 2 };
@@ -287,6 +298,7 @@ public sealed class RunContainerDialog : ContentDialog
                 _networkBox,
                 toggles,
                 _interactiveWarning,
+                _stopTimeoutBox,
                 _portsBox,
                 _envBox,
                 _volumesBox,
@@ -400,6 +412,7 @@ public sealed class RunContainerDialog : ContentDialog
         _interactive.IsChecked = options.Interactive;
         _gpus.IsChecked = options.AllGpus;
         _commandBox.Text = options.Command ?? string.Empty;
+        _stopTimeoutBox.Text = options.StopTimeoutSeconds?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
         _portsBox.Text = string.Join('\n', options.PortMappings);
         _envBox.Text = string.Join('\n', options.EnvironmentVariables);
         _volumesBox.Text = string.Join('\n', options.Volumes);
@@ -578,6 +591,12 @@ public sealed class RunContainerDialog : ContentDialog
         }
 
         var resolvedNetwork = ResolveNetwork();
+        if (!TryReadStopTimeout(out var stopTimeout))
+        {
+            _stopTimeoutBox.Focus(FocusState.Programmatic);
+            ShowProfileStatus("Stop timeout must be blank, -1, or a nonnegative whole number of seconds.");
+            return null;
+        }
 
         return new RunContainerOptions
         {
@@ -603,6 +622,7 @@ public sealed class RunContainerDialog : ContentDialog
             MemoryLimit = _appliedExtras?.MemoryLimit,
             ShmSize = _appliedExtras?.ShmSize,
             StopSignal = _appliedExtras?.StopSignal,
+            StopTimeoutSeconds = stopTimeout,
             Domainname = _appliedExtras?.Domainname,
 
             // Networks/Aliases are network-scoped; only keep them when a non-default network is
@@ -617,8 +637,29 @@ public sealed class RunContainerDialog : ContentDialog
             DnsOptions = new List<string>(_appliedExtras?.DnsOptions ?? new List<string>()),
             Tmpfs = new List<string>(_appliedExtras?.Tmpfs ?? new List<string>()),
             Ulimits = new List<string>(_appliedExtras?.Ulimits ?? new List<string>()),
+            Mounts = _appliedExtras?.Mounts.Select(m => m.Clone()).ToList() ?? new List<RunContainerMount>(),
             Labels = new Dictionary<string, string>(_appliedExtras?.Labels ?? new Dictionary<string, string>()),
         };
+    }
+
+    private bool TryReadStopTimeout(out int? value)
+    {
+        value = null;
+        var text = (_stopTimeoutBox.Text ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            value = _appliedExtras?.StopTimeoutSeconds;
+            return true;
+        }
+
+        if (!int.TryParse(text, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed) || parsed < -1)
+        {
+            return false;
+        }
+
+        value = parsed;
+        return true;
     }
 
     /// <summary>Returns the chosen network name, or null for the engine default bridge.</summary>
@@ -639,7 +680,11 @@ public sealed class RunContainerDialog : ContentDialog
         return value;
     }
 
+    // WinUI multi-line TextBoxes report line breaks as '\r'; accept '\r', '\n' and "\r\n".
     private static List<string> SplitLines(string text) =>
-        text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToList();
+
+    private static StackPanel OptionLabel(string label, FlagHelpEntry help) =>
+        InfoTip.Labeled(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center }, InfoTip.Create(help));
 }

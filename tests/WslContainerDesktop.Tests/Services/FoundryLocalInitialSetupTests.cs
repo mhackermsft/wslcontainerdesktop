@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers the approved Foundry Local first-run setup flow so file registration, runtime start/stop decisions, and invalidated approvals are safe.</summary>
 public sealed class FoundryLocalInitialSetupTests
 {
     private static readonly AiChatConfiguration Configuration = new(AiProviderKind.FoundryLocal,
@@ -112,6 +113,7 @@ public sealed class FoundryLocalInitialSetupTests
         Assert.DoesNotContain("server stop --output json", f.Commands);
     }
 
+    /// <summary>Fakes Foundry Local HTTP responses and staged files without starting a real model runtime.</summary>
     private sealed class Fixture : HttpMessageHandler
     {
         internal readonly string Root = Path.Combine(Path.GetTempPath(), "foundry-consent-" + Guid.NewGuid().ToString("N"));

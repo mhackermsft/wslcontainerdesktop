@@ -37,8 +37,13 @@ public sealed class HealthCheckDialog : ContentDialog
     private readonly StackPanel _commandPanel;
     private readonly StackPanel _portPanel;
 
+    /// <summary>Gets or sets the result.</summary>
     public HealthCheckConfig? Result { get; private set; }
 
+    /// <summary>Creates a new &lt;c&gt;HealthCheckDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="containerName">The container name value supplied by the caller.</param>
+    /// <param name="hostPorts">The host ports value supplied by the caller.</param>
+    /// <param name="existing">The existing value supplied by the caller.</param>
     public HealthCheckDialog(string containerName, IReadOnlyList<int> hostPorts, HealthCheckConfig? existing)
     {
         _containerName = containerName;

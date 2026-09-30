@@ -21,6 +21,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers the assistant toolset contract so argument validation, approval, redaction, container targeting, and partial failures stay safe.</summary>
 public sealed class AssistantToolsetContractTests
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
@@ -219,6 +220,7 @@ public sealed class AssistantToolsetContractTests
         yield return ["stop_container", """{"id":"app","id":"different"}"""];
         yield return ["stop_container", """{"Id":"app"}"""];
         yield return ["list_containers", """{"unexpected":true}"""];
+        yield return ["engine_system_info", """{"unexpected":true}"""];
         yield return ["get_k8s_logs", """{"name":"app","namespace":""}"""];
         yield return ["get_k8s_logs", """{"name":"app","namespace":null}"""];
         yield return ["restart_deployment", """{"name":"app","namespace":""}"""];
@@ -837,6 +839,7 @@ public sealed class AssistantToolsetContractTests
         CreatedAtKnown = true, StateValue = (int)ContainerState.Running,
     };
 
+    /// <summary>Hosts fake services and captured state for toolset tests that need realistic approval and mutation flows.</summary>
     private sealed class Fixture
     {
         public IReadOnlyList<ContainerInfo> Inventory { get; set; } = [Container("immutable-one", "app-one")];

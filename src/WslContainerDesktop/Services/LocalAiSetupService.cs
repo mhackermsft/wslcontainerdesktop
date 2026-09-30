@@ -22,23 +22,41 @@ using WslContainerDesktop.Models;
 namespace WslContainerDesktop.Services;
 
 /// <inheritdoc cref="ILocalAiSetupService"/>
-public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesService engineCapabilities,
+public sealed class LocalAiSetupService(IWslcService wslc,
     IAiCapabilityService aiCapabilities, ILogger<LocalAiSetupService> logger) : ILocalAiSetupService
 {
     private const string ImageReference = "ollama/ollama";
     private const string PullReference = "ollama/ollama:latest";
     private const string ManagedContainerName = "wslcd-ollama";
     private const string ModelVolumeName = "wslcd-ollama";
+    /// <summary>
+    /// Gets owner label for other services or view models.
+    /// </summary>
     internal const string OwnerLabel = "com.wslcontainerdesktop.managed";
+    /// <summary>
+    /// Gets operation label for other services or view models.
+    /// </summary>
     internal const string OperationLabel = "com.wslcontainerdesktop.local-ai.operation";
+    /// <summary>
+    /// Gets volume label for other services or view models.
+    /// </summary>
     internal const string VolumeLabel = "com.wslcontainerdesktop.local-ai.volume";
     private const int Port = 11434;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    /// <summary>
+    /// Gets container name for callers in the service or view-model layer.
+    /// </summary>
     public string ContainerName => ManagedContainerName;
 
+    /// <summary>
+    /// Gets host port for other services or view models.
+    /// </summary>
     public int HostPort => Port;
 
+    /// <summary>
+    /// Ensures the Ollama container is ready before later service work depends on it.
+    /// </summary>
     public async Task<LocalAiSetupResult> EnsureOllamaContainerAsync(IProgress<string>? progress, CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -73,17 +91,6 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
                     existing.Id, LocalRuntimeResourceState.Retained, modelData);
             }
 
-            var capabilities = await engineCapabilities.GetAsync(ct).ConfigureAwait(false);
-            var gpu = capabilities[WslcFeature.CreateGpus].Support;
-            Require(gpu != WslcCapabilitySupport.Unknown,
-                "GPU creation support is unknown. Check the configured WSLC executable and its create help; no runtime was created.");
-            // Unknown support must surface a diagnostic rather than a guess. Without --pull the container
-            // is still created from the cached image's content ID, which the engine cannot fetch from a
-            // registry, so no implicit download can happen on engines that lack the option.
-            var pullSupport = capabilities[WslcFeature.CreatePull].Support;
-            Require(pullSupport != WslcCapabilitySupport.Unknown,
-                "Could not tell whether this engine's create command supports --pull. Check the WSLC path under " +
-                "Settings > Container engine; no runtime was created.");
             var image = await EnsureImageAsync(progress, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             aiCapabilities.Invalidate();
@@ -103,14 +110,12 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
             Require(await FindContainerAsync(ct).ConfigureAwait(false) is null,
                 "A runtime appeared during preparation. It was not adopted or removed; retry after inspection.");
             Require(await FindVolumeAsync(ct).ConfigureAwait(false) == volume, "Model volume changed during preparation.");
-            progress?.Report(gpu == WslcCapabilitySupport.Supported
-                ? "Creating Ollama with GPU access requested..."
-                : "WSLC create definitively lacks GPU support; creating Ollama for CPU use...");
+            progress?.Report("Creating Ollama with GPU access requested...");
             creationAttempted = true;
             ct.ThrowIfCancellationRequested();
             aiCapabilities.Invalidate();
-            var creation = await wslc.CreateContainerAsync(BuildOptions(image, gpu == WslcCapabilitySupport.Supported,
-                pullSupport == WslcCapabilitySupport.Supported, operation, volume!.Operation), ct).ConfigureAwait(false);
+            var creation = await wslc.CreateContainerAsync(BuildOptions(image, useGpu: true,
+                neverPull: true, operation, volume!.Operation), ct).ConfigureAwait(false);
             var returnedId = creation.StandardOutput.Trim();
             if (IsContainerId(returnedId))
                 createdId = returnedId;
@@ -125,8 +130,7 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
             var running = await ReadContainerAsync(createdId, ct).ConfigureAwait(false);
             Require(running.Operation == operation && running.Running, "Runtime start was not confirmed.");
             await VerifyMountAsync(running, volume, ct).ConfigureAwait(false);
-            return new(true, gpu == WslcCapabilitySupport.Supported
-                ? LocalAiContainerState.CreatedWithGpu : LocalAiContainerState.CreatedCpuOnly,
+            return new(true, LocalAiContainerState.CreatedWithGpu,
                 "Owned Ollama container is running. GPU access is not proof of acceleration; API/model readiness is checked separately.",
                 createdId, LocalRuntimeResourceState.Retained, modelData);
         }
@@ -158,6 +162,9 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
         }
     }
 
+    /// <summary>
+    /// Removes the Ollama container from persisted state or the engine.
+    /// </summary>
     public async Task<LocalAiRemovalResult> RemoveOllamaContainerAsync(bool removeModelVolume, CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -232,6 +239,9 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
         }
     }
 
+    /// <summary>
+    /// Gets whether runtime present for the current app or engine state.
+    /// </summary>
     public async Task<bool> IsRuntimePresentAsync(CancellationToken ct = default)
     {
         try
@@ -474,10 +484,19 @@ public sealed class LocalAiSetupService(IWslcService wslc, IWslcCapabilitiesServ
     }
     private static bool IsLifecycleFailure(Exception ex) =>
         ex is InvalidOperationException or IOException or Win32Exception or JsonException or OperationCanceledException or TimeoutException;
+    /// <summary>
+    /// Provides service behavior used by WSL Container Desktop.
+    /// </summary>
     private sealed class LifecycleException(string message) : InvalidOperationException(message);
 
     /// <summary>The Ollama image could not be obtained; raised before any resource is created.</summary>
     private sealed class ImageUnavailableException(string message) : InvalidOperationException(message);
+    /// <summary>
+    /// Carries immutable service data between WSL Container Desktop components.
+    /// </summary>
     private sealed record OwnedVolume(string Operation, string CreatedAt, string Mountpoint);
+    /// <summary>
+    /// Carries immutable service data between WSL Container Desktop components.
+    /// </summary>
     private sealed record OwnedContainer(string Id, string Operation, string Volume, bool Running, bool CanStart, JsonElement Inspect);
 }

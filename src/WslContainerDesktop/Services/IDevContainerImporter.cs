@@ -19,7 +19,16 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Imports VS Code dev-container metadata into the app's own dev-container model.
+/// </summary>
 public interface IDevContainerImporter
 {
+    /// <summary>
+    /// Reads dev-container configuration rooted at a workspace folder.
+    /// </summary>
+    /// <param name="workspacePath">Folder containing the workspace and optional <c>.devcontainer</c> directory.</param>
+    /// <param name="ct">Cancels file reads.</param>
+    /// <returns>The imported configuration or a user-readable failure.</returns>
     Task<DevContainerImportResult> ImportAsync(string workspacePath, CancellationToken ct = default);
 }

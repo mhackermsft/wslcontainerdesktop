@@ -19,8 +19,14 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Reports the outcome of a dev container supervisor operation in a UI-friendly form.
+/// </summary>
 public sealed record DevContainerOperationResult(bool Success, string Detail);
 
+/// <summary>
+/// Defines operations that manage dev container sessions from the desktop app.
+/// </summary>
 public interface IDevContainerSupervisor
 {
     /// <summary>
@@ -31,7 +37,16 @@ public interface IDevContainerSupervisor
     Task<DevContainerOperationResult> UpAsync(DevContainerConfig config, bool rebuild = false, bool noCache = false,
         CancellationToken ct = default,
         Func<DevContainerHostCommandReview, CancellationToken, Task<bool>>? approveHostCommandsAsync = null);
+    /// <summary>
+    /// Stops the dev container for the requested workspace.
+    /// </summary>
     Task StopAsync(DevContainerConfig config, CancellationToken ct = default);
+    /// <summary>
+    /// Removes the requested item from persisted state or the engine.
+    /// </summary>
     Task RemoveAsync(DevContainerConfig config, CancellationToken ct = default);
+    /// <summary>
+    /// Opens terminal for the user.
+    /// </summary>
     void OpenTerminal(DevContainerConfig config, string containerId);
 }

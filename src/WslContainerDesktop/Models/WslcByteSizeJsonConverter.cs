@@ -20,9 +20,14 @@ using System.Text.Json.Serialization;
 
 namespace WslContainerDesktop.Models;
 
-/// <summary>Reads legacy byte counts and the human-readable sizes emitted by WSL 2.9.9.</summary>
+/// <summary>Reads byte counts and human-readable sizes emitted by wslc JSON output.</summary>
 public sealed class WslcByteSizeJsonConverter : JsonConverter<long>
 {
+    /// <summary>Reads this model during JSON serialization.</summary>
+    /// <param name="reader">The reader value supplied by the caller.</param>
+    /// <param name="typeToConvert">The type to convert value supplied by the caller.</param>
+    /// <param name="options">The options value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public override long Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out var bytes))
@@ -39,10 +44,18 @@ public sealed class WslcByteSizeJsonConverter : JsonConverter<long>
         throw new JsonException("Expected an image size as a byte count or a value such as '887MB'.");
     }
 
+    /// <summary>Writes this model during JSON serialization.</summary>
+    /// <param name="writer">The writer value supplied by the caller.</param>
+    /// <param name="value">The value value supplied by the caller.</param>
+    /// <param name="options">The options value supplied by the caller.</param>
     public override void Write(Utf8JsonWriter writer, long value, JsonSerializerOptions options) =>
         writer.WriteNumberValue(value);
 
-    private static bool TryParseHumanSize(string? value, out long bytes)
+    /// <summary>Parses input into try parse human size data used by the app.</summary>
+    /// <param name="value">The value value supplied by the caller.</param>
+    /// <param name="bytes">The bytes value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
+    public static bool TryParseHumanSize(string? value, out long bytes)
     {
         bytes = 0;
         var text = value?.Trim();

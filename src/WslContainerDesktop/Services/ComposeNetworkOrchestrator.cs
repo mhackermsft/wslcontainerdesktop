@@ -28,30 +28,28 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
 {
     private const string OperationLabel = "com.wsldesktop.network-operation";
 
+    /// <summary>
+    /// Decides whether a compose service needs native multi-network orchestration instead of a simple run command.
+    /// </summary>
+    /// <param name="options">Container options built from the compose service.</param>
+    /// <param name="capabilities">Current WSLC feature evidence; kept for future feature gating.</param>
+    /// <param name="warning">Optional user-facing warning about a fallback.</param>
+    /// <returns>True when the service has at least two network attachments.</returns>
     public static bool SelectNative(RunContainerOptions options, WslcCapabilities capabilities, out string? warning)
     {
+        _ = capabilities;
         warning = null;
         var endpoints = options.GetNetworkAttachments();
-        if (endpoints.Count < 2)
-        {
-            return false;
-        }
-
-        var capability = capabilities[WslcFeature.NetworkConnect];
-        switch (capability.Support)
-        {
-            case WslcCapabilitySupport.Supported:
-                return true;
-            case WslcCapabilitySupport.Unsupported:
-                warning = $"Only network '{endpoints[0].Network}' will be attached: this WSLC does not support " +
-                    $"network connect. Networks {string.Join(", ", endpoints.Skip(1).Select(n => $"'{n.Network}'"))} " +
-                    "and their aliases/IP settings remain saved but cannot be honored.";
-                return false;
-            default:
-                throw new InvalidOperationException($"Cannot determine multi-network support: {capability.Diagnostic}");
-        }
+        return endpoints.Count >= 2;
     }
 
+    /// <summary>
+    /// Creates a container, attaches every requested compose network, starts it, and removes the partial container if any step fails.
+    /// </summary>
+    /// <param name="options">Fully prepared container creation options.</param>
+    /// <param name="ct">Cancels creation or cleanup waits.</param>
+    /// <param name="maximumStopVersion">Restart-suppression version used when this start resumes a supervised compose service.</param>
+    /// <returns>The verified container id.</returns>
     public async Task<string> CreateAndStartAsync(RunContainerOptions options, CancellationToken ct,
         long maximumStopVersion = long.MaxValue)
     {
@@ -102,7 +100,7 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
                                 .ConfigureAwait(false), "Remove partially configured container");
                         }
                     }
-                    else if (!result.ErrorText.Contains("WSLC_E_CONTAINER_NOT_FOUND", StringComparison.Ordinal))
+                    else if (!ComposeResourceErrors.IsContainerNotFound(result.ErrorText))
                     {
                         throw new InvalidOperationException($"Cannot inspect partial container: {result.ErrorText}");
                     }
@@ -117,6 +115,9 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
         }
     }
 
+    /// <summary>
+    /// Adds missing compose network endpoints to an already-created container without changing compatible existing endpoints.
+    /// </summary>
     public async Task ReconcileAsync(string id, RunContainerOptions options, WslcCapabilities capabilities, CancellationToken ct)
     {
         var desired = options.GetNetworkAttachments();
@@ -125,11 +126,9 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
             return;
         }
 
-        if (!SelectNative(options, capabilities, out var warning))
-        {
-            logger.LogWarning("{Warning}", warning);
+        _ = capabilities;
+        if (desired.Count < 2)
             return;
-        }
 
         var state = await InspectAsync(id, ct).ConfigureAwait(false);
         // Preflight every existing endpoint before mutating anything.
@@ -143,16 +142,12 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
             return;
         }
 
-        var disconnect = capabilities[WslcFeature.NetworkDisconnect];
-        if (disconnect.Support != WslcCapabilitySupport.Supported)
-        {
-            throw new InvalidOperationException(
-                $"Cannot safely repair missing networks without rollback support: {disconnect.Diagnostic}");
-        }
-
         await EnsureAttachmentsAsync(id, desired, rollback: true, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Connects the missing networks in order and rolls back confirmed connections when reconciliation cannot complete safely.
+    /// </summary>
     private async Task EnsureAttachmentsAsync(string id, IReadOnlyList<NetworkAttachment> desired, bool rollback, CancellationToken ct)
     {
         var state = await InspectAsync(id, ct).ConfigureAwait(false);
@@ -227,6 +222,9 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
         }
     }
 
+    /// <summary>
+    /// Reads and parses a container's network state using <c>wslc inspect</c> output.
+    /// </summary>
     public async Task<ContainerNetworkState> InspectAsync(string id, CancellationToken ct)
     {
         var result = await wslc.InspectContainerAsync(id, ct).ConfigureAwait(false);

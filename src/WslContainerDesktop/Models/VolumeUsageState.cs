@@ -16,11 +16,17 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Values that describe volume usage state states or choices in WSL Container Desktop workflows.</summary>
 public enum VolumeUsageState
 {
+    /// <summary>Represents the unknown option.</summary>
     Unknown,
+    /// <summary>Represents the exact option.</summary>
     Exact,
+    /// <summary>Represents the partial option.</summary>
     Partial,
+    /// <summary>Represents the estimated option.</summary>
     Estimated,
+    /// <summary>Represents the unused option.</summary>
     Unused,
 }

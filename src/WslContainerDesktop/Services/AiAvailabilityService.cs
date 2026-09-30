@@ -33,6 +33,9 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
     private CancellationTokenSource? _debounceCts;
     private AiChatConfiguration? _configuration;
 
+    /// <summary>
+    /// Initializes a new <c>AiAvailabilityService</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public AiAvailabilityService(
         ISettingsService settings,
         IAiCapabilityService capabilities,
@@ -53,11 +56,23 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         ScheduleRefresh();
     }
 
+    /// <summary>
+    /// Gets whether this service is currently available for callers.
+    /// </summary>
     public bool IsAvailable => Observation?.CanChat == true;
+    /// <summary>
+    /// Gets whether callers can use tools for the current app or engine state.
+    /// </summary>
     public bool CanUseTools => Observation?.CanUseTools == true;
+    /// <summary>
+    /// Gets the latest capability observation when an AI provider is configured.
+    /// </summary>
     public AiCapabilitySnapshot? Observation => IsConfigured()
         ? _capabilities.GetCached(AiConversationContext.Capture(_settings, _settings.AiProvider)) : null;
 
+    /// <summary>
+    /// Raised when stored data changes and bound UI should refresh.
+    /// </summary>
     public event EventHandler? Changed;
 
     private void OnCapabilitiesChanged(object? sender, EventArgs e) =>
@@ -105,6 +120,9 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
     private bool IsConfigured() =>
         _settings.AiFeaturesEnabled && _settings.AiProvider != AiProviderKind.None;
 
+    /// <summary>
+    /// Refreshes the cached AI availability observation.
+    /// </summary>
     public async Task RefreshAsync(CancellationToken ct = default)
     {
         // Serialize metadata reads; never call the diagnosis-style TestAsync here.
@@ -124,6 +142,9 @@ public sealed class AiAvailabilityService : IAiAvailabilityService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Releases long-lived resources owned by this service.
+    /// </summary>
     public void Dispose()
     {
         _settings.Changed -= OnSettingsChanged;

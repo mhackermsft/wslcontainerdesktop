@@ -20,6 +20,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Models;
 
+/// <summary>Covers image-list compatibility parsing so digest, size, creation time, and legacy numeric fields remain stable across <c>wslc</c> versions.</summary>
 public sealed class ImageInfoCompatibilityTests
 {
     [Fact]
@@ -34,7 +35,22 @@ public sealed class ImageInfoCompatibilityTests
 
         Assert.Equal("cf3e50b742c6", image.Id);
         Assert.Equal(5_040_000_000, image.Size);
+        Assert.Equal("-", image.DigestDisplay);
         Assert.Equal(new DateTimeOffset(2026, 8, 17, 12, 29, 8, TimeSpan.FromHours(-4)), image.CreatedUtc);
+    }
+
+    [Fact]
+    public void ParseList_WithDigests_PreservesDigestForDisplayAndCopy()
+    {
+        const string output =
+            """
+            {"ID":"sha256:abc","Repository":"example/app","Tag":"1.0","Digest":"sha256:0123456789abcdef","Created":1,"Size":"10MB"}
+            """;
+
+        var image = Assert.Single(WslcJsonParser.ParseList<ImageInfo>(output));
+
+        Assert.True(image.HasDigest);
+        Assert.Equal("sha256:0123456789abcdef", image.DigestDisplay);
     }
 
     [Fact]

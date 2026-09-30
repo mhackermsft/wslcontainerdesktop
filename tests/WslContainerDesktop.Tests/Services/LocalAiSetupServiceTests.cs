@@ -24,6 +24,7 @@ using Xunit.Sdk;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers local AI container setup and removal so verified runtimes, model volumes, pulls, cleanup, and serialization are safe under failure.</summary>
 public sealed class LocalAiSetupServiceTests
 {
     private const string Name = "wslcd-ollama";
@@ -42,7 +43,6 @@ public sealed class LocalAiSetupServiceTests
     public async Task VerifiedRuntimeIsAdoptedWithoutCreatingOrProbing(bool running)
     {
         var h = new Harness { Container = Runtime(running: running), Volume = Models() };
-        h.Gpu = WslcCapabilitySupport.Unknown;
 
         var result = await h.Service.EnsureOllamaContainerAsync(null);
 
@@ -230,25 +230,22 @@ public sealed class LocalAiSetupServiceTests
     }
 
     [Theory]
-    [InlineData(WslcCapabilitySupport.Supported, false)]
-    [InlineData(WslcCapabilitySupport.Supported, true)]
-    [InlineData(WslcCapabilitySupport.Unsupported, false)]
-    [InlineData(WslcCapabilitySupport.Unsupported, true)]
-    public async Task CreationUsesOneCachedOnlyGpuOrPreflightCpuRequest(WslcCapabilitySupport gpu, bool existingVolume)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreationUsesCachedOnlyGpuRequest(bool existingVolume)
     {
-        var h = new Harness { Gpu = gpu, Volume = existingVolume ? Models() : null };
+        var h = new Harness { Volume = existingVolume ? Models() : null };
 
         var result = await h.Service.EnsureOllamaContainerAsync(null);
 
         Assert.True(result.Success, result.Message);
-        Assert.Equal(gpu == WslcCapabilitySupport.Supported
-            ? LocalAiContainerState.CreatedWithGpu : LocalAiContainerState.CreatedCpuOnly, result.State);
+        Assert.Equal(LocalAiContainerState.CreatedWithGpu, result.State);
         var options = Assert.Single(h.Created);
         Assert.Equal(ImageId, options.Image);
         Assert.Equal(Name, options.Name);
         Assert.True(options.NeverPull);
         Assert.True(options.Detached);
-        Assert.Equal(gpu == WslcCapabilitySupport.Supported, options.AllGpus);
+        Assert.True(options.AllGpus);
         Assert.Equal("127.0.0.1:11434:11434", Assert.Single(options.PortMappings));
         Assert.Equal("wslcd-ollama:/root/.ollama", Assert.Single(options.Volumes));
         Assert.Equal("local-ai", options.Labels[Owner]);
@@ -258,38 +255,6 @@ public sealed class LocalAiSetupServiceTests
         Assert.Equal(existingVolume ? 0 : 1, h.Count(nameof(IWslcService.CreateVolumeAsync)));
         Assert.True(h.Events.IndexOf("capabilities") < h.Events.IndexOf(nameof(IWslcService.CreateContainerAsync)));
         Assert.Equal(LocalRuntimeResourceState.Retained, result.ModelData);
-        h.AssertSafe();
-    }
-
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Unknown, WslcCapabilitySupport.Supported)]
-    [InlineData(WslcCapabilitySupport.Supported, WslcCapabilitySupport.Unknown)]
-    [InlineData(WslcCapabilitySupport.Unsupported, WslcCapabilitySupport.Unknown)]
-    public async Task UnknownGpuOrPullSupportAllowsNoMutation(
-        WslcCapabilitySupport gpu, WslcCapabilitySupport pull)
-    {
-        var h = new Harness { Gpu = gpu, Pull = pull, Images = [] };
-        Assert.False((await h.Service.EnsureOllamaContainerAsync(null)).Success);
-        // AssertNoMutations also proves nothing was downloaded when creation is impossible anyway.
-        h.AssertNoMutations();
-        Assert.Equal(0, h.Count(nameof(IWslcService.ListImagesAsync)));
-    }
-
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Supported)]
-    [InlineData(WslcCapabilitySupport.Unsupported)]
-    public async Task EngineWithoutCreatePullStillCreatesFromTheCachedImageId(WslcCapabilitySupport gpu)
-    {
-        var h = new Harness { Gpu = gpu, Pull = WslcCapabilitySupport.Unsupported };
-
-        var result = await h.Service.EnsureOllamaContainerAsync(null);
-
-        Assert.True(result.Success, result.Message);
-        var options = Assert.Single(h.Created);
-        // The content ID cannot be fetched from a registry, so omitting --pull cannot trigger a download.
-        Assert.Equal(ImageId, options.Image);
-        Assert.False(options.NeverPull);
-        Assert.Equal(gpu == WslcCapabilitySupport.Supported, options.AllGpus);
         h.AssertSafe();
     }
 
@@ -331,8 +296,6 @@ public sealed class LocalAiSetupServiceTests
         var options = Assert.Single(h.Created);
         Assert.Equal(ImageId, options.Image);
         Assert.True(options.NeverPull);
-        // The download happens after the capability preflight and before anything is created.
-        Assert.True(h.Events.IndexOf("capabilities") < h.Events.IndexOf(nameof(IWslcService.PullImageAsync)));
         Assert.True(h.Events.IndexOf(nameof(IWslcService.PullImageAsync)) < h.Events.IndexOf(nameof(IWslcService.CreateVolumeAsync)));
         h.AssertSafe(expectedPulls: 1);
     }
@@ -392,6 +355,7 @@ public sealed class LocalAiSetupServiceTests
         h.AssertNoMutations(expectedPulls: 1);
     }
 
+    /// <summary>Runs setup progress callbacks synchronously so tests can assert user-visible guidance.</summary>
     private sealed class SyncProgress(Action<string> report) : IProgress<string>
     {
         public void Report(string value) => report(value);
@@ -952,13 +916,12 @@ public sealed class LocalAiSetupServiceTests
         }),
     };
 
+    /// <summary>Collects fake engine state and service dependencies for local AI setup scenarios.</summary>
     private sealed class Harness
     {
         public JsonObject? Container { get; set; }
         public JsonObject? Volume { get; set; }
         public string? InventoryId { get; set; }
-        public WslcCapabilitySupport Gpu { get; set; } = WslcCapabilitySupport.Supported;
-        public WslcCapabilitySupport Pull { get; set; } = WslcCapabilitySupport.Supported;
         public IReadOnlyList<ImageInfo> Images { get; set; } =
             [new() { Id = ImageId, Repository = "ollama/ollama", Tag = "latest" }];
         /// <summary>What the image inventory reports after a successful pull; null leaves it unchanged.</summary>
@@ -996,20 +959,7 @@ public sealed class LocalAiSetupServiceTests
                 Events.Add("invalidate");
                 return null;
             });
-            var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) =>
-            {
-                if (method.Name != nameof(IWslcCapabilitiesService.GetAsync))
-                    throw Unexpected(method.Name);
-                CapabilityCalls++;
-                Events.Add("capabilities");
-                return Task.FromResult(new WslcCapabilities("synthetic-wslc-not-executable", "synthetic",
-                    new Dictionary<WslcFeature, WslcCapability>
-                    {
-                        [WslcFeature.CreateGpus] = new(Gpu, "synthetic GPU help evidence"),
-                        [WslcFeature.CreatePull] = new(Pull, "synthetic cached-only help evidence"),
-                    }));
-            });
-            Service = new(NetworkTestProxy.Create<IWslcService>(Invoke), capabilities, ai,
+            Service = new(NetworkTestProxy.Create<IWslcService>(Invoke), ai,
                 NullLogger<LocalAiSetupService>.Instance);
         }
 
@@ -1059,7 +1009,7 @@ public sealed class LocalAiSetupServiceTests
                 case nameof(IWslcService.PullImageAsync):
                     Assert.Equal("ollama/ollama:latest", args[0]);
                     Assert.Empty(_mutations);
-                    if (args.Length == 3 && args[1] is Action<string> onLine)
+                    if (args[1] is Action<string> onLine)
                         foreach (var line in PullLines)
                             onLine(line);
                     if (PullFailure is not null) return Task.FromResult(Fail(PullFailure));
@@ -1129,4 +1079,3 @@ public sealed class LocalAiSetupServiceTests
         }
     }
 }
-

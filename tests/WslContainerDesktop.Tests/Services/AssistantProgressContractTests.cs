@@ -20,6 +20,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers assistant progress events so approval, execution, cancellation, timeout, reset, and failure states are reported in a trustworthy order.</summary>
 public sealed class AssistantProgressContractTests
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
@@ -297,6 +298,7 @@ public sealed class AssistantProgressContractTests
         Assert.Single(h.Tools.Executed);
     }
 
+    /// <summary>Lets tests advance tool deadlines deterministically instead of depending on wall-clock timers.</summary>
     private sealed class ManualDeadlineClock : TimeProvider
     {
         public ManualTimer? Timer { get; private set; }
@@ -308,6 +310,7 @@ public sealed class AssistantProgressContractTests
         }
     }
 
+    /// <summary>Stores a timer callback so tests can fire deadline behavior at an exact point.</summary>
     private sealed class ManualTimer(TimerCallback callback, object? state) : ITimer
     {
         private bool _disposed;

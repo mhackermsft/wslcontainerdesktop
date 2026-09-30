@@ -21,8 +21,10 @@ namespace WslContainerDesktop.Services;
 
 public sealed partial class ComposeProjectSupervisor
 {
+    /// <summary>Temporary label used to identify a container created by the current apply attempt.</summary>
     private const string ApplyOperationLabel = "com.wsldesktop.apply-operation";
 
+    /// <summary>Temporarily removes watchdog policies for a service while the supervisor mutates it.</summary>
     private Action SuspendSupervision(ComposeProject project, ComposeService service)
     {
         var name = ResolveContainerName(project, service);
@@ -39,13 +41,14 @@ public sealed partial class ComposeProjectSupervisor
         };
     }
 
+    /// <summary>Removes a container created by a failed legacy run only when its operation label matches.</summary>
     private async Task CleanupPartialRunAsync(string name, string operation)
     {
         using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var result = await _wslc.InspectContainerAsync(name, cleanup.Token).ConfigureAwait(false);
         if (!result.Success)
         {
-            if (result.ErrorText.Contains("WSLC_E_CONTAINER_NOT_FOUND", StringComparison.Ordinal)) return;
+            if (ComposeResourceErrors.IsContainerNotFound(result.ErrorText)) return;
             throw new InvalidOperationException($"Cannot inspect a partial Compose run: {result.ErrorText}");
         }
         var state = ContainerNetworkState.Parse(result.StandardOutput);
@@ -72,6 +75,7 @@ public sealed partial class ComposeProjectSupervisor
         finally { _lifecycleGate.Release(); }
     }
 
+    /// <summary>Builds a plan plus resource, network, dependency and image preflight decisions.</summary>
     private async Task<ComposeReconciliationPlan> ReadResolvedPlanAsync(ComposeProject project,
         ComposeOperationRequest request, CancellationToken ct)
     {
@@ -87,6 +91,7 @@ public sealed partial class ComposeProjectSupervisor
         return await PrepareImagesAsync(project, plan, request, ct, execute: false).ConfigureAwait(false);
     }
 
+    /// <summary>Reads engine inventory and asks the planner for desired versus observed instance actions.</summary>
     private async Task<ComposeReconciliationPlan> ReadPlanAsync(ComposeProject project,
         ComposeOperationRequest request, CancellationToken ct)
     {
@@ -113,6 +118,7 @@ public sealed partial class ComposeProjectSupervisor
         };
     }
 
+    /// <summary>Annotates plan entries with native network support and blocks unknown health/network states.</summary>
     private async Task<(ComposeReconciliationPlan Plan, Dictionary<string, NetworkStartupPlan> Networks)>
         PreflightNetworksAsync(ComposeProject project, ComposeReconciliationPlan plan, CancellationToken ct)
     {
@@ -160,9 +166,9 @@ public sealed partial class ComposeProjectSupervisor
                 entries.Add(entry with
                 {
                     Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible,
-                    Reason = "Network or health compatibility could not be established. Unknown capability evidence blocks deployment; invalid endpoint/health settings must be corrected.",
+                    Reason = "Network or health compatibility could not be established. Invalid endpoint/health settings must be corrected.",
                     NetworkSupport = entry.Service.Options.GetNetworkAttachments().Count > 1
-                        ? (await _capabilities.GetAsync(ct).ConfigureAwait(false))[WslcFeature.NetworkConnect].Support : null,
+                        ? WslcCapabilitySupport.Supported : null,
                 });
             }
         }
@@ -190,6 +196,7 @@ public sealed partial class ComposeProjectSupervisor
         finally { _lifecycleGate.Release(); }
     }
 
+    /// <summary>Executes restart/stop/down operations against the saved applied configuration only.</summary>
     private async Task<ComposeUpResult> ExistingCoreAsync(ComposeProject project, ComposeOperationRequest request,
         long maximumStopVersion, CancellationToken ct, ComposeReconciliationPlan? reviewedPlan = null)
     {
@@ -304,6 +311,7 @@ public sealed partial class ComposeProjectSupervisor
         return new() { Services = results, Plan = plan };
     }
 
+    /// <summary>Verifies the target container still exists, has the expected id and belongs to the project.</summary>
     private async Task RequireCurrentAsync(ComposeProject project, ComposeServicePlan entry, CancellationToken ct)
     {
         var inventory = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
@@ -317,6 +325,7 @@ public sealed partial class ComposeProjectSupervisor
             throw new InvalidOperationException($"Container '{entry.ContainerName}' is not owned by this project.");
     }
 
+    /// <summary>Revalidates an unchanged running instance and records it as reused.</summary>
     private async Task<ComposeServiceResult> ReuseExistingAsync(ComposeProject project, ComposeServicePlan entry,
         string? warning, long maximumStopVersion, CancellationToken ct)
     {
@@ -331,6 +340,7 @@ public sealed partial class ComposeProjectSupervisor
         catch (Exception ex) { return new(entry.Service.Name, false, ex.Message); }
     }
 
+    /// <summary>Starts or restarts an existing project-owned instance while watchdog policies are suspended.</summary>
     private async Task<ComposeServiceResult> StartExistingAsync(ComposeProject project, ComposeServicePlan entry,
         long maximumStopVersion, CancellationToken ct)
     {
@@ -356,9 +366,11 @@ public sealed partial class ComposeProjectSupervisor
         finally { restoreSupervision?.Invoke(); }
     }
 
+    /// <summary>Deep-copies a project through JSON so review/apply cannot mutate caller-owned objects.</summary>
     private static ComposeProject SnapshotProject(ComposeProject project) =>
         JsonSerializer.Deserialize<ComposeProject>(JsonSerializer.Serialize(project))!;
 
+    /// <summary>Copies saved applied state and replica overrides onto the desired project snapshot.</summary>
     private static void InheritPersistedState(ComposeProject desired, ComposeProject? saved)
     {
         if (saved is null) return;
@@ -370,12 +382,14 @@ public sealed partial class ComposeProjectSupervisor
                 desired.ReplicaOverrides.TryAdd(entry.Key, entry.Value);
     }
 
+    /// <summary>Copies request collections so later UI edits cannot alter an in-flight operation.</summary>
     private static ComposeOperationRequest SnapshotRequest(ComposeOperationRequest request) => request with
     {
         Services = request.Services.ToArray(),
         Replicas = new Dictionary<string, int>(request.Replicas, StringComparer.Ordinal),
     };
 
+    /// <summary>Builds a project view from saved applied services for operations that should not use new edits.</summary>
     private static ComposeProject ExistingProject(ComposeProject project)
     {
         var applied = SnapshotProject(project);
@@ -389,6 +403,7 @@ public sealed partial class ComposeProjectSupervisor
         return applied;
     }
 
+    /// <summary>Persists the exact service/resources/container identity that an instance successfully applied.</summary>
     private void RecordApplied(ComposeProject project, ComposeServicePlan entry, string containerId, bool manuallyStopped = false)
     {
         project.AppliedStateKnown = true;
@@ -404,6 +419,7 @@ public sealed partial class ComposeProjectSupervisor
         _store.Save(project);
     }
 
+    /// <summary>Turns a blocked plan into a result without attempting any engine mutation.</summary>
     private static ComposeUpResult RejectedPlan(ComposeReconciliationPlan plan) => new()
     {
         Plan = plan,
@@ -412,12 +428,14 @@ public sealed partial class ComposeProjectSupervisor
             { Action = ComposeServiceAction.Blocked, ContainerId = p.ContainerId, InstanceIndex = p.InstanceIndex }).ToList(),
     };
 
+    /// <summary>Blocks one plan entry after a restart preflight failure.</summary>
     private static ComposeUpResult PreflightFailure(ComposeReconciliationPlan plan, string instanceKey, string detail) =>
         RejectedPlan(new(plan.Services.Select(p => p.InstanceKey == instanceKey ? p with
         {
             Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible, Reason = detail,
         } : p).ToArray()));
 
+    /// <summary>Materializes run options, labels and staged mounts for a planned create/recreate action.</summary>
     private async Task<RunContainerOptions> PrepareRunAsync(ComposeProject project, ComposeServicePlan entry, CancellationToken ct)
     {
         if (entry.InstanceIndex < 1 || entry.InstanceIndex != ComposeReconciliationPlanner.InstanceIndex(entry.Service) ||
@@ -447,6 +465,7 @@ public sealed partial class ComposeProjectSupervisor
         throw new InvalidOperationException(MountLimitMessage);
     }
 
+    /// <summary>Reattaches anonymous volumes from the old container when recreating a service safely.</summary>
     private async Task PreserveAnonymousVolumesAsync(ComposeProject project, ComposeServicePlan entry,
         RunContainerOptions options, CancellationToken ct)
     {
@@ -474,14 +493,17 @@ public sealed partial class ComposeProjectSupervisor
         }
     }
 
+    /// <summary>True when a Compose volume string includes an explicit host or named-volume source.</summary>
     private static bool HasMountSource(string mount) => mount.Contains(":/", StringComparison.Ordinal);
 
+    /// <summary>Extracts the container target path from a Compose volume string.</summary>
     private static string MountTarget(string mount)
     {
         var boundary = mount.IndexOf(":/", StringComparison.Ordinal);
         return (boundary >= 0 ? mount[(boundary + 1)..] : mount).Split(':', 2)[0];
     }
 
+    /// <summary>Preflights, and optionally performs, required image builds/pulls before instance mutation.</summary>
     private async Task<ComposeReconciliationPlan> PrepareImagesAsync(ComposeProject project, ComposeReconciliationPlan plan,
         ComposeOperationRequest request, CancellationToken ct, bool execute = true)
     {
@@ -522,6 +544,17 @@ public sealed partial class ComposeProjectSupervisor
                 (image is null && service.PullPolicy == ComposeImagePolicy.Missing));
             if (shouldBuild)
             {
+                if (_policy.GetPolicy().RegistryAllowlist.State is WslRegistryAllowlistState.Configured or WslRegistryAllowlistState.Invalid)
+                {
+                    entries.Add(entry with
+                    {
+                        Action = ComposeServiceAction.Blocked,
+                        Change = ComposeServiceChange.Incompatible,
+                        Reason = WslRegistryPolicyGuard.BuildBlockedMessage,
+                    });
+                    continue;
+                }
+
                 var enginePath = build!.Context.StartsWith('/') && !build.Context.StartsWith("//", StringComparison.Ordinal);
                 if (!build.IsValid || (!enginePath && !Directory.Exists(build.Context)))
                     throw new InvalidOperationException($"Build context for service '{service.Name}' is unavailable.");
@@ -609,6 +642,7 @@ public sealed partial class ComposeProjectSupervisor
         return ComposeReconciliationPlanner.ValidateStartupDependencies(project, request, new() { Services = entries });
     }
 
+    /// <summary>Keeps already-successful one-shot dependencies stopped instead of starting them again.</summary>
     private async Task<ComposeReconciliationPlan> PreserveCompletedDependenciesAsync(ComposeProject project,
         ComposeReconciliationPlan plan, CancellationToken ct)
     {
@@ -632,6 +666,7 @@ public sealed partial class ComposeProjectSupervisor
         return new() { Services = entries };
     }
 
+    /// <summary>Finds a local image by reference, implicit <c>:latest</c> reference or id.</summary>
     private static ImageInfo? FindImage(IReadOnlyList<ImageInfo> images, string reference)
     {
         var normalized = reference.Contains('@') || reference.LastIndexOf(':') > reference.LastIndexOf('/')
@@ -639,6 +674,7 @@ public sealed partial class ComposeProjectSupervisor
         return images.FirstOrDefault(i => i.Reference == normalized || i.Reference == reference || i.Id == reference);
     }
 
+    /// <summary>Projects the networks and volumes required by the services that remain after a plan.</summary>
     private static ComposeProject ResourcesForPlan(ComposeProject project, ComposeReconciliationPlan plan)
     {
         var services = plan.Services.Where(p => p.Action != ComposeServiceAction.Remove).Select(p => p.Service).ToList();
@@ -652,6 +688,7 @@ public sealed partial class ComposeProjectSupervisor
         };
     }
 
+    /// <summary>Blocks changes to already-applied shared network or volume declarations.</summary>
     private static void ValidateResourceDeclarations(ComposeProject project, ComposeReconciliationPlan plan)
     {
         foreach (var entry in plan.Services)
@@ -674,6 +711,7 @@ public sealed partial class ComposeProjectSupervisor
         }
     }
 
+    /// <summary>Stable JSON signature for network declarations that are not reconfigured in place.</summary>
     private static string ResourceSignature(ComposeNetwork network) => JsonSerializer.Serialize(new
     {
         network.Driver, network.External, network.Subnet, network.Gateway, network.IpRange,
@@ -681,6 +719,7 @@ public sealed partial class ComposeProjectSupervisor
         Labels = network.Labels.OrderBy(p => p.Key, StringComparer.Ordinal),
     });
 
+    /// <summary>Stable JSON signature for volume declarations that are not reconfigured in place.</summary>
     private static string ResourceSignature(ComposeVolume volume) => JsonSerializer.Serialize(new
     {
         volume.Driver, volume.External,

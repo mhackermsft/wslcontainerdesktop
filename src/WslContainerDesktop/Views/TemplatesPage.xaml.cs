@@ -28,10 +28,12 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page for launching, importing, exporting, and editing reusable stack templates.</summary>
 public sealed partial class TemplatesPage : Page
 {
     private readonly CollectionViewSource _grouped = new() { IsSourceGrouped = true };
 
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public TemplatesPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<TemplatesViewModel>();
@@ -42,6 +44,7 @@ public sealed partial class TemplatesPage : Page
         TemplatesView.ItemsSource = _grouped.View;
     }
 
+    /// <summary>Template catalog view model bound by the page.</summary>
     public TemplatesViewModel ViewModel { get; }
 
     private void LaunchButton_Click(object sender, RoutedEventArgs e)

@@ -22,6 +22,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Runs opt-in Compose supervisor checks against disposable real-engine resources to validate runtime ownership assumptions.
+/// </summary>
 public sealed class ComposeRuntimeTests
 {
     [ComposeRuntimeFact]

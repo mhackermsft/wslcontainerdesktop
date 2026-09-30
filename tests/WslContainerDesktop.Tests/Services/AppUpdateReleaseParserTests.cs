@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Checks the GitHub release parser that finds a safe MSIX update asset for the packaged desktop app.
+/// </summary>
 public sealed class AppUpdateReleaseParserTests
 {
     private const string Repo = "mhackermsft/wslcontainerdesktop";

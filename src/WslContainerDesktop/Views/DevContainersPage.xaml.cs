@@ -25,16 +25,20 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page for importing and supervising devcontainer workspaces through the container engine.</summary>
 public sealed partial class DevContainersPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public DevContainersPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<DevContainersViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Devcontainer view model bound by the page.</summary>
     public DevContainersViewModel ViewModel { get; }
 
+    /// <summary>Converts a Boolean to visibility for <c>x:Bind</c> expressions on this page.</summary>
     public static Visibility BoolToVisibility(bool value) =>
         value ? Visibility.Visible : Visibility.Collapsed;
 

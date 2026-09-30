@@ -22,19 +22,34 @@ namespace WslContainerDesktop.Services;
 /// <summary>Only immutable catalog URLs/bytes; never executes downloaded content or extracts a whole archive.</summary>
 public sealed class FoundryLocalDownloader : IDisposable
 {
+    /// <summary>
+    /// Explains why verified Foundry Local setup-cache files are kept for reuse and how partial files are treated.
+    /// </summary>
     public const string RetentionGuidance = "Verified setup cache is retained for offline reuse. Any interrupted .partial files are retained, never reused or installed; they may be removed manually from the setup cache.";
     private readonly string _cacheRoot;
     private readonly HttpClient _http;
+    /// <summary>
+    /// Gets the local folder where verified Foundry Local setup packages are cached.
+    /// </summary>
     public string CacheLocation => _cacheRoot;
 
+    /// <summary>
+    /// Initializes a new <c>FoundryLocalDownloader</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public FoundryLocalDownloader(string cacheRoot) : this(cacheRoot, CreateHandler()) { }
 
+    /// <summary>
+    /// Creates an HTTP handler with redirects, cookies, proxies, and credentials disabled for deterministic package downloads.
+    /// </summary>
     internal static HttpClientHandler CreateHandler() => new()
     {
         AllowAutoRedirect = false, UseProxy = false, UseCookies = false,
         UseDefaultCredentials = false, Credentials = null,
     };
 
+    /// <summary>
+    /// Initializes a new <c>FoundryLocalDownloader</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     internal FoundryLocalDownloader(string cacheRoot, HttpMessageHandler handler)
     {
         if (!Path.IsPathFullyQualified(cacheRoot) || cacheRoot.StartsWith(@"\\", StringComparison.Ordinal))
@@ -43,6 +58,9 @@ public sealed class FoundryLocalDownloader : IDisposable
         _http = new(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
+    /// <summary>
+    /// Downloads and verifies the Foundry Local package set before setup code uses it.
+    /// </summary>
     internal async Task<FoundryLocalStagedPackages> StageAsync(FoundryLocalAuditedPackageSet package,
         bool includePrerequisite, IProgress<string>? progress, CancellationToken ct)
     {
@@ -143,6 +161,9 @@ public sealed class FoundryLocalDownloader : IDisposable
         throw new InvalidDataException("Download redirect limit exceeded.");
     }
 
+    /// <summary>
+    /// Checks that a package URL uses the exact HTTPS download shape allowed by the audited catalog.
+    /// </summary>
     internal static bool AllowedDownloadUri(Uri uri) =>
         uri.IsAbsoluteUri && uri.Scheme == "https" && uri.Port == 443
         && string.IsNullOrEmpty(uri.UserInfo) && string.IsNullOrEmpty(uri.Fragment)
@@ -175,6 +196,9 @@ public sealed class FoundryLocalDownloader : IDisposable
         await destination.FlushAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Opens a cached package only after its length and SHA-256 hash match the audited values.
+    /// </summary>
     internal static async Task<FileStream> OpenVerifiedAsync(string path, long bytes, string hash, CancellationToken ct)
     {
         RequireNoReparsePoints(path);
@@ -196,13 +220,22 @@ public sealed class FoundryLocalDownloader : IDisposable
 
     private string CachePath(string hash, string extension) => Path.Combine(_cacheRoot, hash.ToUpperInvariant() + extension);
     private static string PartialPath(string target) => target + "." + Guid.NewGuid().ToString("N") + ".partial";
+    /// <summary>
+    /// Rejects setup-cache paths that cross reparse points so downloads cannot be redirected unexpectedly.
+    /// </summary>
     internal static void RequireNoReparsePoints(string path)
     {
         for (var item = Path.GetFullPath(path); item is not null; item = Path.GetDirectoryName(item))
             if ((File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0)
                 throw new IOException("Reparse points are not allowed in the setup cache.");
     }
+    /// <summary>
+    /// Releases long-lived resources owned by this service.
+    /// </summary>
     public void Dispose() => _http.Dispose();
 }
 
+/// <summary>
+/// Points to Foundry Local package files after they have been downloaded and hash-checked.
+/// </summary>
 internal sealed record FoundryLocalStagedPackages(string RuntimePath, string? PrerequisitePath);

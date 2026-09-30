@@ -21,12 +21,17 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Stores AI provider secrets in Windows Credential Manager instead of the app's JSON settings.
+/// View models and providers use this through <c>IAiCredentialStore</c> so API keys stay off disk in plain text.
+/// </summary>
 public sealed class AiCredentialStore(ILogger<AiCredentialStore> logger) : IAiCredentialStore
 {
     private const string TargetPrefix = "WslContainerDesktop/ai/";
     private const int CRED_TYPE_GENERIC = 1;
     private const int CRED_PERSIST_LOCAL_MACHINE = 2;
 
+    /// <inheritdoc/>
     public bool TryReadSecret(AiProviderKind provider, out string? secret)
     {
         secret = null;
@@ -63,6 +68,7 @@ public sealed class AiCredentialStore(ILogger<AiCredentialStore> logger) : IAiCr
         }
     }
 
+    /// <inheritdoc/>
     public void WriteSecret(AiProviderKind provider, string secret)
     {
         if (provider == AiProviderKind.None || string.IsNullOrEmpty(secret))
@@ -100,6 +106,7 @@ public sealed class AiCredentialStore(ILogger<AiCredentialStore> logger) : IAiCr
         }
     }
 
+    /// <inheritdoc/>
     public void DeleteSecret(AiProviderKind provider)
     {
         try
@@ -126,6 +133,9 @@ public sealed class AiCredentialStore(ILogger<AiCredentialStore> logger) : IAiCr
     [DllImport("advapi32.dll")]
     private static extern void CredFree(IntPtr cred);
 
+    /// <summary>
+    /// Managed projection of the Win32 <c>CREDENTIAL</c> structure used by the Credential Manager P/Invoke calls.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct CREDENTIAL
     {

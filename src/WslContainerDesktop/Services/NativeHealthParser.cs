@@ -20,8 +20,14 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Parses native <c>wslc</c> health-check output into the app's normalized health model.
+/// </summary>
 public static class NativeHealthParser
 {
+    /// <summary>
+    /// Extracts a container id from native health JSON.
+    /// </summary>
     public static string? ContainerId(string json)
     {
         try
@@ -40,6 +46,9 @@ public static class NativeHealthParser
         }
     }
 
+    /// <summary>
+    /// Parses health-check text into the app's normalized model.
+    /// </summary>
     public static NativeHealthObservation Parse(string json)
     {
         try

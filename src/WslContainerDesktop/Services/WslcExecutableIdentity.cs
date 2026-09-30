@@ -20,6 +20,10 @@ using System.Security;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Stable identity of the configured <c>wslc.exe</c> binary, used to invalidate cached capability
+/// probes when the executable path or file metadata changes.
+/// </summary>
 internal sealed record WslcExecutableIdentity(
     string ConfiguredPath,
     string ExecutablePath,
@@ -29,6 +33,7 @@ internal sealed record WslcExecutableIdentity(
     string? FileVersion = null,
     string? Diagnostic = null)
 {
+    /// <summary>Resolves and inspects the configured CLI path, returning diagnostics instead of throwing.</summary>
     internal static WslcExecutableIdentity Read(string configuredPath)
     {
         try
@@ -57,6 +62,7 @@ internal sealed record WslcExecutableIdentity(
         }
     }
 
+    /// <summary>Resolves bare executable names against app/current/system/PATH locations before probing.</summary>
     private static string ResolvePath(string configuredPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(configuredPath);

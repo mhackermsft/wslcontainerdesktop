@@ -3,12 +3,12 @@ For privacy information about this product please visit https://aka.ms/privacy.
 
 Removes all stopped containers.
 
-Usage: wslc container prune [options]
+Usage:  wslc container prune [options]
 
 Options:
       --filter   Provide filter values (e.g. "until=<timestamp>")
   -f  --force    Do not prompt for confirmation
   -?  --help     Shows help about the selected command
 
-Global Options:
+Global Options for 'wslc':
       --session  Specify the session to use

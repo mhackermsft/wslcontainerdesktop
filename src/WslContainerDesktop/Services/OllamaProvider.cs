@@ -20,19 +20,27 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Talks to an Ollama-compatible HTTP endpoint for diagnostics and assistant chat. It translates
+/// the app's generic chat and tool models into Ollama's <c>/api/chat</c> request shape.
+/// </summary>
 public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
     IAiCapabilityService? capabilities = null) : IAiProvider, IAiChatProvider
 {
+    /// <inheritdoc/>
     public AiProviderKind Kind => AiProviderKind.Ollama;
 
+    /// <inheritdoc/>
     public string DisplayName => Kind.DisplayName();
 
+    /// <inheritdoc/>
     public async Task<AiDiagnosis> CompleteAsync(AiPromptRequest request, CancellationToken ct)
     {
         var content = await SendAsync(request, "Diagnosis", ct).ConfigureAwait(false);
         return AiProviderJson.ParseDiagnosis(content);
     }
 
+    /// <inheritdoc/>
     public async Task<string> TestAsync(CancellationToken ct)
     {
         _ = await SendAsync(new AiPromptRequest("Return JSON only.", "Return {\"summary\":\"ok\",\"likelyCause\":\"configured\",\"evidenceCited\":[],\"suggestedFix\":{\"description\":\"none\",\"commands\":[],\"fileEdits\":[]},\"confidence\":1}"), "Provider test", ct).ConfigureAwait(false);
@@ -82,6 +90,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
         return uri;
     }
 
+    /// <inheritdoc/>
     public async Task<string> RunTurnAsync(
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
@@ -90,6 +99,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
         => (await RunTurnAsync(new AiChatRequest(AiConversationContext.Capture(settings, Kind), history),
             tools, invokeToolAsync, ct).ConfigureAwait(false)).FinalText;
 
+    /// <inheritdoc/>
     public async Task<AiChatTurnResult> RunTurnAsync(
         AiChatRequest request,
         IReadOnlyList<AiToolDefinition> tools,
@@ -175,6 +185,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
         "Choose an Ollama model in Settings first.",
         AiFailureKind.Configuration);
 
+    /// <summary>Converts one app chat message into Ollama's message object, including tool results.</summary>
     internal static object ToOllamaMessage(AiChatMessage message)
     {
         message = AiTextSanitizer.SanitizeMessage(message);
@@ -210,6 +221,7 @@ public sealed class OllamaProvider(AiHttpClient http, ISettingsService settings,
         return new { role = message.Role, content = message.Content ?? string.Empty };
     }
 
+    /// <summary>Converts an app tool definition into Ollama's function-tool schema.</summary>
     internal static object ToOllamaTool(AiToolDefinition tool)
     {
         tool = AiTextSanitizer.SanitizeDefinition(tool);

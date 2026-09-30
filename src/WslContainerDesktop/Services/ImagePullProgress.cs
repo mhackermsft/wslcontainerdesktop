@@ -26,10 +26,14 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed partial class ImagePullProgress(string subject)
 {
+    /// <summary>Monotonic progress state for one image layer as reported by <c>wslc pull</c>.</summary>
     private enum LayerState
     {
+        /// <summary>The layer has appeared in output but has not completed download.</summary>
         Seen,
+        /// <summary>The layer download finished and extraction may be in progress.</summary>
         Downloaded,
+        /// <summary>The layer is fully unpacked or already existed locally.</summary>
         Ready,
     }
 

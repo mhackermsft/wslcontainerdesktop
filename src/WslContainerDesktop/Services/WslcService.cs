@@ -21,28 +21,112 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Implements the app's main container-engine facade by translating service calls into <c>wslc.exe</c> commands.
+/// </summary>
+/// <remarks>
+/// This class is the boundary between the rest of the app and the external container CLI. It keeps command construction in one place, normalizes JSON and text output into models, and uses collaborators for capabilities, policy checks, file transfer, and restart suppression.
+/// </remarks>
 public sealed class WslcService(
     ProcessRunner runner,
     ILogger<WslcService> logger,
     IWslcCapabilitiesService capabilities,
     ISettingsService settings,
-    RestartSuppressionState suppression) : IWslcService
+    RestartSuppressionState suppression,
+    IWslPolicyService? policy = null,
+    Func<string>? fileTransferStagingRoot = null) : IWslcService
 {
     private readonly IWslcCapabilitiesService _capabilities = capabilities;
+    private readonly IWslPolicyService _policy = policy ?? AllowAllWslPolicyService.Instance;
     private readonly ContainerPortResolver _containerPorts = new();
+    /// <summary>
+    /// Remembers requested health-check options until the created container can be inspected.
+    /// </summary>
     private sealed record PendingHealth(RunContainerOptions Options, string ExecutablePath);
     private readonly ConcurrentDictionary<string, PendingHealth> _pendingHealth = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _createGate = new(1, 1);
     private const int PendingHealthLimit = 256;
 
     private WslcFileTransfer FileTransfer => new(
-        _capabilities, ProcessRunner.RunAtPathAsync, ProcessRunner.RunCopyWithInputFileAtPathAsync,
-        () => Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "file-transfer"));
+        ProcessRunner.RunAtPathAsync, ProcessRunner.RunCopyWithInputFileAtPathAsync, () => settings.WslcPath,
+        () => fileTransferStagingRoot?.Invoke() ??
+            Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "file-transfer"));
+
+    /// <summary>
+    /// Provides the default policy when no registry-based WSL policy service was registered.
+    /// </summary>
+    private sealed class AllowAllWslPolicyService : IWslPolicyService
+    {
+        /// <summary>
+        /// Gets instance for callers in the service or view-model layer.
+        /// </summary>
+        public static readonly AllowAllWslPolicyService Instance = new();
+
+        /// <summary>
+        /// Gets policy information for callers in the service or view-model layer.
+        /// </summary>
+        public WslPolicySnapshot GetPolicy() =>
+            new(true, true, new WslRegistryAllowlist(WslRegistryAllowlistState.Unrestricted, []));
+    }
 
     // ---- Engine ---------------------------------------------------------
 
+    /// <summary>
+    /// Gets version information for callers in the service or view-model layer.
+    /// </summary>
     public Task<CommandResult> GetVersionAsync(CancellationToken ct = default) =>
         runner.RunAsync(["version"], ct);
+
+    /// <summary>
+    /// Gets system information for callers in the service or view-model layer.
+    /// </summary>
+    public async Task<WslcSystemInfo> GetSystemInfoAsync(CancellationToken ct = default)
+    {
+        var result = await runner.RunAsync(["system", "info", "--format", "json"], ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            throw new InvalidOperationException($"System info failed: {result.ErrorText}");
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<WslcSystemInfo>(result.StandardOutput, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+            }) ?? new WslcSystemInfo();
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex, "Failed to parse wslc system info JSON.");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Gets event information for callers in the service or view-model layer.
+    /// </summary>
+    public async Task<IReadOnlyList<EngineEvent>> GetEventsAsync(DateTimeOffset since, DateTimeOffset until, CancellationToken ct = default)
+    {
+        var result = await runner.RunAsync([
+            "events",
+            "--since",
+            since.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--until",
+            until.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture),
+        ], ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            throw new InvalidOperationException($"Event query failed: {result.ErrorText}");
+        }
+
+        return WslcEventParser.ParseLines(result.StandardOutput, logger);
+    }
+
+    /// <summary>
+    /// Opens settings for the user.
+    /// </summary>
+    public Task<CommandResult> OpenSettingsAsync(CancellationToken ct = default) =>
+        runner.RunAsync(["settings"], ct);
 
     /// <summary>
     /// Terminates the current <c>wslc</c> session. This is the only way to release the per-session
@@ -53,6 +137,9 @@ public sealed class WslcService(
     public Task<CommandResult> RestartSessionAsync(CancellationToken ct = default) =>
         runner.RunAsync(["system", "session", "terminate"], ct);
 
+    /// <summary>
+    /// Verifies bind mount before a later operation relies on it.
+    /// </summary>
     public async Task<BindMountProbeResult> VerifyBindMountAsync(string hostSource, CancellationToken ct = default)
     {
         // Bind the source into a throwaway busybox and report, from inside the VM, whether it is a
@@ -61,11 +148,18 @@ public sealed class WslcService(
         // failing outright) we report ProbeUnavailable so the caller can fail open — the real run then
         // surfaces any genuine mount error through its own error handling rather than being masked as
         // a mount-limit failure.
+        const string ProbeImage = "busybox:1.36";
+        if (ValidateImagePolicy(ProbeImage) is not null)
+        {
+            // The registry allowlist forbids the probe image; fail open exactly as for an unavailable image.
+            return BindMountProbeResult.ProbeUnavailable;
+        }
+
         var args = new List<string>
         {
             "run", "--rm",
             "-v", $"{hostSource}:/wcd-probe:ro",
-            "busybox:1.36",
+            ProbeImage,
             "sh", "-c",
             "if [ -f /wcd-probe ]; then echo __WCD_FILE__; " +
             "elif [ -d /wcd-probe ]; then echo __WCD_DIR__; fi",
@@ -96,10 +190,18 @@ public sealed class WslcService(
         }
     }
 
+    /// <summary>
+    /// Gets whether engine available for the current app or engine state.
+    /// </summary>
     public async Task<bool> IsEngineAvailableAsync(CancellationToken ct = default)
     {
         try
         {
+            if (_policy.GetPolicy().WslContainersDisabled)
+            {
+                return false;
+            }
+
             var result = await runner.RunAsync(["version"], ct).ConfigureAwait(false);
             return result.Success;
         }
@@ -111,12 +213,20 @@ public sealed class WslcService(
 
     // ---- Containers -----------------------------------------------------
 
-    public async Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(bool all = true, CancellationToken ct = default)
+    /// <summary>
+    /// Lists container service resources used by WSL Container Desktop.
+    /// </summary>
+    public async Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(bool all = true, CancellationToken ct = default, bool includeSize = false)
     {
         var args = new List<string> { "list", "--format", "json" };
         if (all)
         {
             args.Add("--all");
+        }
+
+        if (includeSize)
+        {
+            args.Add("--size");
         }
 
         var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
@@ -137,12 +247,15 @@ public sealed class WslcService(
             logger.LogWarning(ex, "Failed to parse container inventory; no partial list will be returned.");
             throw;
         }
-        await _containerPorts.ResolveAsync(containers, all, InspectContainerAsync,
+        await _containerPorts.ResolveAsync(containers, all, (id, token) => InspectContainerAsync(id, token),
             (id, message) => logger.LogWarning("Container {Id} ports remain unknown: {Detail}", id, message), ct)
             .ConfigureAwait(false);
         return containers;
     }
 
+    /// <summary>
+    /// Starts container work requested by the UI or a supervisor.
+    /// </summary>
     public async Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default, bool explicitStart = true)
     {
         var resume = explicitStart ? await CaptureStartIntentAsync(id, ct).ConfigureAwait(false) : null;
@@ -188,9 +301,15 @@ public sealed class WslcService(
         return suppression.CaptureExplicitStart(name.GetString()!, version);
     }
 
+    /// <summary>
+    /// Stops container work requested by the UI or a supervisor.
+    /// </summary>
     public Task<CommandResult> StopContainerAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["stop", id], ct);
 
+    /// <summary>
+    /// Stops container work requested by the UI or a supervisor.
+    /// </summary>
     public Task<CommandResult> StopContainerAsync(string id, int? timeSeconds, string? signal, CancellationToken ct = default)
     {
         var args = new List<string> { "stop" };
@@ -210,25 +329,47 @@ public sealed class WslcService(
         return runner.RunAsync(args, ct);
     }
 
-    public async Task<CommandResult> RestartContainerAsync(string id, CancellationToken ct = default)
+    /// <summary>
+    /// Restarts container through the service layer.
+    /// </summary>
+    public Task<CommandResult> RestartContainerAsync(string id, CancellationToken ct = default) =>
+        RestartContainerAsync(id, null, null, ct);
+
+    /// <summary>
+    /// Restarts container through the service layer.
+    /// </summary>
+    public async Task<CommandResult> RestartContainerAsync(string id, int? timeSeconds, string? signal, CancellationToken ct = default)
     {
         var resume = await CaptureStartIntentAsync(id, ct).ConfigureAwait(false);
-        var stop = await runner.RunAsync(["stop", id], ct).ConfigureAwait(false);
-        // Ignore stop failures (container may already be stopped) and attempt start.
-        var start = await runner.RunAsync(["start", id], ct).ConfigureAwait(false);
-        if (!start.Success && !stop.Success)
+        var args = new List<string> { "restart" };
+        if (timeSeconds is int t && t >= 0)
         {
-            return stop;
+            args.Add("-t");
+            args.Add(t.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
+        if (!string.IsNullOrWhiteSpace(signal))
+        {
+            args.Add("-s");
+            args.Add(signal.Trim());
+        }
+
+        args.Add(id);
+        var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
         if (resume is { } token)
-            suppression.CompleteExplicitStart(token, start.Success);
-        return start;
+            suppression.CompleteExplicitStart(token, result.Success);
+        return result;
     }
 
+    /// <summary>
+    /// Force-stops container through the service layer.
+    /// </summary>
     public Task<CommandResult> KillContainerAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["kill", id], ct);
 
+    /// <summary>
+    /// Removes a container from persisted state or the engine.
+    /// </summary>
     public async Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default,
         bool removeAnonymousVolumes = false)
     {
@@ -240,13 +381,7 @@ public sealed class WslcService(
 
         if (removeAnonymousVolumes)
         {
-            // Optional flag: only pass it when the engine advertises it, so an older engine keeps
-            // removing the container instead of failing on an unknown argument.
-            var support = await _capabilities.GetAsync(ct).ConfigureAwait(false);
-            if (support[WslcFeature.RemoveVolumes].Support == WslcCapabilitySupport.Supported)
-            {
-                args.Add("--volumes");
-            }
+            args.Add("--volumes");
         }
 
         args.Add(id);
@@ -257,32 +392,28 @@ public sealed class WslcService(
         return result;
     }
 
+    /// <summary>
+    /// Prunes container service resources used by WSL Container Desktop.
+    /// </summary>
     public Task<CommandResult> PruneContainersAsync(CancellationToken ct = default) =>
         PruneAsync(WslcPruneTarget.Containers, ct);
 
     /// <summary>
-    /// Prunes against the capability snapshot's executable, so the <c>--force</c> decision and the
-    /// command always target the same engine. Runs non-interactively: see <see cref="WslcPruneCommand"/>.
+    /// Runs prune non-interactively with <c>--force</c> after the app's own confirmation.
     /// </summary>
-    private async Task<CommandResult> PruneAsync(WslcPruneTarget target, CancellationToken ct)
-    {
-        var snapshot = await _capabilities.GetAsync(ct).ConfigureAwait(false);
-        var selection = WslcPruneCommand.Select(target, snapshot);
-        if (selection.Arguments is null)
-        {
-            logger.LogWarning("Prune of {Target} was not attempted: {Detail}", target, selection.Error);
-            return new CommandResult { ExitCode = -1, StandardError = selection.Error! };
-        }
+    private Task<CommandResult> PruneAsync(WslcPruneTarget target, CancellationToken ct) =>
+        runner.RunNonInteractiveAsync(WslcPruneCommand.Select(target).Arguments!, ct);
 
-        return await ProcessRunner.RunNonInteractiveAtPathAsync(
-            snapshot.ExecutablePath, selection.Arguments, ProcessRunner.MutationTimeout, ct).ConfigureAwait(false);
-    }
-
+    /// <summary>
+    /// Runs container through the service layer.
+    /// </summary>
     public async Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default,
         long maximumStopVersion = long.MaxValue)
     {
         if (options.WaitsForTerminalInput())
             return new CommandResult { ExitCode = -1, StandardError = RunContainerOptions.ForegroundInteractiveError };
+        if (ValidateImagePolicy(options.Image) is { } policyError)
+            return policyError;
         var resume = string.IsNullOrWhiteSpace(options.Name)
             ? (RestartSuppressionState.ResumeToken?)null : suppression.CaptureExplicitStart(options.Name, maximumStopVersion);
         var selection = options.Health is null ? new NativeHealthSelection(true, [])
@@ -321,6 +452,9 @@ public sealed class WslcService(
         settings.Save();
     }
 
+    /// <summary>
+    /// Creates container values used by the service layer.
+    /// </summary>
     public async Task<CommandResult> CreateContainerAsync(RunContainerOptions options, CancellationToken ct = default)
     {
         await _createGate.WaitAsync(ct).ConfigureAwait(false);
@@ -336,6 +470,8 @@ public sealed class WslcService(
 
     private async Task<CommandResult> CreateContainerCoreAsync(RunContainerOptions options, CancellationToken ct)
     {
+        if (ValidateImagePolicy(options.Image) is { } policyError)
+            return policyError;
         var snapshot = options.Health is null ? null : await _capabilities.GetAsync(ct).ConfigureAwait(false);
         var selection = snapshot is null ? new NativeHealthSelection(true, [])
             : NativeHealthPolicy.Select(options.Health, snapshot, forCreate: true);
@@ -376,135 +512,67 @@ public sealed class WslcService(
         return matches.FirstOrDefault();
     }
 
+    /// <summary>
+    /// Executes an app-owned health command inside a container.
+    /// </summary>
     public Task<CommandResult> ExecHealthAsync(string id, NativeHealthOptions health, CancellationToken ct = default)
     {
         return runner.RunAsync(NativeHealthPolicy.ExecArguments(id, health), ct);
     }
 
-    public Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default) =>
-        runner.RunAsync(["logs", "--tail", tail.ToString(), id], ct);
+    /// <summary>
+    /// Gets log information for callers in the service or view-model layer.
+    /// </summary>
+    public Task<CommandResult> GetLogsAsync(string id, int tail = 500, CancellationToken ct = default, bool details = false,
+        bool timestamps = false, DateTimeOffset? since = null, DateTimeOffset? until = null)
+    {
+        var args = BuildLogsArguments(id, tail, follow: false, details, timestamps, since, until);
+        return runner.RunAsync(args, ct);
+    }
 
-    public Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default) =>
-        runner.RunAsync(["inspect", "--type", "container", id], ct);
+    /// <summary>
+    /// Inspects container through the service layer.
+    /// </summary>
+    public Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default, bool includeSize = false)
+    {
+        var args = new List<string> { "inspect", "--type", "container" };
+        if (includeSize)
+        {
+            args.Add("--size");
+        }
 
+        args.Add(id);
+        return runner.RunAsync(args, ct);
+    }
+
+    /// <summary>
+    /// Lists files resources for callers that should not invoke <c>wslc</c> directly.
+    /// </summary>
     public Task<CommandResult> ListFilesAsync(string id, string path, CancellationToken ct = default) =>
         ExecShellAsync(id, BuildListFilesScript(path), ct);
 
+    /// <summary>
+    /// Reads text file through the service layer.
+    /// </summary>
     public Task<CommandResult> ReadTextFileAsync(string id, string path, int maxBytes = 65_536, CancellationToken ct = default) =>
         ExecShellAsync(id, BuildReadTextFileScript(path, maxBytes), ct);
 
-    public Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default) =>
-        FileTransfer.CopyFromAsync(id, containerPath, hostPath,
-            (source, destination, token) => CopyFromContainerLegacyAsync(id, source, destination, token), ct);
+    /// <summary>
+    /// Copies from container through the service layer.
+    /// </summary>
+    public Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default,
+        bool followSymlinks = false) =>
+        FileTransfer.CopyFromAsync(id, containerPath, hostPath, ct, followSymlinks);
 
+    /// <summary>
+    /// Copies to container through the service layer.
+    /// </summary>
     public Task<CommandResult> CopyToContainerAsync(string id, string hostPath, string containerPath, CancellationToken ct = default) =>
-        FileTransfer.CopyToAsync(id, hostPath, containerPath,
-            token => CopyToContainerLegacyAsync(id, hostPath, containerPath, token), ct);
+        FileTransfer.CopyToAsync(id, hostPath, containerPath, ct);
 
-    private async Task<CommandResult> CopyFromContainerLegacyAsync(string id, string containerPath, string hostPath, CancellationToken ct)
-    {
-        // Older engines stream files out over `exec` using a base64 channel
-        // (binary-safe) for single files and tar+base64 for directories. hostPath is the destination
-        // DIRECTORY; the source's basename is preserved (docker cp-style semantics).
-        var typeProbe = await ExecShellAsync(id,
-            $"p={WslRootShell.ShellEscape(containerPath)}; " +
-            "if [ -d \"$p\" ]; then echo DIR; elif [ -e \"$p\" ]; then echo FILE; else echo NONE; fi", ct)
-            .ConfigureAwait(false);
-        if (!typeProbe.Success)
-        {
-            return typeProbe;
-        }
-
-        var kind = typeProbe.StandardOutput.Trim();
-        if (kind == "NONE")
-        {
-            return new CommandResult { ExitCode = -1, StandardError = $"Path not found in container: {containerPath}" };
-        }
-
-        try
-        {
-            var destination = ContainerDownloadPath.Create(containerPath, hostPath);
-            var name = destination.Name;
-
-            if (kind == "DIR")
-            {
-                // Stage the archive to a temp file inside the container so tar's exit status is
-                // authoritative: in a `tar | base64` pipeline POSIX sh reports only base64's status,
-                // which would hide a partial/failed tar and let us extract a truncated tree.
-                var script =
-                    $"cd {WslRootShell.ShellEscape(PosixParent(containerPath))} || exit 1; " +
-                    "tmp=$(mktemp) || exit 1; trap 'rm -f \"$tmp\"' EXIT HUP INT TERM; " +
-                    $"if tar -cf \"$tmp\" -- {WslRootShell.ShellEscape(name.Length == 0 ? "." : name)}; then base64 \"$tmp\"; s=$?; else s=$?; fi; " +
-                    "rm -f \"$tmp\"; exit $s";
-                var res = await ExecShellAsync(id, script, ct).ConfigureAwait(false);
-                if (!res.Success)
-                {
-                    return res;
-                }
-
-                using var ms = new MemoryStream(DecodeBase64(res.StandardOutput));
-                await ContainerDownloadArchive.ExtractAsync(ms, destination, ct).ConfigureAwait(false);
-                return res;
-            }
-            else
-            {
-                var res = await ExecShellAsync(id, $"base64 -- {WslRootShell.ShellEscape(containerPath)}", ct)
-                    .ConfigureAwait(false);
-                if (!res.Success)
-                {
-                    return res;
-                }
-
-                destination.Prepare(ct);
-                await File.WriteAllBytesAsync(destination.Target, DecodeBase64(res.StandardOutput), ct)
-                    .ConfigureAwait(false);
-                return res;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or NotSupportedException)
-        {
-            return new CommandResult { ExitCode = -1, StandardError = $"Could not copy from container: {ex.Message}" };
-        }
-    }
-
-    private async Task<CommandResult> CopyToContainerLegacyAsync(string id, string hostPath, string containerPath, CancellationToken ct)
-    {
-        // Older engines upload over `exec -i` by piping a base64 payload to `base64 -d` (files) or
-        // `base64 -d | tar -xf -` (directories). containerPath is the destination DIRECTORY inside the
-        // container; the host source's basename is preserved.
-        try
-        {
-            if (Directory.Exists(hostPath))
-            {
-                using var ms = new MemoryStream();
-                System.Formats.Tar.TarFile.CreateFromDirectory(hostPath, ms, includeBaseDirectory: true);
-                var payload = Convert.ToBase64String(ms.ToArray());
-                var script =
-                    $"mkdir -p -- {WslRootShell.ShellEscape(containerPath)} && " +
-                    $"cd {WslRootShell.ShellEscape(containerPath)} && base64 -d | tar -xf -";
-                return await runner.RunWithStdinAsync(["exec", "-i", id, "sh", "-c", script], payload, ct)
-                    .ConfigureAwait(false);
-            }
-
-            if (File.Exists(hostPath))
-            {
-                var payload = Convert.ToBase64String(await File.ReadAllBytesAsync(hostPath, ct).ConfigureAwait(false));
-                var target = PosixCombine(containerPath, Path.GetFileName(hostPath));
-                var script =
-                    $"mkdir -p -- {WslRootShell.ShellEscape(containerPath)} && " +
-                    $"base64 -d > {WslRootShell.ShellEscape(target)}";
-                return await runner.RunWithStdinAsync(["exec", "-i", id, "sh", "-c", script], payload, ct)
-                    .ConfigureAwait(false);
-            }
-
-            return new CommandResult { ExitCode = -1, StandardError = $"Host path not found: {hostPath}" };
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or NotSupportedException)
-        {
-            return new CommandResult { ExitCode = -1, StandardError = $"Could not copy to container: {ex.Message}" };
-        }
-    }
-
+    /// <summary>
+    /// Deletes a path from persisted state or the engine.
+    /// </summary>
     public Task<CommandResult> DeletePathAsync(string id, string path, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(path) || path == "/" || !path.StartsWith('/') || ContainsPathTraversal(path))
@@ -519,6 +587,9 @@ public sealed class WslcService(
         return ExecShellAsync(id, $"rm -rf -- {WslRootShell.ShellEscape(path)}", ct);
     }
 
+    /// <summary>
+    /// Renames a file or directory inside a container through the service layer.
+    /// </summary>
     public Task<CommandResult> RenamePathAsync(string id, string oldPath, string newPath, CancellationToken ct = default)
     {
         if (ContainsPathTraversal(oldPath) || ContainsPathTraversal(newPath))
@@ -534,6 +605,9 @@ public sealed class WslcService(
             $"mv -- {WslRootShell.ShellEscape(oldPath)} {WslRootShell.ShellEscape(newPath)}", ct);
     }
 
+    /// <summary>
+    /// Creates directory values used by the service layer.
+    /// </summary>
     public Task<CommandResult> CreateDirectoryAsync(string id, string path, CancellationToken ct = default)
     {
         if (ContainsPathTraversal(path))
@@ -553,6 +627,9 @@ public sealed class WslcService(
     private static bool ContainsPathTraversal(string path) =>
         path.Split('/').Any(s => s == "." || s == "..");
 
+    /// <summary>
+    /// Gets statistics information for callers in the service or view-model layer.
+    /// </summary>
     public async Task<IReadOnlyList<ContainerStats>> GetStatsAsync(CancellationToken ct = default)
     {
         // Deliberately omit --all: like `docker stats`, that flag would also report stopped
@@ -561,15 +638,24 @@ public sealed class WslcService(
         return Deserialize<ContainerStats>(result);
     }
 
+    /// <summary>
+    /// Gets statistics information for callers in the service or view-model layer.
+    /// </summary>
     public async Task<ContainerStats?> GetStatsAsync(string id, CancellationToken ct = default)
     {
         var result = await runner.RunAsync(["stats", "--format", "json", id], ct).ConfigureAwait(false);
         return Deserialize<ContainerStats>(result).FirstOrDefault();
     }
 
+    /// <summary>
+    /// Opens terminal for the user.
+    /// </summary>
     public void OpenTerminal(string id) =>
         runner.RunInteractive(["exec", "-it", id, "/bin/sh", "-c", "clear; (bash || sh)"]);
 
+    /// <summary>
+    /// Executes a command inside a container through <c>wslc</c>.
+    /// </summary>
     public Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default) =>
         runner.RunAsync(["exec", id, "sh", "-c", command], ct);
 
@@ -579,6 +665,9 @@ public sealed class WslcService(
     private const string DiffWalkScript =
         "find / -xdev -exec stat -c '%f|%s|%Y|%n' {} + 2>/dev/null";
 
+    /// <summary>
+    /// Reads filesystem changes from a container through <c>wslc</c>.
+    /// </summary>
     public async Task<IReadOnlyList<ContainerFsChange>> DiffContainerAsync(
         string id, string image, CancellationToken ct = default)
     {
@@ -716,23 +805,98 @@ public sealed class WslcService(
         return (true, string.IsNullOrWhiteSpace(name) ? null : name);
     }
 
-    public void FollowLogs(string id) =>
-        runner.RunInteractive(["logs", "-f", "--tail", "200", id]);
+    /// <summary>
+    /// Starts following container logs through the service layer.
+    /// </summary>
+    public void FollowLogs(string id, bool details = false, bool timestamps = false) =>
+        runner.RunInteractive(BuildLogsArguments(id, 200, follow: true, details, timestamps));
+
+    /// <summary>
+    /// Attaches an interactive session to a running container.
+    /// </summary>
+    public void AttachContainer(string id) =>
+        runner.RunInteractive(["attach", id]);
+
+    private static List<string> BuildLogsArguments(string id, int tail, bool follow, bool details, bool timestamps,
+        DateTimeOffset? since = null, DateTimeOffset? until = null)
+    {
+        var args = new List<string> { "logs" };
+        if (details)
+        {
+            args.Add("--details");
+        }
+
+        if (timestamps)
+        {
+            args.Add("--timestamps");
+        }
+
+        if (follow)
+        {
+            args.Add("--follow");
+        }
+
+        args.Add("--tail");
+        args.Add(tail.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (since is DateTimeOffset sinceValue)
+        {
+            args.Add("--since");
+            args.Add(sinceValue.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        if (until is DateTimeOffset untilValue)
+        {
+            args.Add("--until");
+            args.Add(untilValue.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        args.Add(id);
+        return args;
+    }
 
     // ---- Images ---------------------------------------------------------
 
-    public async Task<IReadOnlyList<ImageInfo>> ListImagesAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Lists image service resources used by WSL Container Desktop.
+    /// </summary>
+    public async Task<IReadOnlyList<ImageInfo>> ListImagesAsync(CancellationToken ct = default, bool showAll = false)
     {
-        var result = await runner.RunAsync(["images", "--format", "json"], ct).ConfigureAwait(false);
+        var args = new List<string> { "images", "--digests", "--format", "json" };
+        if (showAll)
+        {
+            args.Add("--all");
+        }
+
+        var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
         return WslcJsonParser.ParseImages(result);
     }
 
-    public Task<CommandResult> PullImageAsync(string reference, CancellationToken ct = default) =>
-        runner.RunAsync(["pull", reference], ct);
+    /// <summary>
+    /// Pulls image through the service layer.
+    /// </summary>
+    public Task<CommandResult> PullImageAsync(string reference, CancellationToken ct = default, bool allTags = false)
+    {
+        // wslc rejects a tag or digest together with --all-tags ("tag can't be used with --all-tags").
+        var target = allTags ? StripTag(reference) : reference;
+        return ValidateImagePolicy(target) is { } policyError
+            ? Task.FromResult(policyError)
+            : runner.RunAsync(BuildPullPushArguments("pull", target, allTags), ct);
+    }
 
-    public Task<CommandResult> PullImageAsync(string reference, Action<string> onLine, CancellationToken ct = default) =>
-        runner.RunStreamingAsync(["pull", reference], onLine, ct);
+    /// <summary>
+    /// Pulls image through the service layer.
+    /// </summary>
+    public Task<CommandResult> PullImageAsync(string reference, Action<string> onLine, CancellationToken ct = default, bool allTags = false)
+    {
+        var target = allTags ? StripTag(reference) : reference;
+        return ValidateImagePolicy(target) is { } policyError
+            ? Task.FromResult(policyError)
+            : runner.RunStreamingAsync(BuildPullPushArguments("pull", target, allTags), onLine, ct);
+    }
 
+    /// <summary>
+    /// Logs in to a registry without exposing credentials on the command line.
+    /// </summary>
     public Task<CommandResult> LoginRegistryAsync(string server, string username, string password, CancellationToken ct = default)
     {
         var args = new List<string> { "login" };
@@ -751,6 +915,9 @@ public sealed class WslcService(
         return runner.RunWithStdinAsync(args, password, ct);
     }
 
+    /// <summary>
+    /// Logs out of a container registry through the service layer.
+    /// </summary>
     public Task<CommandResult> LogoutRegistryAsync(string server, CancellationToken ct = default)
     {
         var args = new List<string> { "logout" };
@@ -762,9 +929,32 @@ public sealed class WslcService(
         return runner.RunAsync(args, ct);
     }
 
-    public Task<CommandResult> PushImageAsync(string reference, CancellationToken ct = default) =>
-        runner.RunAsync(["push", reference], ct);
+    /// <summary>
+    /// Pushes image through the service layer.
+    /// </summary>
+    public Task<CommandResult> PushImageAsync(string reference, CancellationToken ct = default, bool allTags = false)
+    {
+        var target = allTags ? StripTag(reference) : reference;
+        return ValidateImagePolicy(target) is { } policyError
+            ? Task.FromResult(policyError)
+            : runner.RunAsync(BuildPullPushArguments("push", target, allTags), ct);
+    }
 
+    private static List<string> BuildPullPushArguments(string command, string reference, bool allTags)
+    {
+        var args = new List<string> { command };
+        if (allTags)
+        {
+            args.Add("--all-tags");
+        }
+
+        args.Add(reference);
+        return args;
+    }
+
+    /// <summary>
+    /// Probes registry authentication without relying on localized CLI prose.
+    /// </summary>
     public async Task<Models.RegistryLoginState> ProbeRegistryLoginAsync(string host, string repository, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(host))
@@ -833,6 +1023,9 @@ public sealed class WslcService(
         return Models.RegistryLoginState.Unknown;
     }
 
+    /// <summary>
+    /// Removes an image from persisted state or the engine.
+    /// </summary>
     public Task<CommandResult> RemoveImageAsync(string id, bool force = true, CancellationToken ct = default)
     {
         var args = new List<string> { "rmi" };
@@ -845,12 +1038,21 @@ public sealed class WslcService(
         return runner.RunNonInteractiveAsync(args, ct);
     }
 
+    /// <summary>
+    /// Tags image through the service layer.
+    /// </summary>
     public Task<CommandResult> TagImageAsync(string source, string target, CancellationToken ct = default) =>
         runner.RunAsync(["tag", source, target], ct);
 
+    /// <summary>
+    /// Prunes image service resources used by WSL Container Desktop.
+    /// </summary>
     public Task<CommandResult> PruneImagesAsync(CancellationToken ct = default) =>
         PruneAsync(WslcPruneTarget.Images, ct);
 
+    /// <summary>
+    /// Inspects image through the service layer.
+    /// </summary>
     public Task<CommandResult> InspectImageAsync(string id, CancellationToken ct = default) =>
         runner.RunAsync(["inspect", "--type", "image", id], ct);
 
@@ -862,6 +1064,8 @@ public sealed class WslcService(
     /// </summary>
     public async Task<IReadOnlyList<string>> GetImageRepoDigestsAsync(string id, CancellationToken ct = default)
     {
+        // Keep inspect here: `images --digests` exposes the row digest, but update checks need the
+        // full RepoDigests list that records the registry-qualified manifest digests for this image.
         var result = await InspectImageAsync(id, ct).ConfigureAwait(false);
         if (!result.Success)
         {
@@ -913,6 +1117,67 @@ public sealed class WslcService(
         }
     }
 
+    /// <summary>
+    /// Saves images so the app can restore it later.
+    /// </summary>
+    public Task<CommandResult> SaveImagesAsync(IReadOnlyList<string> references, string outputPath, CancellationToken ct = default)
+    {
+        if (references.Count == 0)
+        {
+            return Task.FromResult(new CommandResult { ExitCode = -1, StandardError = "Select at least one image to save." });
+        }
+
+        var args = new List<string> { "save", "--output", outputPath };
+        args.AddRange(references);
+        return runner.RunAsync(args, ct);
+    }
+
+    /// <summary>
+    /// Loads image data from persisted app state or an external tool.
+    /// </summary>
+    public Task<CommandResult> LoadImageAsync(string inputPath, CancellationToken ct = default) =>
+        runner.RunAsync(["load", "--input", inputPath, "--quiet"], ct);
+
+    /// <summary>
+    /// Imports image through the service layer.
+    /// </summary>
+    public Task<CommandResult> ImportImageAsync(string inputPath, string? imageReference = null, CancellationToken ct = default)
+    {
+        var args = new List<string> { "import", inputPath };
+        if (!string.IsNullOrWhiteSpace(imageReference))
+        {
+            args.Add(imageReference.Trim());
+        }
+
+        return runner.RunAsync(args, ct);
+    }
+
+    /// <summary>
+    /// Exports container through the service layer.
+    /// </summary>
+    public Task<CommandResult> ExportContainerAsync(string id, string outputPath, CancellationToken ct = default) =>
+        runner.RunAsync(["export", "--output", outputPath, id], ct);
+
+    /// <summary>
+    /// Returns an image reference without its tag portion.
+    /// </summary>
+    internal static string StripTag(string reference)
+    {
+        var value = reference.Trim();
+        var digestIndex = value.IndexOf('@');
+        if (digestIndex >= 0)
+        {
+            value = value[..digestIndex];
+        }
+
+        var lastSlash = value.LastIndexOf('/');
+        var lastColon = value.LastIndexOf(':');
+        return lastColon > lastSlash ? value[..lastColon] : value;
+    }
+
+    /// <summary>
+    /// Builds image values without exposing command details to callers.
+    /// </summary>
     public Task<CommandResult> BuildImageAsync(
         string contextPath,
         string tag,
@@ -924,6 +1189,8 @@ public sealed class WslcService(
         bool pull = false,
         CancellationToken ct = default)
     {
+        if (WslRegistryPolicyGuard.ValidateBuild(_policy.GetPolicy()) is { } buildError)
+            return Task.FromResult(new CommandResult { ExitCode = -1, StandardError = buildError });
         var args = new List<string> { "build", "-t", tag };
         if (!string.IsNullOrWhiteSpace(dockerfile))
         {
@@ -972,6 +1239,12 @@ public sealed class WslcService(
         return runner.RunAsync(args, ct);
     }
 
+    private CommandResult? ValidateImagePolicy(string reference)
+    {
+        var message = WslRegistryPolicyGuard.ValidateImageReference(_policy.GetPolicy(), reference);
+        return message is null ? null : new CommandResult { ExitCode = -1, StandardError = message };
+    }
+
     public const string StdinDockerfileError =
         "'-' reads the Dockerfile from standard input, which the app cannot supply. Enter a Dockerfile path instead.";
 
@@ -980,12 +1253,18 @@ public sealed class WslcService(
 
     // ---- Volumes --------------------------------------------------------
 
+    /// <summary>
+    /// Lists volume service resources used by WSL Container Desktop.
+    /// </summary>
     public async Task<IReadOnlyList<VolumeInfo>> ListVolumesAsync(CancellationToken ct = default)
     {
         var result = await runner.RunAsync(["volume", "list", "--format", "json"], ct).ConfigureAwait(false);
         return WslcJsonParser.ParseVolumes(result);
     }
 
+    /// <summary>
+    /// Creates volume values used by the service layer.
+    /// </summary>
     public Task<CommandResult> CreateVolumeAsync(
         string name,
         string? driver = null,
@@ -999,58 +1278,68 @@ public sealed class WslcService(
         return runner.RunAsync(args, ct);
     }
 
+    /// <summary>
+    /// Removes a volume from persisted state or the engine.
+    /// </summary>
     public Task<CommandResult> RemoveVolumeAsync(string name, CancellationToken ct = default) =>
         runner.RunNonInteractiveAsync(["volume", "remove", name], ct);
 
+    /// <summary>
+    /// Prunes volume service resources used by WSL Container Desktop.
+    /// </summary>
     public Task<CommandResult> PruneVolumesAsync(CancellationToken ct = default) =>
         PruneAsync(WslcPruneTarget.Volumes, ct);
 
+    /// <summary>
+    /// Inspects volume through the service layer.
+    /// </summary>
     public Task<CommandResult> InspectVolumeAsync(string name, CancellationToken ct = default) =>
         runner.RunAsync(["volume", "inspect", name], ct);
 
     // ---- Networks -------------------------------------------------------
 
+    /// <summary>
+    /// Connects network through the service layer.
+    /// </summary>
     public async Task<CommandResult> ConnectNetworkAsync(NetworkAttachment endpoint, string containerId, CancellationToken ct = default)
     {
-        var snapshot = await RequireNetworkCapabilityAsync(WslcFeature.NetworkConnect, ct).ConfigureAwait(false);
-        return await ProcessRunner.RunAtPathAsync(snapshot.ExecutablePath, endpoint.ToConnectArguments(containerId), ct)
-            .ConfigureAwait(false);
+        return await runner.RunAsync(endpoint.ToConnectArguments(containerId), ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Disconnects network through the service layer.
+    /// </summary>
     public async Task<CommandResult> DisconnectNetworkAsync(string network, string containerId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(network);
         ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
-        var snapshot = await RequireNetworkCapabilityAsync(WslcFeature.NetworkDisconnect, ct).ConfigureAwait(false);
-        return await ProcessRunner.RunAtPathAsync(snapshot.ExecutablePath, ["network", "disconnect", network, containerId], ct)
-            .ConfigureAwait(false);
+        return await runner.RunAsync(["network", "disconnect", network, containerId], ct).ConfigureAwait(false);
     }
 
-    private async Task<WslcCapabilities> RequireNetworkCapabilityAsync(WslcFeature feature, CancellationToken ct)
-    {
-        var snapshot = await _capabilities.GetAsync(ct).ConfigureAwait(false);
-        if (!snapshot.IsSupported(feature))
-        {
-            throw new InvalidOperationException($"WSLC {feature} is unavailable: {snapshot[feature].Diagnostic}");
-        }
-
-        return snapshot;
-    }
-
+    /// <summary>
+    /// Lists network service resources used by WSL Container Desktop.
+    /// </summary>
     public async Task<IReadOnlyList<NetworkInfo>> ListNetworksAsync(CancellationToken ct = default)
     {
         var result = await runner.RunAsync(["network", "list", "--format", "json"], ct).ConfigureAwait(false);
         return Deserialize<NetworkInfo>(result);
     }
 
+    /// <summary>
+    /// Creates network values used by the service layer.
+    /// </summary>
     public Task<CommandResult> CreateNetworkAsync(
         string name,
         string? driver = null,
         IReadOnlyList<string>? driverOpts = null,
         IReadOnlyDictionary<string, string>? labels = null,
-        CancellationToken ct = default) =>
-        CreateNetworkAsync(name, driver, driverOpts, labels, null, null, null, ct);
+        CancellationToken ct = default,
+        bool internalNetwork = false) =>
+        CreateNetworkAsync(name, driver, driverOpts, labels, null, null, null, ct, internalNetwork);
 
+    /// <summary>
+    /// Creates network values used by the service layer.
+    /// </summary>
     public Task<CommandResult> CreateNetworkAsync(
         string name,
         string? driver,
@@ -1059,10 +1348,16 @@ public sealed class WslcService(
         string? subnet,
         string? gateway,
         string? ipRange,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool internalNetwork = false)
     {
         var args = new List<string> { "network", "create" };
         AppendResourceOptions(args, driver, driverOpts, labels);
+        if (internalNetwork)
+        {
+            args.Add("--internal");
+        }
+
         if (!string.IsNullOrWhiteSpace(subnet))
         {
             args.AddRange(["--subnet", subnet]);
@@ -1082,12 +1377,21 @@ public sealed class WslcService(
         return runner.RunAsync(args, ct);
     }
 
+    /// <summary>
+    /// Removes a network from persisted state or the engine.
+    /// </summary>
     public Task<CommandResult> RemoveNetworkAsync(string name, CancellationToken ct = default) =>
         runner.RunNonInteractiveAsync(["network", "remove", name], ct);
 
+    /// <summary>
+    /// Prunes network service resources used by WSL Container Desktop.
+    /// </summary>
     public Task<CommandResult> PruneNetworksAsync(CancellationToken ct = default) =>
         PruneAsync(WslcPruneTarget.Networks, ct);
 
+    /// <summary>
+    /// Inspects network through the service layer.
+    /// </summary>
     public Task<CommandResult> InspectNetworkAsync(string name, CancellationToken ct = default) =>
         runner.RunAsync(["network", "inspect", name], ct);
 
@@ -1127,23 +1431,6 @@ public sealed class WslcService(
 
     private Task<CommandResult> ExecShellAsync(string id, string script, CancellationToken ct = default) =>
         runner.RunAsync(["exec", id, "sh", "-c", script], ct);
-
-    private static byte[] DecodeBase64(string output)
-    {
-        // base64 output arrives wrapped across multiple lines; strip all whitespace before decoding.
-        // Filter in-place into a single char[] to avoid the extra LINQ array + string allocations.
-        var buffer = new char[output.Length];
-        var n = 0;
-        foreach (var c in output)
-        {
-            if (!char.IsWhiteSpace(c))
-            {
-                buffer[n++] = c;
-            }
-        }
-
-        return Convert.FromBase64CharArray(buffer, 0, n);
-    }
 
     private static string PosixParent(string path)
     {

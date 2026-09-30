@@ -16,6 +16,10 @@
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Validates a container-to-host download target before <c>wslc cp</c> overwrites anything on Windows.
+/// It keeps the selected destination inside the chosen folder and rejects host links that could redirect the write elsewhere.
+/// </summary>
 internal sealed class ContainerDownloadPath
 {
     private ContainerDownloadPath(string source, string directory, string name, string target)
@@ -26,11 +30,16 @@ internal sealed class ContainerDownloadPath
         Target = target;
     }
 
+    /// <summary>Normalized absolute path inside the container.</summary>
     public string Source { get; }
+    /// <summary>Validated host directory selected by the user.</summary>
     public string Directory { get; }
+    /// <summary>Windows-safe leaf name copied from the container path.</summary>
     public string Name { get; }
+    /// <summary>Full host path that will receive the downloaded file or directory.</summary>
     public string Target { get; }
 
+    /// <summary>Builds and validates a download plan from a container path and host directory.</summary>
     public static ContainerDownloadPath Create(string containerPath, string hostDirectory)
     {
         if (string.IsNullOrWhiteSpace(containerPath) || !containerPath.StartsWith('/') ||
@@ -60,6 +69,7 @@ internal sealed class ContainerDownloadPath
         return new(source, directory, name, target);
     }
 
+    /// <summary>Rejects names Windows cannot safely create, including reserved device names.</summary>
     internal static void ValidateFileName(string name)
     {
         if (name.Length == 0 || name.Any(c => c < ' ' || "<>:\"/\\|?*".Contains(c)) ||
@@ -69,6 +79,7 @@ internal sealed class ContainerDownloadPath
         }
     }
 
+    /// <summary>Creates the destination directory and prepares any existing target for overwrite.</summary>
     public void Prepare(CancellationToken ct)
     {
         RequireUnlinkedAncestors(Directory, ct);
@@ -77,6 +88,7 @@ internal sealed class ContainerDownloadPath
         PrepareOverwrite(Target, ct);
     }
 
+    /// <summary>Checks an existing destination tree for links and clears read-only file attributes.</summary>
     internal static void PrepareOverwrite(
         string path, CancellationToken ct, Func<string, FileAttributes>? readAttributes = null)
     {
@@ -95,6 +107,7 @@ internal sealed class ContainerDownloadPath
         }
     }
 
+    /// <summary>Ensures no existing ancestor directory is a symbolic link or junction.</summary>
     internal static void RequireUnlinkedAncestors(string path, CancellationToken ct)
     {
         for (var current = Path.GetFullPath(path); current is not null; current = Path.GetDirectoryName(current))
@@ -104,6 +117,7 @@ internal sealed class ContainerDownloadPath
         }
     }
 
+    /// <summary>Reads file attributes while treating a missing path as an expected case.</summary>
     private static FileAttributes? ReadAttributes(string path, Func<string, FileAttributes>? readAttributes = null)
     {
         try
@@ -117,6 +131,7 @@ internal sealed class ContainerDownloadPath
         }
     }
 
+    /// <summary>Rejects symbolic links and junctions while allowing non-link reparse points.</summary>
     private static void RejectLink(string path, FileAttributes attributes)
     {
         if ((attributes & FileAttributes.ReparsePoint) == 0) return;
@@ -127,6 +142,7 @@ internal sealed class ContainerDownloadPath
             throw new IOException("The download would traverse or overwrite a host symbolic link. Choose another destination.");
     }
 
+    /// <summary>Detects Windows reserved device names such as <c>CON</c> and <c>LPT1</c>.</summary>
     private static bool IsDeviceName(string name)
     {
         var stem = name.Split('.')[0].TrimEnd(' ').ToUpperInvariant();

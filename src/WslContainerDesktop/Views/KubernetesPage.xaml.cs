@@ -24,8 +24,10 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page that manages the single-node k3s cluster and browses Kubernetes resources inside WSL.</summary>
 public sealed partial class KubernetesPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public KubernetesPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<KubernetesViewModel>();
@@ -33,6 +35,7 @@ public sealed partial class KubernetesPage : Page
         ViewModel.OperationLogUpdated += OnOperationLogUpdated;
     }
 
+    /// <summary>Kubernetes cluster view model bound by the page or control.</summary>
     public KubernetesViewModel ViewModel { get; }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

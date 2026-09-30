@@ -19,20 +19,31 @@ namespace WslContainerDesktop.Models;
 /// <summary>An Azure subscription returned by `az account list`.</summary>
 public sealed class AzureSubscription
 {
+    /// <summary>Gets or sets the id.</summary>
     public string Id { get; init; } = string.Empty;
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets a value indicating whether this value is default.</summary>
     public bool IsDefault { get; init; }
 
+    /// <summary>Converts model data for to string scenarios.</summary>
+    /// <returns>The requested value for the caller.</returns>
     public override string ToString() => Name;
 }
 
 /// <summary>An Azure Container Registry returned by `az acr list`.</summary>
 public sealed class AzureRegistry
 {
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the login server.</summary>
     public string LoginServer { get; init; } = string.Empty;
+    /// <summary>Gets or sets the resource group.</summary>
     public string ResourceGroup { get; init; } = string.Empty;
+    /// <summary>Gets or sets a value indicating whether the admin enabled flag is set.</summary>
     public bool AdminEnabled { get; init; }
 
+    /// <summary>Converts model data for to string scenarios.</summary>
+    /// <returns>The requested value for the caller.</returns>
     public override string ToString() => $"{Name} ({LoginServer})";
 }

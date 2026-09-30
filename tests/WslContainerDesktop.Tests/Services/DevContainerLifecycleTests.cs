@@ -23,6 +23,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests Dev Container preparation so host commands require review before workspace or container mutations occur.
+/// </summary>
 public sealed class DevContainerLifecycleTests
 {
     public static IEnumerable<object[]> UnsupportedHostWorkspaces()
@@ -826,6 +829,9 @@ public sealed class DevContainerLifecycleTests
         Assert.Empty(Directory.GetFiles(files.Root, "*.tmp"));
     }
 
+    /// <summary>
+    /// Owns temporary persisted Dev Container files created for a lifecycle test case.
+    /// </summary>
     private sealed class StoreFiles : IDisposable
     {
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "devcontainer-lifecycle-" + Guid.NewGuid().ToString("N"));
@@ -834,6 +840,9 @@ public sealed class DevContainerLifecycleTests
         public void Dispose() => Directory.Delete(Root, recursive: true);
     }
 
+    /// <summary>
+    /// Captures Dev Container service calls and approvals without invoking a real container engine.
+    /// </summary>
     private sealed class Fixture
     {
         public ComposeNetworkSupervisorTests.Fixture Compose { get; } = new();

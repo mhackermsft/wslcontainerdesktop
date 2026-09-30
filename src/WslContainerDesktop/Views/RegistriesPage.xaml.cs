@@ -23,14 +23,17 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page for configuring container registries and logging in or out without exposing secrets on command lines.</summary>
 public sealed partial class RegistriesPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public RegistriesPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<RegistriesViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Registry configuration view model bound by the page.</summary>
     public RegistriesViewModel ViewModel { get; }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

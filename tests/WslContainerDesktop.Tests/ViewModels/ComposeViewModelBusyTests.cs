@@ -23,6 +23,9 @@ using static WslContainerDesktop.Tests.Services.ComposeNetworkOrchestratorTests;
 
 namespace WslContainerDesktop.Tests.ViewModels;
 
+/// <summary>
+/// Tests Compose view-model busy ownership so overlapping refresh and lifecycle work cannot clear each other's UI state.
+/// </summary>
 public sealed class ComposeViewModelBusyTests
 {
     [Fact]
@@ -198,6 +201,9 @@ public sealed class ComposeViewModelBusyTests
         Assert.Equal(!expected, viewModel.ManageServicesCommand.CanExecute(null));
     }
 
+    /// <summary>
+    /// Supplies a Compose view model with controllable async services for busy-state tests.
+    /// </summary>
     private sealed class Fixture
     {
         private readonly Queue<TaskCompletionSource<IReadOnlyList<ContainerInfo>>> _inventories = new();

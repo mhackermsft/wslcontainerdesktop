@@ -3,7 +3,7 @@ For privacy information about this product please visit https://aka.ms/privacy.
 
 Removes containers.
 
-Usage: wslc remove [<options>] <container-id>...
+Usage:  wslc remove [options] <container-id>...
 
 Aliases:
   wslc container remove, wslc container delete, wslc container rm, wslc remove, wslc delete, wslc rm
@@ -16,5 +16,5 @@ Options:
   -v  --volumes  Remove anonymous volumes associated with the container
   -?  --help     Shows help about the selected command
 
-Global Options:
+Global Options for 'wslc':
       --session  Specify the session to use

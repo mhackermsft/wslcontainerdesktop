@@ -4,7 +4,9 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:helpers="using:WslContainerDesktop.Helpers"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:WslContainerDesktop.Models"
     x:Name="Root"
@@ -45,12 +47,30 @@
                 <!--  Actions  -->
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button Command="{x:Bind ViewModel.RestartSessionCommand}" Style="{ThemeResource AccentButtonStyle}">
+                        <ToolTipService.ToolTip>
+                            <ToolTip>
+                                <StackPanel MaxWidth="380" Spacing="4">
+                                    <TextBlock FontWeight="SemiBold" Text="{x:Bind helpers:FlagHelp.RestartWslSession.Title}" />
+                                    <TextBlock FontFamily="Consolas" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind helpers:FlagHelp.RestartWslSession.Flag}" />
+                                    <TextBlock Text="{x:Bind helpers:FlagHelp.RestartWslSession.Text}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </ToolTip>
+                        </ToolTipService.ToolTip>
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon FontSize="14" Glyph="&#xE72C;" />
                             <TextBlock Text="Restart WSL session" />
                         </StackPanel>
                     </Button>
                     <Button Command="{x:Bind ViewModel.ShutdownWslCommand}">
+                        <ToolTipService.ToolTip>
+                            <ToolTip>
+                                <StackPanel MaxWidth="380" Spacing="4">
+                                    <TextBlock FontWeight="SemiBold" Text="{x:Bind helpers:FlagHelp.ShutdownWsl.Title}" />
+                                    <TextBlock FontFamily="Consolas" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind helpers:FlagHelp.ShutdownWsl.Flag}" />
+                                    <TextBlock Text="{x:Bind helpers:FlagHelp.ShutdownWsl.Text}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </ToolTip>
+                        </ToolTipService.ToolTip>
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon FontSize="14" Glyph="&#xE7E8;" />
                             <TextBlock Text="Shut down WSL" />
@@ -134,14 +154,23 @@
                             Title="Couldn't check for updates" />
 
                         <ToggleSwitch
-                            Header="Include pre-release updates"
                             IsOn="{x:Bind ViewModel.IncludePreRelease, Mode=TwoWay}"
-                            OffContent="Stable channel only"
-                            OnContent="Pre-release builds included" />
+                            OffContent="Stable channel (recommended)"
+                            OnContent="Early-access builds included">
+                            <ToggleSwitch.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="Include early-access (pre-release) WSL builds" VerticalAlignment="Center" />
+                                    <controls:InfoTip
+                                        Title="{x:Bind helpers:FlagHelp.WslPreRelease.Title}"
+                                        Flag="{x:Bind helpers:FlagHelp.WslPreRelease.Flag}"
+                                        Text="{x:Bind helpers:FlagHelp.WslPreRelease.Text}" />
+                                </StackPanel>
+                            </ToggleSwitch.Header>
+                        </ToggleSwitch>
                         <TextBlock
                             FontSize="12"
                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                            Text="Include beta (pre-release) WSL builds when checking for and installing updates."
+                            Text="WSL containers are generally available on the stable channel (WSL 3.0.1 or later). Turn this on only to try optional early-access builds, which may be less stable."
                             TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
@@ -168,6 +197,97 @@
                             IsTextSelectionEnabled="True"
                             Text="{x:Bind ViewModel.EngineVersion, Mode=OneWay}"
                             TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <!--  Container storage  -->
+                <Border Style="{StaticResource StatCard}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon
+                                FontSize="16"
+                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                Glyph="&#xEDA2;" />
+                            <TextBlock FontWeight="SemiBold" Text="Container storage" />
+                        </StackPanel>
+                        <TextBlock>
+                            <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Location:" />
+                            <Run Text="{x:Bind ViewModel.ContainerStorageLocation, Mode=OneWay}" />
+                        </TextBlock>
+                        <TextBlock>
+                            <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Session disk size:" />
+                            <Run Text="{x:Bind ViewModel.ContainerStorageSize, Mode=OneWay}" />
+                        </TextBlock>
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            Text="Changing the location only affects future session storage. Existing images, containers and volumes are not migrated."
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                            Text="{x:Bind ViewModel.StorageEditNote, Mode=OneWay}"
+                            TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button
+                                Click="ChangeStorageLocation_Click"
+                                Content="Change location…"
+                                IsEnabled="{x:Bind ViewModel.StorageEditAvailable, Mode=OneWay}">
+                                <ToolTipService.ToolTip>
+                                    <ToolTip>
+                                        <StackPanel MaxWidth="380" Spacing="4">
+                                            <TextBlock FontWeight="SemiBold" Text="{x:Bind helpers:FlagHelp.StorageChangeLocation.Title}" />
+                                            <TextBlock FontFamily="Consolas" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind helpers:FlagHelp.StorageChangeLocation.Flag}" />
+                                            <TextBlock Text="{x:Bind helpers:FlagHelp.StorageChangeLocation.Text}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </ToolTip>
+                                </ToolTipService.ToolTip>
+                            </Button>
+                            <Button
+                                Command="{x:Bind ViewModel.ResetStorageLocationCommand}"
+                                Content="Reset to default"
+                                IsEnabled="{x:Bind ViewModel.StorageEditAvailable, Mode=OneWay}" />
+                        </StackPanel>
+                        <TextBlock
+                            Margin="0,6,0,0"
+                            FontWeight="SemiBold"
+                            Text="Container session settings" />
+                        <Grid ColumnSpacing="14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="4">
+                                <TextBlock>
+                                    <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="CPU count:" />
+                                    <Run Text="{x:Bind ViewModel.SessionCpuCount, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock>
+                                    <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Memory:" />
+                                    <Run Text="{x:Bind ViewModel.SessionMemorySize, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock>
+                                    <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Max storage:" />
+                                    <Run Text="{x:Bind ViewModel.SessionMaxStorageSize, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <TextBlock>
+                                    <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Default bind address:" />
+                                    <Run Text="{x:Bind ViewModel.SessionDefaultBindingAddress, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock>
+                                    <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Credential store:" />
+                                    <Run Text="{x:Bind ViewModel.CredentialStore, Mode=OneWay}" />
+                                </TextBlock>
+                                <!--  The one way to change these: opens wslc's own settings.yaml in the default editor.  -->
+                                <Button
+                                    HorizontalAlignment="Left"
+                                    Command="{x:Bind ViewModel.EditSettingsFileCommand}"
+                                    Content="Edit settings file"
+                                    ToolTipService.ToolTip="{x:Bind ViewModel.SettingsFilePath, Mode=OneWay}" />
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
 

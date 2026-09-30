@@ -36,6 +36,10 @@ public sealed class ConfigureComposeDialog : ContentDialog
     /// <summary>The (possibly edited) compose YAML, normalized to <c>\n</c> line endings.</summary>
     public string Yaml => NormalizeToLf(_yamlBox.Text ?? string.Empty);
 
+    /// <summary>Creates a new &lt;c&gt;ConfigureComposeDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="templateName">The template name value supplied by the caller.</param>
+    /// <param name="projectName">The project name value supplied by the caller.</param>
+    /// <param name="yaml">The yaml value supplied by the caller.</param>
     public ConfigureComposeDialog(string templateName, string projectName, string yaml)
     {
         Title = $"Configure {templateName}";

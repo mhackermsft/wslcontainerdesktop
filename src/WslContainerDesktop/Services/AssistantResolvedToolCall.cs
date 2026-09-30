@@ -18,6 +18,9 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Describes an assistant tool request after the app has mapped it to a concrete operation.
+/// </summary>
 public sealed record AssistantResolvedToolCall(
     AiToolCall Call,
     AssistantPermissionCategory Category,
@@ -25,7 +28,16 @@ public sealed record AssistantResolvedToolCall(
     string Details,
     Func<CancellationToken, Task<string>> ExecuteAsync)
 {
+    /// <summary>
+    /// Gets whether this assistant tool call must be approved before it can run.
+    /// </summary>
     public bool RequiresExplicitApproval { get; init; }
+    /// <summary>
+    /// Gets the result text returned when the tool call is blocked before execution.
+    /// </summary>
     public string? BlockedResult { get; init; }
+    /// <summary>
+    /// Gets the callback that runs when the user declines the assistant tool request.
+    /// </summary>
     public Func<Task<string>>? DeclineAsync { get; init; }
 }

@@ -25,6 +25,9 @@ namespace WslContainerDesktop.Models;
 public sealed record ContainerMounts(
     IReadOnlyList<ContainerMount> Items, bool IsComplete, IReadOnlyList<string> Warnings)
 {
+    /// <summary>Parses input into parse data used by the app.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static ContainerMounts Parse(string json)
     {
         try
@@ -38,6 +41,9 @@ public sealed record ContainerMounts(
         }
     }
 
+    /// <summary>Parses input into parse data used by the app.</summary>
+    /// <param name="root">The root value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static ContainerMounts Parse(JsonElement root)
     {
         if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() == 1)

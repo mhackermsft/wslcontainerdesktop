@@ -34,6 +34,9 @@ public sealed record AiErrorContext(
     string? Endpoint = null,
     string? ModelOrDeployment = null)
 {
+    /// <summary>
+    /// Creates a sanitized context for an operation using the provider's display name.
+    /// </summary>
     public static AiErrorContext For(AiProviderKind provider, string operation, string? endpoint = null, string? modelOrDeployment = null) =>
         new(provider, provider.DisplayName(), operation, endpoint, modelOrDeployment);
 }

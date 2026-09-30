@@ -25,19 +25,28 @@ namespace WslContainerDesktop.Services;
 /// <summary>Snapshot of engine/container health broadcast to the tray and view models.</summary>
 public sealed class EngineStatusSnapshot
 {
+    /// <summary>Overall engine health classification.</summary>
     public EngineHealth Health { get; init; }
+    /// <summary>Number of containers currently reported as running.</summary>
     public int RunningCount { get; init; }
+    /// <summary>Total number of containers in the latest inventory.</summary>
     public int TotalCount { get; init; }
+    /// <summary>Container inventory captured with the snapshot.</summary>
     public IReadOnlyList<ContainerInfo> Containers { get; init; } = Array.Empty<ContainerInfo>();
+    /// <summary>Short user-facing summary for status surfaces.</summary>
     public string Summary { get; init; } = string.Empty;
 }
 
 /// <summary>Snapshot of Kubernetes (k3s) health for the nav footer indicator.</summary>
 public sealed class K8sStatusSnapshot
 {
+    /// <summary>Current k3s state.</summary>
     public ClusterState State { get; init; } = ClusterState.Unknown;
+    /// <summary>Number of pods reported as running.</summary>
     public int PodsRunning { get; init; }
+    /// <summary>Total number of pods reported by the cluster.</summary>
     public int PodsTotal { get; init; }
+    /// <summary>Short user-facing cluster summary.</summary>
     public string Summary { get; init; } = string.Empty;
 
     /// <summary>Whether the cluster is installed (footer indicator is hidden otherwise).</summary>
@@ -56,6 +65,8 @@ public sealed class StatusMonitor : IDisposable, IHealthObservationSource
     private readonly ISettingsService _settings;
     private readonly RegistryAuthRefresher _authRefresher;
     private readonly INotificationService _notifications;
+    private readonly IWslRequirementService _requirements;
+    private readonly IEngineEventStream _events;
     private readonly DispatcherQueue _dispatcher;
     private readonly ILogger<StatusMonitor> _logger;
     private readonly NativeHealthMonitor _nativeHealth = new();
@@ -75,29 +86,46 @@ public sealed class StatusMonitor : IDisposable, IHealthObservationSource
     // consumed on detection and expire if the stop never lands (e.g. failed command).
     private readonly ConcurrentDictionary<string, DateTimeOffset> _selfInitiatedStops = new(StringComparer.Ordinal);
     private static readonly TimeSpan SelfInitiatedStopTtl = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan EventRefreshDebounce = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan ExitNotificationThrottle = TimeSpan.FromMinutes(1);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastPollExitNotifications = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _eventRefreshGate = new();
+    private CancellationTokenSource? _eventRefreshCts;
 
+    /// <summary>Raised on the UI thread when engine health or inventory changes.</summary>
     public event EventHandler<EngineStatusSnapshot>? StatusChanged;
+    /// <summary>Raised on the UI thread when k3s health changes.</summary>
     public event EventHandler<K8sStatusSnapshot>? K8sStatusChanged;
 
+    /// <summary>Most recent engine snapshot, or null before the first poll finishes.</summary>
     public EngineStatusSnapshot? Latest { get; private set; }
     private HealthObservationSnapshot? _healthObservations;
+    /// <summary>Returns the latest bounded health observation snapshot used by watchdogs.</summary>
     public HealthObservationSnapshot? GetSnapshot() => Volatile.Read(ref _healthObservations);
 
+    /// <summary>Most recent Kubernetes snapshot, or null before the first poll finishes.</summary>
     public K8sStatusSnapshot? LatestK8s { get; private set; }
 
+    /// <summary>UI dispatcher captured when the monitor is first resolved.</summary>
     public DispatcherQueue Dispatcher => _dispatcher;
 
-    public StatusMonitor(IWslcService wslc, IKubernetesService k8s, RegistryAuthRefresher authRefresher, ISettingsService settings, INotificationService notifications, DispatcherQueue dispatcher, ILogger<StatusMonitor> logger)
+    /// <summary>Creates the monitor and captures the current UI dispatcher for event delivery.</summary>
+    public StatusMonitor(IWslcService wslc, IKubernetesService k8s, RegistryAuthRefresher authRefresher, ISettingsService settings, INotificationService notifications, IWslRequirementService requirements, IEngineEventStream events, DispatcherQueue dispatcher, ILogger<StatusMonitor> logger)
     {
         _wslc = wslc;
         _k8s = k8s;
         _authRefresher = authRefresher;
         _settings = settings;
         _notifications = notifications;
+        _requirements = requirements;
+        _events = events;
         _dispatcher = dispatcher;
         _logger = logger;
+        _requirements.Changed += OnRequirementChanged;
+        _events.EventReceived += OnEngineEventReceived;
     }
 
+    /// <summary>Starts polling and event-stream listening; safe to call once during app launch.</summary>
     public void Start()
     {
         if (_loop is not null)
@@ -153,6 +181,11 @@ public sealed class StatusMonitor : IDisposable, IHealthObservationSource
             await MaybeRefreshAzureTokensAsync().ConfigureAwait(false);
 
             var interval = Math.Clamp(_settings.RefreshIntervalSeconds, AppConstants.RefreshIntervalMinSeconds, AppConstants.RefreshIntervalMaxSeconds);
+            if (_events.IsConnected)
+            {
+                interval = Math.Max(interval, Math.Min(30, interval * 3));
+            }
+
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(interval), ct).ConfigureAwait(false);
@@ -244,6 +277,35 @@ public sealed class StatusMonitor : IDisposable, IHealthObservationSource
         EngineStatusSnapshot snapshot;
         var executablePath = _settings.WslcPath;
         var observedAt = DateTimeOffset.UtcNow;
+        var requirement = _requirements.Current;
+        if (!_requirements.HasCompletedInitialCheck)
+        {
+            return;
+        }
+
+        if (requirement.State != WslRequirementState.Ok)
+        {
+            snapshot = new EngineStatusSnapshot
+            {
+                Health = EngineHealth.Down,
+                Summary = requirement.State switch
+                {
+                    WslRequirementState.DisabledByPolicy => "Engine: disabled by policy",
+                    WslRequirementState.NotInstalled => "Engine: wslc not found",
+                    WslRequirementState.TooOld => $"Engine: WSL {WslcRequirements.MinimumVersionDisplay}+ required",
+                    _ => "Engine: requirement check failed",
+                },
+            };
+
+            var previousGated = Latest;
+            Latest = snapshot;
+            Volatile.Write(ref _healthObservations, new HealthObservationSnapshot(
+                executablePath, observedAt, false, []));
+            DetectAndNotifyTransitions(previousGated, snapshot);
+            _dispatcher.TryEnqueue(() => StatusChanged?.Invoke(this, snapshot));
+            return;
+        }
+
         try
         {
             var engineUp = await _wslc.IsEngineAvailableAsync().ConfigureAwait(false);
@@ -263,7 +325,7 @@ public sealed class StatusMonitor : IDisposable, IHealthObservationSource
                     _nativeHealthExecutable = _settings.WslcPath;
                     _nativeHealth.Invalidate();
                 }
-                await _nativeHealth.RefreshAsync(containers, _wslc.InspectContainerAsync,
+                await _nativeHealth.RefreshAsync(containers, (id, token) => _wslc.InspectContainerAsync(id, token),
                     detail => _logger.LogDebug("Native health: {Detail}", detail), _cts?.Token ?? default).ConfigureAwait(false);
                 var running = containers.Count(c => c.State == ContainerState.Running);
                 var total = containers.Count;
@@ -304,6 +366,61 @@ public sealed class StatusMonitor : IDisposable, IHealthObservationSource
             _pollGate.Release();
         }
     }
+
+    private void OnRequirementChanged(object? sender, WslRequirementStatus e) => RequestRefresh();
+
+    private void OnEngineEventReceived(object? sender, EngineEvent e)
+    {
+        if (e.IsType("container") || e.IsType("network"))
+        {
+            RequestEventRefresh();
+        }
+    }
+
+    private void RequestEventRefresh()
+    {
+        CancellationTokenSource cts;
+        lock (_eventRefreshGate)
+        {
+            _eventRefreshCts?.Cancel();
+            cts = new CancellationTokenSource();
+            _eventRefreshCts = cts;
+        }
+
+        var token = cts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(EventRefreshDebounce, token).ConfigureAwait(false);
+                if (!token.IsCancellationRequested)
+                {
+                    RequestRefresh();
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                lock (_eventRefreshGate)
+                {
+                    if (ReferenceEquals(_eventRefreshCts, cts))
+                    {
+                        _eventRefreshCts = null;
+                    }
+                }
+
+                cts.Dispose();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Events carry full 64-character IDs while inventory reports 12-character short IDs, so
+    /// both are keyed by the short-ID prefix.
+    /// </summary>
+    private static string ExitNotificationKey(string id) => id.Length > 12 ? id[..12] : id;
 
     /// <summary>
     /// Compares the prior snapshot to the new one and emits toasts for engine up/down
@@ -355,11 +472,20 @@ public sealed class StatusMonitor : IDisposable, IHealthObservationSource
                     continue;
                 }
 
+                // The live event stream may already have reported this exit.
+                if (_lastPollExitNotifications.TryGetValue(ExitNotificationKey(was.Id), out var notified)
+                    && DateTimeOffset.UtcNow - notified < ExitNotificationThrottle)
+                {
+                    continue;
+                }
+
+                _lastPollExitNotifications[ExitNotificationKey(was.Id)] = DateTimeOffset.UtcNow;
                 _notifications.NotifyContainerExited(string.IsNullOrWhiteSpace(now.Name) ? now.ShortId : now.Name, now.Id);
             }
         }
     }
 
+    /// <summary>Stops polling and releases timer/event resources.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -377,6 +503,13 @@ public sealed class StatusMonitor : IDisposable, IHealthObservationSource
         }
 
         _cts?.Dispose();
+        _requirements.Changed -= OnRequirementChanged;
+        _events.EventReceived -= OnEngineEventReceived;
+        lock (_eventRefreshGate)
+        {
+            _eventRefreshCts?.Cancel();
+            _eventRefreshCts = null;
+        }
         _pollGate.Dispose();
         _disposed = true;
     }

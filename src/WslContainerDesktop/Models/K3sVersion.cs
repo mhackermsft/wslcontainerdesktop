@@ -24,6 +24,10 @@ public readonly record struct K3sVersion(int Major, int Minor, int Patch, string
 {
     private static readonly Regex Pattern = new(@"v?(\d+)\.(\d+)\.(\d+)", RegexOptions.Compiled);
 
+    /// <summary>Parses input into try parse data used by the app.</summary>
+    /// <param name="text">The text value supplied by the caller.</param>
+    /// <param name="version">The version value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static bool TryParse(string? text, out K3sVersion version)
     {
         version = default;
@@ -49,6 +53,9 @@ public readonly record struct K3sVersion(int Major, int Minor, int Patch, string
     /// <summary>The Kubernetes minor channel for this version, e.g. "v1.32".</summary>
     public string MinorChannel => $"v{Major}.{Minor}";
 
+    /// <summary>Performs the compare to helper used by this model or dialog.</summary>
+    /// <param name="other">The other value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public int CompareTo(K3sVersion other)
     {
         if (Major != other.Major)
@@ -64,11 +71,27 @@ public readonly record struct K3sVersion(int Major, int Minor, int Patch, string
         return Patch.CompareTo(other.Patch);
     }
 
+    /// <summary>Compares two values using the model-specific ordering rules.</summary>
+    /// <param name="a">The a value supplied by the caller.</param>
+    /// <param name="b">The b value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static bool operator <(K3sVersion a, K3sVersion b) => a.CompareTo(b) < 0;
 
+    /// <summary>Compares two values using the model-specific ordering rules.</summary>
+    /// <param name="a">The a value supplied by the caller.</param>
+    /// <param name="b">The b value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static bool operator >(K3sVersion a, K3sVersion b) => a.CompareTo(b) > 0;
 
+    /// <summary>Compares two values using the model-specific ordering rules.</summary>
+    /// <param name="a">The a value supplied by the caller.</param>
+    /// <param name="b">The b value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static bool operator <=(K3sVersion a, K3sVersion b) => a.CompareTo(b) <= 0;
 
+    /// <summary>Compares two values using the model-specific ordering rules.</summary>
+    /// <param name="a">The a value supplied by the caller.</param>
+    /// <param name="b">The b value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static bool operator >=(K3sVersion a, K3sVersion b) => a.CompareTo(b) >= 0;
 }

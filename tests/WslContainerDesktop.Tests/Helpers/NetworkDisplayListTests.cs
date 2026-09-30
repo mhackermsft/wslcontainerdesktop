@@ -20,6 +20,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Helpers;
 
+/// <summary>
+/// Covers the helper that turns <c>wslc</c> network output into the UI's display list, including the built-in bridge fallback.
+/// </summary>
 public sealed class NetworkDisplayListTests
 {
     [Fact]

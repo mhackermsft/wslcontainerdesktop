@@ -35,14 +35,17 @@ public sealed class AzureCliService : IAzureCliService
     private string? _resolvedPath;
     private bool _resolved;
 
+    /// <summary>Creates a service that resolves and invokes the Azure CLI on demand.</summary>
     public AzureCliService(ILogger<AzureCliService> logger)
     {
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<bool> IsAvailableAsync(CancellationToken ct = default) =>
         await ResolveAzPathAsync(ct).ConfigureAwait(false) is not null;
 
+    /// <inheritdoc/>
     public async Task<string?> GetSignedInUserAsync(CancellationToken ct = default)
     {
         var result = await RunAsync(new[] { "account", "show", "--query", "user.name", "-o", "tsv" }, ct)
@@ -56,6 +59,7 @@ public sealed class AzureCliService : IAzureCliService
         return string.IsNullOrWhiteSpace(name) ? null : name;
     }
 
+    /// <inheritdoc/>
     public async Task<CommandResult> LoginAsync(CancellationToken ct = default)
     {
         var result = await RunAsync(new[] { "login", "--only-show-errors", "-o", "none" }, ct, timeoutSeconds: InteractiveLoginTimeoutSeconds)
@@ -63,6 +67,7 @@ public sealed class AzureCliService : IAzureCliService
         return result ?? new CommandResult { ExitCode = -1, StandardError = "Azure CLI is not installed." };
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<AzureSubscription>> ListSubscriptionsAsync(CancellationToken ct = default)
     {
         var result = await RunAsync(
@@ -96,6 +101,7 @@ public sealed class AzureCliService : IAzureCliService
         }
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<AzureRegistry>> ListRegistriesAsync(string subscriptionId, CancellationToken ct = default)
     {
         var result = await RunAsync(
@@ -135,6 +141,7 @@ public sealed class AzureCliService : IAzureCliService
         }
     }
 
+    /// <inheritdoc/>
     public async Task<(string LoginServer, string Token)?> GetAcrTokenAsync(string acrName, string subscriptionId, CancellationToken ct = default)
     {
         var result = await RunAsync(
@@ -165,6 +172,7 @@ public sealed class AzureCliService : IAzureCliService
         }
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<string>> ListAcrRepositoriesAsync(string acrName, string subscriptionId, CancellationToken ct = default)
     {
         var result = await RunAsync(
@@ -173,6 +181,7 @@ public sealed class AzureCliService : IAzureCliService
         return ParseStringArray(result, $"`az acr repository list` for registry {acrName}");
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<string>> ListAcrTagsAsync(string acrName, string repository, string subscriptionId, CancellationToken ct = default)
     {
         var result = await RunAsync(
@@ -225,6 +234,7 @@ public sealed class AzureCliService : IAzureCliService
 
     // ---- az resolution + process plumbing -------------------------------
 
+    /// <summary>Finds a runnable <c>az</c> command and caches the result for later calls.</summary>
     private async Task<string?> ResolveAzPathAsync(CancellationToken ct)
     {
         if (_resolved)
@@ -308,6 +318,7 @@ public sealed class AzureCliService : IAzureCliService
         }
     }
 
+    /// <summary>Checks that a candidate Azure CLI path can actually launch and report a version.</summary>
     private static async Task<bool> CanRunAsync(string path, CancellationToken ct)
     {
         try
@@ -340,6 +351,7 @@ public sealed class AzureCliService : IAzureCliService
         }
     }
 
+    /// <summary>Runs <c>az</c> with argument-list escaping and the requested timeout.</summary>
     private async Task<CommandResult?> RunAsync(IEnumerable<string> args, CancellationToken ct, int timeoutSeconds = DefaultTimeoutSeconds)
     {
         var az = await ResolveAzPathAsync(ct).ConfigureAwait(false);

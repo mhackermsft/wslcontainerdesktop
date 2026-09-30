@@ -31,12 +31,18 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public interface IImageUpdateService
 {
+    /// <summary>
+    /// Checks images for updates that callers can show to the user.
+    /// </summary>
     Task<ImageUpdateState> CheckAsync(
         string reference,
         IReadOnlyList<string> localRepoDigests,
         CancellationToken ct = default);
 }
 
+/// <summary>
+/// Checks container images for newer digests and restarts containers when the user applies an update.
+/// </summary>
 public sealed class ImageUpdateService : IImageUpdateService
 {
     private static readonly string[] ManifestAcceptTypes =
@@ -50,12 +56,18 @@ public sealed class ImageUpdateService : IImageUpdateService
     private readonly HttpClient _http;
     private readonly ILogger<ImageUpdateService> _logger;
 
+    /// <summary>
+    /// Initializes a new <c>ImageUpdateService</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public ImageUpdateService(HttpClient http, ILogger<ImageUpdateService> logger)
     {
         _http = http;
         _logger = logger;
     }
 
+    /// <summary>
+    /// Checks images for updates that callers can show to the user.
+    /// </summary>
     public async Task<ImageUpdateState> CheckAsync(
         string reference,
         IReadOnlyList<string> localRepoDigests,

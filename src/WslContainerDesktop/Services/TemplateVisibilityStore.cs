@@ -37,17 +37,21 @@ public sealed class TemplateVisibilityStore : ITemplateVisibilityStore
     private readonly ILogger<TemplateVisibilityStore> _logger;
     private readonly HashSet<string> _hidden = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Loads the hidden-template list from app local data.</summary>
     public TemplateVisibilityStore(ILogger<TemplateVisibilityStore> logger)
     {
         _logger = logger;
         Load();
     }
 
+    /// <summary>Raised when template visibility changes and the gallery should refresh.</summary>
     public event EventHandler? Changed;
 
+    /// <summary>Returns true when a template id is currently hidden.</summary>
     public bool IsHidden(string id) =>
         !string.IsNullOrWhiteSpace(id) && _hidden.Contains(id.Trim());
 
+    /// <summary>Updates a template's hidden state and persists the setting.</summary>
     public void SetHidden(string id, bool hidden)
     {
         if (string.IsNullOrWhiteSpace(id))

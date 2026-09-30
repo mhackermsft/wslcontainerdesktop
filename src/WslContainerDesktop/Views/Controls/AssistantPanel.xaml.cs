@@ -26,8 +26,10 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views.Controls;
 
+/// <summary>Flyout-style chat surface hosted by <c>MainWindow</c> for local AI assistance with containers and settings.</summary>
 public sealed partial class AssistantPanel : UserControl
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public AssistantPanel()
     {
         ViewModel = App.Current.Services.GetRequiredService<AssistantViewModel>();
@@ -35,12 +37,16 @@ public sealed partial class AssistantPanel : UserControl
         ViewModel.Messages.CollectionChanged += Messages_CollectionChanged;
     }
 
+    /// <summary>Raised when the user asks the host window to close the assistant overlay.</summary>
     public event EventHandler? CloseRequested;
 
+    /// <summary>Assistant conversation view model bound by the panel.</summary>
     public AssistantViewModel ViewModel { get; }
 
+    /// <summary>Converts a Boolean to visibility for <c>x:Bind</c> expressions in the panel.</summary>
     public Visibility BoolToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>Converts a Boolean to the opposite visibility for <c>x:Bind</c> expressions.</summary>
     public static Visibility InvertBoolToVisibility(bool value) =>
         value ? Visibility.Collapsed : Visibility.Visible;
 

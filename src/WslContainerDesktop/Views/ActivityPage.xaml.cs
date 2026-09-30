@@ -16,17 +16,40 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Navigation;
+using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page that displays the persisted activity timeline synthesized from engine events and monitor snapshots.</summary>
 public sealed partial class ActivityPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public ActivityPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<ActivityViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Activity timeline view model bound by the page.</summary>
     public ActivityViewModel ViewModel { get; }
+
+    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        await ViewModel.InitializeAsync();
+    }
+
+    private void EventsList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is ActivityEvent { Category: ActivityCategory.Container } evt &&
+            (!string.IsNullOrWhiteSpace(evt.ContainerId ?? evt.ActorId) ||
+             evt.Attributes.ContainsKey("name")))
+        {
+            App.Current.MainWindow?.OpenContainerLogs(
+                evt.ContainerId ?? evt.ActorId ?? string.Empty,
+                evt.Attributes.TryGetValue("name", out var name) ? name : null);
+        }
+    }
 }

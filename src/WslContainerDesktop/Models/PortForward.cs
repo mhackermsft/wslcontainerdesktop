@@ -19,25 +19,38 @@ namespace WslContainerDesktop.Models;
 /// <summary>The kind of resource a port-forward targets.</summary>
 public enum PortForwardTargetKind
 {
+    /// <summary>Represents the pod option.</summary>
     Pod,
+    /// <summary>Represents the service option.</summary>
     Service,
 }
 
 /// <summary>An active `kubectl port-forward` session managed by the app.</summary>
 public sealed class PortForward
 {
+    /// <summary>Returns the forward description so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Display;
+
+    /// <summary>Gets or sets the id.</summary>
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
+    /// <summary>Gets or sets the kind.</summary>
     public PortForwardTargetKind Kind { get; init; }
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "default";
+    /// <summary>Gets or sets the target name.</summary>
     public string TargetName { get; init; } = string.Empty;
+    /// <summary>Gets or sets the local port.</summary>
     public int LocalPort { get; init; }
+    /// <summary>Gets or sets the remote port.</summary>
     public int RemotePort { get; init; }
 
     /// <summary>kubectl target argument, e.g. "service/demo-nginx" or "pod/my-pod".</summary>
     public string TargetRef =>
         (Kind == PortForwardTargetKind.Service ? "service/" : "pod/") + TargetName;
 
+    /// <summary>Gets the local url.</summary>
     public string LocalUrl => $"http://localhost:{LocalPort}";
 
+    /// <summary>Gets the display.</summary>
     public string Display => $"localhost:{LocalPort} -> {TargetRef}:{RemotePort} ({Namespace})";
 }

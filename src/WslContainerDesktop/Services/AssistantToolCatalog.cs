@@ -32,6 +32,9 @@ public sealed record AssistantToolGroup(string Header, IReadOnlyList<AssistantTo
 /// </summary>
 public static class AssistantToolCatalog
 {
+    /// <summary>
+    /// Tool groups displayed in AI permission settings, including which actions are destructive.
+    /// </summary>
     public static IReadOnlyList<AssistantToolGroup> Groups { get; } =
     [
         new("Images", [new("pull_image", "Pull images")]),
@@ -76,15 +79,19 @@ public static class AssistantToolCatalog
     // Legacy category -> tool names, used once to migrate the previous four coarse
     // auto-approve toggles into the per-tool model. Destructive removals were never
     // auto-approvable before, so they are not migrated.
+    /// <summary>Legacy coarse toggle entries that now map to create and run tool names.</summary>
     public static IReadOnlyList<string> CreateRunTools { get; } =
         ["pull_image", "run_container", "create_volume", "create_network"];
 
+    /// <summary>Legacy coarse toggle entries that now map to container lifecycle tool names.</summary>
     public static IReadOnlyList<string> LifecycleTools { get; } =
         ["start_container", "stop_container", "restart_container", "stop_all_containers"];
 
+    /// <summary>Legacy coarse toggle entries that now map to compose and template deployment tool names.</summary>
     public static IReadOnlyList<string> ComposeTemplateTools { get; } =
         ["deploy_compose", "deploy_template"];
 
+    /// <summary>Legacy coarse toggle entries that now map to Kubernetes mutation tool names.</summary>
     public static IReadOnlyList<string> KubernetesTools { get; } =
         ["apply_yaml", "scale_deployment", "restart_deployment", "delete_resource", "cluster_start", "cluster_stop"];
 }

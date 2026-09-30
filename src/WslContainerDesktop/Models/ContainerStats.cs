@@ -24,33 +24,47 @@ namespace WslContainerDesktop.Models;
 /// </summary>
 public sealed class ContainerStats
 {
+    /// <summary>Gets or sets the id.</summary>
     [JsonPropertyName("ID")]
     public string Id { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the name.</summary>
     [JsonPropertyName("Name")]
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the cpu percent.</summary>
     [JsonPropertyName("CPUPerc")]
     public string CpuPercent { get; set; } = "0%";
 
+    /// <summary>Gets or sets the mem percent.</summary>
     [JsonPropertyName("MemPerc")]
     public string MemPercent { get; set; } = "0%";
 
+    /// <summary>Gets or sets the mem usage.</summary>
     [JsonPropertyName("MemUsage")]
     public string MemUsage { get; set; } = "-";
 
+    /// <summary>Gets or sets the net io.</summary>
     [JsonPropertyName("NetIO")]
     public string NetIO { get; set; } = "-";
 
+    /// <summary>Gets or sets the block io.</summary>
     [JsonPropertyName("BlockIO")]
     public string BlockIO { get; set; } = "-";
 
+    /// <summary>Gets or sets the pids.</summary>
     [JsonPropertyName("PIDs")]
     public int Pids { get; set; }
 
+    /// <summary>Parses input into parse percent data used by the app.</summary>
+    /// <param name="CpuPercent">The cpu percent value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     [JsonIgnore]
     public double CpuValue => ParsePercent(CpuPercent);
 
+    /// <summary>Parses input into parse percent data used by the app.</summary>
+    /// <param name="MemPercent">The mem percent value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     [JsonIgnore]
     public double MemValue => ParsePercent(MemPercent);
 

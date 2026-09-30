@@ -215,6 +215,9 @@ public sealed class FoundryLocalDownloadTests
         Assert.Empty(fixture.ProcessCalls);
     }
 
+    /// <summary>
+    /// Memory stream that cancels during reads to prove partial downloads stop cleanly.
+    /// </summary>
     private sealed class CancelStream(byte[] bytes, CancellationTokenSource cts) : MemoryStream(bytes)
     {
         private int _reads;
@@ -226,11 +229,17 @@ public sealed class FoundryLocalDownloadTests
 
     }
 
+    /// <summary>
+    /// Memory stream that returns small chunks so streaming hash and size checks do not rely on one large read.
+    /// </summary>
     private sealed class ChunkedStream(byte[] bytes) : MemoryStream(bytes)
     {
         public override bool CanSeek => false;
     }
 
+    /// <summary>
+    /// Runs progress callbacks synchronously so tests can assert the exact reported setup phase.
+    /// </summary>
     private sealed class InlineProgress : IProgress<string>
     {
         internal readonly List<string> Messages = [];
@@ -242,6 +251,9 @@ public sealed class FoundryLocalDownloadTests
     }
 }
 
+/// <summary>
+/// Shared Foundry Local download fixture with synthetic assets, cache paths and HTTP responses.
+/// </summary>
 internal sealed class FoundryDownloadFixture : IDisposable
 {
     internal string CacheRoot { get; } = Path.Combine(AppContext.BaseDirectory, "FoundryDownloadFixtures-" + Guid.NewGuid().ToString("N"));
@@ -318,6 +330,9 @@ internal sealed class FoundryDownloadFixture : IDisposable
         if (Directory.Exists(CacheRoot)) Directory.Delete(CacheRoot, recursive: true);
     }
 
+    /// <summary>
+    /// Scripted HTTP handler for Foundry download tests that never contacts GitHub or Microsoft endpoints.
+    /// </summary>
     internal sealed class FakeHttp : HttpMessageHandler
     {
         internal List<Uri> Requests { get; } = [];

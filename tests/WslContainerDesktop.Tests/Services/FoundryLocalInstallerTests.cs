@@ -234,6 +234,9 @@ public sealed class FoundryLocalInstallerTests
 
     private static AiChatConfiguration Configuration => new(AiProviderKind.FoundryLocal, "", "synthetic-exact-model");
 
+    /// <summary>
+    /// Captures Foundry Local installer consent and process execution without running the packaged installer.
+    /// </summary>
     private sealed class Fixture : IDisposable
     {
         private readonly string _directory = Path.Combine(AppContext.BaseDirectory, "FoundryInstallerFixtures-" + Guid.NewGuid().ToString("N"));

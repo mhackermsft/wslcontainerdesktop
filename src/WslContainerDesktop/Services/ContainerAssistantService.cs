@@ -19,6 +19,13 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Coordinates one AI chat turn at a time, including provider calls, tool execution, approval prompts and saved chat history.
+/// View models call this service when the user chats with the container assistant.
+/// </summary>
+/// <remarks>
+/// The service builds tool definitions from current app settings, streams progress back to the UI, pauses for approval when a mutation needs review, and commits history only after the provider and tool callbacks finish consistently.
+/// </remarks>
 public sealed class ContainerAssistantService(
     ISettingsService settings,
     IEnumerable<IAiChatProvider> providers,
@@ -36,11 +43,23 @@ public sealed class ContainerAssistantService(
     private long _generation;
     private ActiveTurn? _active;
 
+    /// <summary>
+    /// Raised when the active turn starts or clears a tool approval request that the UI must show to the user.
+    /// </summary>
     public event EventHandler<AssistantApprovalRequest?>? ApprovalChanged;
 
+    /// <summary>
+    /// Starts an assistant turn without progress callbacks, using the same pipeline as the chat UI.
+    /// </summary>
     public Task<AssistantTurnResult> SendAsync(string userMessage, CancellationToken ct = default)
         => SendCoreAsync(userMessage, null, ct);
 
+    /// <summary>
+    /// Starts an assistant turn and streams status, model text and tool progress back to the caller.
+    /// </summary>
+    /// <param name="userMessage">The user's latest chat message.</param>
+    /// <param name="progress">Callback invoked as the provider streams updates or tools run.</param>
+    /// <param name="ct">Cancels the turn and any in-flight tool work.</param>
     public Task<AssistantTurnResult> SendAsync(string userMessage, Action<AiChatProgress> progress, CancellationToken ct = default)
         => SendCoreAsync(userMessage, progress, ct);
 
@@ -192,6 +211,9 @@ public sealed class ContainerAssistantService(
         }
     }
 
+    /// <summary>
+    /// Continues a paused turn after the user approved the requested tool call.
+    /// </summary>
     public Task<AssistantTurnResult> ApproveAsync(AssistantApprovalRequest approval, CancellationToken ct = default)
     {
         PendingApproval? pending;
@@ -205,6 +227,9 @@ public sealed class ContainerAssistantService(
         return Task.FromResult(new AssistantTurnResult());
     }
 
+    /// <summary>
+    /// Continues a paused turn by telling the model the requested tool call was rejected.
+    /// </summary>
     public Task<AssistantTurnResult> RejectAsync(AssistantApprovalRequest approval, CancellationToken ct = default)
     {
         PendingApproval? pending;
@@ -217,6 +242,9 @@ public sealed class ContainerAssistantService(
         return Task.FromResult(new AssistantTurnResult());
     }
 
+    /// <summary>
+    /// Cancels any active assistant turn, clears pending approval and forgets stored chat context.
+    /// </summary>
     public void Reset()
     {
         lock (_stateGate)
@@ -620,41 +648,71 @@ public sealed class ContainerAssistantService(
         Messages = { AssistantMessage(role, text) },
     };
 
+    /// <summary>
+    /// Internal state kept while a tool call is waiting for the user's approval decision.
+    /// </summary>
     private sealed record PendingApproval(
         ActiveTurn Turn,
         AssistantResolvedToolCall Tool,
         TaskCompletionSource<bool> Decision);
 
+    /// <summary>
+    /// Mutable state for a single chat turn, including cancellation, messages, tool calls and progress bookkeeping.
+    /// </summary>
     private sealed class ActiveTurn(long generation, AiChatConfiguration configuration, CancellationTokenSource cancellation)
     {
+        /// <summary>Monotonic id used to ignore callbacks from an older cancelled turn.</summary>
         public long Generation { get; } = generation;
+        /// <summary>Configuration snapshot used for this turn.</summary>
         public AiChatConfiguration Configuration { get; } = configuration;
+        /// <summary>Cancellation source owned by the active turn.</summary>
         public CancellationTokenSource Cancellation { get; } = cancellation;
+        /// <summary>Token passed to provider and tool work for this turn.</summary>
         public CancellationToken Token { get; } = cancellation.Token;
+        /// <summary>Original token supplied by the caller.</summary>
         public CancellationToken CallerToken { get; set; }
+        /// <summary>Working message list sent to the provider and later committed to history.</summary>
         public List<AiChatMessage> Messages { get; } = [];
         /// <summary>Older turns were replaced by a digest to fit the budget.</summary>
         public bool HistorySummarized { get; set; }
+        /// <summary>Tool call ids already seen in this turn.</summary>
         public HashSet<string> CallIds { get; } = new(StringComparer.Ordinal);
+        /// <summary>History snapshot restored if the turn is rejected or fails before commit.</summary>
         public IReadOnlyList<AiChatMessage>? PriorHistory { get; set; }
+        /// <summary>Tool definitions advertised to the provider.</summary>
         public IReadOnlyList<AiToolDefinition> Definitions { get; set; } = [];
+        /// <summary>True after the turn has written its final messages to history.</summary>
         public bool Committed { get; set; }
+        /// <summary>True when settings changed during a turn and follow-up state may need refresh.</summary>
         public bool ConfigurationChanged { get; set; }
+        /// <summary>True when a progress callback threw and the turn should stop safely.</summary>
         public bool CallbackFailed { get; set; }
+        /// <summary>True once the provider has stopped streaming responses.</summary>
         public bool ProviderFinished { get; set; }
+        /// <summary>Optional UI progress callback for this turn.</summary>
         public Action<AiChatProgress>? Progress { get; set; }
+        /// <summary>Most recent progress update so approval continuation can replay status.</summary>
         public AiChatProgress? LastProgress { get; set; }
+        /// <summary>True while invoking a tool so cancellation and errors are categorized correctly.</summary>
         public bool InToolCallback { get; set; }
+        /// <summary>Stable progress ids per tool call for UI replacement updates.</summary>
         public Dictionary<string, string> ProgressIds { get; } = new(StringComparer.Ordinal);
         // No wait handle is created. Keep the gate alive with late provider callbacks so
         // they fail the generation check instead of racing disposal.
+        /// <summary>Serializes tool callbacks so mutable turn state is updated predictably.</summary>
         public SemaphoreSlim ToolGate { get; } = new(1, 1);
     }
 
+    /// <summary>
+    /// Tracks a single tool invocation while the provider streams start and completion events separately.
+    /// </summary>
     private sealed class Invocation
     {
+        /// <summary>Index in the visible progress list where this tool result is updated.</summary>
         public int OutcomeIndex { get; set; }
+        /// <summary>True once the tool's start event has been surfaced.</summary>
         public bool Started { get; set; }
+        /// <summary>Captured tool output when completion arrives before the UI start record exists.</summary>
         public string? CompletedOutput { get; set; }
     }
 

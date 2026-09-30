@@ -16,6 +16,7 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Model object that stores container identity information used by services, view models, or dialogs.</summary>
 internal static class ContainerIdentity
 {
     /// <summary>Correlates persisted full IDs and modern short IDs only when the match is unique.</summary>

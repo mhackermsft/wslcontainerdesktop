@@ -24,15 +24,16 @@ using static WslContainerDesktop.Tests.Services.ComposeNetworkOrchestratorTests;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests Compose supervisor networking so owned containers, dependencies and external resources survive failures correctly.
+/// </summary>
 public sealed class ComposeNetworkSupervisorTests
 {
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Supported)]
-    [InlineData(WslcCapabilitySupport.Unsupported)]
-    public async Task HealthDependenciesUseVerifiedStartupIdentityAndSeedBeforeWaiting(WslcCapabilitySupport networkSupport)
+    [Fact]
+    public async Task HealthDependenciesUseVerifiedStartupIdentityAndSeedBeforeWaiting()
     {
-        var fixture = new Fixture(networkSupport);
-        fixture.Snapshot = HealthCapabilities(networkSupport);
+        var fixture = new Fixture();
+        fixture.Snapshot = HealthCapabilities();
         var desired = new NativeHealthOptions { Test = ["CMD-SHELL", "true"] };
         fixture.Project.Services[0].Options.Health = desired;
         fixture.Project.Services[0].Health = new()
@@ -66,41 +67,19 @@ public sealed class ComposeNetworkSupervisorTests
         Assert.Equal(desired.Test, fixture.Engine.Containers["demo_web"].Health!.Test);
     }
 
-    [Fact]
-    public async Task UnknownCreateHealthCannotRemoveExistingMultiNetworkContainer()
-    {
-        var fixture = new Fixture();
-        fixture.Snapshot = HealthCapabilities(WslcCapabilitySupport.Supported, unknownCreate: true);
-        fixture.Project.Services[0].Options.Health = new() { Test = ["CMD-SHELL", "true"] };
-        fixture.Engine.Add(Options());
-
-        var result = await fixture.Supervisor.UpAsync(fixture.Project);
-
-        Assert.False(result.AllSucceeded);
-        Assert.Empty(fixture.Engine.Mutations);
-        Assert.Empty(fixture.HealthChecks);
-    }
-
-    private static WslcCapabilities HealthCapabilities(WslcCapabilitySupport networkSupport, bool unknownCreate = false) =>
+    private static WslcCapabilities HealthCapabilities() =>
         new("wslc.exe", "fixture", Enum.GetValues<WslcFeature>().ToDictionary(feature => feature,
-            feature => new WslcCapability(feature is WslcFeature.NetworkConnect or WslcFeature.NetworkDisconnect
-                ? networkSupport
-                : unknownCreate && feature == WslcFeature.CreateHealthCmd
-                    ? WslcCapabilitySupport.Unknown : WslcCapabilitySupport.Supported, "fixture diagnostic")));
+            _ => new WslcCapability(WslcCapabilitySupport.Supported, "fixture diagnostic")));
 
     [Theory]
-    [InlineData(false, WslcCapabilitySupport.Supported, false)]
-    [InlineData(false, WslcCapabilitySupport.Supported, true)]
-    [InlineData(false, WslcCapabilitySupport.Unsupported, false)]
-    [InlineData(false, WslcCapabilitySupport.Unsupported, true)]
-    [InlineData(true, WslcCapabilitySupport.Supported, false)]
-    [InlineData(true, WslcCapabilitySupport.Supported, true)]
-    [InlineData(true, WslcCapabilitySupport.Unsupported, false)]
-    [InlineData(true, WslcCapabilitySupport.Unsupported, true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public async Task ProjectStartPreservesStopIntentArrivingDuringPreflight(
-        bool restart, WslcCapabilitySupport support, bool previouslyStopped)
+        bool restart, bool previouslyStopped)
     {
-        var fixture = new Fixture(support);
+        var fixture = new Fixture();
         if (previouslyStopped)
             fixture.Suppression.Suppress("demo_web");
         var requestEpoch = fixture.Suppression.Version;
@@ -122,23 +101,18 @@ public sealed class ComposeNetworkSupervisorTests
 
         Assert.True(result.AllSucceeded);
         Assert.True(fixture.Suppression.IsSuppressed("demo_web"));
-        if (!restart && support == WslcCapabilitySupport.Unsupported)
-            Assert.Equal(requestEpoch, fixture.Engine.LastRunMaximumStopVersion);
-        else
-            Assert.False(fixture.Engine.LastStartWasExplicit);
+        Assert.False(fixture.Engine.LastStartWasExplicit);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RestartHealthPreflightPreservesEveryServiceBeforeTeardown(bool invalidHealth)
+    [Fact]
+    public async Task RestartHealthPreflightPreservesEveryServiceBeforeTeardown()
     {
         var fixture = new Fixture();
-        fixture.Snapshot = HealthCapabilities(WslcCapabilitySupport.Supported, unknownCreate: !invalidHealth);
+        fixture.Snapshot = HealthCapabilities();
         fixture.Engine.Add(Options(), allEndpoints: true);
         var other = Options("demo_other");
         other.Labels[ComposeProject.ServiceLabel] = "other";
-        other.Health = new() { Test = ["CMD-SHELL", "true"], Retries = invalidHealth ? 0 : 3 };
+        other.Health = new() { Test = ["CMD-SHELL", "true"], Retries = 0 };
         fixture.Project.Services.Add(new() { Name = "other", Options = other });
         fixture.Engine.Add(other, allEndpoints: true);
         var health = new HealthCheckConfig { ContainerName = "demo_web", Command = "old-probe" };
@@ -155,38 +129,7 @@ public sealed class ComposeNetworkSupervisorTests
         Assert.Same(restart, Assert.Single(fixture.RestartPolicies));
     }
 
-    [Fact]
-    public async Task LegacyOnlyRunsPrimaryAndReturnsTruthfulWarning()
-    {
-        var fixture = new Fixture(WslcCapabilitySupport.Unsupported);
-        var result = await fixture.Supervisor.UpAsync(fixture.Project);
-        Assert.True(result.AllSucceeded);
-        Assert.Contains("Only network 'a'", Assert.Single(result.Warnings));
-        Assert.Equal(["run:demo_web"], fixture.Engine.Mutations);
-        Assert.Equal(2, fixture.Project.Services[0].Options.NetworkAttachments.Count);
-        Assert.Equal("a", Assert.Single(fixture.Engine.Endpoints["demo_web"]).Network);
-    }
-
-    [Fact]
-    public async Task UnknownCapabilityCannotReplaceExistingContainer()
-    {
-        var fixture = new Fixture(WslcCapabilitySupport.Unknown);
-        fixture.Engine.Add(Options());
-        var health = new HealthCheckConfig { ContainerName = "demo_web", Command = "old-probe" };
-        var restart = new RestartPolicyConfig { ContainerName = "demo_web", Policy = RestartPolicyKind.Always };
-        fixture.HealthChecks.Add(health);
-        fixture.RestartPolicies.Add(restart);
-        var result = await fixture.Supervisor.UpAsync(fixture.Project);
-        Assert.False(result.AllSucceeded);
-        Assert.Contains("Unknown", result.Services[0].Detail);
-        Assert.DoesNotContain("fixture diagnostic", result.Services[0].Detail);
-        Assert.Empty(fixture.Engine.Mutations);
-        Assert.Same(health, Assert.Single(fixture.HealthChecks));
-        Assert.Same(restart, Assert.Single(fixture.RestartPolicies));
-    }
-
     [Theory]
-    [InlineData("unknown")]
     [InlineData("discovery-failure")]
     [InlineData("invalid-ip")]
     public async Task RestartPreflightsAllServicesBeforeAnyTeardown(string failure)
@@ -196,9 +139,7 @@ public sealed class ComposeNetworkSupervisorTests
         fixture.Project.Networks = [new() { Name = "a" }];
         fixture.Engine.Networks["a"] = "demo";
         fixture.RestartPolicies.Add(new() { ContainerName = "demo_web", Policy = RestartPolicyKind.Always });
-        if (failure == "unknown")
-            fixture.Snapshot = Capabilities(WslcCapabilitySupport.Unknown);
-        else if (failure == "discovery-failure")
+        if (failure == "discovery-failure")
             fixture.CapabilityError = new IOException("fixture discovery failed");
         else
         {
@@ -218,12 +159,10 @@ public sealed class ComposeNetworkSupervisorTests
         Assert.Single(fixture.RestartPolicies);
     }
 
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Supported)]
-    [InlineData(WslcCapabilitySupport.Unsupported)]
-    public async Task RestartCarriesPreflightDecisionIntoStartup(WslcCapabilitySupport support)
+    [Fact]
+    public async Task RestartCarriesPreflightDecisionIntoStartup()
     {
-        var fixture = new Fixture(support);
+        var fixture = new Fixture();
         fixture.Engine.Add(Options(), allEndpoints: true);
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
 
@@ -422,7 +361,7 @@ public sealed class ComposeNetworkSupervisorTests
     [Fact]
     public async Task ServiceNetworkModeWaitsForReferencedServiceWithoutAddingEndpoints()
     {
-        var fixture = new Fixture(WslcCapabilitySupport.Unknown);
+        var fixture = new Fixture();
         var parsed = ComposeImporter.ParseProject("""
             services:
               sidecar:
@@ -490,6 +429,9 @@ public sealed class ComposeNetworkSupervisorTests
         Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
     }
 
+    /// <summary>
+    /// In-memory Compose supervisor fixture that records planned engine calls without starting real containers.
+    /// </summary>
     internal sealed class Fixture
     {
         public Engine Engine { get; }

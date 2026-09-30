@@ -18,19 +18,25 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage.Pickers;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page that lists container images and exposes run, tag, push, save, load, and remove actions.</summary>
 public sealed partial class ImagesPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public ImagesPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<ImagesViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Image inventory view model bound by the page.</summary>
     public ImagesViewModel ViewModel { get; }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -71,6 +77,24 @@ public sealed partial class ImagesPage : Page
         if (ImageOf(sender) is { } img)
         {
             ViewModel.PushCommand.Execute(img);
+        }
+    }
+
+    private async void SaveImageMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (ImageOf(sender) is { } img && await PickImageArchiveSavePathAsync([img]) is { } path)
+        {
+            await ViewModel.SaveImagesAsync([img], path);
+        }
+    }
+
+    private void CopyDigestMenu_Click(object sender, RoutedEventArgs e)
+    {
+        if (ImageOf(sender) is { } img && img.HasDigest)
+        {
+            var package = new DataPackage();
+            package.SetText(img.DigestDisplay);
+            Clipboard.SetContent(package);
         }
     }
 
@@ -148,8 +172,78 @@ public sealed partial class ImagesPage : Page
         await ViewModel.BulkRemoveAsync(selected);
     }
 
+    private async void BulkSave_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = ImagesList.SelectedItems.OfType<ImageInfo>().ToList();
+        if (await PickImageArchiveSavePathAsync(selected) is { } path)
+        {
+            await ViewModel.SaveImagesAsync(selected, path);
+        }
+    }
+
+    private void LoadImage_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
+    {
+        ImportFlyout.Hide();
+        if (await PickTarOpenPathAsync() is { } path)
+        {
+            await ViewModel.LoadImageAsync(path);
+        }
+    });
+
+    private void ImportImage_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
+    {
+        ImportFlyout.Hide();
+        if (await PickTarOpenPathAsync() is { } path)
+        {
+            await ViewModel.ImportImageAsync(path);
+        }
+    });
+
     private void BulkCancel_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.IsSelectionMode = false;
     }
+
+    private async Task<string?> PickImageArchiveSavePathAsync(IReadOnlyList<ImageInfo> images)
+    {
+        if (images.Count == 0)
+        {
+            return null;
+        }
+
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = images.Count == 1 ? SafeFileName(images[0].Reference) : "images",
+        };
+        picker.FileTypeChoices.Add("Tar archive", [".tar"]);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+        return (await picker.PickSaveFileAsync())?.Path;
+    }
+
+    private async Task<string?> PickTarOpenPathAsync()
+    {
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+        };
+        // The picker accepts only single-dot extensions (".tar.gz" throws); such files match ".gz".
+        picker.FileTypeFilter.Add(".tar");
+        picker.FileTypeFilter.Add(".gz");
+        picker.FileTypeFilter.Add(".tgz");
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
+        return (await picker.PickSingleFileAsync())?.Path;
+    }
+
+    private static string SafeFileName(string value)
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        var chars = value.Select(ch => invalid.Contains(ch) || ch is ':' or '/' or '\\' ? '-' : ch).ToArray();
+        var name = new string(chars).Trim('-', ' ');
+        return string.IsNullOrWhiteSpace(name) ? "image" : name;
+    }
+
+    private static nint GetMainWindowHandle() =>
+        Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
 }

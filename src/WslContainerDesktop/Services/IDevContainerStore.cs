@@ -19,10 +19,15 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>Persists Dev Container definitions imported by the app so they are available after restart.</summary>
 public interface IDevContainerStore
 {
+    /// <summary>Returns all saved Dev Container configurations.</summary>
     IReadOnlyList<DevContainerConfig> GetAll();
+    /// <summary>Finds a saved configuration by id, or null when it is unknown.</summary>
     DevContainerConfig? Get(string id);
+    /// <summary>Adds or replaces one Dev Container configuration and persists it.</summary>
     void Save(DevContainerConfig config);
+    /// <summary>Removes a saved configuration by id and persists the change.</summary>
     void Delete(string id);
 }

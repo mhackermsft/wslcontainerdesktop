@@ -17,8 +17,10 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
+using WslContainerDesktop.Views.Controls;
 
 namespace WslContainerDesktop.Dialogs;
 
@@ -35,6 +37,7 @@ public sealed class ComposeServicesDialog : ContentDialog
     private readonly CheckBox _saveReplicas;
     private readonly Dictionary<string, NumberBox> _replicaInputs = new(StringComparer.Ordinal);
 
+    /// <summary>Gets a value indicating whether the save replica overrides flag is set.</summary>
     public bool SaveReplicaOverrides => Operation == ComposeLifecycleOperation.Up && _saveReplicas.IsChecked == true;
 
     private ComposeLifecycleOperation Operation => _operation.SelectedIndex switch
@@ -45,6 +48,7 @@ public sealed class ComposeServicesDialog : ContentDialog
         _ => ComposeLifecycleOperation.Up,
     };
 
+    /// <summary>Gets the operation label.</summary>
     public string OperationLabel => Operation switch
     {
         ComposeLifecycleOperation.Restart => "Restart",
@@ -53,6 +57,7 @@ public sealed class ComposeServicesDialog : ContentDialog
         _ => "Apply (up)",
     };
 
+    /// <summary>Gets the request.</summary>
     public ComposeOperationRequest Request => new()
     {
         Operation = Operation,
@@ -64,6 +69,8 @@ public sealed class ComposeServicesDialog : ContentDialog
             : new Dictionary<string, int>(),
     };
 
+    /// <summary>Creates a new &lt;c&gt;ComposeServicesDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="project">The project value supplied by the caller.</param>
     public ComposeServicesDialog(ComposeProject project)
     {
         _project = project;
@@ -91,7 +98,13 @@ public sealed class ComposeServicesDialog : ContentDialog
         };
         AutomationProperties.SetAutomationId(_operation, "ComposeServiceOperation");
 
-        _rebuild = new CheckBox { Content = "Rebuild images when applying", IsChecked = false };
+        _rebuild = new CheckBox
+        {
+            Content = InfoTip.Labeled(
+                new TextBlock { Text = "Rebuild images when applying", VerticalAlignment = VerticalAlignment.Center },
+                InfoTip.Create(FlagHelp.ComposeRebuild)),
+            IsChecked = false,
+        };
         AutomationProperties.SetAutomationId(_rebuild, "ComposeServiceRebuild");
         _replicas = new StackPanel { Spacing = 8 };
         _saveReplicas = new CheckBox { Content = "Save these replica counts for future applies", IsChecked = true };

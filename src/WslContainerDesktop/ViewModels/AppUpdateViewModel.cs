@@ -45,36 +45,47 @@ public partial class AppUpdateViewModel : ObservableObject
     private Task<AppUpdateRelease?>? _checkInFlight;
     private int _installAttempt;
 
+    /// <summary>Whether bar open for view binding.</summary>
     [ObservableProperty]
     private bool _isBarOpen;
 
+    /// <summary>Bindable state for bar title used by the view.</summary>
     [ObservableProperty]
     private string _barTitle = string.Empty;
 
+    /// <summary>Bindable state for bar message used by the view.</summary>
     [ObservableProperty]
     private string _barMessage = string.Empty;
 
+    /// <summary>Bindable state for bar severity used by the view.</summary>
     [ObservableProperty]
     private InfoBarSeverity _barSeverity = InfoBarSeverity.Informational;
 
+    /// <summary>Whether bar closable for view binding.</summary>
     [ObservableProperty]
     private bool _isBarClosable = true;
 
+    /// <summary>Whether progress visible for view binding.</summary>
     [ObservableProperty]
     private bool _isProgressVisible;
 
+    /// <summary>Whether progress indeterminate for view binding.</summary>
     [ObservableProperty]
     private bool _isProgressIndeterminate;
 
+    /// <summary>Bindable state for progress value used by the view.</summary>
     [ObservableProperty]
     private double _progressValue;
 
+    /// <summary>Whether update button visible for view binding.</summary>
     [ObservableProperty]
     private bool _isUpdateButtonVisible;
 
+    /// <summary>Bindable state for update button text used by the view.</summary>
     [ObservableProperty]
     private string _updateButtonText = "Update now";
 
+    /// <summary>Whether release notes visible for view binding.</summary>
     [ObservableProperty]
     private bool _isReleaseNotesVisible;
 
@@ -82,11 +93,13 @@ public partial class AppUpdateViewModel : ObservableObject
     [ObservableProperty]
     private string _statusText = string.Empty;
 
+    /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CheckForUpdatesCommand))]
     [NotifyCanExecuteChangedFor(nameof(UpdateNowCommand))]
     private bool _isBusy;
 
+    /// <summary>Creates the AppUpdate view model and stores its injected services.</summary>
     public AppUpdateViewModel(IAppUpdateService updates, INotificationService notifications, ISettingsService settings, ILogger<AppUpdateViewModel> logger)
     {
         _updates = updates;
@@ -191,8 +204,10 @@ public partial class AppUpdateViewModel : ObservableObject
         await ViewReleaseNotesAsync();
     }
 
+    /// <summary>Provides the dismiss bar operation to views or collaborating view models.</summary>
     public void DismissBar() => IsBarOpen = false;
 
+    /// <summary>Returns whether the can run command can run now.</summary>
     private bool CanRun() => !IsBusy;
 
     /// <summary>Manual check from Settings; also re-opens the bar when an update is waiting.</summary>
@@ -210,6 +225,7 @@ public partial class AppUpdateViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for update now actions triggered from the view.</summary>
     [RelayCommand(CanExecute = nameof(CanRun))]
     private async Task UpdateNowAsync()
     {
@@ -271,6 +287,7 @@ public partial class AppUpdateViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for view release notes actions triggered from the view.</summary>
     [RelayCommand]
     private async Task ViewReleaseNotesAsync()
     {
@@ -323,6 +340,7 @@ public partial class AppUpdateViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the offer update workflow in this view model.</summary>
     private void OfferUpdate(AppUpdateRelease release)
     {
         _release = release;
@@ -343,6 +361,7 @@ public partial class AppUpdateViewModel : ObservableObject
                 : $"You have {Display(_updates.CurrentVersion)}. This copy is not a signed release install, so it can't update itself; get the release from GitHub.");
     }
 
+    /// <summary>Helper for the on progress workflow in this view model.</summary>
     private void OnProgress(AppUpdateProgress p)
     {
         switch (p.Phase)
@@ -370,6 +389,7 @@ public partial class AppUpdateViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the show bar workflow in this view model.</summary>
     private void ShowBar(InfoBarSeverity severity, string title, string message)
     {
         BarSeverity = severity;
@@ -381,6 +401,7 @@ public partial class AppUpdateViewModel : ObservableObject
         IsBarOpen = true;
     }
 
+    /// <summary>Helper for the set progress workflow in this view model.</summary>
     private void SetProgress(double? percent)
     {
         IsProgressVisible = true;
@@ -388,6 +409,7 @@ public partial class AppUpdateViewModel : ObservableObject
         ProgressValue = percent ?? 0;
     }
 
+    /// <summary>Helper for the clear progress workflow in this view model.</summary>
     private void ClearProgress()
     {
         IsProgressVisible = false;
@@ -395,5 +417,6 @@ public partial class AppUpdateViewModel : ObservableObject
         ProgressValue = 0;
     }
 
+    /// <summary>Helper for the display workflow in this view model.</summary>
     private static string Display(Version? v) => v is null ? "unknown" : $"{v.Major}.{v.Minor}.{v.Build}";
 }

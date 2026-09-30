@@ -28,7 +28,9 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public static partial class AiTextSanitizer
 {
+    /// <summary>Default maximum length for ordinary assistant evidence copied into history or logs.</summary>
     public const int EvidenceLimit = 12_000;
+    /// <summary>Larger maximum length for a full container diagnostic prompt preview.</summary>
     public const int DiagnosticLimit = 48_000;
     private const string Mask = "<redacted>";
     private const string Cut = "\n...[truncated]...\n";
@@ -54,6 +56,7 @@ public static partial class AiTextSanitizer
         return TruncateMiddle(safe, maxChars);
     }
 
+    /// <summary>Preserves the shape of large structured tool outcomes while dropping over-budget details.</summary>
     private static bool TryBoundOutcomes(JsonElement root, int limit, out string result)
     {
         result = "";
@@ -130,6 +133,7 @@ public static partial class AiTextSanitizer
         }).ToArray(),
     };
 
+    /// <summary>Returns a copy of a tool definition with user-visible text redacted but schema untouched.</summary>
     public static AiToolDefinition SanitizeDefinition(AiToolDefinition tool) => new()
     {
         Name = tool.Name,
@@ -140,13 +144,17 @@ public static partial class AiTextSanitizer
     /// <summary>Prevents SDK logging from retaining raw structured state, scopes or exceptions.</summary>
     public static ILogger WrapLogger(ILogger logger) => new SanitizedLogger(logger);
 
+    /// <summary>Logger wrapper that sanitizes formatted state before forwarding to the real logger.</summary>
     private sealed class SanitizedLogger(ILogger inner) : ILogger
     {
+        /// <inheritdoc/>
         public bool IsEnabled(LogLevel logLevel) => inner.IsEnabled(logLevel);
 
+        /// <inheritdoc/>
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull =>
             inner.BeginScope<string>(Sanitize(state.ToString() ?? string.Empty));
 
+        /// <inheritdoc/>
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
@@ -206,6 +214,7 @@ public static partial class AiTextSanitizer
         return RedactValue(text, 0);
     }
 
+    /// <summary>Redacts one value, preferring structured JSON handling before free-text matching.</summary>
     private static string RedactValue(string text, int depth)
     {
         if (depth > 32)
@@ -233,6 +242,7 @@ public static partial class AiTextSanitizer
         return RedactText(RedactEmbeddedJson(text, depth));
     }
 
+    /// <summary>Finds JSON fragments embedded in logs or YAML and redacts them recursively.</summary>
     private static string RedactEmbeddedJson(string text, int depth)
     {
         var result = new StringBuilder();
@@ -283,6 +293,7 @@ public static partial class AiTextSanitizer
     [GeneratedRegex(@"(?:\x1B\[|\u009B)[0-?]*[ -/]*[@-~]|(?:\x1B\]|\u009D)[^\x07\x1B\u009C]*(?:\x07|\x1B\\|\u009C)", RegexOptions.NonBacktracking)]
     private static partial Regex TerminalControlRegex();
 
+    /// <summary>Attempts to parse text as JSON without treating malformed free text as an error.</summary>
     private static bool TryReadJson(string text, out JsonDocument document)
     {
         try
@@ -298,6 +309,7 @@ public static partial class AiTextSanitizer
         }
     }
 
+    /// <summary>Writes a redacted JSON tree while preserving nonsensitive structure.</summary>
     private static void WriteJson(Utf8JsonWriter writer, JsonElement element, int depth, bool environment = false)
     {
         if (depth > 32)
@@ -354,6 +366,7 @@ public static partial class AiTextSanitizer
         }
     }
 
+    /// <summary>Classifies field names that commonly hold secrets or credentials.</summary>
     private static bool IsSensitive(string name)
     {
         name = TerminalControlRegex().Replace(name, string.Empty);
@@ -377,6 +390,7 @@ public static partial class AiTextSanitizer
                 "cookie" or "setcookie" or "stringdata" or "dockerconfigjson" or "sig" or "signature";
     }
 
+    /// <summary>Applies free-text secret patterns after structured redaction has had a chance.</summary>
     private static string RedactText(string text)
     {
         var safe = PrivateKeyRegex().Replace(text, Mask);
@@ -393,6 +407,7 @@ public static partial class AiTextSanitizer
         return UriCredentialsRegex().Replace(safe, "$1" + Mask + "@");
     }
 
+    /// <summary>Masks sensitive YAML scalar and block values without parsing the whole document.</summary>
     private static string RedactYamlBlocks(string text)
     {
         var lines = text.Split('\n');

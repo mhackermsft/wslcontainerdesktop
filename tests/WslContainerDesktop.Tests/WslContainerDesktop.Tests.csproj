@@ -15,6 +15,7 @@
     <GenerateProgramFile>false</GenerateProgramFile>
     <StartupObject>WslContainerDesktop.Tests.Services.ComposeConformanceWorker</StartupObject>
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
+    <DefineConstants>$(DefineConstants);WSLCD_TEST_NO_DISPATCHER</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -50,6 +51,8 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\HttpAiCapabilityObserver.cs" Link="Services\HttpAiCapabilityObserver.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\CopilotCapabilityProbe.cs" Link="Services\CopilotCapabilityProbe.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ActivityEvent.cs" Link="Models\ActivityEvent.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\EngineEvent.cs" Link="Models\EngineEvent.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcSystemInfo.cs" Link="Models\WslcSystemInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAssistantToolset.cs" Link="Services\IAssistantToolset.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantResolvedToolCall.cs" Link="Services\AssistantResolvedToolCall.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerAssistantService.cs" Link="Services\ContainerAssistantService.cs" />
@@ -57,6 +60,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantActionGate.cs" Link="Services\AssistantActionGate.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAssistantActionGate.cs" Link="Services\IAssistantActionGate.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IActivityLog.cs" Link="Services\IActivityLog.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IEngineEventStream.cs" Link="Services\IEngineEventStream.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAiChatProvider.cs" Link="Services\IAiChatProvider.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiConversationContext.cs" Link="Services\AiConversationContext.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\CopilotChatTurnRunner.cs" Link="Services\CopilotChatTurnRunner.cs" />
@@ -72,6 +76,9 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiStreamingText.cs" Link="Services\AiStreamingText.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiHttpStreaming.cs" Link="Services\AiHttpStreaming.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\AssistantTurnDispatch.cs" Link="Helpers\AssistantTurnDispatch.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\FlagHelp.cs" Link="Helpers\FlagHelp.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\PushDestination.cs" Link="Helpers\PushDestination.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\LogLineOrder.cs" Link="Helpers\LogLineOrder.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AiDiagnosticsService.cs" Link="Services\AiDiagnosticsService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantArgumentException.cs" Link="Services\AssistantArgumentException.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantIterationLimitException.cs" Link="Services\AssistantIterationLimitException.cs" />
@@ -84,6 +91,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\VolumeInfo.cs" Link="Models\VolumeInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\VolumeUsageState.cs" Link="Models\VolumeUsageState.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\VolumeUsageResolver.cs" Link="Services\VolumeUsageResolver.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\NetworkUsageResolver.cs" Link="Services\NetworkUsageResolver.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ImageUsageResolver.cs" Link="Services\ImageUsageResolver.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerConfigImporter.cs" Link="Services\ContainerConfigImporter.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RunProfile.cs" Link="Models\RunProfile.cs" />
@@ -91,6 +99,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\ContainerInventoryOperation.cs" Link="Helpers\ContainerInventoryOperation.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ImageInfo.cs" Link="Models\ImageInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerInfo.cs" Link="Models\ContainerInfo.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ContainerRowViewModel.cs" Link="ViewModels\ContainerRowViewModel.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerIdentity.cs" Link="Models\ContainerIdentity.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerInfoJsonConverter.cs" Link="Models\ContainerInfoJsonConverter.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerPortParser.cs" Link="Models\ContainerPortParser.cs" />
@@ -118,9 +127,19 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.Review.cs" Link="Services\ComposeProjectSupervisor.Review.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeReconciliationPlanner.cs" Link="Services\ComposeReconciliationPlanner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerOptions.cs" Link="Models\RunContainerOptions.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerMount.cs" Link="Models\RunContainerMount.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ISettingsService.cs" Link="Services\ISettingsService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\SettingsService.cs" Link="Services\SettingsService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AppConstants.cs" Link="Services\AppConstants.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\CommandErrorText.cs" Link="Services\CommandErrorText.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IWslPolicyService.cs" Link="Services\IWslPolicyService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IWslRequirementService.cs" Link="Services\IWslRequirementService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslRequirementService.cs" Link="Services\WslRequirementService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslPolicyService.cs" Link="Services\WslPolicyService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslRegistryPolicyGuard.cs" Link="Services\WslRegistryPolicyGuard.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcRequirements.cs" Link="Services\WslcRequirements.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcVersionParser.cs" Link="Services\WslcVersionParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\NetworkAddressing.cs" Link="Services\NetworkAddressing.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolCatalog.cs" Link="Services\AssistantToolCatalog.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcCapabilitiesService.cs" Link="Services\IWslcCapabilitiesService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCapabilitiesService.cs" Link="Services\WslcCapabilitiesService.cs" />
@@ -143,7 +162,6 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\RestartSuppressionState.cs" Link="Services\RestartSuppressionState.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcFileTransfer.cs" Link="Services\WslcFileTransfer.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerDownloadPath.cs" Link="Services\ContainerDownloadPath.cs" />
-    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerDownloadArchive.cs" Link="Services\ContainerDownloadArchive.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcCopyInput.cs" Link="Services\WslcCopyInput.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\NetworkAttachment.cs" Link="Models\NetworkAttachment.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerNetworkState.cs" Link="Models\ContainerNetworkState.cs" />
@@ -164,6 +182,10 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.cs" Link="Services\ComposeProjectSupervisor.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.Reconciliation.cs" Link="Services\ComposeProjectSupervisor.Reconciliation.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcService.cs" Link="Services\IWslcService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcSettingsFileService.cs" Link="Services\IWslcSettingsFileService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcEventParser.cs" Link="Services\WslcEventParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\EngineEventStream.cs" Link="Services\EngineEventStream.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSettingsFileService.cs" Link="Services\WslcSettingsFileService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\OpenWebUiPlanner.cs" Link="Services\OpenWebUiPlanner.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeResourceErrors.cs" Link="Services\ComposeResourceErrors.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\DeploymentConflictResolver.cs" Link="Services\DeploymentConflictResolver.cs" />
@@ -205,6 +227,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\AzureModels.cs" Link="Models\AzureModels.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <Compile Remove="Runtime\*.cs" />
     <Compile Remove="Services\ComposeRuntime*.cs" />
     <Compile Remove="ViewModels\ComposeViewModelBusyTests.cs" />
     <Compile Remove="ViewModels\TemplateCardStateTests.cs" />
@@ -219,6 +242,7 @@
     <Compile Remove="Services\ComposeReconciliationSupervisorTests.cs" />
     <Compile Remove="Services\DevContainerLifecycleTests.cs" />
     <Compile Remove="Services\ComposeReviewSupervisorTests.cs" />
+    <Compile Remove="Services\ComposePublishedPortCheckTests.cs" />
     <Compile Remove="Services\SupervisorMonitorDoubles.cs" />
     <!-- WslcService is only source-linked for the Windows target. -->
     <Compile Remove="Services\WslcServiceNonInteractiveTests.cs" />

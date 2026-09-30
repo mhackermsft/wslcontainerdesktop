@@ -4,7 +4,9 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:helpers="using:WslContainerDesktop.Helpers"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:WslContainerDesktop.Models"
     x:Name="Root"
@@ -33,23 +35,111 @@
                 Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" />
         </StackPanel>
 
-        <StackPanel
+        <!--  Actions wrap on narrow windows; Select and the view toggle stay pinned right.  -->
+        <Grid
             Grid.Row="1"
-            Orientation="Horizontal"
-            Spacing="8"
+            ColumnSpacing="12"
             Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <converters:WrapPanel
+                Grid.Column="0"
+                HorizontalSpacing="8"
+                VerticalSpacing="8">
             <Button Command="{x:Bind ViewModel.PullCommand}" Style="{ThemeResource AccentButtonStyle}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE896;" />
                     <TextBlock Text="Pull image" />
                 </StackPanel>
             </Button>
-            <Button Command="{x:Bind ViewModel.BuildCommand}">
+            <Button
+                Command="{x:Bind ViewModel.BuildCommand}"
+                IsEnabled="{x:Bind ViewModel.CanBuild, Mode=OneWay}"
+                ToolTipService.ToolTip="{x:Bind ViewModel.BuildPolicyMessage, Mode=OneWay}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE9F9;" />
                     <TextBlock Text="Build" />
                 </StackPanel>
             </Button>
+            <DropDownButton AutomationProperties.Name="Import images" ToolTipService.ToolTip="Bring images in from a .tar file">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="14" Glyph="&#xE8B5;" />
+                    <TextBlock Text="Import" />
+                </StackPanel>
+                <DropDownButton.Flyout>
+                    <!--  Each option says what it does and which action makes its file, because the two are easy to confuse.  -->
+                    <Flyout x:Name="ImportFlyout" Placement="BottomEdgeAlignedLeft">
+                        <!--  The default presenter caps width at 456px, which forced a horizontal scrollbar.  -->
+                        <Flyout.FlyoutPresenterStyle>
+                            <Style BasedOn="{StaticResource DefaultFlyoutPresenterStyle}" TargetType="FlyoutPresenter">
+                                <Setter Property="MaxWidth" Value="520" />
+                                <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled" />
+                                <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+                            </Style>
+                        </Flyout.FlyoutPresenterStyle>
+                        <StackPanel Width="440" Spacing="4">
+                            <Button
+                                Padding="12,10"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                AutomationProperties.AutomationId="RestoreSavedImages"
+                                AutomationProperties.Name="Restore saved images"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Click="LoadImage_Click">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon VerticalAlignment="Top" Margin="0,3,0,0" FontSize="18" Glyph="&#xE777;" />
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <TextBlock FontWeight="SemiBold" Text="Restore saved images…" />
+                                        <TextBlock
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="Brings images back exactly as they were: the same names, tags and start command. Use it to move images to another PC or restore a backup."
+                                            TextWrapping="Wrap" />
+                                        <TextBlock Foreground="{ThemeResource TextFillColorTertiaryBrush}" FontSize="12" TextWrapping="Wrap">
+                                            <Run FontWeight="SemiBold" Text="To make this file:" />
+                                            <Run Text="on this page, choose ⋯ → Save to file… on an image, or Select several images → Save selected." />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+                            <Button
+                                Padding="12,10"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                AutomationProperties.AutomationId="CreateImageFromExport"
+                                AutomationProperties.Name="Create image from exported files"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Click="ImportImage_Click">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon VerticalAlignment="Top" Margin="0,3,0,0" FontSize="18" Glyph="&#xE8B7;" />
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <TextBlock FontWeight="SemiBold" Text="Create image from exported files…" />
+                                        <TextBlock
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="Makes a new image from a copy of a container's files. Only the files are kept: not the start command, environment variables or ports, so give it a command when you run it."
+                                            TextWrapping="Wrap" />
+                                        <TextBlock Foreground="{ThemeResource TextFillColorTertiaryBrush}" FontSize="12" TextWrapping="Wrap">
+                                            <Run FontWeight="SemiBold" Text="To make this file:" />
+                                            <Run Text="on the Containers page, choose ⋯ → Export filesystem… on a container." />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+                        </StackPanel>
+                    </Flyout>
+                </DropDownButton.Flyout>
+            </DropDownButton>
             <Button Command="{x:Bind ViewModel.RefreshCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE72C;" />
@@ -68,13 +158,20 @@
                     <TextBlock Text="Prune" />
                 </StackPanel>
             </Button>
-            <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" AutomationProperties.Name="Select multiple images" ToolTipService.ToolTip="Select multiple images">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon FontSize="14" Glyph="&#xE762;" />
-                    <TextBlock Text="Select" />
-                </StackPanel>
-            </ToggleButton>
-        </StackPanel>
+            </converters:WrapPanel>
+            <StackPanel
+                Grid.Column="1"
+                Orientation="Horizontal"
+                Spacing="8"
+                VerticalAlignment="Center">
+                <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" AutomationProperties.Name="Select multiple images" ToolTipService.ToolTip="Select multiple images">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE762;" />
+                        <TextBlock Text="Select" />
+                    </StackPanel>
+                </ToggleButton>
+            </StackPanel>
+        </Grid>
 
         <!--  Bulk-action bar (shown while selecting)  -->
         <StackPanel
@@ -90,6 +187,21 @@
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
                     <TextBlock Text="Remove selected" />
+                </StackPanel>
+            </Button>
+            <Button Click="BulkSave_Click">
+                <ToolTipService.ToolTip>
+                    <ToolTip>
+                        <StackPanel MaxWidth="380" Spacing="4">
+                            <TextBlock FontWeight="SemiBold" Text="{x:Bind helpers:FlagHelp.ImageSave.Title}" />
+                            <TextBlock FontFamily="Consolas" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind helpers:FlagHelp.ImageSave.Flag}" />
+                            <TextBlock Text="{x:Bind helpers:FlagHelp.ImageSave.Text}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </ToolTip>
+                </ToolTipService.ToolTip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="14" Glyph="&#xE74E;" />
+                    <TextBlock Text="Save selected" />
                 </StackPanel>
             </Button>
             <Button Click="BulkCancel_Click">
@@ -227,12 +339,18 @@
                                             TextTrimming="CharacterEllipsis"
                                             ToolTipService.ToolTip="{x:Bind UsedByCaption, Mode=OneWay}"
                                             Visibility="{x:Bind IsInUse, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
-                                    </StackPanel>
-                                    <Border
+                                                    </StackPanel>
+                                    <!--  A real button: the badge looks actionable, so clicking it pulls the update.  -->
+                                    <Button
                                         Grid.Column="1"
+                                        MinWidth="0"
+                                        MinHeight="0"
                                         Padding="7,1"
                                         VerticalAlignment="Center"
+                                        AutomationProperties.Name="Pull update"
                                         Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
+                                        BorderThickness="0"
+                                        Click="PullUpdateMenu_Click"
                                         CornerRadius="9"
                                         ToolTipService.ToolTip="{x:Bind UpdateTooltip, Mode=OneWay}"
                                         Visibility="{x:Bind UpdateAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -243,7 +361,7 @@
                                                 Foreground="{ThemeResource SystemFillColorSuccessBrush}"
                                                 Text="Update" />
                                         </StackPanel>
-                                    </Border>
+                                    </Button>
                                     <ProgressRing
                                         Grid.Column="2"
                                         Width="14"
@@ -309,6 +427,8 @@
                                                         <FontIcon Glyph="&#xE898;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
+                                                <MenuFlyoutItem Click="SaveImageMenu_Click" Text="Save to file…" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ImageSave.Text}" />
+                                                <MenuFlyoutItem Click="CopyDigestMenu_Click" Text="Copy digest" />
                                                 <MenuFlyoutItem Click="InspectMenu_Click" Text="Inspect" />
                                                 <MenuFlyoutSeparator />
                                                 <MenuFlyoutItem Click="RemoveMenu_Click" Text="Remove">
@@ -375,6 +495,8 @@
                                                             <FontIcon Glyph="&#xE898;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Click="SaveImageMenu_Click" Text="Save to file…" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ImageSave.Text}" />
+                                                    <MenuFlyoutItem Click="CopyDigestMenu_Click" Text="Copy digest" />
                                                     <MenuFlyoutItem Click="InspectMenu_Click" Text="Inspect" />
                                                     <MenuFlyoutSeparator />
                                                     <MenuFlyoutItem Click="RemoveMenu_Click" Text="Remove">

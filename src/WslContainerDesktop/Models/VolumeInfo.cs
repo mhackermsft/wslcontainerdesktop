@@ -22,20 +22,31 @@ namespace WslContainerDesktop.Models;
 /// <summary>A volume row as returned by `wslc volume list --format json`.</summary>
 public sealed class VolumeInfo
 {
+    /// <summary>
+    /// Returns the volume name. List controls use this as each row's screen-reader name;
+    /// without it Narrator announces the .NET type name instead.
+    /// </summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     [JsonPropertyName("Name")]
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the driver.</summary>
     [JsonPropertyName("Driver")]
     public string Driver { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the mountpoint.</summary>
     [JsonPropertyName("Mountpoint")]
     public string? Mountpoint { get; set; }
 
     // ---- Enriched from `volume inspect` + correlation (not part of list output) ----
 
+    /// <summary>Gets or sets the created at.</summary>
     [JsonIgnore]
     public DateTimeOffset? CreatedAt { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether this value is anonymous.</summary>
     [JsonIgnore]
     public bool IsAnonymous { get; set; }
 
@@ -43,12 +54,15 @@ public sealed class VolumeInfo
     [JsonIgnore]
     public IReadOnlyList<string> ContainerUsers { get; set; } = Array.Empty<string>();
 
+    /// <summary>Gets or sets the usage state.</summary>
     [JsonIgnore]
     public VolumeUsageState UsageState { get; set; }
 
+    /// <summary>Gets the used by.</summary>
     [JsonIgnore]
     public string UsedBy => string.Join(", ", ContainerUsers);
 
+    /// <summary>Gets the usage description.</summary>
     [JsonIgnore]
     public string UsageDescription =>
         $"{UsedByDisplay}\n\nInspect users include stopped containers. Estimated users are based on creation time only. " +
@@ -62,6 +76,7 @@ public sealed class VolumeInfo
     public string DisplayName =>
         IsAnonymous && Name.Length > 12 ? Name[..12] : Name;
 
+    /// <summary>Gets the type label.</summary>
     [JsonIgnore]
     public string TypeLabel => IsAnonymous ? "Anonymous" : "Named";
 

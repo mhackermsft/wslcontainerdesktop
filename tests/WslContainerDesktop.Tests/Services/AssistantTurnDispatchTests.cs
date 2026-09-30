@@ -19,6 +19,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Exercises generation guards that keep late progress, approval and completion callbacks from changing a newer assistant turn.
+/// </summary>
 public sealed class AssistantTurnDispatchTests
 {
     [Fact]

@@ -18,6 +18,7 @@ using System.Reflection;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Builds simple interface fakes for tests by routing each invoked member to a supplied delegate.</summary>
 public class NetworkTestProxy : DispatchProxy
 {
     public Func<MethodInfo, object?[], object?> Handler { get; set; } = (_, _) =>

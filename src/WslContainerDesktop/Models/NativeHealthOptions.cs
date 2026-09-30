@@ -21,16 +21,26 @@ public sealed class NativeHealthOptions
 {
     /// <summary>Docker test form: CMD with argv, CMD-SHELL with one script, or NONE.</summary>
     public List<string> Test { get; set; } = new();
+    /// <summary>Gets or sets a value indicating whether this value is disabled.</summary>
     public bool Disabled { get; set; }
+    /// <summary>Gets or sets the interval.</summary>
     public string? Interval { get; set; }
+    /// <summary>Gets or sets the timeout.</summary>
     public string? Timeout { get; set; }
+    /// <summary>Gets or sets the start period.</summary>
     public string? StartPeriod { get; set; }
+    /// <summary>Gets or sets the start interval.</summary>
     public string? StartInterval { get; set; }
+    /// <summary>Gets or sets the retries.</summary>
     public int? Retries { get; set; }
 
+    /// <summary>Gets a value indicating whether this value is disabled.</summary>
     public bool IsDisabled => Disabled || Test.FirstOrDefault() == "NONE";
+    /// <summary>Gets a value indicating whether this value has command.</summary>
     public bool HasCommand => Test.Count > 1 && Test[0] is "CMD" or "CMD-SHELL";
 
+    /// <summary>Creates a copy so callers can edit options without mutating the original instance.</summary>
+    /// <returns>The requested value for the caller.</returns>
     public NativeHealthOptions Clone() => new()
     {
         Test = new(Test), Disabled = Disabled, Interval = Interval, Timeout = Timeout,

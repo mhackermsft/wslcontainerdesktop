@@ -32,7 +32,13 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class FoundryLocalModelRegistration
 {
+    /// <summary>
+    /// Gets owned directory name for other services or view models.
+    /// </summary>
     public const string OwnedDirectoryName = "WslContainerDesktop-qwen-cpu-v4";
+    /// <summary>
+    /// Gets marker name for other services or view models.
+    /// </summary>
     internal const string MarkerName = ".wslcontainerdesktop-registration.json";
     private const string MetadataName = "inference_model.json";
     private const string SentinelName = "download.tmp";
@@ -51,9 +57,15 @@ public sealed class FoundryLocalModelRegistration
     private readonly FoundryLocalModelFile[] _files;
     private readonly string _manifestId;
 
+    /// <summary>
+    /// Initializes a new <c>FoundryLocalModelRegistration</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public FoundryLocalModelRegistration() : this(FoundryLocalModelArtifacts.PinnedFiles) { }
 
     // Synthetic sizes are available only to deterministic, offline tests.
+    /// <summary>
+    /// Initializes a new <c>FoundryLocalModelRegistration</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     internal FoundryLocalModelRegistration(IReadOnlyList<FoundryLocalModelFile> files)
     {
         _files = files.ToArray();
@@ -310,11 +322,20 @@ public sealed class FoundryLocalModelRegistration
 
     private static void ThrowIo(string message) => throw new IOException(message, new Win32Exception(Marshal.GetLastWin32Error()));
 
+    /// <summary>
+    /// Provides service behavior used by WSL Container Desktop.
+    /// </summary>
     private sealed class Leases : IDisposable
     {
         private readonly List<IDisposable> _handles = [];
         private readonly HashSet<string> _directories = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// Tracks a disposable handle so the lease can release it later.
+        /// </summary>
         public T Add<T>(T handle) where T : IDisposable { _handles.Add(handle); return handle; }
+        /// <summary>
+        /// Opens directory handles for the model path so it cannot be swapped while setup is running.
+        /// </summary>
         public void PinDirectories(string path, bool createMissing = false)
         {
             var parent = Path.GetDirectoryName(path);
@@ -327,17 +348,32 @@ public sealed class FoundryLocalModelRegistration
                 Add(OpenHandle(path, 0, 3, 3, directory: true));
             }
         }
+        /// <summary>
+        /// Releases long-lived resources owned by this service.
+        /// </summary>
         public void Dispose()
         {
             for (var i = _handles.Count - 1; i >= 0; i--) _handles[i].Dispose();
         }
     }
 
+    /// <summary>
+    /// Carries immutable service data between WSL Container Desktop components.
+    /// </summary>
     private sealed record StageReceipt(string ManifestId, string Asset, string Name, long Bytes, string ETag, DateTimeOffset Modified, string Sha256);
+    /// <summary>
+    /// Carries immutable service data between WSL Container Desktop components.
+    /// </summary>
     private sealed record RegistrationReceipt(string Owner, int Schema, string Reservation, string Directory, string Asset,
         string ManifestId, Dictionary<string, string> Hashes);
+    /// <summary>
+    /// Carries lightweight service data between WSL Container Desktop components.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct AttributeTag { public uint Attributes; public uint ReparseTag; }
+    /// <summary>
+    /// Carries lightweight service data between WSL Container Desktop components.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct FileDisposition { [MarshalAs(UnmanagedType.U1)] public bool DeleteFile; }
     [DllImport("kernel32.dll", EntryPoint = "CreateDirectoryW", CharSet = CharSet.Unicode, SetLastError = true)]

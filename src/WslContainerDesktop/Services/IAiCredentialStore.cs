@@ -18,11 +18,23 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Defines how AI provider credentials are stored without exposing callers to the underlying secure-storage mechanism.
+/// </summary>
 public interface IAiCredentialStore
 {
+    /// <summary>
+    /// Attempts read secret and reports failure without throwing for expected conditions.
+    /// </summary>
     bool TryReadSecret(AiProviderKind provider, out string? secret);
 
+    /// <summary>
+    /// Stores a secret value without putting it on a command line.
+    /// </summary>
     void WriteSecret(AiProviderKind provider, string secret);
 
+    /// <summary>
+    /// Removes secret from persisted state or the engine.
+    /// </summary>
     void DeleteSecret(AiProviderKind provider);
 }

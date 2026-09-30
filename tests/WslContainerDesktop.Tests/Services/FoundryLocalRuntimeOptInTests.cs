@@ -94,6 +94,7 @@ public sealed class FoundryLocalRuntimeOptInTests
     });
 }
 
+/// <summary>Marks Foundry Local runtime tests that require Windows and explicit environment variables before touching a real local CLI.</summary>
 public sealed class FoundryRuntimeFactAttribute : FactAttribute
 {
     public FoundryRuntimeFactAttribute(string gate)

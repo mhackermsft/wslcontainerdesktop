@@ -24,6 +24,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Tests Foundry Local runtime setup consent, prerequisite checks and install staging without mutating the host.
+/// </summary>
 public sealed class FoundryLocalRuntimeSetupTests
 {
     private static AiChatConfiguration Original => new(AiProviderKind.FoundryLocal, "", "synthetic-model-selection");

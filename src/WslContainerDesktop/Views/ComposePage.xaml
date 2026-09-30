@@ -4,7 +4,9 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:helpers="using:WslContainerDesktop.Helpers"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:WslContainerDesktop.ViewModels"
     x:Name="Root"
@@ -50,8 +52,16 @@
             <Button
                 AutomationProperties.AutomationId="ComposeRestartSession"
                 AutomationProperties.Name="Restart WSL session"
-                Command="{x:Bind ViewModel.RestartSessionCommand}"
-                ToolTipService.ToolTip="Release wslc's leaked bind-mount slots (needed when config/secret mounts start failing). Stops all running containers.">
+                Command="{x:Bind ViewModel.RestartSessionCommand}">
+                <ToolTipService.ToolTip>
+                    <ToolTip>
+                        <StackPanel MaxWidth="380" Spacing="4">
+                            <TextBlock FontWeight="SemiBold" Text="{x:Bind helpers:FlagHelp.RestartWslSession.Title}" />
+                            <TextBlock FontFamily="Consolas" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind helpers:FlagHelp.RestartWslSession.Flag}" />
+                            <TextBlock Text="{x:Bind helpers:FlagHelp.RestartWslSession.Text}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </ToolTip>
+                </ToolTipService.ToolTip>
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE777;" />
                     <TextBlock Text="Restart WSL session" />
@@ -103,7 +113,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" MinWidth="160" />
                     <ColumnDefinition Width="2*" MinWidth="180" />
-                    <ColumnDefinition Width="130" />
+                    <ColumnDefinition Width="210" />
                     <ColumnDefinition Width="190" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="PROJECT" />
@@ -163,7 +173,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" MinWidth="160" />
                                     <ColumnDefinition Width="2*" MinWidth="180" />
-                                    <ColumnDefinition Width="130" />
+                                    <ColumnDefinition Width="210" />
                                     <ColumnDefinition Width="190" />
                                 </Grid.ColumnDefinitions>
 
@@ -176,7 +186,7 @@
                                     <FontIcon
                                         FontSize="16"
                                         Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                                        Glyph="&#xE7F4;" />
+                                        Glyph="&#xE81E;" />
                                     <TextBlock
                                         VerticalAlignment="Center"
                                         FontSize="13"
@@ -204,7 +214,9 @@
                                     <TextBlock
                                         FontSize="12"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        Text="{x:Bind StatusText, Mode=OneWay}" />
+                                        Text="{x:Bind StatusText, Mode=OneWay}"
+                                        TextTrimming="CharacterEllipsis"
+                                        ToolTipService.ToolTip="{x:Bind StatusText, Mode=OneWay}" />
                                 </Border>
 
                                 <StackPanel
@@ -258,7 +270,7 @@
                                 <!--  Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
                                 <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE7F4;" />
+                                        <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE81E;" />
                                         <TextBlock VerticalAlignment="Center" FontSize="13" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
 
@@ -314,7 +326,7 @@
                         HorizontalAlignment="Center"
                         FontSize="40"
                         Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                        Glyph="&#xE7F4;" />
+                        Glyph="&#xE81E;" />
                     <TextBlock
                         HorizontalAlignment="Center"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"

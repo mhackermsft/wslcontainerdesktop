@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Serializes stdin inheritance tests because they temporarily replace process-wide console input behavior.
+/// </summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class InheritedStdinCollection
 {

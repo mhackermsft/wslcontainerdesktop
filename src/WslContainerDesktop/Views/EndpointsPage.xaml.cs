@@ -22,14 +22,17 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page that lists forwarded or published endpoints and provides open/copy shortcuts.</summary>
 public sealed partial class EndpointsPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public EndpointsPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<PortsViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Endpoint/port view model bound by the page.</summary>
     public PortsViewModel ViewModel { get; }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

@@ -22,12 +22,19 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Adapts the GitHub Copilot Chat client to the app's provider-neutral AI chat turn model.
+/// It translates messages, streams assistant text, and invokes registered tools when Copilot requests them.
+/// </summary>
 internal sealed class CopilotChatTurnRunner
 {
     private readonly Func<AiChatConfiguration, IReadOnlyList<AiChatMessage>, IReadOnlyList<AiToolDefinition>,
         Func<AiToolCall, CancellationToken, Task<string>>, Action<AiChatProgress>, Action<string>, CancellationToken, Task<string>> _runSession;
     private readonly TimeSpan _inferenceTimeout;
 
+    /// <summary>
+    /// Creates a runner with the production timeout and no explicit login override.
+    /// </summary>
     internal CopilotChatTurnRunner(
         Func<AiChatConfiguration, IReadOnlyList<AiChatMessage>, IReadOnlyList<AiToolDefinition>,
             Func<AiToolCall, CancellationToken, Task<string>>, Action<AiChatProgress>, Action<string>, CancellationToken, Task<string>> runSession,
@@ -37,6 +44,9 @@ internal sealed class CopilotChatTurnRunner
         _inferenceTimeout = inferenceTimeout ?? TimeSpan.FromMinutes(3);
     }
 
+    /// <summary>
+    /// Creates a runner with injectable timeout and login command settings for tests.
+    /// </summary>
     internal CopilotChatTurnRunner(
         Func<AiChatConfiguration, IReadOnlyList<AiChatMessage>, IReadOnlyList<AiToolDefinition>,
             Func<AiToolCall, CancellationToken, Task<string>>, Action<AiChatProgress>, CancellationToken, Task<string>> runSession,
@@ -51,6 +61,9 @@ internal sealed class CopilotChatTurnRunner
     {
     }
 
+    /// <summary>
+    /// Creates a runner around an already constructed Copilot client, mainly for tests.
+    /// </summary>
     internal CopilotChatTurnRunner(
         Func<AiChatConfiguration, IReadOnlyList<AiChatMessage>, IReadOnlyList<AiToolDefinition>,
             Func<AiToolCall, CancellationToken, Task<string>>, CancellationToken, Task<string>> runSession)
@@ -58,6 +71,9 @@ internal sealed class CopilotChatTurnRunner
     {
     }
 
+    /// <summary>
+    /// Runs one Copilot chat turn, forwarding streamed text and resolving tool calls through the app's tool callback.
+    /// </summary>
     public async Task<AiChatTurnResult> RunTurnAsync(
         AiChatRequest request,
         IReadOnlyList<AiToolDefinition> tools,
@@ -317,6 +333,9 @@ internal sealed class CopilotChatTurnRunner
         }
     }
 
+    /// <summary>
+    /// Buffers streamed message fragments until Copilot reports the complete assistant message.
+    /// </summary>
     internal sealed class MessageStream(Action<AiChatProgress> progress, Action<string> recordMessage)
     {
         private const int InputLimit = 128 * 1024;
@@ -325,8 +344,10 @@ internal sealed class CopilotChatTurnRunner
         private string? _messageId;
         private AiStreamingText? _text;
 
+        /// <summary>True while fragments for a message id have not yet received a completion event.</summary>
         public bool HasPendingMessage => _messageId is not null;
 
+        /// <summary>Adds a streamed text fragment for the current assistant message.</summary>
         public void Append(string messageId, string fragment)
         {
             EnsureMessage(messageId);
@@ -336,6 +357,7 @@ internal sealed class CopilotChatTurnRunner
             _text!.Append(fragment);
         }
 
+        /// <summary>Completes the current assistant message and records it in chat history.</summary>
         public void Complete(string messageId, string content)
         {
             EnsureMessage(messageId);

@@ -24,6 +24,10 @@ public sealed class SimpleInputDialog : ContentDialog
 {
     private readonly TextBox _textBox;
 
+    /// <summary>Creates a new &lt;c&gt;SimpleInputDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="title">The title value supplied by the caller.</param>
+    /// <param name="label">The label value supplied by the caller.</param>
+    /// <param name="placeholder">The placeholder value supplied by the caller.</param>
     public SimpleInputDialog(string title, string label, string placeholder)
     {
         Title = title;
@@ -52,6 +56,7 @@ public sealed class SimpleInputDialog : ContentDialog
         };
     }
 
+    /// <summary>Gets or sets the text currently entered in the dialog.</summary>
     public string Value
     {
         get => _textBox.Text;

@@ -16,6 +16,7 @@
 
 namespace WslContainerDesktop.Models;
 
+/// <summary>Values that describe native health state states or choices in WSL Container Desktop workflows.</summary>
 public enum NativeHealthState { Unknown, Absent, Starting, Healthy, Unhealthy, Disabled }
 
 /// <summary>Fresh inspect evidence, independent of the container's process state.</summary>
@@ -24,6 +25,8 @@ public sealed record NativeHealthObservation(
     NativeHealthOptions? Configuration = null,
     string? Diagnostic = null)
 {
+    /// <summary>Gets or sets the observed at.</summary>
     public DateTimeOffset ObservedAt { get; init; } = DateTimeOffset.UtcNow;
+    /// <summary>Gets a value indicating whether the owns command probe flag is set.</summary>
     public bool OwnsCommandProbe => State is not (NativeHealthState.Absent or NativeHealthState.Disabled);
 }

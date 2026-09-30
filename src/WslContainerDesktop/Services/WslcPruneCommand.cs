@@ -14,53 +14,52 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-using WslContainerDesktop.Models;
-
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Lists the resource groups that can be passed to the <c>wslc</c> prune command.
+/// </summary>
 public enum WslcPruneTarget
 {
+    /// <summary>
+    /// Selects the containers resource group for <c>wslc</c> pruning.
+    /// </summary>
     Containers,
+    /// <summary>
+    /// Selects the images resource group for <c>wslc</c> pruning.
+    /// </summary>
     Images,
+    /// <summary>
+    /// Selects the volumes resource group for <c>wslc</c> pruning.
+    /// </summary>
     Volumes,
+    /// <summary>
+    /// Selects the networks resource group for <c>wslc</c> pruning.
+    /// </summary>
     Networks,
 }
 
 /// <summary>Arguments to run, or an error explaining why pruning must not be attempted.</summary>
 public sealed record WslcPruneSelection(IReadOnlyList<string>? Arguments, string? Error);
 
-/// <summary>
-/// Chooses the <c>prune</c> command line for the engine in a capability snapshot. Engines that
-/// advertise <c>--force</c> ask for confirmation without it, and the app has already confirmed with
-/// the user, so the flag is passed. Engines without the flag (the 2.9.9 baseline) never prompt and
-/// reject it, so they run the plain command. When support is unknown nothing runs: guessing wrong
-/// either fails on an unknown argument or silently prunes nothing.
-/// </summary>
+/// <summary>Chooses the non-interactive <c>prune --force</c> command line after the app has confirmed with the user.</summary>
 internal static class WslcPruneCommand
 {
-    internal static WslcPruneSelection Select(WslcPruneTarget target, WslcCapabilities capabilities)
+    /// <summary>
+    /// Builds validated prune arguments for the selected resource targets.
+    /// </summary>
+    internal static WslcPruneSelection Select(WslcPruneTarget target)
     {
-        var (feature, arguments, noun) = target switch
+        var arguments = target switch
         {
-            WslcPruneTarget.Containers => (WslcFeature.ContainerPruneForce, new List<string> { "container", "prune" }, "stopped containers"),
-            WslcPruneTarget.Images => (WslcFeature.ImagePruneForce, new List<string> { "image", "prune" }, "dangling images"),
-            WslcPruneTarget.Volumes => (WslcFeature.VolumePruneForce, new List<string> { "volume", "prune", "--all" }, "unused volumes"),
-            WslcPruneTarget.Networks => (WslcFeature.NetworkPruneForce, new List<string> { "network", "prune" }, "unused networks"),
+            WslcPruneTarget.Containers => new List<string> { "container", "prune" },
+            WslcPruneTarget.Images => new List<string> { "image", "prune" },
+            WslcPruneTarget.Volumes => new List<string> { "volume", "prune", "--all" },
+            WslcPruneTarget.Networks => new List<string> { "network", "prune" },
             _ => throw new ArgumentOutOfRangeException(nameof(target), target, null),
         };
 
-        var capability = capabilities[feature];
-        switch (capability.Support)
-        {
-            case WslcCapabilitySupport.Supported:
-                arguments.Add("--force");
-                return new(arguments, null);
-            case WslcCapabilitySupport.Unsupported:
-                return new(arguments, null);
-            default:
-                return new(null,
-                    $"Nothing was pruned: could not determine whether this WSLC engine needs 'prune --force' to remove {noun} " +
-                    $"without an interactive prompt. {capability.Diagnostic}".TrimEnd());
-        }
+        arguments.Add("--force");
+        return new(arguments, null);
     }
 }

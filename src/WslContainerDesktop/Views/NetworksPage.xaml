@@ -122,15 +122,17 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" MinWidth="200" />
-                    <ColumnDefinition Width="160" />
-                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="*" MinWidth="140" />
+                    <ColumnDefinition Width="150" />
                     <ColumnDefinition Width="120" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="NAME" />
                 <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="DRIVER" />
-                <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="ID" />
+                <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="USED BY" />
+                <TextBlock Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" Text="ID" />
                 <TextBlock
-                    Grid.Column="3"
+                    Grid.Column="4"
                     HorizontalAlignment="Right"
                     Style="{ThemeResource CaptionTextBlockStyle}"
                     Text="ACTIONS" />
@@ -165,12 +167,12 @@
                                     <VisualStateGroup>
                                         <VisualState x:Name="RowWide">
                                             <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MinWidth="660" TargetElement="{Binding ElementName=RowRoot}" />
+                                                <converters:ControlSizeTrigger MinWidth="760" TargetElement="{Binding ElementName=RowRoot}" />
                                             </VisualState.StateTriggers>
                                         </VisualState>
                                         <VisualState x:Name="RowNarrow">
                                             <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MaxWidth="660" TargetElement="{Binding ElementName=RowRoot}" />
+                                                <converters:ControlSizeTrigger MaxWidth="760" TargetElement="{Binding ElementName=RowRoot}" />
                                             </VisualState.StateTriggers>
                                             <VisualState.Setters>
                                                 <Setter Target="WideGrid.Visibility" Value="Collapsed" />
@@ -183,8 +185,9 @@
                                 <Grid x:Name="WideGrid">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" MinWidth="200" />
-                                    <ColumnDefinition Width="160" />
-                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="*" MinWidth="140" />
+                                    <ColumnDefinition Width="150" />
                                     <ColumnDefinition Width="120" />
                                 </Grid.ColumnDefinitions>
 
@@ -222,6 +225,13 @@
                                     Text="{x:Bind DriverDisplay}" />
                                 <TextBlock
                                     Grid.Column="2"
+                                    Margin="0,0,12,0"
+                                    VerticalAlignment="Center"
+                                    Text="{x:Bind UsedByDisplay}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTipService.ToolTip="{x:Bind UsedByTooltip}" />
+                                <TextBlock
+                                    Grid.Column="3"
                                     VerticalAlignment="Center"
                                     FontFamily="Consolas"
                                     FontSize="12"
@@ -229,7 +239,7 @@
                                     Text="{x:Bind ShortId}" />
 
                                 <StackPanel
-                                    Grid.Column="3"
+                                    Grid.Column="4"
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
@@ -270,11 +280,14 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="DRIVER" />
                                         <TextBlock Grid.Row="0" Grid.Column="1" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind DriverDisplay}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="ID" />
-                                        <TextBlock Grid.Row="1" Grid.Column="1" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ShortId}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="USED BY" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind UsedByDisplay}" TextWrapping="Wrap" ToolTipService.ToolTip="{x:Bind UsedByTooltip}" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="ID" />
+                                        <TextBlock Grid.Row="2" Grid.Column="1" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ShortId}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="4" Visibility="{x:Bind CanModify, Converter={StaticResource BoolToVis}}">
@@ -296,7 +309,7 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Top"
                     Spacing="8"
-                    Visibility="{x:Bind ViewModel.Networks.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}">
+                    Visibility="{x:Bind ViewModel.ShowEmptyState, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                     <FontIcon
                         HorizontalAlignment="Center"
                         FontSize="40"

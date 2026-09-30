@@ -18,10 +18,19 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Lets assistant actions confirm that a requested operation is allowed before mutating containers or settings.
+/// </summary>
 public interface IAssistantActionGate
 {
+    /// <summary>
+    /// Maps an assistant action to the permission category shown to the user.
+    /// </summary>
     AssistantActionRisk Classify(AssistantPermissionCategory category);
 
+    /// <summary>
+    /// Gets whether the assistant action category requires explicit user approval.
+    /// </summary>
     bool RequiresApproval(string toolName, AssistantPermissionCategory category);
 
     /// <summary>

@@ -35,6 +35,9 @@ internal sealed class AiStreamingText(Action<AiChatProgress>? progress)
     private int _boundary;
     private int _processedBoundary;
 
+    /// <summary>
+    /// Adds streamed assistant text to the current progress buffer.
+    /// </summary>
     public void Append(string fragment)
     {
         if (_complete)
@@ -65,6 +68,9 @@ internal sealed class AiStreamingText(Action<AiChatProgress>? progress)
         }
     }
 
+    /// <summary>
+    /// Completes the current streamed assistant message and returns the final text.
+    /// </summary>
     public void Complete()
     {
         if (_complete)

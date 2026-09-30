@@ -30,31 +30,46 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class FoundryLocalModelArtifacts : IDisposable
 {
+    /// <summary>Friendly name of the pinned CPU model presented in consent text.</summary>
     public const string DisplayName = "Qwen2.5-0.5B-Instruct (generic CPU), version 4";
+    /// <summary>Exact Foundry model id expected during load and inference verification.</summary>
     public const string ModelId = "qwen2.5-0.5b-instruct-generic-cpu:4";
+    /// <summary>Catalog id sometimes returned by Foundry metadata before the version suffix is applied.</summary>
     public const string CatalogId = "qwen2.5-0.5b-instruct-generic-cpu";
+    /// <summary>Azure model registry asset id used to resolve the pinned blob container SAS.</summary>
     public const string AssetId = "azureml://registries/azureml/models/qwen2.5-0.5b-instruct-generic-cpu/versions/4";
+    /// <summary>Local cache directory suffix for this exact model version.</summary>
     public const string VersionId = "qwen2.5-0.5b-instruct-generic-cpu-v4";
+    /// <summary>Total byte count across all pinned model files.</summary>
     public const long TotalBytes = 877988985;
+    /// <summary>License identifier reported to the user before staging.</summary>
     public const string License = "Apache-2.0";
+    /// <summary>URL for the model license text shown in consent.</summary>
     public const string LicenseUrl = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/blob/main/LICENSE";
+    /// <summary>Consent wording that explains what the pinned ETags and local receipts prove.</summary>
     public const string VerificationNotice = "Staged using pinned official-origin ETags, dates and sizes. Local SHA256 receipts provide subsequent cache integrity, not independent publisher verification. Not registered or loaded.";
+    /// <summary>Consent wording that explains retained partial files and manual recovery.</summary>
     public const string RetentionGuidance = "Interrupted .partial files are retained and never resumed. Repeated staging rehashes completed files; corrupt or unreceipted cache requires manual recovery before retrying.";
+    /// <summary>Complete consent text shown before staging model files.</summary>
     public static string ConsentSummary =>
         $"Download model files only: {DisplayName}\n"
         + AcquisitionTerms
         + "This operation does not import into the Foundry cache, register, load or execute a model or acquire execution providers.\n"
         + VerificationNotice + "\n" + RetentionGuidance;
+    /// <summary>Details about exact files, publication age and official-origin retrieval.</summary>
     public static string AcquisitionTerms =>
         $"Identity: {AssetId}\n"
         + $"Exact download: {TotalBytes.ToString(CultureInfo.InvariantCulture)} bytes across nine files.\n"
         + $"License: {License} — {LicenseUrl}\n"
         + "Pinned model and all nine files were published November 14, 2025; the seven-day age policy is enforced before acquisition.\n"
         + "Model staging contacts the official Azure model registry and pinned Azure Blob container only when completed files are missing. Official-origin ETags/dates/sizes are pinned. Local SHA256 receipts provide subsequent cache integrity, not independent publisher verification.\n";
+    /// <summary>Exact Azure Blob container that contains the pinned model payload.</summary>
     internal const string BlobContainer = "https://amlwlrt4usc01.blob.core.windows.net/azureml-ab8fb672-187c-5c05-b028-d5004b5d5ae3";
+    /// <summary>Azure model-registry metadata endpoint used to resolve a SAS for the pinned container.</summary>
     internal static readonly Uri RegistryUri = new("https://centralus.api.azureml.ms/modelregistry/v1.0/registry/models/nonazureaccount?assetId=" + Uri.EscapeDataString(AssetId));
     private static readonly DateTimeOffset Created = new DateTimeOffset(2025, 11, 14, 7, 39, 18, TimeSpan.Zero).AddTicks(7283746);
     private static readonly DateTimeOffset BlobDate = new(2025, 11, 14, 7, 37, 27, TimeSpan.Zero);
+    /// <summary>Exact nine-file manifest accepted by staging.</summary>
     internal static IReadOnlyList<FoundryLocalModelFile> PinnedFiles { get; } = Array.AsReadOnly(new[]
     {
         new FoundryLocalModelFile("added_tokens.json", 605, "0x8DE2350A9009EF0", BlobDate),
@@ -75,12 +90,15 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly TimeSpan _deadline;
     private readonly TimeProvider _timeProvider;
+    /// <summary>Root cache folder for this exact model version.</summary>
     public string CacheLocation => _root;
 
+    /// <summary>Creates a model artifact stager rooted under the supplied absolute local cache directory.</summary>
     public FoundryLocalModelArtifacts(string cacheRoot)
         : this(cacheRoot, FoundryLocalDownloader.CreateHandler(), PinnedFiles, () => DateTimeOffset.UtcNow, TimeSpan.FromMinutes(45)) { }
 
     // Only deterministic tests may inject synthetic metadata; callers cannot supply provenance.
+    /// <summary>Creates a stager with injectable HTTP and time sources for deterministic tests.</summary>
     internal FoundryLocalModelArtifacts(string cacheRoot, HttpMessageHandler handler,
         IReadOnlyList<FoundryLocalModelFile> files, Func<DateTimeOffset> utcNow, TimeSpan deadline, TimeProvider? timeProvider = null)
     {
@@ -127,6 +145,7 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
         }
     }
 
+    /// <summary>Verifies cached files or downloads missing files with pinned metadata and receipts.</summary>
     private async Task<FoundryLocalStagedModel> StageCoreAsync(IProgress<string>? progress, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -213,6 +232,7 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
         return new(payload, AssetId, _files.Sum(f => f.Bytes));
     }
 
+    /// <summary>Rehashes one cached file and validates its strict JSON receipt against the manifest.</summary>
     private async Task VerifyCachedAsync(string target, string receiptPath, FoundryLocalModelFile file, CancellationToken ct)
     {
         await using var receiptStream = new FileStream(receiptPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
@@ -234,6 +254,7 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
             throw new StagingFailure("Model cache integrity failed; remove the affected file and receipt manually before retrying.");
     }
 
+    /// <summary>Resolves the approved registry metadata to a SAS URI for the exact blob container.</summary>
     private async Task<Uri> ResolveAsync(CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, RegistryUri);
@@ -253,6 +274,7 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
         return sas;
     }
 
+    /// <summary>Sends an artifact request and accepts only HTTP 200 without redirects or retries.</summary>
     private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
@@ -262,6 +284,7 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
         throw new StagingFailure($"Model staging requires HTTP 200; received HTTP {status}. Redirects, credential refresh and automatic retries are disabled.");
     }
 
+    /// <summary>Reads metadata or receipt bytes with a strict size ceiling.</summary>
     private static async Task<byte[]> ReadBoundedAsync(Stream source, int limit, CancellationToken ct)
     {
         using var memory = new MemoryStream();
@@ -276,6 +299,7 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
         }
     }
 
+    /// <summary>Hashes a stream while optionally copying it and reporting bounded progress.</summary>
     private static async Task<string> HashStreamAsync(Stream source, Stream? destination, long expected,
         string name, IProgress<string>? progress, CancellationToken ct)
     {
@@ -304,6 +328,7 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
         return Convert.ToHexString(hash.GetHashAndReset());
     }
 
+    /// <summary>Creates a directory only after every existing ancestor is checked for reparse points.</summary>
     private static void EnsureDirectory(string path)
     {
         var ancestor = path;
@@ -314,16 +339,21 @@ public sealed class FoundryLocalModelArtifacts : IDisposable
         FoundryLocalDownloader.RequireNoReparsePoints(path);
     }
 
+    /// <summary>When a path already exists, verifies it is not a reparse-point escape.</summary>
     private static void CheckIfExists(string path)
     {
         if (Path.Exists(path)) FoundryLocalDownloader.RequireNoReparsePoints(path);
     }
 
+    /// <summary>Disposes the private HTTP client used for artifact staging.</summary>
     public void Dispose() => _http.Dispose();
+    /// <summary>Internal exception whose sanitized message is safe to expose to setup callers.</summary>
     private sealed class StagingFailure(string message) : Exception(message);
+    /// <summary>Strict local receipt proving a cached file still matches this pinned manifest.</summary>
     private sealed record Receipt(string ManifestId, string Asset, string Name, long Bytes, string ETag, DateTimeOffset Modified, string Sha256);
 }
 
+/// <summary>One pinned model file with its expected size, ETag and last-modified timestamp.</summary>
 internal sealed record FoundryLocalModelFile(string Name, long Bytes, string ETag, DateTimeOffset Modified);
 
 /// <summary>Staged payload only; this does not establish Foundry cache registration or model readiness.</summary>

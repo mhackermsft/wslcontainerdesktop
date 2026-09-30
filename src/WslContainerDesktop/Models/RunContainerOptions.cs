@@ -21,10 +21,15 @@ namespace WslContainerDesktop.Models;
 /// <summary>User-supplied options for `wslc run`, assembled by the Run dialog.</summary>
 public sealed class RunContainerOptions
 {
+    /// <summary>Gets or sets the image.</summary>
     public string Image { get; set; } = string.Empty;
+    /// <summary>Gets or sets the name.</summary>
     public string? Name { get; set; }
+    /// <summary>Gets or sets a value indicating whether this value is detached.</summary>
     public bool Detached { get; set; } = true;
+    /// <summary>Gets or sets a value indicating whether the remove on exit flag is set.</summary>
     public bool RemoveOnExit { get; set; }
+    /// <summary>Gets or sets a value indicating whether this value is interactive.</summary>
     public bool Interactive { get; set; }
 
     /// <summary>Why <see cref="WaitsForTerminalInput"/> options cannot be run from the app.</summary>
@@ -40,10 +45,13 @@ public sealed class RunContainerOptions
     /// </summary>
     public bool WaitsForTerminalInput() => Interactive && !Detached;
 
+    /// <summary>Gets or sets a value indicating whether the all gpus flag is set.</summary>
     public bool AllGpus { get; set; }
     /// <summary>Caller must verify --pull support before selecting cached-only creation.</summary>
     public bool NeverPull { get; set; }
+    /// <summary>Gets or sets the command.</summary>
     public string? Command { get; set; }
+    /// <summary>Gets or sets the health.</summary>
     public NativeHealthOptions? Health { get; set; }
 
     /// <summary>Overrides the image entrypoint (compose <c>entrypoint:</c>). Free text, split like <see cref="Command"/>.</summary>
@@ -82,6 +90,7 @@ public sealed class RunContainerOptions
     /// <summary>Explicit Compose network_mode, which must not receive ordinary network endpoints.</summary>
     public string? NetworkMode { get; set; }
 
+    /// <summary>Gets a value indicating whether this value has special network mode.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasSpecialNetworkMode => !string.IsNullOrWhiteSpace(NetworkMode) ||
         (NetworkAttachments.Count == 0 &&
@@ -164,8 +173,14 @@ public sealed class RunContainerOptions
     /// <summary>Signal used to stop the container (compose <c>stop_signal:</c>, maps to <c>--stop-signal</c>).</summary>
     public string? StopSignal { get; set; }
 
+    /// <summary>Seconds to wait before killing the container on stop (<c>--stop-timeout</c>); -1 means never kill.</summary>
+    public int? StopTimeoutSeconds { get; set; }
+
     /// <summary>Container domain name (compose <c>domainname:</c>, maps to <c>--domainname</c>).</summary>
     public string? Domainname { get; set; }
+
+    /// <summary>Structured native <c>--mount</c> entries. Short-form volume specs remain in <see cref="Volumes"/>.</summary>
+    public List<RunContainerMount> Mounts { get; set; } = new();
 
     /// <summary>Deep-copies these options so callers (e.g. templates) can hand out an editable instance
     /// without mutating a shared source.</summary>
@@ -202,12 +217,33 @@ public sealed class RunContainerOptions
         Ulimits = new List<string>(Ulimits),
         ShmSize = ShmSize,
         StopSignal = StopSignal,
+        StopTimeoutSeconds = StopTimeoutSeconds,
         Domainname = Domainname,
+        Mounts = Mounts.Select(m => m.Clone()).ToList(),
     };
 
+    /// <summary>
+    /// Returns the container path of a <c>-v</c> spec: <c>source:/target[:mode]</c>, or just
+    /// <c>/target</c> for an anonymous volume. The last <c>:/</c> is used so a Windows source such as
+    /// <c>C:/data</c> is not mistaken for the boundary.
+    /// </summary>
+    internal static string VolumeSpecTarget(string spec)
+    {
+        var value = spec.Trim();
+        var boundary = value.LastIndexOf(":/", StringComparison.Ordinal);
+        var target = boundary >= 0 ? value[(boundary + 1)..] : value;
+        return target.Split(':', 2)[0];
+    }
+
+    /// <summary>Converts model data for to arguments scenarios.</summary>
+    /// <param name="healthArguments">The health arguments value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public List<string> ToArguments(IReadOnlyList<string>? healthArguments = null) =>
         BuildArguments(create: false, healthArguments);
 
+    /// <summary>Converts model data for to create arguments scenarios.</summary>
+    /// <param name="healthArguments">The health arguments value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public List<string> ToCreateArguments(IReadOnlyList<string>? healthArguments = null) =>
         BuildArguments(create: true, healthArguments);
 
@@ -303,6 +339,17 @@ public sealed class RunContainerOptions
             args.Add(StopSignal.Trim());
         }
 
+        if (StopTimeoutSeconds is int stopTimeout)
+        {
+            if (stopTimeout < -1)
+            {
+                throw new ArgumentException("--stop-timeout must be -1 or a nonnegative number of seconds.");
+            }
+
+            args.Add("--stop-timeout");
+            args.Add(stopTimeout.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
         if (!string.IsNullOrWhiteSpace(Domainname))
         {
             args.Add("--domainname");
@@ -369,10 +416,30 @@ public sealed class RunContainerOptions
             args.Add(e.Trim());
         }
 
-        foreach (var v in Volumes.Where(x => !string.IsNullOrWhiteSpace(x)))
+        // Compose keeps every volume in both lists: a -v string in Volumes and a structured copy in
+        // Mounts. An exact match is emitted once, as --mount. Later steps (project-name prefixing,
+        // redeploy renames, keeping an anonymous volume on recreate) rewrite only the Volumes copy,
+        // so a volume-type mount whose target a -v entry now covers is stale and is skipped;
+        // passing both makes WSLC reject the run with "Duplicate mount point".
+        var nativeMountSpecs = Mounts.Select(m => m.ToVolumeSpec()).ToHashSet(StringComparer.Ordinal);
+        var volumeTargets = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var v in Volumes.Where(x => !string.IsNullOrWhiteSpace(x) && !nativeMountSpecs.Contains(x.Trim())))
         {
             args.Add("-v");
             args.Add(v.Trim());
+            volumeTargets.Add(VolumeSpecTarget(v));
+        }
+
+        foreach (var mount in Mounts)
+        {
+            if (mount.Type.Equals("volume", StringComparison.OrdinalIgnoreCase) &&
+                volumeTargets.Contains(mount.Target.Trim()))
+            {
+                continue;
+            }
+
+            args.Add("--mount");
+            args.Add(mount.ToArgument());
         }
 
         if (healthArguments is not null)

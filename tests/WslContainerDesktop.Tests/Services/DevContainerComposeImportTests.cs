@@ -22,6 +22,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers importing Dev Container compose definitions so layered files, interpolation warnings, ownership paths, and diagnostics remain stable.</summary>
 public sealed class DevContainerComposeImportTests
 {
     [Fact]
@@ -167,6 +168,7 @@ public sealed class DevContainerComposeImportTests
         Assert.DoesNotContain("JSONC", result.ErrorMessage);
     }
 
+    /// <summary>Creates disposable compose files and project state for Dev Container import scenarios.</summary>
     private sealed class Fixture : IDisposable
     {
         public string Root { get; } = Path.Combine(AppContext.BaseDirectory, "dev-compose-" + Guid.NewGuid().ToString("N"));

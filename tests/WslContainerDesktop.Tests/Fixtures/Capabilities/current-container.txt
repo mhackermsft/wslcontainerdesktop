@@ -1,4 +1,9 @@
-Usage: wslc container [<command>] [<options>]
+Copyright (c) Microsoft Corporation. All rights reserved.
+For privacy information about this product please visit https://aka.ms/privacy.
+
+Manage the lifecycle of WSL containers, including creating, starting, stopping, and removing them.
+
+Usage:  wslc container [<command>] [options]
 
 Commands:
   attach   Attach to a container.
@@ -12,6 +17,7 @@ Commands:
   list     List containers.
   prune    Remove all stopped containers.
   remove   Remove containers.
+  restart  Restart containers.
   run      Run a container.
   start    Start a container.
   stats    Display container resource usage statistics.
@@ -22,5 +28,5 @@ For more details on a specific command, pass it the help option. [-?]
 Options:
   -?  --help     Shows help about the selected command
 
-Global Options:
+Global Options for 'wslc':
       --session  Specify the session to use

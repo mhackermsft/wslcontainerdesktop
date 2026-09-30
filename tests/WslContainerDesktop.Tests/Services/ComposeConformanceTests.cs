@@ -22,6 +22,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Compares Compose importer output with the documented conformance corpus so user-facing compatibility claims stay honest.
+/// </summary>
 public sealed class ComposeConformanceTests
 {
     private static string Corpus => Path.Combine(AppContext.BaseDirectory, "Fixtures", "Compose", "v1");

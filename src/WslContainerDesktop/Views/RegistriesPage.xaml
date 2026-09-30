@@ -19,6 +19,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -56,8 +57,16 @@
             </Button>
         </StackPanel>
 
+        <InfoBar
+            Grid.Row="2"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.IsPolicyInfoVisible, Mode=OneWay}"
+            Message="{x:Bind ViewModel.PolicyInfoMessage, Mode=OneWay}"
+            Severity="Informational"
+            Title="Registry policy" />
+
         <!--  Table: column header (wide only) + list  -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -161,6 +170,7 @@
 
                             <Grid
                                 Grid.Column="0"
+                                Margin="0,0,16,0"
                                 VerticalAlignment="Center"
                                 ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
@@ -196,7 +206,7 @@
                                 FontFamily="Consolas"
                                 FontSize="12"
                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="{x:Bind Host}"
+                                Text="{x:Bind DisplayHost}"
                                 TextTrimming="CharacterEllipsis" />
 
                             <TextBlock
@@ -274,7 +284,7 @@
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="HOST" />
-                                        <TextBlock Grid.Row="0" Grid.Column="1" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Host}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="0" Grid.Column="1" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind DisplayHost}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="USERNAME" />
                                         <TextBlock Grid.Row="1" Grid.Column="1" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Username}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="STATUS" />

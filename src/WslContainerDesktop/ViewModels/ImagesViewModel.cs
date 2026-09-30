@@ -24,6 +24,7 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <summary>Backs the Images page, where users pull, build, tag, push, save, restore and remove container images through the WSL container engine.</summary>
 public partial class ImagesViewModel : ObservableObject
 {
     private readonly IWslcService _wslc;
@@ -36,30 +37,47 @@ public partial class ImagesViewModel : ObservableObject
     private readonly IActivityLog _activity;
     private readonly IImageUpdateService _updates;
     private readonly IRegistryCatalogService _catalog;
+    private readonly IWslPolicyService _policy;
+    private readonly IRegistryCredentialStore _credentials;
 
+    /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Bindable state for status message used by the view.</summary>
     [ObservableProperty]
     private string _statusMessage = "Ready";
 
+    /// <summary>Value for selected shown or edited by the view.</summary>
     [ObservableProperty]
     private ImageInfo? _selected;
 
+    /// <summary>Whether selection mode for view binding.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionSummary))]
     private bool _isSelectionMode;
 
+    /// <summary>Bindable state for selected count used by the view.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionSummary))]
     private int _selectedCount;
 
+    /// <summary>Whether the user can build from the view.</summary>
+    [ObservableProperty]
+    private bool _canBuild = true;
+
+    /// <summary>Bindable state for build policy message used by the view.</summary>
+    [ObservableProperty]
+    private string _buildPolicyMessage = "Build an image from a Dockerfile";
+
     /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
     public string SelectionSummary => $"{SelectedCount} selected";
 
+    /// <summary>Value for images shown or edited by the view.</summary>
     public ObservableCollection<ImageInfo> Images { get; } = new();
 
-    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles, IActivityLog activity, IImageUpdateService updates, IRegistryCatalogService catalog)
+    /// <summary>Creates the Images view model and stores its injected services.</summary>
+    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles, IActivityLog activity, IImageUpdateService updates, IRegistryCatalogService catalog, IWslPolicyService policy, IRegistryCredentialStore credentials)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -71,14 +89,18 @@ public partial class ImagesViewModel : ObservableObject
         _activity = activity;
         _updates = updates;
         _catalog = catalog;
+        _policy = policy;
+        _credentials = credentials;
     }
 
     /// <summary>Saved run profiles that target the given image, for the one-click run submenu.</summary>
     public IReadOnlyList<RunProfile> ProfilesForImage(string image) => _profiles.GetForImage(image);
 
+    /// <summary>Command handler for refresh actions triggered from the view.</summary>
     [RelayCommand]
     public async Task RefreshAsync()
     {
+        RefreshPolicyState();
         IsBusy = true;
         StatusMessage = "Loading images…";
         try
@@ -117,6 +139,7 @@ public partial class ImagesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for pull actions triggered from the view.</summary>
     [RelayCommand]
     private async Task PullAsync()
     {
@@ -132,14 +155,21 @@ public partial class ImagesViewModel : ObservableObject
             return;
         }
 
+        if (dialog.AllTags)
+        {
+            reference = WslcService.StripTag(reference);
+        }
+
         IsBusy = true;
-        StatusMessage = $"Pulling {reference}… (this can take a while)";
+        StatusMessage = dialog.AllTags
+            ? $"Pulling all tags of {reference}… (this can take a while)"
+            : $"Pulling {reference}… (this can take a while)";
         try
         {
             // Refresh an Azure-backed registry's token just-in-time so the pull authenticates.
             await _authRefresher.EnsureFreshForReferenceAsync(reference);
 
-            var result = await _wslc.PullImageAsync(reference);
+            var result = await _wslc.PullImageAsync(reference, allTags: dialog.AllTags);
             if (!result.Success)
             {
                 await _dialogs.ShowMessageAsync("Pull failed", result.ErrorText);
@@ -149,7 +179,7 @@ public partial class ImagesViewModel : ObservableObject
             }
             else
             {
-                StatusMessage = $"Pulled {reference}";
+                StatusMessage = dialog.AllTags ? $"Pulled all tags for {reference}" : $"Pulled {reference}";
                 _notifications.NotifyImagePull(reference, success: true);
                 _activity.RecordImagePull(reference, success: true);
                 await RefreshAsync();
@@ -259,6 +289,7 @@ public partial class ImagesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for run actions triggered from the view.</summary>
     [RelayCommand]
     private async Task RunAsync(ImageInfo? image)
     {
@@ -277,6 +308,7 @@ public partial class ImagesViewModel : ObservableObject
         await ExecuteRunAsync(dialog.Options);
     }
 
+    /// <summary>Command handler for run profile actions triggered from the view.</summary>
     [RelayCommand]
     private async Task RunProfileAsync(RunProfile? profile)
     {
@@ -316,6 +348,7 @@ public partial class ImagesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for remove actions triggered from the view.</summary>
     [RelayCommand]
     private async Task RemoveAsync(ImageInfo? image)
     {
@@ -355,6 +388,7 @@ public partial class ImagesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Handles is selection mode changed changes and updates related view-model state.</summary>
     partial void OnIsSelectionModeChanged(bool value)
     {
         if (!value)
@@ -415,6 +449,7 @@ public partial class ImagesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the bulk names workflow in this view model.</summary>
     private static string BulkNames(IEnumerable<string> names)
     {
         var list = names.ToList();
@@ -423,6 +458,7 @@ public partial class ImagesViewModel : ObservableObject
         return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
     }
 
+    /// <summary>Command handler for tag actions triggered from the view.</summary>
     [RelayCommand]
     private async Task TagAsync(ImageInfo? image)
     {
@@ -469,6 +505,7 @@ public partial class ImagesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for push actions triggered from the view.</summary>
     [RelayCommand]
     private async Task PushAsync(ImageInfo? image)
     {
@@ -478,9 +515,14 @@ public partial class ImagesViewModel : ObservableObject
             return;
         }
 
-        var dialog = new PushImageDialog(_settings.Registries, image.Reference);
+        var dialog = new PushImageDialog(_settings.Registries, image.Reference, CheckPushSignInAsync);
         if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary)
         {
+            if (dialog.OpenRegistriesRequested)
+            {
+                App.Current.MainWindow?.NavigateTo("registries");
+            }
+
             return;
         }
 
@@ -491,7 +533,11 @@ public partial class ImagesViewModel : ObservableObject
         }
 
         IsBusy = true;
-        StatusMessage = $"Pushing {reference}… (this can take a while)";
+        var allTags = dialog.AllTags;
+        var pushReference = allTags ? WslcService.StripTag(reference) : reference;
+        StatusMessage = allTags
+            ? $"Pushing all tags for {pushReference}… (this can take a while)"
+            : $"Pushing {reference}… (this can take a while)";
 
         // Snapshot the names this image already carries so cleanup only removes an alias we
         // actually added — never a tag the user already had. Comparing the engine's own
@@ -501,7 +547,7 @@ public partial class ImagesViewModel : ObservableObject
         var transientAliases = new List<string>();
         try
         {
-            await _authRefresher.EnsureFreshForReferenceAsync(reference);
+            await _authRefresher.EnsureFreshForReferenceAsync(pushReference);
 
             // A registry destination is encoded in the image name, and wslc can only push a
             // reference that exists locally. Add the fully-qualified name as an alias for the
@@ -524,7 +570,7 @@ public partial class ImagesViewModel : ObservableObject
                 transientAliases = namesAfter.Except(namesBefore, StringComparer.Ordinal).ToList();
             }
 
-            var result = await _wslc.PushImageAsync(reference);
+            var result = await _wslc.PushImageAsync(reference, allTags: allTags);
             if (!result.Success)
             {
                 await _dialogs.ShowMessageAsync("Push failed", result.ErrorText);
@@ -532,12 +578,13 @@ public partial class ImagesViewModel : ObservableObject
             }
             else
             {
-                StatusMessage = $"Pushed {reference}";
+                StatusMessage = allTags ? $"Pushed all tags for {pushReference}" : $"Pushed {reference}";
                 await _dialogs.ShowMessageAsync("Push complete",
                     string.IsNullOrWhiteSpace(result.StandardOutput)
-                        ? $"Pushed {reference}."
+                        ? (allTags ? $"Pushed all tags for {pushReference}." : $"Pushed {reference}.")
                         : result.StandardOutput.Trim());
             }
+
         }
         finally
         {
@@ -549,6 +596,101 @@ public partial class ImagesViewModel : ObservableObject
                 await _wslc.RemoveImageAsync(alias, force: true);
             }
 
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>Provides the save images operation to views or collaborating view models.</summary>
+    public async Task SaveImagesAsync(IReadOnlyList<ImageInfo> images, string outputPath)
+    {
+        var items = images.Where(i => i is not null).ToList();
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = $"Saving {items.Count} image{(items.Count == 1 ? "" : "s")}…";
+        try
+        {
+            // Tagged images save by reference so the archive keeps their names; untagged and
+            // intermediate images ("<none>") can only be addressed by ID.
+            var targets = items
+                .Select(i => i.Repository is "" or "<none>" || i.Tag is "" or "<none>" ? i.Id : i.Reference)
+                .ToList();
+            var result = await _wslc.SaveImagesAsync(targets, outputPath);
+            if (!result.Success)
+            {
+                await _dialogs.ShowMessageAsync("Save failed", result.ErrorText);
+                StatusMessage = "Save failed";
+                return;
+            }
+
+            StatusMessage = $"Saved {items.Count} image{(items.Count == 1 ? "" : "s")} to {Path.GetFileName(outputPath)}. To bring {(items.Count == 1 ? "it" : "them")} back, use Import → Restore saved images….";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>Refreshes load image state for the view model.</summary>
+    public async Task LoadImageAsync(string inputPath)
+    {
+        IsBusy = true;
+        StatusMessage = "Restoring saved images…";
+        try
+        {
+            var result = await _wslc.LoadImageAsync(inputPath);
+            if (!result.Success)
+            {
+                await _dialogs.ShowMessageAsync("Couldn't restore images", result.ErrorText);
+                StatusMessage = "Load failed";
+                return;
+            }
+
+            StatusMessage = "Saved images restored";
+            await RefreshAsync();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>Provides the import image operation to views or collaborating view models.</summary>
+    public async Task ImportImageAsync(string inputPath)
+    {
+        var dialog = new SimpleInputDialog(
+            "Create image from exported files",
+            "Name for the new image (optional; without one it is listed as <none>)",
+            "e.g. my-snapshot:latest")
+        {
+            Value = string.Empty,
+        };
+        if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var image = dialog.Value.Trim();
+        IsBusy = true;
+        StatusMessage = string.IsNullOrEmpty(image) ? "Creating image from exported files…" : $"Creating {image}…";
+        try
+        {
+            var result = await _wslc.ImportImageAsync(inputPath, string.IsNullOrEmpty(image) ? null : image);
+            if (!result.Success)
+            {
+                await _dialogs.ShowMessageAsync("Couldn't create the image", result.ErrorText);
+                StatusMessage = "Import failed";
+                return;
+            }
+
+            StatusMessage = "Image created from exported files";
+            await RefreshAsync();
+        }
+        finally
+        {
             IsBusy = false;
         }
     }
@@ -567,6 +709,7 @@ public partial class ImagesViewModel : ObservableObject
             .ToHashSet(StringComparer.Ordinal);
     }
 
+    /// <summary>Command handler for inspect actions triggered from the view.</summary>
     [RelayCommand]
     private async Task InspectAsync(ImageInfo? image)
     {
@@ -589,9 +732,17 @@ public partial class ImagesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for build actions triggered from the view.</summary>
     [RelayCommand]
     private async Task BuildAsync()
     {
+        RefreshPolicyState();
+        if (!CanBuild)
+        {
+            await _dialogs.ShowMessageAsync("Build blocked by policy", BuildPolicyMessage);
+            return;
+        }
+
         var dialog = new BuildImageDialog(_settings.Registries);
         if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary)
         {
@@ -624,6 +775,39 @@ public partial class ImagesViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Sign-in check for the Push dialog. Docker Hub is read from the engine's stored credential
+    /// (an anonymous probe can't tell the difference); other registries are probed, and Azure
+    /// registries are silently re-authenticated first so an expired token doesn't read as signed out.
+    /// </summary>
+    private async Task<(RegistryLoginState State, string? User)> CheckPushSignInAsync(RegistryEntry registry)
+    {
+        if (registry.IsDefault)
+        {
+            return _credentials.IsLoggedIn(registry.LoginServer, out var user)
+                ? (RegistryLoginState.LoggedIn, user)
+                : (RegistryLoginState.Anonymous, null);
+        }
+
+        var state = await _wslc.ProbeRegistryLoginAsync(registry.Host, "wslcd-login-probe");
+        if (state != RegistryLoginState.LoggedIn && registry.IsAzure && await _authRefresher.RefreshAsync(registry))
+        {
+            state = RegistryLoginState.LoggedIn;
+        }
+
+        registry.LoginState = state;
+        return (state, registry.Username);
+    }
+
+    /// <summary>Refreshes policy state for the view model.</summary>
+    private void RefreshPolicyState()
+    {
+        var message = WslRegistryPolicyGuard.ValidateBuild(_policy.GetPolicy());
+        CanBuild = message is null;
+        BuildPolicyMessage = message ?? "Build an image from a Dockerfile";
+    }
+
+    /// <summary>Command handler for prune actions triggered from the view.</summary>
     [RelayCommand]
     private async Task PruneAsync()
     {

@@ -38,6 +38,11 @@ public sealed class AiCapabilityService(
     private static readonly TimeSpan MetadataLifetime = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ProbeLifetime = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// Returns the currently trusted capability evidence for <paramref name="configuration"/> without
+    /// starting any network or model probe. Used by the assistant UI and providers to make fast
+    /// decisions from the last observation.
+    /// </summary>
     public AiCapabilitySnapshot GetCached(AiChatConfiguration configuration)
     {
         lock (_stateGate)
@@ -66,6 +71,10 @@ public sealed class AiCapabilityService(
         }
     }
 
+    /// <summary>
+    /// Clears cached AI capability evidence after settings or credentials change, so later calls
+    /// cannot reuse observations from the previous provider configuration.
+    /// </summary>
     public void Invalidate()
     {
         bool dropped;
@@ -78,6 +87,9 @@ public sealed class AiCapabilityService(
         if (dropped) Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Raised when cached capability evidence changes and bound UI should refresh its status.
+    /// </summary>
     public event EventHandler? Changed;
 
     /// <summary>Drops the cached observation. Callers must hold <c>_stateGate</c>.</summary>
@@ -90,6 +102,13 @@ public sealed class AiCapabilityService(
         _inFlight?.Cancel();
     }
 
+    /// <summary>
+    /// Reads fresh metadata and optionally runs harmless probes, publishing the result only if the
+    /// configuration and credential identity are still current.
+    /// </summary>
+    /// <param name="configuration">Provider endpoint, model, and kind being observed.</param>
+    /// <param name="probe">True to allow bounded synthetic chat/tool probes in addition to metadata.</param>
+    /// <param name="ct">Cancels this observation without publishing partial evidence.</param>
     public async Task<AiCapabilitySnapshot> GetAsync(AiChatConfiguration configuration,
         bool probe = false, CancellationToken ct = default)
     {
@@ -229,6 +248,9 @@ public sealed class AiCapabilityService(
         return HashIdentity(secret ?? "");
     }
 
+    /// <summary>
+    /// Hashes credential or runtime text into a stable comparison value without storing the raw secret.
+    /// </summary>
     internal static string HashIdentity(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 }

@@ -29,28 +29,34 @@ namespace WslContainerDesktop.ViewModels;
 /// summarizes how much space images, containers, and volumes consume and offers
 /// one-click, confirmed pruning that reuses the existing <c>Prune*</c> service methods.
 /// </summary>
+/// <summary>View model for the Reclaim Space page, summarizing images, stopped containers, and volumes that may free disk space.</summary>
 public partial class ReclaimSpaceViewModel : ObservableObject
 {
     /// <summary>How many of the largest images to surface in the "largest images" list.</summary>
     private const int TopImageCount = 5;
 
     private readonly IWslcService _wslc;
+    private readonly IWslcSettingsFileService _wslcSettings;
     private readonly DialogService _dialogs;
     private readonly ILogger<ReclaimSpaceViewModel> _logger;
 
     private long _imagesTotalBytes;
     private long _imagesReclaimableBytes;
 
+    /// <summary>Generated busy flag used while scanning or pruning disk usage.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Status text shown at the top of the Reclaim Space page.</summary>
     [ObservableProperty]
     private string _statusMessage = "Ready";
 
     // ---- Images ----
+    /// <summary>Total images reported by <c>wslc</c>.</summary>
     [ObservableProperty]
     private int _imageCount;
 
+    /// <summary>Dangling images that are not currently held by a container and may be pruned.</summary>
     [ObservableProperty]
     private int _danglingImageCount;
 
@@ -64,35 +70,52 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(RetainedDanglingNote))]
     private int _retainedDanglingImageCount;
 
+    /// <summary>True when some dangling images are still referenced by containers.</summary>
     public bool HasRetainedDanglingImages => RetainedDanglingImageCount > 0;
 
+    /// <summary>Explanation shown when dangling images cannot yet be reclaimed.</summary>
     public string RetainedDanglingNote => RetainedDanglingImageCount == 1
         ? "1 dangling image is still used by a container and cannot be removed yet."
         : $"{RetainedDanglingImageCount} dangling images are still used by containers and cannot be removed yet.";
 
+    /// <summary>Human-readable total image size.</summary>
     [ObservableProperty]
     private string _imagesTotalSize = "0 B";
 
+    /// <summary>Human-readable upper bound for reclaimable dangling image space.</summary>
     [ObservableProperty]
     private string _imagesReclaimableSize = "0 B";
 
     // ---- Containers ----
+    /// <summary>Total containers counted during the scan.</summary>
     [ObservableProperty]
     private int _containerCount;
 
+    /// <summary>Stopped containers whose writable layers may be removed.</summary>
     [ObservableProperty]
     private int _stoppedContainerCount;
 
+    /// <summary>Human-readable writable-layer space held by stopped containers.</summary>
+    [ObservableProperty]
+    private string _stoppedContainersReclaimableSize = "0 B";
+
     // ---- Volumes ----
+    /// <summary>Total volumes counted during the scan.</summary>
     [ObservableProperty]
     private int _volumeCount;
 
+    /// <summary>Volumes resolved as unused by the volume usage resolver.</summary>
     [ObservableProperty]
     private int _unusedVolumeCount;
 
     // ---- Totals ----
+    /// <summary>Human-readable total of reclaimable image and stopped-container space.</summary>
     [ObservableProperty]
     private string _totalReclaimableSize = "0 B";
+
+    /// <summary>Effective WSL container storage path read from the settings file.</summary>
+    [ObservableProperty]
+    private string _storageLocation = "Unknown";
 
     /// <summary>The largest images by on-disk size (top <see cref="TopImageCount"/>).</summary>
     public ObservableCollection<ImageInfo> LargestImages { get; } = new();
@@ -103,9 +126,11 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     /// <summary>Volumes unused in a complete inspect snapshot; the engine decides prune eligibility.</summary>
     public ObservableCollection<VolumeInfo> UnusedVolumes { get; } = new();
 
-    public ReclaimSpaceViewModel(IWslcService wslc, DialogService dialogs, ILogger<ReclaimSpaceViewModel> logger)
+    /// <summary>Creates the reclaim-space model with <c>wslc</c>, settings, dialog, and logging services.</summary>
+    public ReclaimSpaceViewModel(IWslcService wslc, IWslcSettingsFileService wslcSettings, DialogService dialogs, ILogger<ReclaimSpaceViewModel> logger)
     {
         _wslc = wslc;
+        _wslcSettings = wslcSettings;
         _dialogs = dialogs;
         _logger = logger;
     }
@@ -117,6 +142,7 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     private static bool IsNone(string value) =>
         string.IsNullOrEmpty(value) || value.Equals("<none>", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Scans images, containers, and volumes to estimate safely reclaimable space.</summary>
     [RelayCommand]
     public async Task RefreshAsync(CancellationToken ct = default)
     {
@@ -128,7 +154,11 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         try
         {
             var images = await _wslc.ListImagesAsync(ct);
-            var containers = await _wslc.ListContainersAsync(all: true, ct: ct);
+            var settingsFile = await _wslcSettings.ReadAsync(ct);
+            StorageLocation = settingsFile.UsesDefaultStorage
+                ? $"Default ({settingsFile.DefaultStoragePath})"
+                : settingsFile.EffectiveStoragePath;
+            var containers = await _wslc.ListContainersAsync(all: true, ct: ct, includeSize: true);
             var volumes = (await _wslc.ListVolumesAsync(ct)).ToList();
             foreach (var volume in volumes)
             {
@@ -142,7 +172,8 @@ public partial class ReclaimSpaceViewModel : ObservableObject
                     _logger.LogWarning("Could not inspect volume {Volume}: {Error}", volume.Name, inspect.ErrorText);
                 }
             }
-            var warnings = await VolumeUsageResolver.ResolveAsync(volumes, containers, _wslc.InspectContainerAsync, ct);
+            var warnings = await VolumeUsageResolver.ResolveAsync(volumes, containers,
+                (id, token) => _wslc.InspectContainerAsync(id, token), ct);
             foreach (var warning in warnings)
             {
                 _logger.LogWarning("Volume usage: {Warning}", warning);
@@ -180,10 +211,11 @@ public partial class ReclaimSpaceViewModel : ObservableObject
                 DanglingImages.Add(image);
             }
 
-            // Containers. wslc does not report per-container writable-layer sizes, so we
-            // surface counts: anything not running can be reclaimed by a container prune.
             ContainerCount = containers.Count;
-            StoppedContainerCount = containers.Count(c => c.State != ContainerState.Running);
+            var stoppedContainers = containers.Where(c => c.State != ContainerState.Running).ToList();
+            StoppedContainerCount = stoppedContainers.Count;
+            var stoppedWritableBytes = stoppedContainers.Sum(c => c.SizeRwBytes ?? 0);
+            StoppedContainersReclaimableSize = FormatHelpers.HumanSize(stoppedWritableBytes);
 
             // Never infer reclaimable storage from missing metadata or legacy estimates.
             var unused = volumes.Where(v => v.UsageState == VolumeUsageState.Unused).ToList();
@@ -196,9 +228,9 @@ public partial class ReclaimSpaceViewModel : ObservableObject
                 UnusedVolumes.Add(volume);
             }
 
-            TotalReclaimableSize = FormatHelpers.HumanSize(_imagesReclaimableBytes);
-            StatusMessage = _imagesReclaimableBytes > 0
-                ? $"Up to {TotalReclaimableSize} reclaimable from dangling images"
+            TotalReclaimableSize = FormatHelpers.HumanSize(_imagesReclaimableBytes + stoppedWritableBytes);
+            StatusMessage = _imagesReclaimableBytes + stoppedWritableBytes > 0
+                ? $"Up to {TotalReclaimableSize} reclaimable from dangling images and stopped containers"
                 : "Nothing obvious to reclaim";
             if (warnings.Count > 0)
             {
@@ -220,6 +252,7 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         }
     }
 
+    /// <summary>Removes dangling images that are not currently used by containers.</summary>
     [RelayCommand]
     private async Task PruneImagesAsync()
     {
@@ -253,6 +286,7 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         });
     }
 
+    /// <summary>Removes stopped containers after confirmation.</summary>
     [RelayCommand]
     private async Task PruneContainersAsync()
     {
@@ -264,7 +298,7 @@ public partial class ReclaimSpaceViewModel : ObservableObject
 
         var ok = await _dialogs.ShowConfirmAsync(
             "Remove stopped containers",
-            $"Remove all stopped containers ({StoppedContainerCount} candidate{(StoppedContainerCount == 1 ? "" : "s")})?",
+            $"Remove all stopped containers ({StoppedContainerCount} candidate{(StoppedContainerCount == 1 ? "" : "s")}), reclaiming about {StoppedContainersReclaimableSize} from writable layers?",
             "Remove");
         if (!ok)
         {
@@ -273,7 +307,8 @@ public partial class ReclaimSpaceViewModel : ObservableObject
 
         await ExecutePruneAsync(async () =>
         {
-            var before = (await _wslc.ListContainersAsync(all: true)).Count;
+            var before = (await _wslc.ListContainersAsync(all: true, includeSize: true)).ToList();
+            var beforeBytes = before.Where(c => c.State != ContainerState.Running).Sum(c => c.SizeRwBytes ?? 0);
             var result = await _wslc.PruneContainersAsync();
             if (!result.Success)
             {
@@ -281,11 +316,15 @@ public partial class ReclaimSpaceViewModel : ObservableObject
                 return;
             }
 
-            var removed = Math.Max(0, before - (await _wslc.ListContainersAsync(all: true)).Count);
-            await _dialogs.ShowMessageAsync("Containers pruned", $"Removed {Count(removed, "container")}.");
+            var after = await _wslc.ListContainersAsync(all: true, includeSize: true);
+            var removed = Math.Max(0, before.Count - after.Count);
+            var afterBytes = after.Where(c => c.State != ContainerState.Running).Sum(c => c.SizeRwBytes ?? 0);
+            await _dialogs.ShowMessageAsync("Containers pruned",
+                $"Removed {Count(removed, "container")}, reclaiming about {FormatHelpers.HumanSize(Math.Max(0, beforeBytes - afterBytes))}.");
         });
     }
 
+    /// <summary>Asks the engine to remove volumes it considers unused.</summary>
     [RelayCommand]
     private async Task PruneVolumesAsync()
     {
@@ -315,6 +354,7 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         });
     }
 
+    /// <summary>Runs the combined image, container, and volume cleanup flow.</summary>
     [RelayCommand]
     private async Task PruneAllAsync()
     {
@@ -331,7 +371,8 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         await ExecutePruneAsync(async () =>
         {
             var imageBytesBefore = await SumImageBytesAsync();
-            var containersBefore = (await _wslc.ListContainersAsync(all: true)).Count;
+            var containersBefore = (await _wslc.ListContainersAsync(all: true, includeSize: true)).ToList();
+            var containerBytesBefore = containersBefore.Where(c => c.State != ContainerState.Running).Sum(c => c.SizeRwBytes ?? 0);
             var volumesBefore = (await _wslc.ListVolumesAsync()).Count;
 
             // Containers first: removing a container releases any anonymous volumes it held,
@@ -346,12 +387,14 @@ public partial class ReclaimSpaceViewModel : ObservableObject
             AppendError(errors, "images", imageResult);
 
             var freedBytes = Math.Max(0, imageBytesBefore - await SumImageBytesAsync());
-            var containersRemoved = Math.Max(0, containersBefore - (await _wslc.ListContainersAsync(all: true)).Count);
+            var containersAfter = await _wslc.ListContainersAsync(all: true, includeSize: true);
+            var containersRemoved = Math.Max(0, containersBefore.Count - containersAfter.Count);
+            var containerFreedBytes = Math.Max(0, containerBytesBefore - containersAfter.Where(c => c.State != ContainerState.Running).Sum(c => c.SizeRwBytes ?? 0));
             var volumesRemoved = Math.Max(0, volumesBefore - (await _wslc.ListVolumesAsync()).Count);
 
             var summary =
                 $"Reclaimed {FormatHelpers.HumanSize(freedBytes)} from images.\n" +
-                $"Removed {Count(containersRemoved, "container")} and {Count(volumesRemoved, "volume")}.";
+                $"Removed {Count(containersRemoved, "container")} (about {FormatHelpers.HumanSize(containerFreedBytes)} writable layer data) and {Count(volumesRemoved, "volume")}.";
             if (errors.Count > 0)
             {
                 summary += "\n\nSome steps reported errors:\n" + string.Join("\n", errors);

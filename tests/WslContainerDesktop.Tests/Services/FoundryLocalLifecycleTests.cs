@@ -23,6 +23,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers Foundry Local load, unload, start, stop, and readiness proof behavior so stale or external runtime state is not trusted.</summary>
 public sealed class FoundryLocalLifecycleTests
 {
     private static readonly AiChatConfiguration Configuration = new(AiProviderKind.FoundryLocal,
@@ -84,6 +85,7 @@ public sealed class FoundryLocalLifecycleTests
         Assert.False((await f.Runtime.ReadInventoryAsync(Configuration, default)).IsLoaded);
     }
 
+    /// <summary>Runs progress callbacks inline so lifecycle tests can observe exact status text.</summary>
     private sealed class InlineProgress(Action<string> report) : IProgress<string>
     {
         public void Report(string value) => report(value);
@@ -124,6 +126,7 @@ public sealed class FoundryLocalLifecycleTests
         Assert.DoesNotContain(f.Commands, c => c.Contains("download", StringComparison.Ordinal));
     }
 
+    /// <summary>Fakes Foundry Local CLI and HTTP behavior for lifecycle tests.</summary>
     internal sealed class Fixture : HttpMessageHandler
     {
         private readonly JsonDocument _recorded = JsonDocument.Parse(File.ReadAllText(Path.Combine(

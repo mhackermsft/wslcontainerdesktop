@@ -27,6 +27,7 @@ namespace WslContainerDesktop.Tests.Services;
 /// </summary>
 public class AssistantActionGateTests
 {
+    /// <summary>Captures the small settings shape that the action gate reads during these policy tests.</summary>
     private sealed class Options
     {
         public bool AllowDestructive { get; init; }

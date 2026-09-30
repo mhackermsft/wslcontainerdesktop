@@ -23,14 +23,17 @@ using WslContainerDesktop.Helpers;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page for imported Docker Compose projects and their desktop-managed up/down/restart actions.</summary>
 public sealed partial class ComposePage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public ComposePage()
     {
         ViewModel = App.Current.Services.GetRequiredService<ComposeViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Compose project view model bound by the page.</summary>
     public ComposeViewModel ViewModel { get; }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

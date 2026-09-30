@@ -18,6 +18,10 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Service contract for the app's single-node k3s cluster inside WSL. View models call this instead
+/// of invoking <c>wsl.exe</c> or <c>kubectl</c> directly.
+/// </summary>
 public interface IKubernetesService
 {
     /// <summary>Determines whether k3s is installed and whether it is running.</summary>
@@ -56,19 +60,32 @@ public interface IKubernetesService
     /// <summary>Uninstalls k3s and cleans up. Streams progress lines via <paramref name="onOutput"/>.</summary>
     Task<CommandResult> UninstallAsync(Action<string> onOutput, CancellationToken ct = default);
 
+    /// <summary>Starts the k3s service inside the configured WSL distro.</summary>
     Task<CommandResult> StartAsync(CancellationToken ct = default);
+    /// <summary>Stops the k3s service inside the configured WSL distro.</summary>
     Task<CommandResult> StopAsync(CancellationToken ct = default);
 
+    /// <summary>Lists cluster nodes.</summary>
     Task<IReadOnlyList<K8sNode>> GetNodesAsync(CancellationToken ct = default);
+    /// <summary>Lists pods, optionally within one namespace.</summary>
     Task<IReadOnlyList<K8sPod>> GetPodsAsync(string? ns = null, CancellationToken ct = default);
+    /// <summary>Lists deployments, optionally within one namespace.</summary>
     Task<IReadOnlyList<K8sDeployment>> GetDeploymentsAsync(string? ns = null, CancellationToken ct = default);
+    /// <summary>Lists Kubernetes services, optionally within one namespace.</summary>
     Task<IReadOnlyList<K8sService>> GetServicesAsync(string? ns = null, CancellationToken ct = default);
+    /// <summary>Lists ingresses, optionally within one namespace.</summary>
     Task<IReadOnlyList<K8sIngress>> GetIngressesAsync(string? ns = null, CancellationToken ct = default);
+    /// <summary>Lists persistent volume claims, optionally within one namespace.</summary>
     Task<IReadOnlyList<K8sPvc>> GetPvcsAsync(string? ns = null, CancellationToken ct = default);
+    /// <summary>Lists ConfigMaps, optionally within one namespace.</summary>
     Task<IReadOnlyList<K8sConfigMap>> GetConfigMapsAsync(string? ns = null, CancellationToken ct = default);
+    /// <summary>Lists Secret metadata, optionally within one namespace.</summary>
     Task<IReadOnlyList<K8sSecret>> GetSecretsAsync(string? ns = null, CancellationToken ct = default);
+    /// <summary>Lists Jobs, optionally within one namespace.</summary>
     Task<IReadOnlyList<K8sJob>> GetJobsAsync(string? ns = null, CancellationToken ct = default);
+    /// <summary>Lists CronJobs, optionally within one namespace.</summary>
     Task<IReadOnlyList<K8sCronJob>> GetCronJobsAsync(string? ns = null, CancellationToken ct = default);
+    /// <summary>Lists namespace names for filters and selectors.</summary>
     Task<IReadOnlyList<string>> GetNamespacesAsync(CancellationToken ct = default);
 
     /// <summary>Applies a Kubernetes YAML manifest (kubectl apply -f -).</summary>

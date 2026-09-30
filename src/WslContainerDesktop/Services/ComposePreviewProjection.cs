@@ -24,6 +24,9 @@ public sealed class ComposePreviewProjection
 {
     private readonly string[] _privateValues;
 
+    /// <summary>
+    /// Initializes a new <c>ComposePreviewProjection</c> with the collaborators it needs from dependency injection.
+    /// </summary>
     public ComposePreviewProjection(ComposeProject project)
     {
         // Structural identifiers are not secrets. They are chosen by whoever wrote the file, and the
@@ -63,6 +66,9 @@ public sealed class ComposePreviewProjection
             .OrderByDescending(v => v.Length).ToArray();
     }
 
+    /// <summary>
+    /// Returns a preview-safe copy with secret-looking values hidden.
+    /// </summary>
     public string Redact(string? value)
     {
         var text = value ?? "";
@@ -74,6 +80,9 @@ public sealed class ComposePreviewProjection
         return AiTextSanitizer.Redact(text);
     }
 
+    /// <summary>
+    /// Creates preview values used by the service layer.
+    /// </summary>
     public ComposeCompatibilityPreview Create(ComposeProject project, ComposeOperationRequest request,
         ComposeReconciliationPlan plan, IReadOnlyList<ComposeCompatibilitySetting>? additional = null)
     {

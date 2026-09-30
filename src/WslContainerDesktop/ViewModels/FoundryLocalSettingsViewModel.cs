@@ -38,24 +38,33 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     private bool _applyingReadyConfiguration;
     private CancellationTokenSource? _runtimeSetupCancellation;
 
+    /// <summary>Endpoint URL for the standalone Foundry Local server.</summary>
     [ObservableProperty] private string _endpoint;
+    /// <summary>Exact model id to use when this provider is selected.</summary>
     [ObservableProperty] private string _model;
+    /// <summary>Discovery and catalog details shown to help users verify the runtime manually.</summary>
     [ObservableProperty] private string _inventoryText = "Not refreshed. Enter the actual runtime URL and model ID. No default port or model is assumed.";
+    /// <summary>Status for metadata, load and unload operations against the runtime.</summary>
     [ObservableProperty] private string _status = "No runtime operation requested.";
+    /// <summary>Status for install, staging and discovery setup workflows.</summary>
     [ObservableProperty] private string _setupStatus = "Discovery is read-only and runs only when requested.";
+    /// <summary>True when discovery found an endpoint the user can explicitly accept.</summary>
     [ObservableProperty] private bool _canUseDiscoveredEndpoint;
+    /// <summary>True while the runtime installation workflow is active.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanInstallRuntime))]
     [NotifyPropertyChangedFor(nameof(CanStageModelFiles))]
     [NotifyPropertyChangedFor(nameof(CanPrepareInitialModel))]
     [NotifyPropertyChangedFor(nameof(IsPreparingAnything))]
     private bool _isInstallingRuntime;
+    /// <summary>Whether preparing model files for view binding.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanInstallRuntime))]
     [NotifyPropertyChangedFor(nameof(CanStageModelFiles))]
     [NotifyPropertyChangedFor(nameof(CanPrepareInitialModel))]
     [NotifyPropertyChangedFor(nameof(IsPreparingAnything))]
     private bool _isPreparingModelFiles;
+    /// <summary>Whether preparing initial model for view binding.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanInstallRuntime))]
     [NotifyPropertyChangedFor(nameof(CanStageModelFiles))]
@@ -63,19 +72,29 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsPreparingAnything))]
     private bool _isPreparingInitialModel;
 
+    /// <summary>Bindable state for acquisition guidance used by the view.</summary>
     public string AcquisitionGuidance => FoundryLocalStandaloneRuntimeService.AcquisitionGuidance;
+    /// <summary>Bindable state for memory policy used by the view.</summary>
     public string MemoryPolicy => FoundryLocalStandaloneRuntimeService.MemoryPolicy;
+    /// <summary>Bindable state for installation guidance used by the view.</summary>
     public string InstallationGuidance => _setup.AvailabilityGuidance;
+    /// <summary>Whether preparing anything for view binding.</summary>
     public bool IsPreparingAnything => IsInstallingRuntime || IsPreparingModelFiles || IsPreparingInitialModel;
+    /// <summary>Whether the user can install runtime from the view.</summary>
     public bool CanInstallRuntime => _setup.CanInstall && !IsPreparingAnything;
+    /// <summary>Whether the user can stage model files from the view.</summary>
     public bool CanStageModelFiles => _setup.CanStageModelFiles && !IsPreparingAnything;
+    /// <summary>Whether the user can prepare initial model from the view.</summary>
     public bool CanPrepareInitialModel => _initialSetup is not null && !IsPreparingAnything;
+    /// <summary>Bindable state for setup cache location used by the view.</summary>
     public string SetupCacheLocation => "Setup cache: " + _setup.CacheLocation;
+    /// <summary>Bindable state for model staging location used by the view.</summary>
     public string ModelStagingLocation => "Model-file staging (not the Foundry runtime cache): " + _setup.ModelCacheLocation;
 
     /// <summary>Whether the standalone runtime is installed on this PC, for setup-versus-remove affordances.</summary>
     public bool IsRuntimeInstalled => _setup.IsRuntimeInstalled;
 
+    /// <summary>Refreshes installed state for the view model.</summary>
     public void RefreshInstalledState() => OnPropertyChanged(nameof(IsRuntimeInstalled));
 
     /// <summary>Removes only the Foundry Local package after explicit confirmation.</summary>
@@ -95,6 +114,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Creates the FoundryLocalSettings view model and stores its injected services.</summary>
     public FoundryLocalSettingsViewModel(ISettingsService settings,
         IFoundryLocalRuntimeService runtime, IAiCapabilityService capabilities,
         ILogger<FoundryLocalSettingsViewModel> logger, FoundryLocalSetupService? setup = null,
@@ -110,18 +130,21 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         _model = settings.AiFoundryLocalModel;
     }
 
+    /// <summary>Handles endpoint changed changes and updates related view-model state.</summary>
     partial void OnEndpointChanged(string value)
     {
         _settings.AiFoundryLocalEndpoint = value;
         if (!_applyingReadyConfiguration) ConfigurationChanged();
     }
 
+    /// <summary>Handles model changed changes and updates related view-model state.</summary>
     partial void OnModelChanged(string value)
     {
         _settings.AiFoundryLocalModel = value;
         if (!_applyingReadyConfiguration) ConfigurationChanged();
     }
 
+    /// <summary>Helper for the configuration changed workflow in this view model.</summary>
     private void ConfigurationChanged()
     {
         InvalidateDiscovery();
@@ -132,6 +155,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         Status = "No operation requested for this configuration.";
     }
 
+    /// <summary>Handles provider changed changes and updates related view-model state.</summary>
     public void OnProviderChanged()
     {
         InvalidateDiscovery();
@@ -141,6 +165,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         Status = "Pending requests cancelled. Refresh observed state; completed actions are not rolled back.";
     }
 
+    /// <summary>Helper for the invalidate discovery workflow in this view model.</summary>
     private void InvalidateDiscovery()
     {
         _configurationRevision++;
@@ -155,11 +180,16 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
             : "Configuration changed. Discover again before connecting; no runtime operation requested for these settings.";
     }
 
+    /// <summary>Provides the install runtime operation to views or collaborating view models.</summary>
     public Task InstallRuntimeAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunSetupAsync(false, confirm);
+    /// <summary>Provides the stage model files operation to views or collaborating view models.</summary>
     public Task StageModelFilesAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunSetupAsync(true, confirm);
+    /// <summary>Provides the prepare initial model operation to views or collaborating view models.</summary>
     public Task PrepareInitialModelAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunInitialAsync(false, confirm);
+    /// <summary>Provides the stop server operation to views or collaborating view models.</summary>
     public Task StopServerAsync(Func<string, CancellationToken, Task<bool>> confirm) => RunInitialAsync(true, confirm);
 
+    /// <summary>Helper for the run initial workflow in this view model.</summary>
     private async Task RunInitialAsync(bool stop, Func<string, CancellationToken, Task<bool>> confirm)
     {
         if (!CanPrepareInitialModel || _initialSetup is null || DiscoverCommand.IsRunning
@@ -222,6 +252,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the run setup workflow in this view model.</summary>
     private async Task RunSetupAsync(bool modelFiles, Func<string, CancellationToken, Task<bool>> confirm)
     {
         if (!(modelFiles ? CanStageModelFiles : CanInstallRuntime) || DiscoverCommand.IsRunning || _confirmingConnection) return;
@@ -275,9 +306,11 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for cancel runtime setup actions triggered from the view.</summary>
     [RelayCommand]
     private void CancelRuntimeSetup() => _runtimeSetupCancellation?.Cancel();
 
+    /// <summary>Command handler for discover actions triggered from the view.</summary>
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task DiscoverAsync(CancellationToken ct)
     {
@@ -326,6 +359,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Provides the use discovered endpoint operation to views or collaborating view models.</summary>
     public async Task UseDiscoveredEndpointAsync(Func<string, Task<bool>> confirm)
     {
         if (_confirmingConnection || _connectionPlan is not { } plan || !CanUseDiscoveredEndpoint) return;
@@ -356,6 +390,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Command handler for run operation actions triggered from the view.</summary>
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task RunOperationAsync(string operation, CancellationToken ct)
     {
@@ -412,6 +447,7 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Helper for the show failure workflow in this view model.</summary>
     private void ShowFailure(Exception error, string operation, AiChatConfiguration configuration, bool unexpected)
     {
         if (!IsCurrent(configuration)) return; // Never publish stale feedback into another provider's UI.
@@ -422,8 +458,10 @@ public partial class FoundryLocalSettingsViewModel : ObservableObject
             + "\nNo fallback or acquisition was attempted. Refresh state before retrying.");
     }
 
+    /// <summary>Helper for the is current workflow in this view model.</summary>
     private bool IsCurrent(AiChatConfiguration configuration) =>
         _settings.AiProvider == AiProviderKind.FoundryLocal
         && configuration == AiConversationContext.Capture(_settings, AiProviderKind.FoundryLocal);
+    /// <summary>Helper for the known workflow in this view model.</summary>
     private static string Known(string value) => string.IsNullOrWhiteSpace(value) ? "unknown" : value;
 }

@@ -61,16 +61,25 @@
 
                 <!--  Reclaimable summary banner  -->
                 <Border Style="{StaticResource StatCard}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Reclaimable (dangling images)" />
+                    <StackPanel Spacing="8">
+                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Reclaimable (dangling images and stopped containers)" />
                         <TextBlock
                             FontSize="30"
                             FontWeight="SemiBold"
                             Text="{x:Bind ViewModel.TotalReclaimableSize, Mode=OneWay}" />
+                        <TextBlock>
+                            <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Container storage:" />
+                            <Run Text="{x:Bind ViewModel.StorageLocation, Mode=OneWay}" />
+                        </TextBlock>
+                        <Button
+                            HorizontalAlignment="Left"
+                            Click="OpenStorageSettings_Click"
+                            Content="Open WSL Engine storage settings" />
                         <TextBlock
                             FontSize="12"
                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                            Text="wslc does not report container or volume sizes, so those are shown as counts." />
+                            TextWrapping="Wrap"
+                            Text="wslc does not report volume sizes, so volumes are shown as counts. Container sizes are the writable layer only; image layers are counted under Images." />
                     </StackPanel>
                 </Border>
 
@@ -137,6 +146,10 @@
                                 <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Stopped:" />
                                 <Run Text="{x:Bind ViewModel.StoppedContainerCount, Mode=OneWay}" />
                                 <Run Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="reclaimable" />
+                            </TextBlock>
+                            <TextBlock>
+                                <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Reclaimable:" />
+                                <Run Text="{x:Bind ViewModel.StoppedContainersReclaimableSize, Mode=OneWay}" />
                             </TextBlock>
                             <Button
                                 HorizontalAlignment="Stretch"

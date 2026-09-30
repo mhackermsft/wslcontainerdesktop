@@ -15,20 +15,24 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page that helps users identify and reclaim disk space used by WSL containers and images.</summary>
 public sealed partial class ReclaimSpacePage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public ReclaimSpacePage()
     {
         ViewModel = App.Current.Services.GetRequiredService<ReclaimSpaceViewModel>();
         InitializeComponent();
     }
 
+    /// <summary>Disk cleanup view model bound by the page.</summary>
     public ReclaimSpaceViewModel ViewModel { get; }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -36,4 +40,7 @@ public sealed partial class ReclaimSpacePage : Page
         base.OnNavigatedTo(e);
         await ViewModel.RefreshAsync();
     }
+
+    private void OpenStorageSettings_Click(object sender, RoutedEventArgs e) =>
+        App.Current.MainWindow?.NavigateTo("wsl");
 }

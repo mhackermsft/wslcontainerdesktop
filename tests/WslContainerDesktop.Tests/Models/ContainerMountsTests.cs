@@ -19,6 +19,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Models;
 
+/// <summary>
+/// Verifies how inspect mount metadata is normalized for container details, including legacy and malformed engine output.
+/// </summary>
 public sealed class ContainerMountsTests
 {
     [Fact]

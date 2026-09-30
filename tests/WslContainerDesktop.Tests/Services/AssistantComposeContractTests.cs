@@ -23,6 +23,7 @@ using static WslContainerDesktop.Tests.Services.ComposeNetworkSupervisorTests;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers the assistant compose lifecycle contract so reviewed plans, approvals, drift checks, and partial outcomes stay explicit and safe.</summary>
 public sealed class AssistantComposeContractTests
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(15);
@@ -95,22 +96,13 @@ public sealed class AssistantComposeContractTests
         Assert.Empty(f.Engine.Mutations);
     }
 
-    [Theory]
-    [InlineData(WslcCapabilitySupport.Supported)]
-    [InlineData(WslcCapabilitySupport.Unsupported)]
-    [InlineData(WslcCapabilitySupport.Unknown)]
-    public async Task SavedProjectStartPreservesBackendEvidenceAndRefusal(WslcCapabilitySupport support)
+    [Fact]
+    public async Task SavedProjectStartPreservesBackendEvidenceAndRefusal()
     {
-        var f = new Fixture(support);
+        var f = new Fixture();
         var resolved = await Tools(f).ResolveAsync(
             AiContractHarness.Call("start_compose_project", """{"projectName":"demo"}"""), default);
-        if (support == WslcCapabilitySupport.Unknown)
-        {
-            AssertKind(resolved.BlockedResult!, "Blocked");
-            Assert.Empty(f.Engine.Mutations);
-            return;
-        }
-        Assert.Contains(support == WslcCapabilitySupport.Supported ? "NativeCreateConnectStart" : "LegacyRun", resolved.Details);
+        Assert.Contains("NativeCreateConnectStart", resolved.Details);
         Assert.True(resolved.RequiresExplicitApproval);
         AssertKind(await resolved.DeclineAsync!(), "Cancelled");
         AssertKind(await resolved.ExecuteAsync(default), "AlreadyUsed");
@@ -175,16 +167,12 @@ public sealed class AssistantComposeContractTests
         """;
 
     [Theory]
-    [InlineData(false, WslcCapabilitySupport.Supported, "NativeCreateConnectStart")]
-    [InlineData(true, WslcCapabilitySupport.Supported, "NativeCreateConnectStart")]
-    [InlineData(false, WslcCapabilitySupport.Unsupported, "LegacyRun")]
-    [InlineData(true, WslcCapabilitySupport.Unsupported, "LegacyRun")]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task FullConsequencesRequireOneExplicitApprovalEvenWhenAutoApproved(
-        bool template, WslcCapabilitySupport support, string backend)
+        bool template)
     {
-        var f = new Fixture(support, presenterAvailable: false);
-        f.Snapshot = new("wslc.exe", "fixture", Enum.GetValues<WslcFeature>()
-            .ToDictionary(feature => feature, _ => new WslcCapability(support, "fixture")));
+        var f = new Fixture(presenterAvailable: false);
         var catalog = Templates(NetworkYaml);
         var h = Harness(f, catalog);
         var call = Call(template, NetworkYaml);
@@ -200,7 +188,7 @@ public sealed class AssistantComposeContractTests
         Assert.Empty(f.SavedSnapshots);
         // This scenario creates fresh containers, so it must disclose creation rather than the
         // replacement warning, which would describe a consequence that cannot occur here.
-        foreach (var text in new[] { backend, "8080:80", "/scratch:ro", "demo_data", "import diagnostic",
+        foreach (var text in new[] { "NativeCreateConnectStart", "8080:80", "/scratch:ro", "demo_data", "import diagnostic",
                      "Ignored", "restart", "application", "healthcheck", "created", "web", "image" })
             Assert.Contains(text, approval.Details);
         Assert.DoesNotContain("synthetic-private", approval.Details);
@@ -220,26 +208,6 @@ public sealed class AssistantComposeContractTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task BlockedCapabilitiesNeverRequestApprovalOrMutate(bool template)
-    {
-        var f = new Fixture(WslcCapabilitySupport.Unknown);
-        var h = Harness(f, Templates(NetworkYaml));
-        var approvals = 0;
-        h.Assistant.ApprovalChanged += (_, a) => { if (a is not null) approvals++; };
-        string? output = null;
-        h.Provider.Turns.Enqueue(async (invoke, ct) => output = await invoke(Call(template, NetworkYaml), ct));
-        await h.Assistant.SendAsync("deploy").WaitAsync(Deadline);
-        AssertKind(output!, "Blocked");
-        Assert.Contains("Unknown", output);
-        Assert.Equal(0, approvals);
-        Assert.Empty(f.Engine.Mutations);
-        Assert.Empty(f.SavedSnapshots);
-        Assert.Contains(h.Activity, a => a.Detail!.Contains("Unknown"));
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
     public async Task InventoryDriftInvalidatesExactReviewedPlan(bool template)
     {
         var f = new Fixture();
@@ -251,17 +219,6 @@ public sealed class AssistantComposeContractTests
         Assert.Empty(f.Engine.Mutations);
         Assert.Empty(f.SavedSnapshots);
         AssertKind(await resolved.ExecuteAsync(default), "AlreadyUsed");
-    }
-
-    [Fact]
-    public async Task CapabilityDriftBlocksBeforeMutation()
-    {
-        var f = new Fixture();
-        var resolved = await Tools(f).ResolveAsync(Call(false, NetworkYaml), default);
-        f.Snapshot = Capabilities(WslcCapabilitySupport.Unknown);
-        AssertKind(await resolved.ExecuteAsync(default), "Blocked");
-        Assert.Empty(f.Engine.Mutations);
-        Assert.Empty(f.SavedSnapshots);
     }
 
     [Theory]
@@ -568,6 +525,7 @@ public sealed class AssistantComposeContractTests
         Assert.Equal(kind == "Applied", doc.RootElement.GetProperty("allSucceeded").GetBoolean());
     }
 
+    /// <summary>Provides a controllable clock so approval expiration can be tested without waiting in real time.</summary>
     private sealed class ReviewClock : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = new(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);

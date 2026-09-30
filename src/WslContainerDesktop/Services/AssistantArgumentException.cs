@@ -26,10 +26,19 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class AssistantArgumentException : InvalidOperationException
 {
+    /// <summary>
+    /// Creates an assistant argument error with a user-safe explanation.
+    /// </summary>
+    /// <param name="message">Explanation of the invalid tool-call arguments.</param>
     public AssistantArgumentException(string message) : base(message)
     {
     }
 
+    /// <summary>
+    /// Creates an assistant argument error while preserving the lower-level validation failure.
+    /// </summary>
+    /// <param name="message">Explanation of the invalid tool-call arguments.</param>
+    /// <param name="innerException">Original exception raised by schema parsing or validation.</param>
     public AssistantArgumentException(string message, Exception innerException) : base(message, innerException)
     {
     }

@@ -19,6 +19,12 @@ namespace WslContainerDesktop.Helpers;
 /// <summary>Checks ownership at delivery, not just when a callback is queued.</summary>
 public static class AssistantTurnDispatch
 {
+    /// <summary>Queues a UI update only if the same assistant conversation turn is still active when delivered.</summary>
+    /// <param name="generation">The turn generation that scheduled the update.</param>
+    /// <param name="currentGeneration">Reads the generation currently owned by the view model.</param>
+    /// <param name="isActive">Returns whether the owning conversation is still accepting updates.</param>
+    /// <param name="enqueue">Dispatcher-style function that runs the callback on the UI thread.</param>
+    /// <param name="update">UI update to run if the generation and activity checks still pass.</param>
     public static void Queue(
         int generation,
         Func<int> currentGeneration,

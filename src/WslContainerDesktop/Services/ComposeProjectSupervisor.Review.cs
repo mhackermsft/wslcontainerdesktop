@@ -26,6 +26,7 @@ namespace WslContainerDesktop.Services;
 /// <summary>Opaque in-process, single-use review handle. Serialization exposes only safe evidence.</summary>
 public sealed class ComposeReviewToken
 {
+    /// <summary>Creates a token for one reviewed plan snapshot owned by one supervisor instance.</summary>
     internal ComposeReviewToken(Guid owner, ComposeProject project, ComposeOperationRequest request,
         string stamp, ComposeCompatibilityPreview preview, ComposeReconciliationPlan plan, long maximumStopVersion,
         DateTimeOffset expiresAt)
@@ -40,31 +41,50 @@ public sealed class ComposeReviewToken
         ExpiresAt = expiresAt;
     }
 
+    /// <summary>Supervisor instance that issued the token; prevents cross-session replay.</summary>
     internal Guid Owner { get; }
+    /// <summary>Desired project snapshot captured at review time.</summary>
     internal ComposeProject Project { get; }
+    /// <summary>Operation request snapshot captured at review time.</summary>
     internal ComposeOperationRequest Request { get; }
+    /// <summary>Hash of inventory, capabilities and effective plan evidence.</summary>
     internal string Stamp { get; }
+    /// <summary>Plan shown to the user during review.</summary>
     internal ComposeReconciliationPlan Plan { get; }
+    /// <summary>Suppression-state version used to avoid racing explicit user starts/stops.</summary>
     internal long MaximumStopVersion { get; }
+    /// <summary>Atomic single-use marker; non-zero means the review was already applied or refused.</summary>
     internal int Consumed;
+    /// <summary>Redacted preview that was shown for confirmation.</summary>
     public ComposeCompatibilityPreview Preview { get; }
+    /// <summary>UTC time after which the token must be reviewed again.</summary>
     public DateTimeOffset ExpiresAt { get; }
 }
 
+/// <summary>Advisory validation state for a prepared Compose review token.</summary>
 public enum ComposePlanValidation { Valid, Blocked, Stale, Cancelled, AlreadyUsed, ForeignToken, Expired }
+/// <summary>Final outcome state after attempting to apply a reviewed Compose plan.</summary>
 public enum ComposeReviewOutcomeKind { Applied, PartialFailure, Blocked, Stale, Cancelled, AlreadyUsed, ForeignToken, Expired }
 
+/// <summary>Redacted resource that may remain after an apply, used for assistant/UI audit text.</summary>
 public sealed record ComposeRetainedResource(string Kind, string Name, string State, string Detail);
 
 /// <summary>Safe for UI/assistant audit. Raw execution state is deliberately assembly-internal.</summary>
 public sealed class ComposeReviewOutcome
 {
+    /// <summary>Overall review outcome.</summary>
     public required ComposeReviewOutcomeKind Kind { get; init; }
+    /// <summary>User-facing outcome message with technical values withheld.</summary>
     public required string Message { get; init; }
+    /// <summary>Redacted service results safe to show in the UI or assistant response.</summary>
     public IReadOnlyList<ComposeServiceResult> Services { get; init; } = [];
+    /// <summary>Resources that were retained or may need manual review after a partial apply.</summary>
     public IReadOnlyList<ComposeRetainedResource> RetainedResources { get; init; } = [];
+    /// <summary>True only when the reviewed plan fully applied.</summary>
     public bool AllSucceeded => Kind == ComposeReviewOutcomeKind.Applied;
+    /// <summary>Raw execution result kept inside the assembly for callers that need exact state.</summary>
     internal ComposeUpResult? Execution { get; init; }
+    /// <summary>Projects the review outcome back to a regular compose result for legacy callers.</summary>
     internal ComposeUpResult ToUpResult() => Execution ?? new()
     {
         IsCancelled = Kind == ComposeReviewOutcomeKind.Cancelled,
@@ -74,7 +94,9 @@ public sealed class ComposeReviewOutcome
 
 public sealed partial class ComposeProjectSupervisor
 {
+    /// <summary>Unique owner id for review tokens produced by this supervisor instance.</summary>
     private readonly Guid _reviewOwner = Guid.NewGuid();
+    /// <summary>Plan, preview and evidence hash captured atomically under the lifecycle gate.</summary>
     private sealed record ReviewEvidence(ComposeReconciliationPlan Plan, ComposeCompatibilityPreview Preview, string Stamp);
 
     /// <summary>Read-only review of exactly the shared PlanAsync normalization; never persists intent.</summary>
@@ -214,6 +236,7 @@ public sealed partial class ComposeProjectSupervisor
         finally { _lifecycleGate.Release(); }
     }
 
+    /// <summary>Builds redacted retained-resource notes for successful or partial reviewed apply.</summary>
     private static IReadOnlyList<ComposeRetainedResource> RetainedReviewResources(
         ComposeProject project, ComposeReconciliationPlan plan, bool completed)
     {
@@ -234,6 +257,7 @@ public sealed partial class ComposeProjectSupervisor
             .ToList().AsReadOnly();
     }
 
+    /// <summary>Creates a no-mutation outcome for stale, expired, cancelled or otherwise refused reviews.</summary>
     private static ComposeReviewOutcome ReviewRefusal(ComposeReviewOutcomeKind kind) => new()
     {
         Kind = kind,
@@ -249,6 +273,7 @@ public sealed partial class ComposeProjectSupervisor
         },
     };
 
+    /// <summary>Reads all plan evidence used both for preview display and stale-review detection.</summary>
     private async Task<ReviewEvidence> ReadReviewEvidenceAsync(ComposeProject desired,
         ComposeOperationRequest request, CancellationToken ct)
     {
@@ -354,6 +379,7 @@ public sealed partial class ComposeProjectSupervisor
         }
     }
 
+    /// <summary>Reads a JSON property case-insensitively from engine inspect output.</summary>
     private static bool TryProperty(JsonElement root, string name, out JsonElement value)
     {
         foreach (var property in root.EnumerateObject())
@@ -362,7 +388,8 @@ public sealed partial class ComposeProjectSupervisor
         return false;
     }
 
-    private static string? ValidatePublishedPorts(ComposeReconciliationPlan plan, IReadOnlyList<ContainerInfo> inventory)
+    /// <summary>Detects obvious host-port conflicts before starting selected Compose instances.</summary>
+    internal static string? ValidatePublishedPorts(ComposeReconciliationPlan plan, IReadOnlyList<ContainerInfo> inventory)
     {
         var ports = new List<(string Host, int Port, string Protocol, string Instance)>();
         foreach (var entry in plan.Services.Where(p => p.Action != ComposeServiceAction.Remove && p.DesiredReplicas > 0))
@@ -382,8 +409,10 @@ public sealed partial class ComposeProjectSupervisor
                 string.IsNullOrEmpty(other) || other is "0.0.0.0" or "::" || host == other.Trim('[', ']');
             if (ports.Any(p => p.Port == port && p.Protocol == protocol && Overlap(p.Host)))
                 return "Selected instances have conflicting published host bindings.";
+            // The instance's own container is not a conflict. Inventory lists 12-character short IDs
+            // while the plan holds the full ID from inspect, so compare with ResolveId, not ==.
             foreach (var container in inventory.Where(c => c.State == ContainerState.Running &&
-                c.Id != entry.ContainerId))
+                (entry.ContainerId is null || ContainerIdentity.ResolveId([c.Id], entry.ContainerId) != c.Id)))
             {
                 if (!container.PortsKnown) return "Published-port inventory is Unknown; bindings cannot be safely validated.";
                 if (container.Ports.Any(p => p.HostPort == port && p.ProtocolName == protocol && Overlap(p.BindingAddress)))
@@ -394,5 +423,6 @@ public sealed partial class ComposeProjectSupervisor
         return null;
     }
 
+    /// <summary>Computes the evidence hash used to reject stale review tokens.</summary>
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 }

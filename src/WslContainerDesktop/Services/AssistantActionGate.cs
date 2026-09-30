@@ -18,6 +18,10 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Central policy for whether assistant tool calls are read-only, state-changing or destructive,
+/// and whether they require an approval prompt before execution.
+/// </summary>
 public sealed class AssistantActionGate(ISettingsService settings) : IAssistantActionGate
 {
     /// <summary>
@@ -28,6 +32,7 @@ public sealed class AssistantActionGate(ISettingsService settings) : IAssistantA
     private static readonly HashSet<string> AlwaysDestructiveTools =
         new(["delete_resource"], StringComparer.Ordinal);
 
+    /// <summary>Maps a tool category into the risk level shown to users before execution.</summary>
     public AssistantActionRisk Classify(AssistantPermissionCategory category) => category switch
     {
         AssistantPermissionCategory.ReadOnly => AssistantActionRisk.ReadOnly,
@@ -35,6 +40,7 @@ public sealed class AssistantActionGate(ISettingsService settings) : IAssistantA
         _ => AssistantActionRisk.StateChanging,
     };
 
+    /// <summary>True when the tool can delete or irreversibly alter user-managed resources.</summary>
     public bool IsDestructive(string toolName, AssistantPermissionCategory category) =>
         category is AssistantPermissionCategory.Destructive or AssistantPermissionCategory.ContainerExec
         || (!string.IsNullOrWhiteSpace(toolName) && AlwaysDestructiveTools.Contains(toolName));
@@ -48,6 +54,7 @@ public sealed class AssistantActionGate(ISettingsService settings) : IAssistantA
     public bool IsPermitted(string toolName, AssistantPermissionCategory category) =>
         !IsDestructive(toolName, category) || settings.AiAssistantAllowDestructive;
 
+    /// <summary>Returns whether this tool needs an approval prompt under the saved Settings policy.</summary>
     public bool RequiresApproval(string toolName, AssistantPermissionCategory category) =>
         RequiresApproval(toolName, category, requiresExplicitApproval: false);
 

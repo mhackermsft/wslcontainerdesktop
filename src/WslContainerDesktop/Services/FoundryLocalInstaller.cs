@@ -28,10 +28,12 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class FoundryLocalInstaller
 {
+    /// <summary>User-facing caveat explaining what runtime package installation does and does not prove.</summary>
     public const string InitializationGuidance =
         "Standalone 0.10.3 CPU initialization was exercised separately; that is not proof of this app's signed-package deployment or every hardware configuration. " +
         "Setup registers packages only; it does not start Foundry or fetch missing DLLs, execution providers or models.";
 
+    /// <summary>Fixed PowerShell script that detects existing Foundry and VCLibs state without mutation.</summary>
     internal const string PreflightScript = """
         $ErrorActionPreference = 'Stop'
         if ((Get-AppxPackage -Name 'Microsoft.FoundryLocal') -or (Get-Command foundry -CommandType Application -ErrorAction SilentlyContinue)) {
@@ -47,6 +49,7 @@ public sealed class FoundryLocalInstaller
         }
         """;
 
+    /// <summary>Fixed PowerShell script that registers exact prepared packages and confirms versions.</summary>
     internal const string InstallScript = """
         $ErrorActionPreference = 'Stop'
         if (Get-AppxPackage -Name 'Microsoft.FoundryLocal') { throw 'Existing Foundry package; installation blocked.' }
@@ -73,11 +76,13 @@ public sealed class FoundryLocalInstaller
     private readonly Action _invalidateCapabilities;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    /// <summary>Creates the installer using the real process executor and capability invalidation hook.</summary>
     public FoundryLocalInstaller(FoundryLocalArtifactCatalog catalog, IAiCapabilityService capabilities) : this(catalog,
         (start, ct) => ProcessExecutor.RunAsync(start, timeout: TimeSpan.FromMinutes(10),
             launchErrorContext: "Could not launch Windows package deployment.", ct: ct),
         capabilities.Invalidate) { }
 
+    /// <summary>Creates the installer with injectable execution hooks for tests.</summary>
     internal FoundryLocalInstaller(FoundryLocalArtifactCatalog catalog,
         Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> run,
         Action invalidateCapabilities)
@@ -87,6 +92,7 @@ public sealed class FoundryLocalInstaller
         _invalidateCapabilities = invalidateCapabilities;
     }
 
+    /// <summary>Checks whether the exact approved package set may be installed before downloads are requested.</summary>
     internal async Task<FoundryLocalInstallPreflight> PreflightAsync(FoundryLocalAuditedPackageSet package, CancellationToken ct)
     {
         if (!ReferenceEquals(package, _catalog.Find(package.Id, DateTimeOffset.UtcNow)))
@@ -112,6 +118,7 @@ public sealed class FoundryLocalInstaller
         return new(false, false, "", "Unrecognized prerequisite state; nothing downloaded.");
     }
 
+    /// <summary>Fixed PowerShell script that removes only the Microsoft Foundry Local package for this user.</summary>
     internal const string UninstallScript = """
         $ErrorActionPreference = 'Stop'
         $package = Get-AppxPackage -Name 'Microsoft.FoundryLocal' | Where-Object { $_.PackageFamilyName -eq 'Microsoft.FoundryLocal_8wekyb3d8bbwe' }
@@ -164,6 +171,9 @@ public sealed class FoundryLocalInstaller
         }
     }
 
+    /// <summary>
+    /// Installs the exact verified MSIX package after consent, without starting Foundry or loading a model.
+    /// </summary>
     public async Task<FoundryLocalInstallResult> InstallRuntimeOnlyAsync(string approvedPackageSet,
         string runtimePath, string? dependencyPath, AiChatConfiguration original,
         Func<string, CancellationToken, Task<bool>> confirm, Func<bool> isCurrent, IProgress<string>? progress, CancellationToken ct)
@@ -226,6 +236,7 @@ public sealed class FoundryLocalInstaller
         }
     }
 
+    /// <summary>Creates the PowerShell process with prepared package paths passed as environment data.</summary>
     internal static ProcessStartInfo BuildStartInfo(string runtimePath, string? dependencyPath, FoundryLocalAuditedPackageSet package)
     {
         var start = BuildProcess(InstallScript);
@@ -236,10 +247,12 @@ public sealed class FoundryLocalInstaller
         return start;
     }
 
+    /// <summary>Rejects model names that cannot be safely shown in a consent dialog.</summary>
     internal static bool CanDisplayModelSelection(string model) => model.Length <= 512
         && !model.Any(character => char.IsControl(character)
             || char.GetUnicodeCategory(character) == System.Globalization.UnicodeCategory.Format);
 
+    /// <summary>Builds a non-interactive encoded PowerShell process for the fixed deployment scripts.</summary>
     private static ProcessStartInfo BuildProcess(string script)
     {
         var start = new ProcessStartInfo
@@ -257,6 +270,7 @@ public sealed class FoundryLocalInstaller
         return start;
     }
 
+    /// <summary>Opens and pins a local package file after validating path, reparse-points, size and hash.</summary>
     private static async Task<FileStream> OpenVerifiedAsync(string path, FoundryLocalAuditedArtifact artifact,
         string extension, CancellationToken ct)
     {
@@ -285,6 +299,10 @@ public sealed class FoundryLocalInstaller
     }
 }
 
+/// <summary>Outcome categories for Foundry Local runtime installation or removal.</summary>
 public enum FoundryLocalInstallState { Blocked, Declined, Cancelled, Failed, Installed }
+
+/// <summary>User-facing result of a Foundry Local package operation.</summary>
 public sealed record FoundryLocalInstallResult(FoundryLocalInstallState State, string Guidance);
+/// <summary>Preflight result that tells setup whether the runtime and VCLibs packages can proceed.</summary>
 internal sealed record FoundryLocalInstallPreflight(bool CanInstall, bool NeedsVcLibs, string ExistingVcLibsVersion, string Guidance);

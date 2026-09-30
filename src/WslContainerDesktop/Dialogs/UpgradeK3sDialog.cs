@@ -32,6 +32,9 @@ public sealed class UpgradeK3sDialog : ContentDialog
     /// <summary>The chosen version tag, or null for "latest stable".</summary>
     public string? TargetVersion { get; private set; }
 
+    /// <summary>Creates a new &lt;c&gt;UpgradeK3sDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="currentVersion">The current version value supplied by the caller.</param>
+    /// <param name="latestVersion">The latest version value supplied by the caller.</param>
     public UpgradeK3sDialog(string currentVersion, string? latestVersion)
     {
         Title = "Upgrade Kubernetes (k3s)";

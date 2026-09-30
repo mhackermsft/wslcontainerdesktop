@@ -37,6 +37,7 @@ public sealed class ImportDockerRunDialog : ContentDialog
     /// <summary>Notes about flags that could not be represented in the parsed options.</summary>
     public IReadOnlyList<string> Warnings { get; private set; } = System.Array.Empty<string>();
 
+    /// <summary>Creates a new &lt;c&gt;ImportDockerRunDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public ImportDockerRunDialog()
     {
         Title = "Import from docker run";

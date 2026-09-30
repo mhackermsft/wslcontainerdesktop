@@ -24,6 +24,8 @@ using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
+/// <summary>View model for the Kubernetes page, controlling k3s lifecycle, resource lists, YAML apply, and port-forwarding.</summary>
+/// <remarks>It uses <see cref="IKubernetesService"/> for all cluster I/O and posts poll results back to the WinUI dispatcher because collections are bound on the UI thread.</remarks>
 public partial class KubernetesViewModel : ObservableObject
 {
     private readonly IKubernetesService _k8s;
@@ -34,6 +36,7 @@ public partial class KubernetesViewModel : ObservableObject
 
     private CancellationTokenSource? _pollCts;
 
+    /// <summary>Generated cluster state that drives the install/start/stop dashboard states.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsNotInstalled))]
     [NotifyPropertyChangedFor(nameof(IsInstalled))]
@@ -42,18 +45,23 @@ public partial class KubernetesViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsBusy))]
     private ClusterState _state = ClusterState.Unknown;
 
+    /// <summary>Status text describing the cluster lifecycle state or current operation.</summary>
     [ObservableProperty]
     private string _statusMessage = "Checking cluster status…";
 
+    /// <summary>Name of the single k3s node when the cluster is running.</summary>
     [ObservableProperty]
     private string _nodeName = "-";
 
+    /// <summary>Installed Kubernetes/k3s version text.</summary>
     [ObservableProperty]
     private string _kubernetesVersion = "-";
 
+    /// <summary>WSL distribution that hosts the k3s cluster.</summary>
     [ObservableProperty]
     private string _distro = "-";
 
+    /// <summary>Generated flag used while install, upgrade, start, stop, or uninstall is running.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsNotInstalled))]
     [NotifyPropertyChangedFor(nameof(IsInstalled))]
@@ -62,81 +70,115 @@ public partial class KubernetesViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsBusy))]
     private bool _working;
 
+    /// <summary>Installer or uninstaller log text streamed into the operation panel.</summary>
     [ObservableProperty]
     private string _operationLog = string.Empty;
 
+    /// <summary>Generated flag that shows the install/upgrade/uninstall log panel.</summary>
     [ObservableProperty]
     private bool _showOperationLog;
 
     // ---- Sub-navigation + namespace filter ----
+    /// <summary>Selected sub-navigation section inside the Kubernetes page.</summary>
     [ObservableProperty]
     private string _selectedSection = "Dashboard";
 
+    /// <summary>Namespace filter applied to namespaced resource lists.</summary>
     [ObservableProperty]
     private string _selectedNamespace = "All namespaces";
 
+    /// <summary>Namespace options for the filter, including the synthetic all-namespaces option.</summary>
     public ObservableCollection<string> Namespaces { get; } = new();
 
     // ---- Resource collections ----
+    /// <summary>Node rows returned by the resource poller.</summary>
     public ObservableCollection<K8sNode> Nodes { get; } = new();
+    /// <summary>Pod rows returned by the resource poller.</summary>
     public ObservableCollection<K8sPod> Pods { get; } = new();
+    /// <summary>Deployment rows returned by the resource poller.</summary>
     public ObservableCollection<K8sDeployment> Deployments { get; } = new();
+    /// <summary>Service rows returned by the resource poller.</summary>
     public ObservableCollection<K8sService> Services { get; } = new();
+    /// <summary>Ingress rows returned by the resource poller.</summary>
     public ObservableCollection<K8sIngress> Ingresses { get; } = new();
+    /// <summary>Persistent-volume-claim rows returned by the resource poller.</summary>
     public ObservableCollection<K8sPvc> Pvcs { get; } = new();
+    /// <summary>ConfigMap rows returned by the resource poller.</summary>
     public ObservableCollection<K8sConfigMap> ConfigMaps { get; } = new();
+    /// <summary>Secret rows returned by the resource poller.</summary>
     public ObservableCollection<K8sSecret> Secrets { get; } = new();
+    /// <summary>Job rows returned by the resource poller.</summary>
     public ObservableCollection<K8sJob> Jobs { get; } = new();
+    /// <summary>CronJob rows returned by the resource poller.</summary>
     public ObservableCollection<K8sCronJob> CronJobs { get; } = new();
 
     /// <summary>Active port-forward sessions managed by the app.</summary>
     public ObservableCollection<PortForward> PortForwards { get; } = new();
 
     // ---- Dashboard metric counts ----
+    /// <summary>Dashboard count of nodes.</summary>
     [ObservableProperty]
     private int _nodeCount;
 
+    /// <summary>Dashboard count of ready nodes.</summary>
     [ObservableProperty]
     private int _nodeActiveCount;
 
+    /// <summary>Dashboard count of deployments.</summary>
     [ObservableProperty]
     private int _deploymentCount;
 
+    /// <summary>Dashboard count of healthy deployments.</summary>
     [ObservableProperty]
     private int _deploymentActiveCount;
 
+    /// <summary>Dashboard count of pods.</summary>
     [ObservableProperty]
     private int _podCount;
 
+    /// <summary>Dashboard count of services.</summary>
     [ObservableProperty]
     private int _serviceCount;
 
+    /// <summary>Dashboard count of ingresses.</summary>
     [ObservableProperty]
     private int _ingressCount;
 
+    /// <summary>Dashboard count of persistent-volume claims.</summary>
     [ObservableProperty]
     private int _pvcCount;
 
+    /// <summary>Dashboard count of ConfigMaps.</summary>
     [ObservableProperty]
     private int _configMapCount;
 
+    /// <summary>Dashboard count of Secrets.</summary>
     [ObservableProperty]
     private int _secretCount;
 
+    /// <summary>Dashboard count of Jobs.</summary>
     [ObservableProperty]
     private int _jobCount;
 
+    /// <summary>Dashboard count of CronJobs.</summary>
     [ObservableProperty]
     private int _cronJobCount;
 
+    /// <summary>True when the install call-to-action should be shown.</summary>
     public bool IsNotInstalled => !Working && State == ClusterState.NotInstalled;
+    /// <summary>True when installed-cluster actions should be shown.</summary>
     public bool IsInstalled => !Working && State is ClusterState.Stopped or ClusterState.Running;
+    /// <summary>True when resource lists and running-cluster actions should be shown.</summary>
     public bool IsRunning => !Working && State == ClusterState.Running;
+    /// <summary>True when the cluster can be started.</summary>
     public bool IsStopped => !Working && State == ClusterState.Stopped;
+    /// <summary>True while a lifecycle operation is blocking other actions.</summary>
     public bool IsBusy => Working;
 
+    /// <summary>Raised when the operation log changes so the view can scroll to the newest line.</summary>
     public event Action? OperationLogUpdated;
 
+    /// <summary>Creates the Kubernetes page model and seeds the namespace filter.</summary>
     public KubernetesViewModel(IKubernetesService k8s, DialogService dialogs, StatusMonitor monitor, ISettingsService settings)
     {
         _k8s = k8s;
@@ -209,6 +251,7 @@ public partial class KubernetesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Initializes cluster state from the shared monitor and starts polling when k3s is running.</summary>
     public async Task InitializeAsync()
     {
         // Seed from the shared monitor's cached snapshot so the correct view (install hero,
@@ -232,6 +275,7 @@ public partial class KubernetesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Refreshes the k3s lifecycle status without polling all resources.</summary>
     [RelayCommand]
     private async Task RefreshStatusAsync()
     {
@@ -255,6 +299,7 @@ public partial class KubernetesViewModel : ObservableObject
         };
     }
 
+    /// <summary>Installs k3s into WSL after confirmation and installer-script verification.</summary>
     [RelayCommand]
     private async Task InstallAsync()
     {
@@ -301,6 +346,7 @@ public partial class KubernetesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Uninstalls k3s and clears cluster data after confirmation.</summary>
     [RelayCommand]
     private async Task UninstallAsync()
     {
@@ -346,6 +392,7 @@ public partial class KubernetesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Upgrades k3s while respecting installer trust and Kubernetes version-skew rules.</summary>
     [RelayCommand]
     private async Task UpgradeAsync()
     {
@@ -451,6 +498,7 @@ public partial class KubernetesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Starts the installed k3s service and then begins resource polling.</summary>
     [RelayCommand]
     private async Task StartAsync()
     {
@@ -478,6 +526,7 @@ public partial class KubernetesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Stops k3s, clears resource lists, and stops port-forwards.</summary>
     [RelayCommand]
     private async Task StopAsync()
     {
@@ -507,6 +556,7 @@ public partial class KubernetesViewModel : ObservableObject
 
     // ---- Apply YAML ----------------------------------------------------
 
+    /// <summary>Prompts for YAML and applies it to the cluster through the Kubernetes service.</summary>
     [RelayCommand]
     private async Task ApplyYamlAsync()
     {
@@ -540,6 +590,7 @@ public partial class KubernetesViewModel : ObservableObject
 
     // ---- Resource row actions ------------------------------------------
 
+    /// <summary>Deletes a resource row after confirmation and refreshes the lists.</summary>
     public async Task DeleteResourceAsync(K8sResourceRef reference)
     {
         var ok = await _dialogs.ShowConfirmAsync(
@@ -560,6 +611,7 @@ public partial class KubernetesViewModel : ObservableObject
         await PollOnceAsync(CancellationToken.None);
     }
 
+    /// <summary>Prompts for replicas and scales the selected deployment row.</summary>
     public async Task ScaleDeploymentAsync(K8sResourceRef reference)
     {
         var dialog = new SimpleInputDialog($"Scale {reference.Name}", "Desired replicas", "e.g. 3");
@@ -579,6 +631,7 @@ public partial class KubernetesViewModel : ObservableObject
         await PollOnceAsync(CancellationToken.None);
     }
 
+    /// <summary>Triggers a rollout restart for the selected deployment row.</summary>
     public async Task RestartDeploymentAsync(K8sResourceRef reference)
     {
         var restarted = await _k8s.RestartDeploymentAsync(reference.Namespace, reference.Name);
@@ -590,6 +643,7 @@ public partial class KubernetesViewModel : ObservableObject
         await PollOnceAsync(CancellationToken.None);
     }
 
+    /// <summary>Suspends or resumes the selected cron job.</summary>
     public async Task SetCronSuspendAsync(K8sResourceRef reference, bool suspend)
     {
         var result = await _k8s.SetCronJobSuspendAsync(reference.Namespace, reference.Name, suspend);
@@ -601,6 +655,7 @@ public partial class KubernetesViewModel : ObservableObject
         await PollOnceAsync(CancellationToken.None);
     }
 
+    /// <summary>Creates a one-off job from the selected cron job.</summary>
     public async Task TriggerCronAsync(K8sResourceRef reference)
     {
         var result = await _k8s.TriggerCronJobAsync(reference.Namespace, reference.Name);
@@ -621,6 +676,7 @@ public partial class KubernetesViewModel : ObservableObject
 
     // ---- Port forwarding -----------------------------------------------
 
+    /// <summary>Prompts for a pod or service target and starts a local port-forward.</summary>
     [RelayCommand]
     private async Task AddPortForwardAsync()
     {
@@ -653,6 +709,7 @@ public partial class KubernetesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Stops one active port-forward.</summary>
     [RelayCommand]
     private void StopPortForward(PortForward? forward)
     {
@@ -665,6 +722,7 @@ public partial class KubernetesViewModel : ObservableObject
         PortForwards.Remove(forward);
     }
 
+    /// <summary>Opens the local URL for an active port-forward.</summary>
     [RelayCommand]
     private void OpenPortForward(PortForward? forward)
     {
@@ -707,6 +765,7 @@ public partial class KubernetesViewModel : ObservableObject
 
     // ---- Resource polling ----------------------------------------------
 
+    /// <summary>Starts the background resource poller that updates bound collections on the UI thread.</summary>
     public void StartPolling()
     {
         StopPolling();
@@ -823,6 +882,7 @@ public partial class KubernetesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Cancels and disposes the background resource poller.</summary>
     public void StopPolling()
     {
         try

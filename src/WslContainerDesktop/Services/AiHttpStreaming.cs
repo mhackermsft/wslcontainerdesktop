@@ -27,11 +27,22 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 internal static class AiHttpStreaming
 {
+    /// <summary>Maximum response body bytes accepted from a provider stream.</summary>
     internal const int MaxBytes = 2 * 1024 * 1024;
+
+    /// <summary>Maximum single NDJSON/SSE line length accepted from a provider.</summary>
     internal const int MaxLine = 128 * 1024;
+
+    /// <summary>Maximum assistant text or tool-argument segment buffered before validation.</summary>
     internal const int MaxSegment = 64 * 1024;
+
+    /// <summary>Maximum tool calls accepted in a single assistant turn.</summary>
     private const int MaxCalls = 32;
 
+    /// <summary>
+    /// Sends an HTTP chat request and returns the validated assistant text/tool-call turn. Streaming
+    /// narration is emitted only after conservative validation; invalid output becomes one safe error.
+    /// </summary>
     internal static async Task<AiToolTurn> SendAsync(
         AiHttpClient http, HttpRequestMessage message, AiChatRequest request,
         IReadOnlyList<AiToolDefinition> tools, HashSet<string> seenIds, CancellationToken ct,
@@ -93,13 +104,16 @@ internal static class AiHttpStreaming
         }
     }
 
+    /// <summary>Creates the single sanitized parse failure exposed to callers.</summary>
     private static InvalidDataException InvalidStream() =>
         new("The provider returned an incomplete or invalid streaming response. No pending tool calls were executed.");
 
+    /// <summary>Checks provider-supplied ids/names before they enter tool dispatch.</summary>
     private static bool ValidIdentifier(string value, int limit) =>
         value.Length is > 0 && value.Length <= limit &&
         value.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
 
+    /// <summary>Ensures a local provider's response belongs to the model that was loaded and verified.</summary>
     private static void ValidateModel(JsonElement root, string? expectedModel)
     {
         if (expectedModel is not null && (!root.TryGetProperty("model", out var model)
@@ -107,9 +121,11 @@ internal static class AiHttpStreaming
             throw InvalidStream();
     }
 
+    /// <summary>Reads a JSON property only when it exists and is not null.</summary>
     private static bool HasValue(JsonElement element, string name, out JsonElement value) =>
         element.TryGetProperty(name, out value) && value.ValueKind != JsonValueKind.Null;
 
+    /// <summary>Rejects duplicate JSON property names so providers cannot smuggle conflicting values.</summary>
     private static void RejectDuplicateProperties(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Object)
@@ -125,12 +141,14 @@ internal static class AiHttpStreaming
             foreach (var item in element.EnumerateArray()) RejectDuplicateProperties(item);
     }
 
+    /// <summary>Appends bounded text to an accumulator, failing closed on null or overflow.</summary>
     private static void Append(StringBuilder buffer, string? text, int limit = MaxSegment)
     {
         if (text == null || text.Length > limit - buffer.Length) throw InvalidStream();
         buffer.Append(text);
     }
 
+    /// <summary>Reads bounded UTF-8 lines from an NDJSON or SSE response body.</summary>
     private static async IAsyncEnumerable<string> Lines(
         Stream stream, [EnumeratorCancellation] CancellationToken ct)
     {
@@ -163,6 +181,7 @@ internal static class AiHttpStreaming
         if (line.Count > 0) yield return encoding.GetString(line.ToArray());
     }
 
+    /// <summary>Parses Server-Sent Events and yields complete <c>data:</c> payloads only.</summary>
     private static async IAsyncEnumerable<string> Events(
         Stream stream, [EnumeratorCancellation] CancellationToken ct)
     {
@@ -194,6 +213,7 @@ internal static class AiHttpStreaming
         if (data.Length != 0) throw InvalidStream();
     }
 
+    /// <summary>Buffers streamed fragments for one OpenAI-style tool call until the final frame arrives.</summary>
     private sealed class PendingCall
     {
         internal string? Id;
@@ -201,6 +221,7 @@ internal static class AiHttpStreaming
         internal readonly StringBuilder Arguments = new();
     }
 
+    /// <summary>Reads a non-streaming provider response and validates the same tool-turn invariants.</summary>
     private static async Task<AiToolTurn> ReadJsonAsync(Stream stream, AiProviderKind kind, CancellationToken ct, string? expectedModel = null)
     {
         using var body = new MemoryStream();
@@ -268,6 +289,7 @@ internal static class AiHttpStreaming
         return new AiToolTurn { AssistantText = text, ToolCalls = calls };
     }
 
+    /// <summary>Reads OpenAI/Azure-compatible SSE frames into one validated assistant turn.</summary>
     private static async Task<AiToolTurn> ReadOpenAiAsync(Stream stream, AiStreamingText narration, CancellationToken ct, string? expectedModel = null)
     {
         var text = new StringBuilder();
@@ -346,6 +368,7 @@ internal static class AiHttpStreaming
         throw InvalidStream();
     }
 
+    /// <summary>Reads Ollama newline-delimited JSON frames into one validated assistant turn.</summary>
     private static async Task<AiToolTurn> ReadOllamaAsync(Stream stream, AiStreamingText narration, CancellationToken ct)
     {
         var text = new StringBuilder();

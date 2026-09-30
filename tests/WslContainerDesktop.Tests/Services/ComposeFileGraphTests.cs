@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Covers Compose <c>include</c>, <c>extends</c> and override graph rules before the importer creates desktop projects.
+/// </summary>
 public sealed class ComposeFileGraphTests
 {
     private const string PrivateInput = "synthetic-private-input";
@@ -1092,6 +1095,9 @@ public sealed class ComposeFileGraphTests
     private static string Indent(string text, int spaces) =>
         string.Join("\n", text.Split('\n').Select(line => new string(' ', spaces) + line));
 
+    /// <summary>
+    /// Creates a disposable on-disk Compose graph so relative paths and includes behave like real files.
+    /// </summary>
     private sealed class Fixture : IDisposable
     {
         private readonly string _directory = Path.Combine(AppContext.BaseDirectory, "compose-graph-" + Guid.NewGuid().ToString("N"));

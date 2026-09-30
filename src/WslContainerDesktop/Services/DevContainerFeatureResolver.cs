@@ -38,6 +38,7 @@ public sealed partial class DevContainerFeatureResolver(
         CommentHandling = JsonCommentHandling.Skip,
     };
 
+    /// <inheritdoc/>
     public async Task<DevContainerDerivedImage?> PrepareDerivedImageAsync(
         DevContainerConfig config,
         string baseImage,
@@ -504,6 +505,7 @@ public sealed partial class DevContainerFeatureResolver(
 
     private sealed record OciReference(string Registry, string Repository, string Tag)
     {
+        /// <summary>Parses an OCI artifact reference into registry, repository, and tag parts.</summary>
         public static OciReference? Parse(string value)
         {
             var slash = value.IndexOf('/');

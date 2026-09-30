@@ -88,8 +88,10 @@ internal sealed class ChildProcessJob : IDisposable
     internal bool Contains(Process process) =>
         IsProcessInJob(process.Handle, _handle, out var result) && result;
 
+    /// <summary>Closes this job handle; any assigned processes are killed by Windows when the handle closes.</summary>
     public void Dispose() => _handle.Dispose();
 
+    /// <summary>Win32 <c>JOBOBJECT_BASIC_LIMIT_INFORMATION</c> fields used inside the extended limit structure.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct JobObjectBasicLimit
     {
@@ -104,6 +106,7 @@ internal sealed class ChildProcessJob : IDisposable
         public uint SchedulingClass;
     }
 
+    /// <summary>Win32 I/O counters required by the extended limit structure layout but not read by the app.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct IoCounters
     {
@@ -115,6 +118,7 @@ internal sealed class ChildProcessJob : IDisposable
         public ulong OtherTransferCount;
     }
 
+    /// <summary>Win32 <c>JOBOBJECT_EXTENDED_LIMIT_INFORMATION</c> used to enable kill-on-close.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct JobObjectExtendedLimit
     {

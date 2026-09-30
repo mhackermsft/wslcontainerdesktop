@@ -54,6 +54,8 @@ public sealed class AddAcrDialog : ContentDialog
     /// <summary>The username to log in with (the well-known AAD token user).</summary>
     public string TokenUsername => AadTokenUsername;
 
+    /// <summary>Creates a new &lt;c&gt;AddAcrDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
+    /// <param name="az">The az value supplied by the caller.</param>
     public AddAcrDialog(IAzureCliService az)
     {
         _az = az;

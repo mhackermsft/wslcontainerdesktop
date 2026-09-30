@@ -46,16 +46,22 @@ public enum CatalogStatus
 /// <summary>Result of a catalog browse call: a status plus the list on success or a message on failure.</summary>
 public sealed class CatalogResult
 {
+    /// <summary>High-level outcome of the browse request.</summary>
     public CatalogStatus Status { get; init; }
 
+    /// <summary>Repository or tag names returned when <see cref="Status"/> is <see cref="CatalogStatus.Ok"/>.</summary>
     public IReadOnlyList<string> Items { get; init; } = Array.Empty<string>();
 
+    /// <summary>User-facing explanation for non-success outcomes.</summary>
     public string? Message { get; init; }
 
+    /// <summary>True when the browse succeeded.</summary>
     public bool IsOk => Status == CatalogStatus.Ok;
 
+    /// <summary>Creates a successful browse result.</summary>
     public static CatalogResult Ok(IReadOnlyList<string> items) => new() { Status = CatalogStatus.Ok, Items = items };
 
+    /// <summary>Creates a failed or unsupported browse result with a user-facing message.</summary>
     public static CatalogResult Fail(CatalogStatus status, string message) => new() { Status = status, Message = message };
 }
 
@@ -92,6 +98,7 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
     private readonly IRegistryCredentialStore _credentials;
     private readonly ILogger<RegistryCatalogService> _logger;
 
+    /// <summary>Creates the catalog browser with HTTP, Azure CLI, credential-store, and logging collaborators.</summary>
     public RegistryCatalogService(
         HttpClient http,
         IAzureCliService azure,
@@ -104,6 +111,7 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public bool CanBrowse(RegistryEntry registry)
     {
         if (registry is null)
@@ -120,6 +128,7 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
         return registry.HasHost && !IsDockerHubHost(registry.Host);
     }
 
+    /// <inheritdoc/>
     public async Task<CatalogResult> ListRepositoriesAsync(RegistryEntry registry, CancellationToken ct = default)
     {
         if (!CanBrowse(registry))
@@ -145,6 +154,7 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
             "registry:catalog:*", "repositories", ct).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public async Task<CatalogResult> ListTagsAsync(RegistryEntry registry, string repository, CancellationToken ct = default)
     {
         if (!CanBrowse(registry) || string.IsNullOrWhiteSpace(repository))

@@ -26,7 +26,9 @@ namespace WslContainerDesktop.Services;
 public sealed class DialogService
 {
     private XamlRoot? _xamlRoot;
+    /// <summary>Dispatcher captured from the active XAML root so callers can marshal dialog work to the UI thread.</summary>
     public Microsoft.UI.Dispatching.DispatcherQueue? Dispatcher { get; private set; }
+    /// <summary>Current window root required by WinUI before a <c>ContentDialog</c> can be shown.</summary>
     public XamlRoot? XamlRoot
     {
         get => _xamlRoot;
@@ -66,6 +68,7 @@ public sealed class DialogService
         }
     }
 
+    /// <summary>Shows an informational dialog with selectable wrapped text, if a window is available.</summary>
     public async Task ShowMessageAsync(string title, string message)
     {
         if (XamlRoot is null)
@@ -94,6 +97,7 @@ public sealed class DialogService
         await dialog.ShowAsync();
     }
 
+    /// <summary>Shows a yes/cancel confirmation dialog and returns true only for the primary button.</summary>
     public async Task<bool> ShowConfirmAsync(string title, string message, string primaryText = "Yes", string closeText = "Cancel")
     {
         if (XamlRoot is null)

@@ -21,6 +21,8 @@ namespace WslContainerDesktop.Helpers;
 /// <summary>Reports expected inventory failures at an awaitable UI command boundary.</summary>
 internal static class ContainerInventoryOperation
 {
+    /// <summary>Runs an inventory action and reports expected parse/list failures without crashing the command.</summary>
+    /// <returns>True when the action completed; false when a handled inventory failure was reported.</returns>
     internal static async Task<bool> RunAsync(Func<Task> action, Func<Exception, Task> reportFailure)
     {
         try

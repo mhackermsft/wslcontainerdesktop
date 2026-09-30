@@ -68,12 +68,18 @@ public sealed class WslRootShell(ISettingsService settings)
         return psi;
     }
 
+    /// <summary>
+    /// Runs a root shell command and returns its completed result.
+    /// </summary>
     public Task<CommandResult> RunAsync(string bashCommand, CancellationToken ct) =>
         ProcessExecutor.RunAsync(
             BaseStartInfo(bashCommand),
             launchErrorContext: "Could not launch wsl.exe.",
             ct: ct);
 
+    /// <summary>
+    /// Runs a root shell command while streaming caller-provided standard input.
+    /// </summary>
     public Task<CommandResult> RunWithStdinAsync(string bashCommand, string stdin, CancellationToken ct) =>
         ProcessExecutor.RunAsync(
             BaseStartInfo(bashCommand),
@@ -81,6 +87,9 @@ public sealed class WslRootShell(ISettingsService settings)
             launchErrorContext: "Could not launch wsl.exe.",
             ct: ct);
 
+    /// <summary>
+    /// Runs a root shell command and streams output to the caller as it arrives.
+    /// </summary>
     public Task<CommandResult> RunStreamingAsync(string bashCommand, Action<string> onOutput, CancellationToken ct) =>
         ProcessExecutor.RunAsync(
             BaseStartInfo(bashCommand),

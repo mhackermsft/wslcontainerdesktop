@@ -303,6 +303,7 @@ public sealed class FoundryLocalSetupTests
 
     private static CommandResult Ok(string output) => new() { StandardOutput = output };
 
+    /// <summary>Provides fake settings, CLI results, and runtime metadata for setup-service tests.</summary>
     private sealed class Fixture
     {
         internal readonly Dictionary<string, object?> Values = new()

@@ -20,6 +20,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Verifies assistant tool orchestration so mutations require exact approval and untrusted chat evidence cannot authorize work.
+/// </summary>
 public sealed class AssistantOrchestrationContractTests
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);

@@ -32,6 +32,7 @@ public sealed class SaveRunProfileDialog : ContentDialog
     /// <summary>The profile name the user confirmed, trimmed.</summary>
     public string ProfileName { get; private set; } = string.Empty;
 
+    /// <summary>Creates the dialog used to name and review a run profile before it is saved.</summary>
     public SaveRunProfileDialog(string suggestedName, RunContainerOptions options, IReadOnlyList<string> notCaptured,
         IReadOnlyList<string>? warnings = null)
     {
@@ -161,6 +162,16 @@ public sealed class SaveRunProfileDialog : ContentDialog
         foreach (var volume in o.Volumes)
         {
             lines.Add($"mount: {volume}");
+        }
+
+        foreach (var mount in o.Mounts)
+        {
+            lines.Add($"mount: {mount.ToArgument()}");
+        }
+
+        if (o.StopTimeoutSeconds is int stopTimeout)
+        {
+            lines.Add($"stop timeout: {stopTimeout}");
         }
 
         if (!string.IsNullOrWhiteSpace(o.WorkingDir))

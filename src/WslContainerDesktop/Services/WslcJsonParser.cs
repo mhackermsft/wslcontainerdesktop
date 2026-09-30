@@ -20,6 +20,10 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Parses the JSON shapes emitted by <c>wslc.exe</c> inventory commands and rejects ambiguous or
+/// partial data so callers do not act on an incomplete resource list.
+/// </summary>
 internal static class WslcJsonParser
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -32,6 +36,7 @@ internal static class WslcJsonParser
         AllowMultipleValues = true,
     };
 
+    /// <summary>Parses a successful volume inventory and requires each volume to have a unique name.</summary>
     internal static IReadOnlyList<VolumeInfo> ParseVolumes(CommandResult result)
     {
         CheckInventoryResult(result);
@@ -42,6 +47,7 @@ internal static class WslcJsonParser
         return volumes;
     }
 
+    /// <summary>Parses a successful image inventory and requires each image to have an identity.</summary>
     internal static IReadOnlyList<ImageInfo> ParseImages(CommandResult result)
     {
         CheckInventoryResult(result);
@@ -51,6 +57,7 @@ internal static class WslcJsonParser
         return images;
     }
 
+    /// <summary>Throws when an inventory command failed, because failure means absence is unknown.</summary>
     private static void CheckInventoryResult(CommandResult result)
     {
         if (!result.Success)
@@ -67,7 +74,7 @@ internal static class WslcJsonParser
         return containers;
     }
 
-    /// <summary>Parses either the legacy JSON array or the object stream emitted by WSL 2.9.9.</summary>
+    /// <summary>Parses either a JSON array or newline-delimited object stream.</summary>
     internal static IReadOnlyList<T> ParseList<T>(string output)
     {
         ArgumentNullException.ThrowIfNull(output);

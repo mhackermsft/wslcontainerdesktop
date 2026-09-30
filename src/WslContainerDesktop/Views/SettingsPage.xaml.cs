@@ -23,8 +23,10 @@ using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
 
+/// <summary>Page for app preferences, updates, startup behavior, and local or remote AI provider setup.</summary>
 public sealed partial class SettingsPage : Page
 {
+    /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public SettingsPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<SettingsViewModel>();
@@ -34,8 +36,10 @@ public sealed partial class SettingsPage : Page
         ViewModel.ThemeChangeRequested += (_, theme) => App.Current.MainWindow?.ApplyTheme(theme);
     }
 
+    /// <summary>Settings view model bound by the page.</summary>
     public SettingsViewModel ViewModel { get; }
 
+    /// <summary>Update view model shared with the shell so Settings can trigger update checks.</summary>
     public AppUpdateViewModel Updates { get; }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

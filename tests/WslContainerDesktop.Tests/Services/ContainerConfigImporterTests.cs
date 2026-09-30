@@ -21,6 +21,9 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>
+/// Verifies importing an existing container into a run profile without fabricating unsafe mounts, ports or identities.
+/// </summary>
 public sealed class ContainerConfigImporterTests
 {
     [Fact]
@@ -263,6 +266,20 @@ public sealed class ContainerConfigImporterTests
         var profile = Assert.Single(profiles);
         Assert.Empty(profile.Options.Volumes);
         Assert.Equal("80:80", Assert.Single(profile.Options.PortMappings));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(20)]
+    public void StopTimeoutFromInspectIsCaptured(int timeout)
+    {
+        var options = ContainerConfigImporter.FromInspect(
+            $$"""{"Image":"test","Config":{"StopTimeout":{{timeout}}},"Mounts":[]}""",
+            out var warnings)!;
+
+        Assert.Empty(warnings);
+        Assert.Equal(timeout, options.StopTimeoutSeconds);
+        Assert.Contains("--stop-timeout", options.ToArguments());
     }
 
     private static RunProfile RoundTrip(RunContainerOptions options)

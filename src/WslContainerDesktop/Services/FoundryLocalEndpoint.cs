@@ -23,6 +23,7 @@ namespace WslContainerDesktop.Services;
 /// <summary>No inferred endpoint, DNS destination, proxy, credentials, or redirect escape.</summary>
 public static class FoundryLocalEndpoint
 {
+    /// <summary>Validates the base endpoint supplied in settings and restricts it to local HTTP addresses.</summary>
     public static Uri Validate(string? endpoint)
     {
         var value = endpoint?.Trim() ?? "";
@@ -36,6 +37,7 @@ public static class FoundryLocalEndpoint
         return uri;
     }
 
+    /// <summary>Combines a validated Foundry endpoint with one API route.</summary>
     public static Uri BuildUri(string endpoint, string route)
     {
         var uri = Validate(endpoint);
@@ -54,9 +56,13 @@ public static class FoundryLocalEndpoint
 /// <summary>Kept separate from the shared client, which permits redirects.</summary>
 public sealed class FoundryLocalHttpClient : IDisposable
 {
+    /// <summary>Provider-neutral HTTP wrapper used by the OpenAI-compatible Foundry provider.</summary>
     internal AiHttpClient Transport { get; }
+    /// <summary>Creates the default Foundry Local HTTP client.</summary>
     public FoundryLocalHttpClient() : this(CreateHandler()) { }
+    /// <summary>Creates a Foundry client with an injectable handler for tests.</summary>
     internal FoundryLocalHttpClient(HttpMessageHandler handler) => Transport = new AiHttpClient(handler);
+    /// <summary>Creates the HTTP handler that connects only to the resolved local Foundry socket.</summary>
     internal static SocketsHttpHandler CreateHandler() => new()
     {
         AllowAutoRedirect = false,
@@ -66,6 +72,7 @@ public sealed class FoundryLocalHttpClient : IDisposable
         ConnectCallback = ConnectLoopbackAsync,
     };
 
+    /// <summary>Converts a DNS endpoint to the loopback IP endpoint that Foundry Local actually listens on.</summary>
     internal static IPEndPoint SocketEndpoint(DnsEndPoint endpoint)
     {
         var address = endpoint.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
@@ -92,5 +99,6 @@ public sealed class FoundryLocalHttpClient : IDisposable
             throw;
         }
     }
+    /// <summary>Disposes the underlying HTTP transport.</summary>
     public void Dispose() => Transport.Dispose();
 }

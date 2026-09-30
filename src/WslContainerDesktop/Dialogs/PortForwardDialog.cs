@@ -33,8 +33,10 @@ public sealed class PortForwardDialog : ContentDialog
     private readonly List<(string Namespace, string Name)> _pods;
     private readonly List<(string Namespace, string Name)> _services;
 
+    /// <summary>Gets or sets the result.</summary>
     public PortForward? Result { get; private set; }
 
+    /// <summary>Creates the dialog with the available Kubernetes pods and services to choose from.</summary>
     public PortForwardDialog(
         List<(string Namespace, string Name)> pods,
         List<(string Namespace, string Name)> services)

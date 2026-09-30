@@ -36,10 +36,12 @@ public sealed class DevContainerStore : IDevContainerStore
     private readonly object _gate = new();
     private readonly string _file;
 
+    /// <summary>Creates a store backed by the user's local app-data <c>devcontainers.json</c>.</summary>
     public DevContainerStore(ILogger<DevContainerStore> logger) : this(logger, DevContainersFile)
     {
     }
 
+    /// <summary>Creates a store with an explicit file path for deterministic tests.</summary>
     internal DevContainerStore(ILogger<DevContainerStore> logger, string file)
     {
         _logger = logger;
@@ -47,6 +49,7 @@ public sealed class DevContainerStore : IDevContainerStore
         Load();
     }
 
+    /// <summary>Returns all known dev container configurations sorted by display name.</summary>
     public IReadOnlyList<DevContainerConfig> GetAll()
     {
         lock (_gate)
@@ -55,6 +58,7 @@ public sealed class DevContainerStore : IDevContainerStore
         }
     }
 
+    /// <summary>Finds one saved dev container configuration by id, ignoring blank ids.</summary>
     public DevContainerConfig? Get(string id)
     {
         if (string.IsNullOrWhiteSpace(id))
@@ -68,6 +72,7 @@ public sealed class DevContainerStore : IDevContainerStore
         }
     }
 
+    /// <summary>Adds or replaces a dev container configuration and persists the JSON file.</summary>
     public void Save(DevContainerConfig config)
     {
         if (config is null || string.IsNullOrWhiteSpace(config.Id))
@@ -85,6 +90,7 @@ public sealed class DevContainerStore : IDevContainerStore
         }
     }
 
+    /// <summary>Removes a saved configuration by id and persists when something changed.</summary>
     public void Delete(string id)
     {
         if (string.IsNullOrWhiteSpace(id))
@@ -101,6 +107,7 @@ public sealed class DevContainerStore : IDevContainerStore
         }
     }
 
+    /// <summary>Loads saved configurations, filling newer nullable collections with safe defaults.</summary>
     private void Load()
     {
         try
@@ -145,6 +152,7 @@ public sealed class DevContainerStore : IDevContainerStore
         }
     }
 
+    /// <summary>Writes the store through a temporary file so a crash does not leave partial JSON.</summary>
     private void Persist()
     {
         var temporary = _file + "." + Guid.NewGuid().ToString("N") + ".tmp";

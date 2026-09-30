@@ -39,17 +39,20 @@ public sealed class TemplateConfigStore : ITemplateConfigStore
     private readonly ILogger<TemplateConfigStore> _logger;
     private readonly List<TemplateConfig> _configs = new();
 
+    /// <summary>Loads persisted template settings from disk, falling back to an empty list on failure.</summary>
     public TemplateConfigStore(ILogger<TemplateConfigStore> logger)
     {
         _logger = logger;
         Load();
     }
 
+    /// <inheritdoc/>
     public TemplateConfig? Get(string templateId) =>
         string.IsNullOrWhiteSpace(templateId)
             ? null
             : _configs.FirstOrDefault(c => string.Equals(c.TemplateId, templateId.Trim(), StringComparison.OrdinalIgnoreCase));
 
+    /// <inheritdoc/>
     public void Save(TemplateConfig config)
     {
         if (config is null || string.IsNullOrWhiteSpace(config.TemplateId))
@@ -63,6 +66,7 @@ public sealed class TemplateConfigStore : ITemplateConfigStore
         Persist();
     }
 
+    /// <inheritdoc/>
     public void Delete(string templateId)
     {
         if (string.IsNullOrWhiteSpace(templateId))

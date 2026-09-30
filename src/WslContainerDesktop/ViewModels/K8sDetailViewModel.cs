@@ -25,59 +25,75 @@ namespace WslContainerDesktop.ViewModels;
 /// Backs the single-object drill-down page. Loads Summary/Kube/Describe/Logs for one
 /// Kubernetes object and exposes actions (edit-and-apply, delete, scale, restart, etc).
 /// </summary>
+/// <summary>Detail-page view model for one Kubernetes resource, showing YAML, describe output, logs, and resource-specific actions.</summary>
 public partial class K8sDetailViewModel : ObservableObject
 {
     private readonly IKubernetesService _k8s;
     private readonly DialogService _dialogs;
 
+    /// <summary>The Kubernetes resource currently loaded into the detail page.</summary>
     public K8sResourceRef? Resource { get; private set; }
 
+    /// <summary>Resource name used as the page title.</summary>
     [ObservableProperty]
     private string _title = string.Empty;
 
+    /// <summary>Kind and namespace text shown under the title.</summary>
     [ObservableProperty]
     private string _subtitle = string.Empty;
 
+    /// <summary>Friendly resource kind such as pod, deployment, or cron job.</summary>
     [ObservableProperty]
     private string _displayKind = string.Empty;
 
+    /// <summary>Editable YAML fetched from the cluster.</summary>
     [ObservableProperty]
     private string _yaml = string.Empty;
 
+    /// <summary>Output from <c>kubectl describe</c> for troubleshooting.</summary>
     [ObservableProperty]
     private string _describeText = string.Empty;
 
+    /// <summary>Latest pod logs, or a placeholder when the resource has no logs.</summary>
     [ObservableProperty]
     private string _logsText = string.Empty;
 
+    /// <summary>Generated busy flag used while refreshing resource details.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Generated flag used while applying edited YAML back to the cluster.</summary>
     [ObservableProperty]
     private bool _applyingKube;
 
     // Capability gates for the view.
+    /// <summary>True when the loaded resource can show pod logs.</summary>
     [ObservableProperty]
     private bool _supportsLogs;
 
+    /// <summary>True when scale and rollout-restart commands are valid for this resource.</summary>
     [ObservableProperty]
     private bool _supportsScale;
 
+    /// <summary>True when cron-job suspend and trigger commands are valid for this resource.</summary>
     [ObservableProperty]
     private bool _supportsCron;
 
+    /// <summary>True when the loaded cron job is currently suspended.</summary>
     [ObservableProperty]
     private bool _cronSuspended;
 
     /// <summary>Raised after a delete so the host page can navigate back.</summary>
     public event Action? Deleted;
 
+    /// <summary>Creates the detail model with the Kubernetes facade and dialog service.</summary>
     public K8sDetailViewModel(IKubernetesService k8s, DialogService dialogs)
     {
         _k8s = k8s;
         _dialogs = dialogs;
     }
 
+    /// <summary>Loads a resource reference and refreshes all detail panes.</summary>
     public async Task LoadAsync(K8sResourceRef reference)
     {
         Resource = reference;
@@ -93,6 +109,7 @@ public partial class K8sDetailViewModel : ObservableObject
         await RefreshAllAsync();
     }
 
+    /// <summary>Refreshes YAML, describe output, and logs for the loaded resource.</summary>
     [RelayCommand]
     private async Task RefreshAllAsync()
     {
@@ -141,6 +158,7 @@ public partial class K8sDetailViewModel : ObservableObject
         }
     }
 
+    /// <summary>Refreshes only the logs pane for resources that support logs.</summary>
     [RelayCommand]
     private async Task RefreshLogsAsync()
     {
@@ -157,6 +175,7 @@ public partial class K8sDetailViewModel : ObservableObject
         }
     }
 
+    /// <summary>Applies the edited YAML to the cluster and refreshes the detail panes.</summary>
     [RelayCommand]
     private async Task ApplyKubeAsync()
     {
@@ -189,6 +208,7 @@ public partial class K8sDetailViewModel : ObservableObject
         }
     }
 
+    /// <summary>Confirms and deletes the loaded Kubernetes resource.</summary>
     [RelayCommand]
     private async Task DeleteAsync()
     {
@@ -217,6 +237,7 @@ public partial class K8sDetailViewModel : ObservableObject
         }
     }
 
+    /// <summary>Prompts for a replica count and scales the loaded deployment-like resource.</summary>
     [RelayCommand]
     private async Task ScaleAsync()
     {
@@ -243,6 +264,7 @@ public partial class K8sDetailViewModel : ObservableObject
         await RefreshAllAsync();
     }
 
+    /// <summary>Runs a rollout restart for the loaded deployment-like resource.</summary>
     [RelayCommand]
     private async Task RestartAsync()
     {
@@ -260,6 +282,7 @@ public partial class K8sDetailViewModel : ObservableObject
         await RefreshAllAsync();
     }
 
+    /// <summary>Toggles suspend on the loaded cron job.</summary>
     [RelayCommand]
     private async Task ToggleSuspendAsync()
     {
@@ -278,6 +301,7 @@ public partial class K8sDetailViewModel : ObservableObject
         await RefreshAllAsync();
     }
 
+    /// <summary>Creates a one-off job from the loaded cron job.</summary>
     [RelayCommand]
     private async Task TriggerCronAsync()
     {

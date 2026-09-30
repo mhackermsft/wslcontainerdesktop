@@ -145,6 +145,15 @@ public static class ContainerConfigImporter
             options.User = user;
         }
 
+        if (config.ValueKind == JsonValueKind.Object &&
+            config.TryGetProperty("StopTimeout", out var stopTimeout) &&
+            stopTimeout.ValueKind == JsonValueKind.Number &&
+            stopTimeout.TryGetInt32(out var timeout) &&
+            timeout >= -1)
+        {
+            options.StopTimeoutSeconds = timeout;
+        }
+
         // Port mappings: top-level "Ports" map ("80/tcp" -> [{HostIp,HostPort}]).
         if (container.TryGetProperty("Ports", out var ports) && ports.ValueKind == JsonValueKind.Object)
         {
@@ -185,6 +194,7 @@ public static class ContainerConfigImporter
         return options;
     }
 
+    /// <summary>Imports reusable bind and named-volume mounts while warning about ambiguous storage.</summary>
     private static void ImportMounts(JsonElement container, RunContainerOptions options, List<string> warnings)
     {
         var mounts = ContainerMounts.Parse(container);
@@ -234,6 +244,7 @@ public static class ContainerConfigImporter
         }
     }
 
+    /// <summary>Converts one normalized mount into profile syntax, or null when reuse is unsafe.</summary>
     private static string? BuildMountSpec(ContainerMount mount, string target, List<string> warnings)
     {
         string? source;
@@ -284,6 +295,7 @@ public static class ContainerConfigImporter
         return $"{source}:{target}{(mount.ReadOnly == true ? ":ro" : string.Empty)}";
     }
 
+    /// <summary>Normalizes a Linux container destination and rejects paths the profile syntax cannot represent safely.</summary>
     private static string? NormalizeTarget(string? destination)
     {
         if (string.IsNullOrWhiteSpace(destination) || destination != destination.Trim() || !destination.StartsWith('/') ||
@@ -301,6 +313,7 @@ public static class ContainerConfigImporter
         return "/" + string.Join('/', parts);
     }
 
+    /// <summary>True when a bind source is an absolute Windows/UNC path that can be saved for reuse.</summary>
     private static bool IsReusableHostPath(string? source)
     {
         if (string.IsNullOrWhiteSpace(source) || source != source.Trim() ||
@@ -329,6 +342,7 @@ public static class ContainerConfigImporter
             !parts[0].Equals("wsl.localhost", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Finds the first non-default network from inspect metadata for the saved run profile.</summary>
     private static string? ResolveNetwork(JsonElement container)
     {
         string? network = null;
@@ -360,15 +374,18 @@ public static class ContainerConfigImporter
         return network;
     }
 
+    /// <summary>Splits inspect keys like <c>80/tcp</c> into port and protocol pieces.</summary>
     private static (string Port, string Proto) SplitPortProto(string key)
     {
         var slash = key.IndexOf('/');
         return slash < 0 ? (key, string.Empty) : (key[..slash], key[(slash + 1)..]);
     }
 
+    /// <summary><c>wslc inspect</c> may return a single object or a one-element array; normalize to the object.</summary>
     private static JsonElement Unwrap(JsonElement root) =>
         root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0 ? root[0] : root;
 
+    /// <summary>Reads a string property when present, otherwise returns null.</summary>
     private static string? GetString(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object &&
         element.TryGetProperty(property, out var value) &&
@@ -376,6 +393,7 @@ public static class ContainerConfigImporter
             ? value.GetString()
             : null;
 
+    /// <summary>Reads a JSON string array, ignoring non-string or empty entries.</summary>
     private static IReadOnlyList<string> GetStringArray(JsonElement element, string property)
     {
         if (element.ValueKind != JsonValueKind.Object ||

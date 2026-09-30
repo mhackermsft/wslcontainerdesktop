@@ -25,6 +25,7 @@ namespace WslContainerDesktop.Services;
 /// <summary>Shows one host-script decision on the UI thread; missing or unavailable UI declines.</summary>
 public sealed class DevContainerHostCommandPresenter(DialogService dialogs) : IDevContainerHostCommandPresenter
 {
+    /// <inheritdoc/>
     public async Task<bool> ConfirmAsync(DevContainerHostCommandReview review, CancellationToken ct = default)
     {
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -36,6 +37,7 @@ public sealed class DevContainerHostCommandPresenter(DialogService dialogs) : ID
         return await completion.Task.ConfigureAwait(false);
     }
 
+    /// <summary>Shows the approval dialog on the captured dispatcher and fails closed on cancellation or UI errors.</summary>
     private async Task ShowAsync(DevContainerHostCommandReview review, TaskCompletionSource<bool> completion,
         DispatcherQueue dispatcher, CancellationToken ct)
     {
@@ -54,8 +56,10 @@ public sealed class DevContainerHostCommandPresenter(DialogService dialogs) : ID
         }
     }
 
+    /// <summary>WinUI dialog that explains why Windows-host Dev Container commands need explicit approval.</summary>
     private sealed class HostCommandDialog : ContentDialog
     {
+        /// <summary>Builds the dialog content from already-sanitized review text.</summary>
         public HostCommandDialog(DevContainerHostCommandReview review)
         {
             Title = "Allow Windows host commands?";
@@ -104,6 +108,7 @@ public sealed class DevContainerHostCommandPresenter(DialogService dialogs) : ID
             };
         }
 
+        /// <summary>Adds automation ids after WinUI creates the dialog buttons.</summary>
         protected override void OnApplyTemplate()
         {
             base.OnApplyTemplate();

@@ -20,6 +20,7 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
+/// <summary>Covers manual restart suppression state so explicit stop, start, cancellation, identity changes, and stale tokens interact predictably.</summary>
 public sealed class RestartSuppressionStateTests
 {
     [Fact]

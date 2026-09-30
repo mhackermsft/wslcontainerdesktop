@@ -12,7 +12,7 @@ covers the layer boundaries, the key runtime services, and a few non-obvious des
 
 WSL Container Desktop is a native **WinUI 3 / .NET 10** desktop app that manages:
 
-- **WSL containers** via the `wslc.exe` preview CLI,
+- **WSL containers** via the `wslc.exe` CLI (WSL/wslc 3.0.1 or later),
 - a single-node **Kubernetes (k3s)** cluster hosted inside a WSL distro, and
 - **container registries** (Docker Hub, generic, and Azure Container Registry).
 
@@ -68,6 +68,8 @@ Supporting layers: **Models** (DTOs, parsers, and simple state records), **Helpe
 - in `OnLaunched`, resolves the `StatusMonitor`, wires the tray, creates the main window, and
   either shows it or hides it to the tray (honoring the *Start minimized* setting and detecting
   launch-at-sign-in via the `StartupTask` activation kind);
+- performs the initial WSL/wslc requirement check, starts the `EngineEventStream`, and attaches the
+  `ActivityLog` before background health/restart/autostart services subscribe to monitor updates;
 - disposes the DI container on exit so `IDisposable` singletons are torn down.
 
 ---
@@ -167,9 +169,19 @@ timeout, and cancel/timeout process-tree kill. Callers only build a `ProcessStar
   **shell-argument escaping** (`ShellEscape`, `SafeKind`, `NsSelector`, `NsArg`).
 - `AzureCliService` builds its own `ProcessStartInfo` for `az` (with a default timeout).
 
-Long-lived child processes (streaming `logs -f`, `kubectl port-forward`) are **not** run through
-`ProcessExecutor`; they are owned by `LogStreamer` and `PortForwardManager` respectively, which
-hold the `Process` and tear it down on stop/dispose.
+Long-lived child processes (streaming `logs -f`, `wslc events`, `kubectl port-forward`) are **not**
+run through `ProcessExecutor`; they are owned by `LogStreamer`, `EngineEventStream` and
+`PortForwardManager` respectively, which hold the `Process` and tear it down on stop/dispose.
+
+The app now gates on WSL/wslc **3.0.1** and treats commands/flags advertised by that help as the
+baseline, not as optional probes. Code directly uses native `restart`, `stop -t/-s`,
+run/create `--stop-timeout`, structured `--mount`, `network connect`/`disconnect`, pull/push
+`--all-tags`, `images --digests`, `list`/`inspect --size`, `logs --timestamps`,
+`container cp --follow-link --quiet`, and `save`/`load`/`import`/`export`/`attach`. The service
+layer also accepts `images --all` and `logs --details`, but the UI does not offer them: intermediate
+layers and the (usually empty) log details are not useful to people using the app.
+`IWslcCapabilitiesService` is only for future features beyond that baseline (currently
+run/create `--health-start-interval`) and must never reintroduce 2.9.x-style fallbacks.
 
 **Secrets never touch a command line.** Registry logins use `wslc login --password-stdin` and the
 token/password is written to stdin. ACR tokens obtained from `az acr login --expose-token` live
@@ -187,12 +199,45 @@ into cohesive collaborators over the shared `WslRootShell`:
   `kubectl get -o yaml` can be re-applied.
 - `K8sStatusProtocol` — the marker protocol (below).
 
+### Engine events (`EngineEventStream`, `WslcEventParser`, `ActivityLog`)
+
+`EngineEventStream` owns the long-lived `wslc events` process. The command is text-only in 3.0.1,
+so `WslcEventParser` parses lines shaped like:
+
+```text
+<RFC3339 timestamp> <Type> <Action> <ActorID> (key=value, key=value)
+```
+
+Attributes are split only on `, ` followed by another key, so values may contain spaces or angle
+brackets. Malformed lines are skipped with debug logging. Events are delivered on the UI thread via
+the captured `DispatcherQueue`, stored in a 500-entry in-memory ring buffer, and de-duplicated by a
+stable key (`timestamp|type|action|actor|attributes`).
+
+When the stream exits, it reconnects with exponential backoff from 1 to 30 seconds. After the first
+event, reconnects pass `--since <last-event-unix-seconds>` and rely on the stable-key de-dup set to
+avoid replay duplicates. Settings or requirement changes kill the current process so the next loop
+uses the new executable or waits for the gate to become `Ok`.
+
+Events complement polling; they are **not** health truth. `StatusMonitor` debounces container and
+network events into a refresh request, and it lengthens its ordinary poll interval while the event
+stream is connected, but container state, native health and k8s status still come from the monitor's
+poll snapshots. Exit toasts are decided only by the poll-snapshot diff (which skips removed
+containers and self-initiated stops); events merely make that diff run sooner. `ActivityLog` records
+parsed engine events, and falls back to snapshot-diff container entries only while the stream is
+disconnected, into
+`activity.json`; the Activity page can seed the last hour through `wslc events --since/--until`,
+filter/search by category, show live connection state, pause display updates and clear the persisted
+timeline.
+
 ### Status polling (`StatusMonitor`)
 
 A **single** background poller is the source of truth for engine and cluster health, so the tray,
 the status bar, and every page observe one stream instead of polling independently. It:
 
-- polls the container engine and the k3s footer status on the configured cadence,
+- consults `WslRequirementService` first and publishes a gated/down engine snapshot instead of
+  polling `wslc` while the 3.0.1 requirement is not satisfied,
+- polls the container engine and the k3s footer status on the configured cadence (slower while
+  `EngineEventStream` is connected, with event-triggered refreshes in between),
 - raises `StatusChanged` / `K8sStatusChanged` **on the UI thread** (via the captured
   `DispatcherQueue`),
 - compares consecutive snapshots to emit toast notifications for engine up/down transitions
@@ -214,6 +259,26 @@ muted (also from the tray menu).
 
 The **tray** menu is status-driven: it shows the live running-container count, per-container quick
 start/stop actions, and a *Mute notifications* toggle.
+
+The tray's hidden top-level window also answers Windows' close requests. `WM_QUERYENDSESSION`
+(sign-out, shutdown, and Restart Manager / MSIX servicing during an app update) marks the app as
+exiting so close-to-tray no longer vetoes `AppWindow.Closing`; `WM_ENDSESSION` with `wParam` true
+queues the normal `ExitApplication` cleanup (it cannot run synchronously because it destroys the
+window handling the message), and `false` (cancelled) clears the flag. Without this, servicing
+waited ~40 seconds, logged an application hang, and terminated the process without cleanup.
+
+### Flag help (`FlagHelp`, `InfoTip`)
+
+Every option whose effect is not obvious from its label — typically one that maps to an engine flag
+or a non-obvious engine concept — has one entry in `Helpers/FlagHelp.cs` (title, flag, plain-language text) and is shown through
+`Views/Controls/InfoTip`: an (i) button whose tooltip gives the text on hover and whose flyout gives
+the title, flag and text on click or Enter. Code-built dialogs use `InfoTip.Header(...)` for field
+headers. Buttons (including toggle and drop-down buttons) never get a separate (i): they show the
+title, flag and text in their own rich hover tooltip. Self-explanatory fields (name, ports,
+environment, volumes, command, tag) get no help. Controls are only offered when they are useful:
+actions that cannot work in the current state (for example Kill or Attach on a stopped container,
+or opening a port that is not published) are hidden rather than left as no-ops.
+Keep wording accurate to the engine's help output and to what the app actually passes.
 
 ### Settings (`SettingsService`)
 
@@ -273,6 +338,83 @@ so `wsl.exe` emits UTF-8, not UTF-16LE), and shuts WSL down via `ShutdownWslAsyn
 (`wsl --shutdown`). Note that a WSL `.vhdx` grows but never shrinks on its own; the reliable way to
 reclaim space is pruning images/containers/volumes on the *Disk usage* page.
 
+### WSL container requirement gate (`WslRequirementService`)
+
+`WslRequirementService` is the hard gate for container-engine features. `WslcRequirements` defines
+the minimum `Version(3, 0, 1, 0)` and the GA announcement link; `WslcVersionParser` accepts
+`wslc N.N[.N[.N]]` or `container N.N[.N[.N]]` version output and normalizes missing build/revision
+components to zero. A requirement snapshot is one of:
+
+- `Ok(foundVersion)` — the configured executable exists, is allowed by policy, and is at least 3.0.1;
+- `NotInstalled` — the configured `wslc.exe` path is empty or missing;
+- `TooOld(foundVersion)` — the parsed version is below 3.0.1;
+- `DisabledByPolicy` — `WslPolicyService` or the engine says WSL containers are disabled;
+- `Unknown(diagnostic)` — the executable ran but could not be verified, or an I/O/access/process
+  error prevented evaluation.
+
+The initial re-check starts from `App.OnLaunched` on the UI thread; `StatusMonitor` publishes no
+snapshot (and so no transition baseline) until that first evaluation completes. The service
+re-evaluates when settings change (including the `wslc.exe` path), automatically with capped backoff
+while not `Ok` (5 → 15 → 30 → 60 seconds for `Unknown`/`NotInstalled`, every 60 seconds for
+`TooOld`/`DisabledByPolicy`), and the gate UI exposes explicit **Update WSL**
+(`IWslSystemService.UpdateWslAsync(includePreRelease: false)`) and **Re-check** actions. `StatusMonitor`
+listens for requirement changes and publishes a down/empty engine snapshot instead of polling
+containers while the state is not `Ok`; `EngineEventStream` stops or waits while gated. `MainWindow`
+uses `RequirementGateView` over gated pages and disables their nav items. Settings, WSL Engine and
+Kubernetes remain reachable; Dashboard remains selectable as the landing surface for the gate, and
+container-engine pages (Containers, Images, Volumes, Networks, Activity, Registries, Compose,
+Dev Containers, Templates, Reclaim space and Endpoints) are blocked until the requirement is `Ok`.
+
+### Enterprise WSL policy (`WslPolicyService`, `WslRegistryPolicyGuard`)
+
+`RegistryWslPolicyRegistryReader` reads `HKLM\Software\Policies\WSL`. `AllowWSL` and
+`AllowWSLContainer` are `REG_DWORD` values where absent or nonzero means allowed and `0` means
+blocked. `WSLContainerRegistryAllowlist` is a subkey containing `REG_SZ` values; empty strings are
+ignored, values are trimmed/deduplicated case-insensitively, and absent/empty means unrestricted.
+Non-string values or registry read failures make the allowlist `Invalid`, which fails closed for
+registry operations.
+
+The policy service feeds three choke points:
+
+- the requirement gate treats disabled WSL/WSL-container policy as `DisabledByPolicy`;
+- `WslcService` pre-checks image references for run/create, pull and push (local `save`, `load`,
+  `import` and `tag` are not checked because they contact no registry), including
+  Docker Hub aliases (`docker.io`, `index.docker.io`, `registry-1.docker.io`);
+- image builds are refused whenever an allowlist is configured or invalid, because `wslc build`
+  cannot prove every registry contacted by the Dockerfile is allowed. The Images page disables its
+  Build action accordingly, and Compose build reconciliation returns the same blocker before
+  mutating workloads.
+
+`CommandErrorText.Friendly` maps engine policy errors into the same user-facing language:
+"WSL container is disabled by the computer policy", invalid allowlist text, and registry-blocked
+messages are replaced with administrator/action guidance rather than surfacing raw engine output.
+The Registries page shows the current allowlist or invalid-policy banner.
+
+### WSL container system info and settings file
+
+`WslcService.GetSystemInfoAsync` runs `wslc system info --format json` and deserializes the client
+and server model (`WslcSystemInfo`): client/version/platform fields, `Client.SettingsFile`, server
+session-manager version and active sessions. These are diagnostic detail rather than something a
+user acts on, so the WSL Engine page does not show them; `AiDiagnosticsService` adds the sanitized
+model to diagnosis evidence, and the assistant tool catalog exposes the same read-only data as `engine_system_info`; `WslcSystemInfo.Sanitized`
+replaces the user's profile prefix in `SettingsFile` with `%USERPROFILE%`.
+
+`WslcSettingsFileService` reads the settings path from `system info` (`Client.SettingsFile`) and
+falls back to `%LOCALAPPDATA%\wslc\settings.yaml` only when system info is unavailable. It parses
+plain YAML scalars for `session.storagePath`, `session.cpuCount`, `session.memorySize`,
+`session.maxStorageSize`, `session.defaultBindingAddress` and top-level `credentialStore`.
+Changing container storage validates that the chosen directory exists, is a directory and is empty,
+then edits only `session.storagePath` using a single-quoted YAML scalar so Windows backslashes,
+`#` and `: ` remain literal; `default` stays an unquoted scalar.
+
+The service deliberately rewrites only an **existing** settings file in place. In a packaged app,
+creating a new file, temp file or replacement below `%LOCALAPPDATA%` would be redirected into the
+package's private AppData where external `wslc.exe` cannot see it; Windows 10 before 1903 also lacks
+the copy-on-write behavior needed for safe in-place AppData edits, so direct editing is disabled
+there. When direct edit is unavailable, the WSL Engine page falls back to **Edit settings file**
+(`wslc settings`) and displays the reason. Storage size is estimated by scanning `.vhdx`/`.vhd`
+files under the effective storage path; it is presentation data, not prune authorization.
+
 ### Run profiles (`RunProfileStore`, `ComposeImporter`)
 
 Reusable named run configurations (image, name, ports, env vars, volumes, network, flags) are
@@ -290,7 +432,7 @@ be saved as a profile** (`ContainerConfigImporter` → `SaveRunProfileDialog`): 
 env/cmd/entrypoint/workdir/user are kept. `ContainerMounts` normalizes available inspect metadata;
 recoverable named volumes and absolute Windows/UNC binds (including read-only mode) are captured.
 Anonymous, internal/Linux, ambiguous or conflicting mounts are omitted with warnings shown before
-saving; absent legacy mount metadata remains unknown, not an empty mount configuration.
+saving; absent mount metadata remains unknown, not an empty mount configuration.
 Existing profiles keep their original schema. Hostname recovery remains unavailable.
 `ComposeImporter` seeds profiles from a *basic* `docker-compose.yml` (one profile per service,
 common single-container fields only) using a small indentation-aware reader. Load/parse failures
@@ -298,22 +440,20 @@ never crash the app.
 
 ### Container inventory, capabilities and volume usage
 
-`WslcJsonParser.ParseContainers` accepts legacy numeric states/structured ports and current textual
-states/display ports in arrays or object streams. Unknown state/date/port information remains
+`WslcJsonParser.ParseContainers` accepts numeric or textual states and structured or display port
+fields in arrays or object streams. Unknown state/date/port information remains
 explicitly unknown. `ContainerPortResolver` bounds and caches inspect work for authoritative
 published ports; it is not a live health cache. Malformed inventory or failed list commands throw:
 only successful empty responses count as a complete zero-container inventory.
 
 `IWslcCapabilitiesService` probes the configured executable using bounded, non-mutating help/version
-commands. Snapshots report `Supported`, `Unsupported` or `Unknown` independently per feature,
-including separate run/create health flags. Executable identity changes invalidate cached results,
-and concurrent callers share probes. The minimum stays **WSLC 2.9.9.0**: optional integration uses
-native operations only with positive evidence, definite absence selects a documented legacy path,
-and unknown evidence surfaces a diagnostic. Never retry a failed native mutation through a fallback.
-Each `<resource> prune --help` is probed separately: `WslcPruneCommand` appends `--force` only when
-that resource advertises it (such engines prompt otherwise), runs the plain command when it is
-absent (2.9.9 rejects the flag and never prompts), and prunes nothing when support is unknown. The
-prune runs against the snapshot's executable so the flag decision and the engine cannot diverge.
+commands for optional features beyond the gated **WSL/wslc 3.0.1** baseline. Snapshots report
+`Supported`, `Unsupported` or `Unknown` independently per optional feature, currently separate
+run/create `--health-start-interval` probes. Executable identity changes invalidate cached results,
+and concurrent callers share probes. Code calls 3.0.1-advertised commands directly; unknown optional
+evidence surfaces a diagnostic, and failed native mutations are never retried through another path.
+`WslcPruneCommand` always appends `--force` after the app's own confirmation because 3.0.1 advertises
+prompting prune commands for containers, images, volumes and networks.
 `AiCapabilityGuidance.GetAsync` shares sanitized feature/state guidance with diagnosis, each chat
 turn and the read-only `engine_capabilities` tool. It excludes executable paths, raw help and probe
 errors, distinguishes partial/unavailable evidence from definitive absence, and does not infer
@@ -342,7 +482,7 @@ per-instance outcome formatter, never internal execution objects.
 
 `VolumeUsageResolver` builds one bounded inspect snapshot across all containers, including stopped
 containers and volumes shared by several containers. `Exact`, `Partial`, `Unknown`, `Estimated` and
-`Unused` distinguish positive mount evidence, incomplete metadata and legacy timestamp estimates.
+`Unused` distinguish positive mount evidence, incomplete metadata and timestamp estimates.
 Only confirmed `Unused` volumes enter the reclaimable display; unknown/estimated absence is never
 proof of eligibility. Prune behavior is unchanged and the engine remains the deletion authority.
 
@@ -366,23 +506,19 @@ are behind so the UI can show an **↓ Update** badge and offer a one-click pull
 
 ### Container file transfers (`WslcFileTransfer`)
 
-Transfers select native `wslc container cp` only when detected; definite absence selects the existing
-exec/base64/tar backend (running container with the required tools), and unknown availability produces
-a diagnostic. Native failures are not retried through legacy code. Transfer destinations are directories:
+Transfers use native `wslc container cp --quiet`; downloads can add `--follow-link`. Native failures
+are not retried through another backend.
+Transfer destinations are directories:
 basenames are preserved, host destinations are created, and upload archives include the requested
 destination hierarchy to retain mkdir-p behavior. Native container paths and all download sources
 must be absolute and traversal-free.
 
-`ContainerDownloadPath` validates both download backends before filesystem mutation: the POSIX
+`ContainerDownloadPath` validates downloads before filesystem mutation: the POSIX
 basename must be a safe Windows filename (including device-name, alternate-stream and trailing
 dot/space rejection), its canonical target must stay in the selected directory, and the destination
 must be below a drive/share root. Existing destination ancestors and overwritten trees are checked
-for symbolic links, including dangling links; non-link cloud placeholders remain supported.
-The legacy backend receives canonical paths and repeats the link checks before writing/extracting.
-`ContainerDownloadArchive` preflights every incoming member and link before any extraction.
-Each POSIX member component must be a safe Windows name, and canonical member/link targets must
-remain below the requested source subtree (the selected destination for a `/` source). Safe
-relative links and standard `./` root archives retain the framework's extraction semantics.
+for symbolic links, including dangling links; non-link cloud placeholders remain supported. Uploads
+stage a traversal-free tar archive for native stdin copy.
 Preview/open and drag-out use the validated source basename rather than raw file-listing names.
 
 Native transfer does not require an in-container shell, but still uses host `tar.exe` and staging.
@@ -400,13 +536,14 @@ it as a compatibility no-op). Cancellation can leave partial destination content
 operation-owned staging archive is cleaned; sharing-violation cleanup retries are bounded, and a
 retained archive path is surfaced rather than silently abandoned.
 
-**Evidence boundary:** native archive behavior comes from
-[WSL 2.9.11 ContainerTasks.cpp](https://github.com/microsoft/WSL/blob/2.9.11/src/windows/wslc/tasks/ContainerTasks.cpp),
-[WSLCContainer.cpp](https://github.com/microsoft/WSL/blob/2.9.11/src/windows/wslcsession/WSLCContainer.cpp)
-and [upstream copy tests](https://github.com/microsoft/WSL/blob/2.9.11/test/windows/wslc/e2e/WSLCE2EContainerCpTests.cpp),
-plus controlled local stopped/shell-removed transfer fixtures. This is not a promise of Docker parity.
-The Files page's **Download path** supports known-path transfers without browsing; browsing,
-text preview, path editing and diff remain shell-dependent.
+**Evidence boundary:** native archive behavior is based on the current `wslc container cp` help
+contract and controlled local stopped/shell-removed transfer fixtures. This is not a promise of
+Docker parity.
+When the file list is unavailable (stopped container, or listing failed), the Files tab shows an
+empty state with the reason (`FilesUnavailableReason`) and **Download by path…** for known-path
+transfers; **New folder** is hidden because it needs the same shell. Browsing, text preview, path
+editing and diff remain shell-dependent. Downloads always pass `--follow-link`, because copying a
+bare symbolic link to Windows is almost never what the user meant.
 
 ### Dev-container host command approval
 
@@ -550,11 +687,9 @@ engine call. Template configuration is now saved only after import validation su
 parse failures no longer produce a misleading "launched" status. Framework browse/navigation work
 uses `UiSafe.Run`.
 
-**Multi-network lifecycle.** `ComposeNetworkOrchestrator` chooses a backend from detected support.
-Native multi-network services use create -> connect -> start, so required attachments precede workload
+**Multi-network lifecycle.** Multi-network services use native create -> connect -> start, so required attachments precede workload
 startup. Network-scoped aliases and static IPv4 options survive parsing, persistence and cloning;
-one IPv4 IPAM configuration is supported. Definite absence retains the first network with a warning;
-unknown support fails the affected service before replacing its container. Native attachment failure
+one IPv4 IPAM configuration is supported. Native attachment failure
 cleans only the operation's new container/endpoints, not external or unverified-owner networks.
 Re-adoption validates endpoint state: missing attachments can be repaired with disconnect rollback
 support; mismatched aliases/IPs request recreation rather than silently disrupting a live endpoint.
@@ -574,12 +709,12 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 | `image`, `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `domainname`, `labels` | **Supported** — command argv preserves quoted/empty tokens; empty command/entrypoint clearing of image defaults at runtime is not certified |
 | `build:` and image `pull_policy` | **Supported subset** — build when missing, build configuration changes or explicitly requested; local-first missing/always/never/build image decisions precede replacement. Build-context content edits require explicit rebuild; no registry interval policies |
 | `ports` (short `"h:c"` and long `host_ip/target/published/protocol`) | **Supported subset** — normalized uniqueness, IPv6 host bindings and bounded ranges; other long-form fields warn |
-| `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported subset** — target-key merging; unsupported long mount types/modes reject and unsupported nested options warn |
+| `volumes` (short `"s:t[:ro]"` and long `type/source/target/read_only`) | **Supported subset** — short strings stay `-v`; long form maps to native `--mount` for bind/volume/tmpfs. Unsupported mount types/modes reject, and unsupported nested options such as `bind.create_host_path`, `volume.nocopy` and `tmpfs.size` warn |
 | `environment` (list and map), `env_file` (scalar, list, and long `path:`/`required:` form) | **Supported subset** — exact empty/null distinction and last-file/inline precedence for simple assignments; required inputs reject if missing/unreadable, `required: false` permits only absence. Full dotenv syntax and `format` are not implemented |
-| Top-level `networks:` / `volumes:` **creation** (driver, `driver_opts`, labels; `external` skipped) | **Supported** — created on up via `wslc network/volume create`; networks removed on down |
-| `networks` / `network_mode` per service, service-name DNS aliases | **Capability-gated** — create/connect/start for multiple native endpoints; legacy first-network fallback with warning. Special host/none/container/service modes remain distinct. |
+| Top-level `networks:` / `volumes:` **creation** (driver, `driver_opts`, labels; network `internal`; `external` skipped) | **Supported** — created on up via `wslc network/volume create`; network IPAM subnet/gateway/ip_range map to native flags, networks are removed on down |
+| `networks` / `network_mode` per service, service-name DNS aliases | **Supported** — multi-network services always use native create/connect/start; aliases and static IPv4 attach through native endpoint flags. Special host/none/container/service modes remain distinct. |
 | `secrets:` / `configs:` (file-backed) | **Supported (best-effort runtime)** — required source files validated for readability at import (binary allowed), then staged and bound read-only (`/run/secrets/<name>` or config target); references must be declared. No in-engine secret store |
-| `tmpfs`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`, `dns`/`dns_search`/`dns_opt` | **Supported** — mapped to the matching `wslc run`/`wslc stop` flags |
+| `tmpfs`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`, `dns`/`dns_search`/`dns_opt` | **Supported** — mapped to matching `wslc run/create` flags; `stop_grace_period` becomes create-time `--stop-timeout` and lifecycle `stop`/`restart -t` where applicable |
 | `profiles:` | **Supported** — services with a profile start only when one of their profiles is in the project's active set (from `COMPOSE_PROFILES` in the environment / `.env`); unprofiled services always start |
 | `extends:` (same-file and local cross-file `file:`/`service:`) | **Supported subset** — missing references/cycles reject; inherited paths belong to source files using the calling interpolation environment. Inheritance-specific sequence deduplication and target replacement differ from overrides; external top-level resources are not imported |
 | `include:` (top-level) | **Supported local subset** — independent projects, conflicts reject without merging while identical duplicate definitions are idempotent; nested short paths and long path lists with `project_directory`/`env_file`; project-relative paths and child `.env` defaults below parent environment. No child sibling-override discovery; remote/unsupported forms reject |
@@ -590,7 +725,7 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 | YAML quoting, flow/block collections, anchors/aliases, `<<`, `\|`/`>` folding/chomping | **Supported within bounded single-document Compose YAML** via maintained parser; invalid syntax/duplicates/cycles reject; no arbitrary tagged types or full Compose schema validation |
 | `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit` | **Supported** |
 | `deploy.resources.reservations.devices` requesting the `gpu` capability | **Supported** — mapped to all-GPU passthrough; `count`/`device_ids` narrower than all warn, since per-device selection is unavailable |
-| `healthcheck` | **Capability-gated** — native shell checks when required run/create flags are supported; complete app backend for `CMD` argv or unsupported flags; unknown support is surfaced |
+| `healthcheck` | **Supported subset** — native shell checks for 3.0.1-advertised run/create flags; app backend for `CMD` argv, TCP probes and unsupported/unknown `start_interval`; unknown optional support is diagnosed |
 | `depends_on` incl. conditions, `required`, `restart` | **Supported subset** — deterministic closure/order, required health/exit gates, optional dependencies and explicit dependency restart propagation; unchanged running peers are not disrupted by failed updates |
 | `restart:` (`no`/`always`/`on-failure`/`unless-stopped`) | **Supported (best-effort)** while the app runs; restart backoff timing is not byte-for-byte identical to Docker |
 | Project and targeted lifecycle, re-adoption | **Supported subset** — shared explainable plans, selective recreation, applied snapshots, preserved storage; restart is distinct from apply. See [intentional differences](COMPOSE-RECONCILIATION.md) |
@@ -602,11 +737,11 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 #### Native and app-owned health
 
 `NativeHealthOptions` preserves Compose test argv, interval, timeout, start period, start interval,
-retries and disable/NONE independently from restart budgets. WSLC 2.9.11's `--health-cmd` is a
-shell check, so `CMD` argv uses `ExecHealthAsync` without joining argv into shell source. Native
-selection requires every requested flag for the actual run/create path; unsupported `start_interval`
-selects the whole app backend rather than dropping timing flags. Desired settings remain saved.
-Fallback scheduling has 1-second resolution; sub-second interval limitations are diagnosed.
+retries and disable/NONE independently from restart budgets. WSLC `--health-cmd` is a shell check,
+so `CMD` argv uses `ExecHealthAsync` without joining argv into shell source. Native selection uses
+the 3.0.1-advertised run/create health flags; unsupported or unknown `start_interval` selects the
+whole app backend rather than dropping timing flags. Desired settings remain saved. App-owned
+scheduling has 1-second resolution; sub-second interval limitations are diagnosed.
 
 `StatusMonitor` owns `NativeHealthMonitor`: bounded fresh inspect (at most four concurrent,
 3 seconds each / 8 seconds total), rotating work, explicit unknown failures and an absent/disabled
@@ -623,10 +758,10 @@ The app never recreates an existing container solely to apply a health edit. Def
 enrollment is bounded and process-local, occurs only after successful start, and is cleared after
 successful removal; Compose re-adoption restores saved desired configuration on a later app launch.
 
-Controlled 2.9.11 fixtures demonstrated starting -> healthy, unhealthy while running, explicit
-disable and progressing native timestamps without app ownership. This was **not** an actual
-desktop close/reopen trial or a packaged watchdog-lifecycle certification. Legacy help fixtures are
-synthetic and do not substitute for runtime validation on an installed 2.9.9 binary.
+Controlled fixtures demonstrated starting -> healthy, unhealthy while running, explicit disable and
+progressing native timestamps without app ownership. This was **not** an actual desktop close/reopen
+trial or a packaged watchdog-lifecycle certification. Help fixtures are 3.0.1 recordings and do not
+substitute for runtime validation on an installed engine.
 
 ### Diagnostics (`FileLoggerProvider`)
 
@@ -678,6 +813,30 @@ expressions re-evaluate once the host passes the view model in.
   so use `dotnet run` (or re-launch from the AppsFolder AUMID) after building.
 - **Package:** publish profiles live in `Properties/PublishProfiles/`. The manifest publisher
   (`Package.appxmanifest`) must match the code-signing certificate used for a distributable MSIX.
+
+### Testing against the installed engine
+
+Unit tests run everywhere and never touch an engine. The opt-in `WslcRuntime` suite
+(`tests/.../Runtime/Wslc301RuntimeTests.cs`) drives the real service code against the installed
+WSL 3.0.1+ `wslc.exe`: native restart, `--stop-timeout`, `--mount`, network create/connect/
+disconnect, the `wslc events` stream (including reconnect without gaps or duplicates), native
+copy on stopped containers, save/load and export/import, listing parity (`--digests`, `--all`,
+`--size`, `system info`), log flags, the Compose importer→create path, settings-file editing on a
+temporary copy, and the requirement service. It uses only the local `nginx:alpine` image, names
+every resource `wslcd-rt-<random>-*`, removes only what it created, and never pulls, pushes or
+touches the real `settings.yaml`. It is skipped unless its own consent variable is set:
+
+```powershell
+$env:WCD_WSLC_RUNTIME = 'I-authorize-disposable-WSLC-resources'
+dotnet test tests\WslContainerDesktop.Tests\WslContainerDesktop.Tests.csproj `
+  -c Debug -p:Platform=x64 -f net10.0-windows10.0.26100.0 --filter Category=WslcRuntime
+Remove-Item Env:\WCD_WSLC_RUNTIME
+```
+
+The separate Compose conformance harness has its own variable and prerequisites; see
+[COMPOSE-CONFORMANCE.md](COMPOSE-CONFORMANCE.md). Enterprise-policy behavior (containers disabled,
+registry allow list) needs `HKLM\Software\Policies\WSL` changes and must be checked manually from
+an elevated prompt on a test machine; restore the original values afterwards.
 
 ---
 

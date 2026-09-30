@@ -12,6 +12,158 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+Built for **WSL containers general availability**. WSL Container Desktop now requires **WSL 3.0.1 or
+later** and uses the full `wslc` command set from that release. See Microsoft's
+[GA announcement](https://blogs.windows.com/windowsdeveloper/2026/09/29/wsl-containers-now-generally-available/).
+
+### Changed
+
+- **WSL 3.0.1 or later is now required.** When WSL is older, `wslc.exe` is missing, or your
+  organization has turned WSL containers off, the app shows a **WSL 3.0.1 or later is required**
+  screen with **Update WSL** (runs `wsl --update`) and **Re-check** buttons instead of the container
+  pages, and stops polling the engine until the requirement is met. Settings, the WSL engine page,
+  About, and Kubernetes remain available. Update with plain `wsl --update`; `--pre-release` is no
+  longer needed.
+- **WSL updates default to the stable channel.** The toggle is now called **Include early-access
+  (pre-release) WSL builds**. If you turned on pre-release updates to get the container preview, the
+  app turns it off once after this update; turn it on again if you still want early-access builds.
+- **Restart uses the engine's own restart**, which also starts a container that was stopped.
+- **Files tab transfers always use native `wslc container cp`**, so uploads and downloads work on
+  stopped containers and containers without a shell.
+- **Compose services always join all their networks natively**, with per-network aliases and static
+  IPv4 addresses.
+- **Compose `stop_grace_period` is now passed to the engine** as `--stop-timeout`, so the engine
+  honors it on every stop, including stops that don't go through the app.
+- **Compose long-form volumes and `docker run --mount` imports run as native `--mount` options**
+  instead of being converted to `-v`. `bind.create_host_path`, `volume.nocopy`, and `tmpfs.size`
+  are ignored with an import warning because WSL 3.0.1 rejects them.
+- **Container exit notifications arrive sooner**, because live engine events trigger an immediate
+  refresh, and are limited to one per container per minute. Containers you stop or remove from the
+  app still don't trigger one.
+- **Windows 10 is supported** alongside Windows 11, as WSL containers are; it is less tested than
+  Windows 11.
+- **The ↓ Update badge on an image is now a button.** It looked clickable but did nothing; clicking
+  it now pulls the newer version (the same as **Pull update** in the row's **⋯** menu).
+- **Click a container in the Dashboard's live performance table** to open its detail page, the same
+  as clicking it in the Containers list.
+- **Push sends the image where you choose, and checks that you can.** Before, pushing an image
+  pulled from another registry (for example `ghcr.io/…`) kept that registry in the name, so the
+  **Registry** choice was silently ignored and the push went back to the original publisher. Now
+  the chosen registry always decides the destination and you edit only the name inside it. The
+  dialog shows whether you're signed in — and won't push to Docker Hub or a registry that says
+  you're signed out, with a link to the Registries page — and for Docker Hub it adds your username,
+  which Docker Hub requires.
+- **Build no longer looks like it needs a registry.** The registry choice is now optional and
+  defaults to keeping the image on this PC; it only appears when you have added a registry other
+  than Docker Hub (choosing Docker Hub never changed anything). The dialog says that nothing is
+  uploaded, and tells you which field is missing instead of doing nothing.
+- **Actions only appear when they can work.** **Open in browser** is hidden unless the container is
+  running with a published port (it used to do nothing), **Kill** and **Attach** are hidden for
+  stopped containers, and a stopped container's Files tab explains why its files can't be listed
+  instead of showing an empty list, and hides **New folder**.
+
+### Added
+
+- **Networks: a Used by column.** Each network now lists the containers attached to it, including
+  stopped containers that rejoin it when they start, so you can see what a network is for before
+  removing it.
+- **Live engine events.** The app follows `wslc events`: the UI refreshes as soon as a container or
+  network changes instead of waiting for the next poll, and polling slows down while the stream is
+  connected. The **Activity** page shows container and network events live — with a **Network**
+  filter, free-text search, **Pause**, a connection indicator, and the last hour of events when first
+  opened — and clicking a container event opens that container.
+- **Container environment details for diagnosis.** The `wslc` and session-manager versions and
+  active sessions (from `wslc system info`) are included, with your user folder masked, in AI
+  diagnostics and a read-only assistant tool.
+- **Container storage location.** See where the default session keeps images, containers, and
+  volumes and how big its disk is, **Change location…** to an empty folder, or **Reset to default**.
+  Existing data is not moved; the session restarts before the new location is used. The session's
+  CPU, memory, disk-size, binding-address and credential-store settings are shown under **Container
+  session settings**, with **Edit settings file** for changes.
+- **Organization policy support.** The requirement screen explains when WSL containers are
+  disabled by policy. With a registry allow list in effect, the Registries page lists the approved
+  registries, pulls/pushes/runs/template launches/Compose deployments that use any other registry
+  stop with an explanation before contacting it, and **Build** is disabled because WSL refuses
+  builds under an allow list. Engine policy errors are shown in plain language.
+- **Networks** section on a container's **Summary** tab: see attached networks, **Connect to network…** with aliases
+  and a static IPv4 address, and **Disconnect**.
+- **Create network** options: **internal** networks and, under **Advanced options**, subnet,
+  gateway and IP range (checked before the network is created), driver options (`-o key=value`)
+  and labels. Compose network `driver_opts`, `internal`, and `labels` are applied too.
+- **Stop timeout** (`--stop-timeout`, `-1` to wait indefinitely) in the Run dialog, saved run
+  profiles, `docker run` imports, and profiles captured from existing containers.
+- **Pull and push all tags** of a repository.
+- **Images:** **Copy digest** in the row's **⋯** menu, **Save to file…**, and an **Import** menu
+  with **Restore saved images…** (brings back a file made with **Save to file…**) and **Create image
+  from exported files…** (makes a new image from a container's **Export filesystem…**; only the
+  files are kept). Each option says which action makes its file, and after saving or exporting the
+  status line tells you which option brings it back.
+- **Containers:** a **Size** column (the writable layer; hover it for the virtual size too),
+  writable and root-filesystem size on the detail page, and **Export filesystem…** and **Attach to
+  main process…** in the **⋯** menus (on a container's page and in the list) — Attach connects a
+  terminal to the container's main process and only appears while it is running.
+- **Logs:** an optional **timestamp** on each line (the clock button), including for followed logs.
+- **Files:** **Download by path…** fetches a file or folder you know the path of, even from a
+  stopped container, whose files can't be listed. It is on the empty Files tab of a stopped
+  container and in the file list's right-click menu. Downloads of a symbolic link fetch the file
+  it points to.
+- **Disk usage** reports the exact space held by stopped containers and shows the container storage
+  location.
+- The engine path in Settings accepts the `container.exe` alias as well as `wslc.exe`.
+- **Engine options explained in place.** Checkboxes, switches and fields whose effect isn't obvious
+  — such as **All tags**, **Remove when it exits (--rm)**, **Stop timeout** and **Internal
+  network** — have an (i) next to them: hover for a quick explanation, or click it (or press Enter)
+  for the details: what the flag does, when to use it, and any catch, such as **All tags** dropping
+  the tag you typed. Buttons such as **Restart**, **Kill**, **Export filesystem** and **Change
+  location…** show the same explanation when you hover over them.
+- **Images: one Import menu.** The load and import actions are together under **Import**, whose
+  tooltip explains which to use. The Images toolbar now wraps on narrow windows instead of cutting
+  off **Prune** and **Select**.
+
+### Fixed
+
+- **Bringing up a Compose project that publishes a port works when it is already partly running.**
+  The review counted the project's own running container as "another running instance" using the
+  port, and blocked the apply with no way forward except bringing the project down first.
+- **A failed Compose service now shows why it failed.** When a service's container couldn't be
+  created, the app reported "Cannot inspect a partial Compose run: Object not found" instead of the
+  engine's actual error, because it didn't recognize how WSL 3.0.1 reports a missing container.
+- **Windows updates, sign-out and shutdown no longer wait on the app.** With **Minimize to system
+  tray on close** on, the app ignored Windows' request to close, so installing an app update, signing
+  out or shutting down waited about 40 seconds, reported the app as not responding, and then ended it
+  without cleanup. It now closes promptly and cleanly when Windows asks.
+- **Several ports, environment variables or volumes in the Run dialog.** Entering one per line in
+  the **Run a container** dialog ran them together into a single invalid entry, because the dialog
+  only recognized one kind of line break. Each line is now its own entry.
+- **The GPU badge on a container's page is no longer cut off.** When the action buttons needed the
+  room, the container name, state and **GPU** badge were clipped; now a long name is shortened with
+  "…" (hover to see it) and the badges always stay visible.
+- **Container logs are in the order they were written.** A container's normal output and its error
+  output were replayed separately, so older lines could appear below newer ones — for example
+  nginx's startup messages after requests made an hour later. The replayed log is now sorted by the
+  engine's timestamps (still hidden unless you turn on **Show timestamps**).
+- **The Activity timeline stays newest-first.** Events that arrived late, such as ones replayed
+  after reconnecting to the engine, were added at the top regardless of when they happened.
+- **Compose containers show their image name.** Containers started by a Compose project listed a bare
+  image ID (such as `7c07d11b694d`) in the Containers list; they now show the name, such as `mysql:8`.
+- **A Compose project's status is no longer cut off**, for example "Running (2/2 instances)".
+- **Clicking the highlighted navigation item goes back to its list.** On a container's page,
+  clicking **Containers** in the navigation did nothing; it now returns to the Containers list.
+- **The dashboard's container count is labeled.** The total under the running count read as a bare
+  number; it now says, for example, "of 7 total".
+- **Screen readers announce list rows by name.** Rows on most pages — containers, images, volumes,
+  networks, endpoints, activity, registries, Compose projects, templates, Kubernetes resources and
+  the assistant's chat — were announced by Narrator as internal type names.
+- **The assistant no longer says a tool "finished" when it was never run.** A tool call rejected
+  before running (for example, with arguments the tool does not accept) is now labeled **Tool was
+  not run — show why**, and one that failed part-way **Tool failed — show details**.
+
+### Removed
+
+- **Support for the WSL 2.9.x container preview**, together with the fallbacks that existed for it:
+  the shell-based (exec/base64/tar) file-transfer path, first-network-only Compose deployments, and
+  prunes without `--force`. Browsing, text preview, path editing, and filesystem diff in the Files
+  and Changes tabs are unchanged and still need a running container with a shell.
 ## [1.9.1] — 2026-09-24
 
 Fixes **Prune** hanging forever on WSLC 2.9.12 and later, and stops the app from waiting on input

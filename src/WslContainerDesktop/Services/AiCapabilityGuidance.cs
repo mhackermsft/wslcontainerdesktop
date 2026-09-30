@@ -19,8 +19,18 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Builds the safety and capability instructions injected into AI prompts before tool use.
+/// The text tells providers which <c>wslc.exe</c> features are known, unsupported or unknown so the assistant does not invent commands.
+/// </summary>
 internal static class AiCapabilityGuidance
 {
+    /// <summary>
+    /// Reads the shared WSLC capability snapshot and returns prompt guidance, or conservative fallback text when evidence is unavailable.
+    /// </summary>
+    /// <param name="service">Optional capability service; null means no evidence is available.</param>
+    /// <param name="ct">Cancels the capability read.</param>
+    /// <returns>Plain-text guidance safe to include in an AI system prompt.</returns>
     internal static async Task<string> GetAsync(IWslcCapabilitiesService? service, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -42,27 +52,33 @@ internal static class AiCapabilityGuidance
 
     private const string Unavailable = """
         Configured WSLC capability evidence is unavailable. Optional support is Unknown, not Unsupported.
-        Do not invent commands/flags or infer support from versions. Retain WSLC 2.9.9.0 compatibility.
-        In interactive chat, query engine_capabilities again for current evidence. No speculative mutation or native-to-legacy retry.
+        WSL/wslc 3.0.1 or later is required before wslc-backed features are used.
+        Do not invent commands/flags or infer optional support from versions.
+        In interactive chat, query engine_capabilities again for current optional evidence. No speculative mutation or backend retry.
         Evidence never grants permission. Compose and app-owned restart/auto-heal are not native CLI features.
         """;
 
+    /// <summary>
+    /// Formats a capability snapshot into the exact rules the assistant should follow when suggesting or invoking WSLC commands.
+    /// </summary>
+    /// <param name="capabilities">Current point-in-time WSLC feature evidence.</param>
+    /// <returns>Prompt text containing only feature names and support states.</returns>
     internal static string Build(WslcCapabilities capabilities)
     {
         var text = new StringBuilder("""
-            Optional CLI availability for the configured engine (not proof of Docker parity or app integration):
+            Optional CLI availability beyond the gated WSL/wslc 3.0.1 baseline:
             Only suggest optional commands/flags explicitly marked Supported below.
             Unsupported means absent from recognized help; Unknown means availability could not be established.
             Never treat Unknown as Supported or infer support from a version number.
-            ContainerCp means `wslc container cp`, not a documented top-level `wslc cp` alias.
-            NetworkConnect/NetworkDisconnect mean `wslc network connect`/`wslc network disconnect`.
-            Create-prefixed health entries apply only to `wslc create`; other health entries apply to `wslc run`.
+            Create-prefixed entries apply only to `wslc create`; other entries apply to `wslc run`.
+            `wslc container cp`, `network connect/disconnect`, create/run health flags except --health-start-interval,
+            create --gpus/--pull, remove --volumes and prune --force are baseline 3.0.1 features, not optional evidence.
             Health flags apply at creation, not to an existing container. Health monitoring is distinct from restart/auto-heal.
             App-owned probes, TCP checks, restart policies and auto-heal require the app to keep running.
             Advertised CLI support does not include --restart or --add-host; do not suggest these flags.
-            Retain WSLC 2.9.9.0 compatibility. Unsupported permits only documented app legacy fallbacks;
-            Unknown blocks optional backend selection. Never retry failed native mutations via a legacy backend.
-            Compose is app-owned orchestration, not a native Compose command. Use project tools for saved projects.
+            Unsupported/Unknown optional evidence must surface a diagnostic or use a documented app-owned substitute.
+            Never retry failed native mutations through another backend.
+            Compose is app-owned orchestration, not an advertised native Compose command. Use project tools for saved projects.
             This is point-in-time help evidence obtained through the shared capability service, not a live guarantee.
             In interactive chat, query engine_capabilities after engine/configuration changes. Evidence never grants permission.
             The shared cache can retain complete help evidence for five minutes, or failed/partial evidence for 15 seconds;

@@ -21,91 +21,179 @@ namespace WslContainerDesktop.Models;
 /// <summary>Simplified Kubernetes resource rows parsed from `kubectl get ... -o json`.</summary>
 public sealed record K8sNode
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the status.</summary>
     public string Status { get; init; } = "-";
+    /// <summary>Gets or sets the roles.</summary>
     public string Roles { get; init; } = "-";
+    /// <summary>Gets or sets the version.</summary>
     public string Version { get; init; } = "-";
+    /// <summary>Gets a value indicating whether this value is ready.</summary>
     public bool IsReady => string.Equals(Status, "Ready", StringComparison.OrdinalIgnoreCase);
 }
 
+/// <summary>Immutable or init-only data model that carries kubernetes pod information between services and view models.</summary>
 public sealed record K8sPod
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "-";
+    /// <summary>Gets or sets the status.</summary>
     public string Status { get; init; } = "-";
+    /// <summary>Gets or sets the ready.</summary>
     public string Ready { get; init; } = "-";
+    /// <summary>Gets or sets the restarts.</summary>
     public int Restarts { get; init; }
+    /// <summary>Gets or sets the node.</summary>
     public string Node { get; init; } = "-";
+    /// <summary>Gets a value indicating whether this value is running.</summary>
     public bool IsRunning => string.Equals(Status, "Running", StringComparison.OrdinalIgnoreCase)
         || string.Equals(Status, "Succeeded", StringComparison.OrdinalIgnoreCase);
 }
 
+/// <summary>Immutable or init-only data model that carries kubernetes deployment information between services and view models.</summary>
 public sealed record K8sDeployment
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "-";
+    /// <summary>Gets or sets the ready.</summary>
     public string Ready { get; init; } = "-";
+    /// <summary>Gets or sets the desired.</summary>
     public int Desired { get; init; }
+    /// <summary>Gets or sets the available.</summary>
     public int Available { get; init; }
+    /// <summary>Gets a value indicating whether this value is healthy.</summary>
     public bool IsHealthy => Desired > 0 && Available >= Desired;
 }
 
+/// <summary>Immutable or init-only data model that carries kubernetes service information between services and view models.</summary>
 public sealed record K8sService
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "-";
+    /// <summary>Gets or sets the type.</summary>
     public string Type { get; init; } = "-";
+    /// <summary>Gets or sets the cluster ip.</summary>
     public string ClusterIP { get; init; } = "-";
+    /// <summary>Gets or sets the ports.</summary>
     public string Ports { get; init; } = "-";
 }
 
+/// <summary>Immutable or init-only data model that carries kubernetes ingress information between services and view models.</summary>
 public sealed record K8sIngress
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "-";
+    /// <summary>Gets or sets the class.</summary>
     public string Class { get; init; } = "-";
+    /// <summary>Gets or sets the hosts.</summary>
     public string Hosts { get; init; } = "-";
 }
 
+/// <summary>Immutable or init-only data model that carries kubernetes pvc information between services and view models.</summary>
 public sealed record K8sPvc
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "-";
+    /// <summary>Gets or sets the status.</summary>
     public string Status { get; init; } = "-";
+    /// <summary>Gets or sets the capacity.</summary>
     public string Capacity { get; init; } = "-";
+    /// <summary>Gets or sets the storage class.</summary>
     public string StorageClass { get; init; } = "-";
+    /// <summary>Gets a value indicating whether this value is bound.</summary>
     public bool IsBound => string.Equals(Status, "Bound", StringComparison.OrdinalIgnoreCase);
 }
 
+/// <summary>Immutable or init-only data model that carries kubernetes config map information between services and view models.</summary>
 public sealed record K8sConfigMap
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "-";
+    /// <summary>Gets or sets the keys.</summary>
     public int Keys { get; init; }
 }
 
+/// <summary>Immutable or init-only data model that carries kubernetes secret information between services and view models.</summary>
 public sealed record K8sSecret
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "-";
+    /// <summary>Gets or sets the type.</summary>
     public string Type { get; init; } = "-";
+    /// <summary>Gets or sets the keys.</summary>
     public int Keys { get; init; }
 }
 
+/// <summary>Immutable or init-only data model that carries kubernetes job information between services and view models.</summary>
 public sealed record K8sJob
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "-";
+    /// <summary>Gets or sets the completions.</summary>
     public string Completions { get; init; } = "-";
+    /// <summary>Gets or sets a value indicating whether this value is complete.</summary>
     public bool Complete { get; init; }
 }
 
+/// <summary>Immutable or init-only data model that carries kubernetes cron job information between services and view models.</summary>
 public sealed record K8sCronJob
 {
+    /// <summary>Returns the resource name so list rows announce it to screen readers instead of the type.</summary>
+    public override string ToString() => Name;
+
+    /// <summary>Gets or sets the name.</summary>
     public string Name { get; init; } = string.Empty;
+    /// <summary>Gets or sets the namespace.</summary>
     public string Namespace { get; init; } = "-";
+    /// <summary>Gets or sets the schedule.</summary>
     public string Schedule { get; init; } = "-";
+    /// <summary>Gets or sets a value indicating whether this value is suspended.</summary>
     public bool Suspended { get; init; }
+    /// <summary>Gets or sets the active.</summary>
     public int Active { get; init; }
 }
 
@@ -126,6 +214,9 @@ public sealed record K8sResourceRef(
 /// <summary>Maps a parsed resource row to a <see cref="K8sResourceRef"/>.</summary>
 public static class K8sRef
 {
+    /// <summary>Maps a simplified Kubernetes row to the resource reference used by UI actions.</summary>
+    /// <param name="model">The model value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static K8sResourceRef For(object model) => model switch
     {
         K8sNode n => new("node", "Node", string.Empty, n.Name, true, false, false, false),
@@ -178,6 +269,9 @@ public static class K8sParser
         return cur.ValueKind == JsonValueKind.String ? cur.GetString() ?? string.Empty : cur.ToString();
     }
 
+    /// <summary>Parses nodes from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sNode> Nodes(string json)
     {
         var result = new List<K8sNode>();
@@ -229,6 +323,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses pods from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sPod> Pods(string json)
     {
         var result = new List<K8sPod>();
@@ -279,6 +376,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses deployments from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sDeployment> Deployments(string json)
     {
         var result = new List<K8sDeployment>();
@@ -317,6 +417,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses services from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sService> Services(string json)
     {
         var result = new List<K8sService>();
@@ -363,6 +466,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses namespaces from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<string> Namespaces(string json)
     {
         var result = new List<string>();
@@ -384,6 +490,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses ingresses from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sIngress> Ingresses(string json)
     {
         var result = new List<K8sIngress>();
@@ -424,6 +533,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses pvcs from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sPvc> Pvcs(string json)
     {
         var result = new List<K8sPvc>();
@@ -456,6 +568,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses config maps from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sConfigMap> ConfigMaps(string json)
     {
         var result = new List<K8sConfigMap>();
@@ -484,6 +599,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses secrets from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sSecret> Secrets(string json)
     {
         var result = new List<K8sSecret>();
@@ -513,6 +631,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses jobs from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sJob> Jobs(string json)
     {
         var result = new List<K8sJob>();
@@ -550,6 +671,9 @@ public static class K8sParser
         return result;
     }
 
+    /// <summary>Parses cron jobs from <c>kubectl</c> JSON list output.</summary>
+    /// <param name="json">The json value supplied by the caller.</param>
+    /// <returns>The requested value for the caller.</returns>
     public static List<K8sCronJob> CronJobs(string json)
     {
         var result = new List<K8sCronJob>();

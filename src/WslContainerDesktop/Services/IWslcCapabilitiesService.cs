@@ -18,6 +18,10 @@ using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
+/// <summary>
+/// Provides cached evidence about optional <c>wslc.exe</c> features, such as native health or
+/// advanced run flags, so callers can choose safe fallbacks without guessing from a version string.
+/// </summary>
 public interface IWslcCapabilitiesService
 {
     /// <summary>
