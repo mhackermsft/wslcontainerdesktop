@@ -277,7 +277,9 @@ public partial class KubernetesViewModel : ObservableObject
         // stopped card, or the running sub-nav) appears instantly instead of after the full
         // status probe. The authoritative GetStatusAsync below then fills in node/version.
         var cached = _monitor.LatestK8s;
-        if (cached is not null && State == ClusterState.Unknown)
+        // The cached snapshot doesn't say why no distribution can host k3s; wait for the full
+        // status rather than flash that screen with no explanation.
+        if (cached is not null && State == ClusterState.Unknown && cached.State != ClusterState.NoDistribution)
         {
             State = cached.State;
             StatusMessage = cached.Summary;
