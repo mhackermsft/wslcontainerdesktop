@@ -31,6 +31,10 @@ public partial class NetworksViewModel : ObservableObject
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
 
+    // Limits how long the "Used by" column may take, and lets a newer refresh cancel an older one.
+    private static readonly TimeSpan UsageTimeout = TimeSpan.FromSeconds(30);
+    private CancellationTokenSource? _usageCts;
+
     /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
@@ -83,7 +87,11 @@ public partial class NetworksViewModel : ObservableObject
         try
         {
             var networks = NetworkDisplayList.Create(await _wslc.ListNetworksAsync());
-            await ResolveUsageAsync(networks);
+            foreach (var n in networks)
+            {
+                n.UsagePending = true;
+            }
+
             Networks.Clear();
 
             foreach (var n in networks)
@@ -97,6 +105,9 @@ public partial class NetworksViewModel : ObservableObject
             StatusMessage = userCount == 0
                 ? builtInLabel
                 : $"{userCount} user network{(userCount == 1 ? "" : "s")} + {builtInLabel}";
+
+            // The list is shown now; "Used by" fills in afterwards so it never holds up the page.
+            _ = ResolveUsageAsync(networks);
         }
         catch (Exception ex)
         {
@@ -115,16 +126,29 @@ public partial class NetworksViewModel : ObservableObject
     /// </summary>
     private async Task ResolveUsageAsync(IReadOnlyList<NetworkInfo> networks)
     {
+        // A newer refresh supersedes this one, and a stuck engine can't keep "Checking…" forever.
+        _usageCts?.Cancel();
+        using var cts = new CancellationTokenSource(UsageTimeout);
+        _usageCts = cts;
         try
         {
-            var containers = await _wslc.ListContainersAsync(all: true);
+            var containers = await _wslc.ListContainersAsync(all: true, ct: cts.Token);
             await NetworkUsageResolver.ResolveAsync(networks, containers,
-                (id, ct) => _wslc.InspectContainerAsync(id, ct));
+                (id, ct) => _wslc.InspectContainerAsync(id, ct), cts.Token);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
-            // Usage stays "Unknown" (UsageComplete is false by default); the network list itself is still valid.
+            // Includes cancellation and timeout. Usage shows "Unknown"; the network list itself is still valid.
             System.Diagnostics.Debug.WriteLine($"Network usage could not be resolved: {ex.Message}");
+            foreach (var network in networks)
+            {
+                network.UsagePending = false;
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_usageCts, cts))
+                _usageCts = null;
         }
     }
 

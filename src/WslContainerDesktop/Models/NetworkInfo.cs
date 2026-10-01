@@ -15,11 +15,15 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json.Serialization;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace WslContainerDesktop.Models;
 
-/// <summary>A network row as returned by `wslc network list --format json`.</summary>
-public sealed class NetworkInfo
+/// <summary>
+/// A network row as returned by `wslc network list --format json`. Observable so the "Used by"
+/// column can fill in after the list is already on screen.
+/// </summary>
+public sealed class NetworkInfo : ObservableObject
 {
     /// <summary>
     /// Returns the network name. List controls use this as each row's screen-reader name;
@@ -63,18 +67,61 @@ public sealed class NetworkInfo
     /// <c>NetworkUsageResolver</c> after the list loads.
     /// </summary>
     [JsonIgnore]
-    public IReadOnlyList<string> ContainerUsers { get; set; } = [];
+    public IReadOnlyList<string> ContainerUsers
+    {
+        get => _containerUsers;
+        set
+        {
+            if (SetProperty(ref _containerUsers, value))
+                OnUsageChanged();
+        }
+    }
+
+    private IReadOnlyList<string> _containerUsers = [];
 
     /// <summary>
     /// True when every container could be inspected, so an empty <see cref="ContainerUsers"/> really
     /// means the network is not in use. False means some containers are unknown.
     /// </summary>
     [JsonIgnore]
-    public bool UsageComplete { get; set; }
+    public bool UsageComplete
+    {
+        get => _usageComplete;
+        set
+        {
+            if (SetProperty(ref _usageComplete, value))
+                OnUsageChanged();
+        }
+    }
+
+    private bool _usageComplete;
+
+    /// <summary>
+    /// True until usage has been worked out, so the column can say "Checking…" instead of
+    /// briefly claiming "Unknown".
+    /// </summary>
+    [JsonIgnore]
+    public bool UsagePending
+    {
+        get => _usagePending;
+        set
+        {
+            if (SetProperty(ref _usagePending, value))
+                OnUsageChanged();
+        }
+    }
+
+    private bool _usagePending;
+
+    private void OnUsageChanged()
+    {
+        OnPropertyChanged(nameof(UsedByDisplay));
+        OnPropertyChanged(nameof(UsedByTooltip));
+    }
 
     /// <summary>Text for the "Used by" column: the attached containers, "Not in use", or "Unknown".</summary>
     [JsonIgnore]
-    public string UsedByDisplay => ContainerUsers.Count > 0
+    public string UsedByDisplay => UsagePending ? "Checking…" : ContainerUsers.Count > 0
         ? string.Join(", ", ContainerUsers) + (UsageComplete ? string.Empty : " (others unknown)")
         : UsageComplete ? "Not in use" : "Unknown";
 

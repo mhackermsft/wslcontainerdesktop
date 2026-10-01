@@ -81,6 +81,35 @@ public sealed class NetworkUsageResolverTests
         Assert.Equal("Unknown", new NetworkInfo { Name = "demo-net" }.UsedByDisplay);
     }
 
+    [Fact]
+    public async Task PendingShowsCheckingUntilResolvedAndRaisesChange()
+    {
+        var network = new NetworkInfo { Name = "demo-net", UsagePending = true };
+        var changed = new List<string?>();
+        network.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        Assert.Equal("Checking…", network.UsedByDisplay);
+
+        await NetworkUsageResolver.ResolveAsync([network], [new ContainerInfo { Id = "a", Name = "web" }],
+            (_, _) => Task.FromResult(Ok(Inspect("demo-net"))));
+
+        Assert.Equal("web", network.UsedByDisplay);
+        Assert.Contains(nameof(NetworkInfo.UsedByDisplay), changed);
+    }
+
+    [Fact]
+    public async Task CancelledResolveLeavesNetworksUntouched()
+    {
+        var network = new NetworkInfo { Name = "demo-net", UsagePending = true };
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => NetworkUsageResolver.ResolveAsync(
+            [network], [new ContainerInfo { Id = "a", Name = "web" }],
+            (_, _) => Task.FromResult(Ok(Inspect("demo-net"))), cts.Token));
+
+        Assert.Empty(network.ContainerUsers);
+    }
+
     [Theory]
     [InlineData("not json")]
     [InlineData("[{\"Id\":\"x\"}]")]

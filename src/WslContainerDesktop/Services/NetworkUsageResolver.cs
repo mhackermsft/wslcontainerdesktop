@@ -37,6 +37,10 @@ public static class NetworkUsageResolver
     /// <param name="containers">All containers, including stopped ones.</param>
     /// <param name="inspect">Read-only container inspect, called at most four times at once.</param>
     /// <param name="ct">Cancels the refresh; nothing is written to the networks when cancelled.</param>
+    /// <remarks>
+    /// Results are written after awaiting without <c>ConfigureAwait(false)</c>, so when called from
+    /// the UI thread the property changes (and their bindings) also happen on the UI thread.
+    /// </remarks>
     /// <returns>Problems found while inspecting, for logging.</returns>
     public static async Task<IReadOnlyList<string>> ResolveAsync(
         IReadOnlyList<NetworkInfo> networks,
@@ -95,6 +99,7 @@ public static class NetworkUsageResolver
                 ? users.Order(StringComparer.Ordinal).ToArray()
                 : [];
             network.UsageComplete = complete;
+            network.UsagePending = false;
         }
 
         return diagnostics.ToArray();
