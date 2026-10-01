@@ -463,6 +463,7 @@ public sealed partial class AssistantToolset(
             var status = await kubernetes.GetStatusAsync(ct).ConfigureAwait(false);
             return JsonSerializer.Serialize(new { state = status.State.ToString(), observedAt = DateTimeOffset.UtcNow,
                 evidence = status.State == ClusterState.Unknown ? "unknown" : "observed",
+                hostProblem = status.HostProblem.ToString(),
                 detail = status });
         }
         catch (Exception ex) when (IsEvidenceFailure(ex))

@@ -62,8 +62,8 @@ public sealed class K8sInstaller(WslRootShell shell)
         {
             if (line.StartsWith("@@NO_SYSTEMD", StringComparison.Ordinal))
             {
+                // The explanation follows on stderr, which also reaches the log; don't repeat it.
                 noSystemd = true;
-                onOutput(SystemdMissingMessage);
                 return;
             }
 
