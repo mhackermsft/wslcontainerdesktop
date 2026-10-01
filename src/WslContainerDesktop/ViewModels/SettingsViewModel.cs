@@ -214,6 +214,12 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>Bindable state for app version used by the view.</summary>
     public string AppVersion { get; } = ResolveAppVersion();
 
+    /// <summary>The app's GitHub repository page, shown in About.</summary>
+    public Uri RepositoryUri { get; } = new($"https://github.com/{AppConstants.UpdateRepository}");
+
+    /// <summary>New-issue page of the app's GitHub repository, shown in About.</summary>
+    public Uri NewIssueUri { get; } = new($"https://github.com/{AppConstants.UpdateRepository}/issues/new");
+
     /// <summary>Bindable state for show ai provider settings used by the view.</summary>
     public bool ShowAiProviderSettings => CurrentAiProvider != AiProviderKind.None;
 

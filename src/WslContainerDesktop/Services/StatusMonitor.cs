@@ -222,6 +222,11 @@ public sealed class StatusMonitor : IDisposable, IHealthObservationSource
                     State = ClusterState.NotInstalled,
                     Summary = "Kubernetes: not installed",
                 },
+                ClusterState.NoDistribution => new K8sStatusSnapshot
+                {
+                    State = ClusterState.NoDistribution,
+                    Summary = "Kubernetes: no usable WSL distribution",
+                },
                 _ => new K8sStatusSnapshot { State = ClusterState.Unknown, Summary = "Kubernetes: unknown" },
             };
         }

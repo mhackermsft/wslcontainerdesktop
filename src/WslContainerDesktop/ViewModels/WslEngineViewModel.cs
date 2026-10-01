@@ -164,6 +164,34 @@ public partial class WslEngineViewModel : ObservableObject
     /// <summary>Registered distros and their run state.</summary>
     public ObservableCollection<WslDistroStatus> Distros { get; } = new();
 
+    /// <summary>True while <c>wsl --update</c> runs, so the administrator-prompt guidance shows.</summary>
+    [ObservableProperty]
+    private bool _isUpdatingWsl;
+
+    /// <summary>True while the Windows administrator prompt is open during an update.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ElevationTitle))]
+    private bool _isAwaitingElevation;
+
+    /// <summary>Title of the administrator-prompt guidance shown during an update.</summary>
+    public string ElevationTitle => IsAwaitingElevation
+        ? WslUpdateElevation.WaitingTitle
+        : WslUpdateElevation.ExpectPromptTitle;
+
+    /// <summary>How to find and approve the administrator prompt.</summary>
+    public string ElevationGuidance => WslUpdateElevation.Guidance;
+
+    /// <summary>Tooltip on Update now: an administrator prompt will follow.</summary>
+    public string BeforeUpdateNote => WslUpdateElevation.BeforeUpdateNote;
+
+    /// <summary>True when WSL confirms no distributions are installed.</summary>
+    [ObservableProperty]
+    private bool _noDistrosInstalled;
+
+    /// <summary>True when the distribution list couldn't be read.</summary>
+    [ObservableProperty]
+    private bool _distroListUnavailable;
+
     /// <summary>Cancels an in-flight update check when a newer one supersedes it (e.g. toggle change).</summary>
     private CancellationTokenSource? _updateCts;
 
@@ -203,6 +231,9 @@ public partial class WslEngineViewModel : ObservableObject
             {
                 Distros.Add(distro);
             }
+
+            DistroListUnavailable = Distros.Count == 0 && platform.DistroListUnavailable;
+            NoDistrosInstalled = Distros.Count == 0 && !platform.DistroListUnavailable;
 
             var config = await _system.ReadConfigAsync();
             MemoryLimit = config.MemoryDisplay;
@@ -343,7 +374,10 @@ public partial class WslEngineViewModel : ObservableObject
         var ok = await _dialogs.ShowConfirmAsync(
             "Update WSL",
             $"Download and install the latest WSL update{channel}? This stops all running distros " +
-            "and containers while the update is applied.",
+            "and containers while the update is applied.\n\n" +
+            WslUpdateElevation.BeforeUpdateNote + " If no prompt appears, look for a flashing " +
+            "shield icon on the taskbar, and check that it shows Microsoft Corporation as the " +
+            "verified publisher.",
             "Update");
         if (!ok)
         {
@@ -351,10 +385,18 @@ public partial class WslEngineViewModel : ObservableObject
         }
 
         IsBusy = true;
+        IsUpdatingWsl = true;
         StatusMessage = "Updating WSL…";
         try
         {
-            var result = await _system.UpdateWslAsync(IncludePreRelease);
+            var update = _system.UpdateWslAsync(IncludePreRelease);
+            var sawPrompt = await WslUpdateElevation.WatchAsync(update, open =>
+            {
+                IsAwaitingElevation = open;
+                StatusMessage = open ? WslUpdateElevation.WaitingProgress : WslUpdateElevation.InstallingProgress;
+            });
+            var result = await update;
+            IsUpdatingWsl = false;
             _monitor.RequestRefresh();
             if (result.Success)
             {
@@ -365,11 +407,14 @@ public partial class WslEngineViewModel : ObservableObject
             }
             else
             {
-                await _dialogs.ShowMessageAsync("Update failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync("Update failed",
+                    sawPrompt ? $"{result.ErrorText}\n\n{WslUpdateElevation.DeclinedHint}" : result.ErrorText);
             }
         }
         finally
         {
+            IsUpdatingWsl = false;
+            IsAwaitingElevation = false;
             IsBusy = false;
             await RefreshAsync();
         }

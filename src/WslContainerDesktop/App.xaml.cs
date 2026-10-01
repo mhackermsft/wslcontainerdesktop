@@ -488,6 +488,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IWslcSettingsFileService, WslcSettingsFileService>();
         services.AddSingleton<RestartSuppressionState>();
         services.AddSingleton<IWslSystemService, WslSystemService>();
+        services.AddSingleton<WslDistroInventory>();
         services.AddSingleton<IKubernetesService, KubernetesService>();
         services.AddSingleton<IAzureCliService, AzureCliService>();
         services.AddSingleton<IRegistryCredentialStore, RegistryCredentialStore>();

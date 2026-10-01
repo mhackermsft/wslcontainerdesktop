@@ -33,11 +33,11 @@ public sealed class KubernetesService : IKubernetesService
     private readonly PortForwardManager _portForwards;
 
     /// <summary>Creates the k3s collaborators around the configured WSL distro and shared root shell.</summary>
-    public KubernetesService(ISettingsService settings, ILoggerFactory loggerFactory)
+    public KubernetesService(ISettingsService settings, WslDistroInventory distros, ILoggerFactory loggerFactory)
     {
         var shell = new WslRootShell(settings);
         _installer = new K8sInstaller(shell);
-        _resources = new K8sResourceClient(shell, loggerFactory.CreateLogger<K8sResourceClient>());
+        _resources = new K8sResourceClient(shell, distros, loggerFactory.CreateLogger<K8sResourceClient>());
         _portForwards = new PortForwardManager(shell);
     }
 

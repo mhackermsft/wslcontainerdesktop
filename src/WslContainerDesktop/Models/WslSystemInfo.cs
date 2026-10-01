@@ -82,4 +82,16 @@ public sealed class WslPlatformInfo
 
     /// <summary>The registered distros and their run state.</summary>
     public IReadOnlyList<WslDistroStatus> Distros { get; init; } = System.Array.Empty<WslDistroStatus>();
+
+    /// <summary>
+    /// True when the distro list couldn't be read, so an empty <see cref="Distros"/> doesn't
+    /// mean none are installed.
+    /// </summary>
+    public bool DistroListUnavailable { get; init; }
 }
+
+/// <summary>A registered WSL distribution as recorded in the Lxss registry key.</summary>
+/// <param name="Name">Distribution name.</param>
+/// <param name="IsWsl2">True for WSL 2 (VM mode); k3s needs WSL 2.</param>
+/// <param name="IsDefault">True when this is WSL's default distribution.</param>
+public sealed record WslDistroRecord(string Name, bool IsWsl2, bool IsDefault);

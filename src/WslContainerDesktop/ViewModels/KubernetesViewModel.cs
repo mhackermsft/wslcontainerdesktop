@@ -39,6 +39,7 @@ public partial class KubernetesViewModel : ObservableObject
     /// <summary>Generated cluster state that drives the install/start/stop dashboard states.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsNotInstalled))]
+    [NotifyPropertyChangedFor(nameof(IsNoDistribution))]
     [NotifyPropertyChangedFor(nameof(IsInstalled))]
     [NotifyPropertyChangedFor(nameof(IsRunning))]
     [NotifyPropertyChangedFor(nameof(IsStopped))]
@@ -64,6 +65,7 @@ public partial class KubernetesViewModel : ObservableObject
     /// <summary>Generated flag used while install, upgrade, start, stop, or uninstall is running.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsNotInstalled))]
+    [NotifyPropertyChangedFor(nameof(IsNoDistribution))]
     [NotifyPropertyChangedFor(nameof(IsInstalled))]
     [NotifyPropertyChangedFor(nameof(IsRunning))]
     [NotifyPropertyChangedFor(nameof(IsStopped))]
@@ -166,6 +168,23 @@ public partial class KubernetesViewModel : ObservableObject
 
     /// <summary>True when the install call-to-action should be shown.</summary>
     public bool IsNotInstalled => !Working && State == ClusterState.NotInstalled;
+    /// <summary>True when no WSL distribution exists to host k3s, so install is unavailable.</summary>
+    public bool IsNoDistribution => !Working && State == ClusterState.NoDistribution;
+
+    /// <summary>Explains why no distribution can host k3s, and what to do.</summary>
+    [ObservableProperty]
+    private string _noDistributionMessage = string.Empty;
+
+    /// <summary>Headline shown when no distribution can host k3s.</summary>
+    [ObservableProperty]
+    private string _noDistributionTitle = string.Empty;
+
+    /// <summary>
+    /// True when a pinned distribution can't host k3s, so the page offers to go back to WSL's
+    /// default distribution.
+    /// </summary>
+    [ObservableProperty]
+    private bool _canUseDefaultDistribution;
     /// <summary>True when installed-cluster actions should be shown.</summary>
     public bool IsInstalled => !Working && State is ClusterState.Stopped or ClusterState.Running;
     /// <summary>True when resource lists and running-cluster actions should be shown.</summary>
@@ -281,6 +300,35 @@ public partial class KubernetesViewModel : ObservableObject
     {
         var status = await _k8s.GetStatusAsync();
         Apply(status);
+
+        // Remember where an existing cluster lives, so changing WSL's default distribution later
+        // doesn't make the app look for k3s somewhere else and offer to install a second one.
+        if (status.IsInstalled)
+        {
+            PinHostDistro(status.Distro);
+        }
+    }
+
+    /// <summary>Pins k3s to <paramref name="distro"/> when nothing is pinned yet.</summary>
+    private void PinHostDistro(string? distro)
+    {
+        if (!string.IsNullOrWhiteSpace(_settings.WslDistro) ||
+            string.IsNullOrWhiteSpace(distro) || distro is "-" or "default")
+        {
+            return;
+        }
+
+        _settings.WslDistro = distro;
+        _settings.Save();
+    }
+
+    /// <summary>Stops using a pinned distribution that can't host k3s and goes back to WSL's default.</summary>
+    [RelayCommand]
+    private async Task UseDefaultDistributionAsync()
+    {
+        _settings.WslDistro = null;
+        _settings.Save();
+        await RefreshStatusAsync();
     }
 
     private void Apply(ClusterStatus status)
@@ -289,9 +337,15 @@ public partial class KubernetesViewModel : ObservableObject
         Distro = status.Distro;
         NodeName = status.NodeName;
         KubernetesVersion = status.KubernetesVersion;
+        var pinned = !string.IsNullOrWhiteSpace(_settings.WslDistro);
+        var hostDistro = status.Distro is "-" or "" ? null : status.Distro;
+        NoDistributionTitle = KubernetesHostCheck.Title(status.HostProblem);
+        NoDistributionMessage = KubernetesHostCheck.Explain(status.HostProblem, hostDistro, pinned);
+        CanUseDefaultDistribution = pinned && status.State == ClusterState.NoDistribution;
         StatusMessage = status.State switch
         {
             ClusterState.NotInstalled => "Kubernetes (k3s) is not installed.",
+            ClusterState.NoDistribution => KubernetesHostCheck.Summary(status.HostProblem, hostDistro),
             ClusterState.Stopped => "Cluster is installed but stopped.",
             ClusterState.Running => $"Cluster running · node {status.NodeName} · {status.KubernetesVersion}",
             ClusterState.Unknown => string.IsNullOrEmpty(status.Message) ? "Unable to determine status." : status.Message,
@@ -303,9 +357,18 @@ public partial class KubernetesViewModel : ObservableObject
     [RelayCommand]
     private async Task InstallAsync()
     {
+        // The distro can be removed while the page is open; re-check before offering to install.
+        await RefreshStatusAsync();
+        if (State == ClusterState.NoDistribution)
+        {
+            return;
+        }
+
+        var host = Distro is "-" or "default" or "" ? null : Distro;
         var ok = await _dialogs.ShowConfirmAsync(
             "Install Kubernetes",
-            "This installs k3s (a lightweight single-node Kubernetes) into your WSL distro. " +
+            "This installs k3s (a lightweight single-node Kubernetes) into " +
+            (host is null ? "your WSL distribution" : $"the WSL distribution \"{host}\"") + ". " +
             "It runs as a systemd service and can be uninstalled later. Continue?",
             "Install");
         if (!ok)
@@ -325,12 +388,19 @@ public partial class KubernetesViewModel : ObservableObject
             {
                 // User declined the changed installer; message already logged. Leave the log up.
             }
+            else if (result.SystemdMissing)
+            {
+                await _dialogs.ShowMessageAsync("Kubernetes needs systemd", K8sInstaller.SystemdMissingMessage);
+            }
             else if (!result.Success)
             {
                 await _dialogs.ShowMessageAsync("Install failed", result.Result.ErrorText);
             }
             else
             {
+                // Pin before anything else can change WSL's default distribution.
+                PinHostDistro(host);
+
                 // Hide the op-log on success so it doesn't overlap the running view.
                 ShowOperationLog = false;
             }

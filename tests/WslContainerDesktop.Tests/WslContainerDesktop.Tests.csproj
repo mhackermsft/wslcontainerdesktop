@@ -184,6 +184,12 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcService.cs" Link="Services\IWslcService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcSettingsFileService.cs" Link="Services\IWslcSettingsFileService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcEventParser.cs" Link="Services\WslcEventParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslDistroListParser.cs" Link="Services\WslDistroListParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\KubernetesHostCheck.cs" Link="Services\KubernetesHostCheck.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\KubernetesHostProblem.cs" Link="Models\KubernetesHostProblem.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslVersionOutputParser.cs" Link="Services\WslVersionOutputParser.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslUpdateElevation.cs" Link="Services\WslUpdateElevation.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslSystemInfo.cs" Link="Models\WslSystemInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\EngineEventStream.cs" Link="Services\EngineEventStream.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSettingsFileService.cs" Link="Services\WslcSettingsFileService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\OpenWebUiPlanner.cs" Link="Services\OpenWebUiPlanner.cs" />

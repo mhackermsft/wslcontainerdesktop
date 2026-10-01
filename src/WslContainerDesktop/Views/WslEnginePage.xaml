@@ -139,11 +139,25 @@
                             Title="Update available">
                             <InfoBar.ActionButton>
                                 <Button
+                                    AutomationProperties.Name="Update now"
                                     Command="{x:Bind ViewModel.UpdateWslCommand}"
-                                    Content="Update now"
-                                    Style="{ThemeResource AccentButtonStyle}" />
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    ToolTipService.ToolTip="{x:Bind ViewModel.BeforeUpdateNote}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon FontSize="14" Glyph="&#xEA18;" />
+                                        <TextBlock Text="Update now" />
+                                    </StackPanel>
+                                </Button>
                             </InfoBar.ActionButton>
                         </InfoBar>
+
+                        <!--  Administrator prompt guidance while the WSL update runs  -->
+                        <InfoBar
+                            Title="{x:Bind ViewModel.ElevationTitle, Mode=OneWay}"
+                            IsClosable="False"
+                            IsOpen="{x:Bind ViewModel.IsUpdatingWsl, Mode=OneWay}"
+                            Message="{x:Bind ViewModel.ElevationGuidance}"
+                            Severity="Warning" />
 
                         <!--  Check failed  -->
                         <InfoBar
@@ -390,12 +404,35 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <StackPanel
+                            Margin="0,8"
+                            HorizontalAlignment="Center"
+                            Spacing="4"
+                            Visibility="{x:Bind ViewModel.NoDistrosInstalled, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="No WSL distributions are installed." />
+                            <TextBlock
+                                MaxWidth="560"
+                                HorizontalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                Text="Containers don't need one: WSL containers run in their own VM. A distribution is only needed for the optional Kubernetes (k3s) cluster."
+                                TextAlignment="Center"
+                                TextWrapping="Wrap" />
+                            <HyperlinkButton
+                                HorizontalAlignment="Center"
+                                Content="How to install a distribution"
+                                NavigateUri="https://learn.microsoft.com/windows/wsl/install" />
+                        </StackPanel>
                         <TextBlock
                             Margin="0,8"
                             HorizontalAlignment="Center"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="No distributions found."
-                            Visibility="{x:Bind ViewModel.Distros.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
+                            Text="Couldn't read the WSL distribution list. Use Refresh to try again."
+                            TextWrapping="Wrap"
+                            Visibility="{x:Bind ViewModel.DistroListUnavailable, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                     </StackPanel>
                 </Border>
             </StackPanel>

@@ -33,6 +33,9 @@ public sealed class K3sInstallResult
     /// <summary>True when an expected pin was supplied and the downloaded script did not match it (the script was not executed).</summary>
     public bool HashMismatch { get; init; }
 
+    /// <summary>True when the host distribution doesn't run systemd, so nothing was downloaded or installed.</summary>
+    public bool SystemdMissing { get; init; }
+
     /// <summary>Gets a value indicating whether the success flag is set.</summary>
     public bool Success => Result.Success;
 }

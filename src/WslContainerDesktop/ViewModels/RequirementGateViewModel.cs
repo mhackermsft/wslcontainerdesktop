@@ -59,6 +59,26 @@ public partial class RequirementGateViewModel : ObservableObject
     /// <summary>True when <see cref="UpdateError"/> has a message to show.</summary>
     public bool HasUpdateError => !string.IsNullOrWhiteSpace(UpdateError);
 
+    /// <summary>True while <c>wsl --update</c> runs, so the administrator-prompt guidance shows.</summary>
+    [ObservableProperty]
+    private bool _isUpdating;
+
+    /// <summary>True while the Windows administrator prompt is open during an update.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ElevationTitle))]
+    private bool _isAwaitingElevation;
+
+    /// <summary>Title of the administrator-prompt guidance shown during an update.</summary>
+    public string ElevationTitle => IsAwaitingElevation
+        ? WslUpdateElevation.WaitingTitle
+        : WslUpdateElevation.ExpectPromptTitle;
+
+    /// <summary>How to find and approve the administrator prompt.</summary>
+    public string ElevationGuidance => WslUpdateElevation.Guidance;
+
+    /// <summary>Note under the update button that an administrator prompt will follow.</summary>
+    public string BeforeUpdateNote => WslUpdateElevation.BeforeUpdateNote;
+
     /// <summary>Creates the RequirementGate view model and stores its injected services.</summary>
     public RequirementGateViewModel(IWslRequirementService requirements, IWslSystemService wslSystem)
     {
@@ -132,16 +152,25 @@ public partial class RequirementGateViewModel : ObservableObject
     private async Task UpdateWslAsync()
     {
         IsBusy = true;
+        IsUpdating = true;
         UpdateError = string.Empty;
         ProgressText = "Updating WSL…";
         try
         {
-            var result = await _wslSystem.UpdateWslAsync(includePreRelease: false);
+            var update = _wslSystem.UpdateWslAsync(includePreRelease: false);
+            var sawPrompt = await WslUpdateElevation.WatchAsync(update, open =>
+            {
+                IsAwaitingElevation = open;
+                ProgressText = open ? WslUpdateElevation.WaitingProgress : WslUpdateElevation.InstallingProgress;
+            });
+            var result = await update;
+            IsUpdating = false;
             if (!result.Success)
             {
-                UpdateError = string.IsNullOrWhiteSpace(result.ErrorText)
+                var reason = string.IsNullOrWhiteSpace(result.ErrorText)
                     ? "wsl --update did not succeed. Try running it from a terminal to see why."
                     : result.ErrorText;
+                UpdateError = sawPrompt ? $"{reason}\n\n{WslUpdateElevation.DeclinedHint}" : reason;
             }
 
             ProgressText = result.Success ? "Update finished. Re-checking…" : "Re-checking…";
@@ -154,6 +183,8 @@ public partial class RequirementGateViewModel : ObservableObject
         }
         finally
         {
+            IsUpdating = false;
+            IsAwaitingElevation = false;
             IsBusy = false;
         }
     }

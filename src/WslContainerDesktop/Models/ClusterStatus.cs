@@ -33,6 +33,12 @@ public enum ClusterState
 
     /// <summary>k3s is running and the node is ready.</summary>
     Running,
+
+    /// <summary>
+    /// No WSL distribution can host k3s (see <see cref="ClusterStatus.HostProblem"/>). Containers
+    /// don't need a distribution; only k3s does.
+    /// </summary>
+    NoDistribution,
 }
 
 /// <summary>Snapshot of the cluster's install/run status.</summary>
@@ -48,6 +54,8 @@ public sealed class ClusterStatus
     public string Distro { get; init; } = "-";
     /// <summary>Gets or sets the message.</summary>
     public string Message { get; init; } = string.Empty;
+    /// <summary>Why no distribution can host k3s when <see cref="State"/> is <see cref="ClusterState.NoDistribution"/>.</summary>
+    public KubernetesHostProblem HostProblem { get; init; }
 
     /// <summary>Gets a value indicating whether this value is installed.</summary>
     public bool IsInstalled => State is ClusterState.Stopped or ClusterState.Running;

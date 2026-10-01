@@ -798,10 +798,11 @@
                         FontSize="12"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Text="A native WinUI 3 manager for WSL containers (wslc)." />
-                    <HyperlinkButton
-                        Margin="-12,0,0,0"
-                        Content="Learn about WSL containers"
-                        NavigateUri="https://aka.ms/wslc" />
+                    <StackPanel Margin="-12,0,0,0" Orientation="Horizontal">
+                        <HyperlinkButton Content="Learn about WSL containers" NavigateUri="https://aka.ms/wslc" />
+                        <HyperlinkButton Content="View on GitHub" NavigateUri="{x:Bind ViewModel.RepositoryUri}" />
+                        <HyperlinkButton Content="Report an issue" NavigateUri="{x:Bind ViewModel.NewIssueUri}" />
+                    </StackPanel>
                     <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                     <Grid Padding="0,8" ColumnSpacing="12">
                         <Grid.ColumnDefinitions>

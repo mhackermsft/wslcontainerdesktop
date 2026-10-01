@@ -12,6 +12,42 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+### Added
+- **Settings → About** now has **View on GitHub** and **Report an issue** links.
+
+### Changed
+- **Updating WSL** (from the WSL 3.0.1 requirement screen or the **WSL engine** page) now tells you
+  up front that Windows will ask for administrator permission. While the update runs, the app shows
+  how to find the prompt — often only a flashing shield icon on the taskbar — and says when Windows
+  is waiting for you to approve it, instead of showing only a spinner. If the update fails after
+  that prompt appeared, the error explains how to try again.
+- When no WSL distribution can host Kubernetes, the **Kubernetes** page explains why and how to
+  fix it, and no longer offers **Install**. This covers:
+  - no distribution installed;
+  - no default distribution set;
+  - a WSL 1 distribution (k3s needs WSL 2);
+  - a default distribution that belongs to another tool, such as Docker Desktop's `docker-desktop`.
+    Previously k3s could be installed into it.
+
+  Containers aren't affected: WSL containers run in their own VM and never needed a distribution.
+  The background Kubernetes check also stops launching `wsl.exe` in this state.
+- Kubernetes now remembers which WSL distribution it was installed in, and shows that distribution
+  by name. Previously, changing WSL's default distribution made an existing cluster look
+  uninstalled and offered to install a second one. Existing clusters are remembered the next time
+  you open the Kubernetes page. If that distribution is later removed, **Use the default
+  distribution** switches back to WSL's default.
+- Installing Kubernetes into a distribution without systemd now stops before downloading anything,
+  and says how to turn systemd on, instead of failing partway through the k3s installer.
+
+### Fixed
+- With no WSL distribution installed, the **WSL engine** page listed the lines of wsl.exe's "no
+  installed distributions" message as if they were distributions. It now says none are installed,
+  and that containers don't need one (#124).
+- On Windows in some display languages (for example French, Japanese, Russian, Chinese), the
+  **WSL engine** page showed the kernel version as "Unknown". On Traditional Chinese it also couldn't
+  read the installed WSL version, so the WSL update check failed. Both versions are now read
+  correctly in every language WSL supports.
+
 ## [2.0.0] — 2026-09-30
 
 Built for **WSL containers general availability**. WSL Container Desktop now requires **WSL 3.0.1 or

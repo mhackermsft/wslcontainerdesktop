@@ -26,6 +26,12 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public sealed class K8sInstaller(WslRootShell shell)
 {
+    /// <summary>Shown when the host distribution doesn't run systemd, which the k3s service needs.</summary>
+    public const string SystemdMissingMessage =
+        "k3s runs as a systemd service, and systemd isn't running in this WSL distribution. Turn it " +
+        "on by adding these lines to /etc/wsl.conf inside the distribution:\n\n[boot]\nsystemd=true\n\n" +
+        "Then run wsl --shutdown and try again.";
+
     /// <summary>Installs k3s using the latest stable script and optional installer SHA-256 pin.</summary>
     public Task<K3sInstallResult> InstallAsync(string? expectedInstallerHash, Action<string> onOutput, CancellationToken ct = default) =>
         RunInstallerAsync(version: null, expectedInstallerHash, onOutput, ct);
@@ -49,10 +55,18 @@ public sealed class K8sInstaller(WslRootShell shell)
     {
         string? actualHash = null;
         var mismatch = false;
+        var noSystemd = false;
 
         // Intercept internal markers so they never reach the user-visible operation log.
         void Filter(string line)
         {
+            if (line.StartsWith("@@NO_SYSTEMD", StringComparison.Ordinal))
+            {
+                noSystemd = true;
+                onOutput(SystemdMissingMessage);
+                return;
+            }
+
             if (line.StartsWith("@@INSTALLER_SHA=", StringComparison.Ordinal))
             {
                 actualHash = line["@@INSTALLER_SHA=".Length..].Trim().ToLowerInvariant();
@@ -79,8 +93,11 @@ public sealed class K8sInstaller(WslRootShell shell)
             ? "INSTALL_K3S_SKIP_SELINUX_RPM=true sh \"$TMP\""
             : $"INSTALL_K3S_VERSION={WslRootShell.ShellEscape(version)} INSTALL_K3S_SKIP_SELINUX_RPM=true sh \"$TMP\"";
 
-        // Single root shell: download -> hash -> verify -> run the SAME file -> clean up.
+        // Single root shell: check systemd -> download -> hash -> verify -> run the SAME file -> clean up.
+        // PID 1 of a WSL 2 distribution is systemd only when systemd is enabled in /etc/wsl.conf.
         var script =
+            "if [ \"$(cat /proc/1/comm 2>/dev/null)\" != systemd ]; then echo '@@NO_SYSTEMD'; " +
+            $"echo {WslRootShell.ShellEscape(SystemdMissingMessage)} >&2; exit 5; fi; " +
             "TMP=$(mktemp) || { echo '@@DOWNLOAD_FAILED'; exit 4; }; " +
             "if ! curl -sfL https://get.k3s.io -o \"$TMP\"; then echo '@@DOWNLOAD_FAILED'; rm -f \"$TMP\"; exit 4; fi; " +
             "ACTUAL=$(sha256sum \"$TMP\" | awk '{print $1}'); " +
@@ -95,6 +112,7 @@ public sealed class K8sInstaller(WslRootShell shell)
             Result = result,
             InstallerHash = actualHash,
             HashMismatch = mismatch,
+            SystemdMissing = noSystemd,
         };
     }
 

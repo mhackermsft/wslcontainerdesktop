@@ -24,13 +24,27 @@ namespace WslContainerDesktop.Services;
 /// Covers status probes, list queries for each resource kind, apply, and the
 /// delete/scale/restart/cron/yaml/describe/logs operations.
 /// </summary>
-public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceClient> logger)
+public sealed class K8sResourceClient(WslRootShell shell, WslDistroInventory distros, ILogger<K8sResourceClient> logger)
 {
     // ---- Status ---------------------------------------------------------
 
     /// <summary>Reads detailed k3s cluster status for the dashboard.</summary>
     public async Task<ClusterStatus> GetStatusAsync(CancellationToken ct = default)
     {
+        var host = distros.ResolveKubernetesHost();
+        if (host is { CanHost: false })
+        {
+            return new ClusterStatus
+            {
+                State = ClusterState.NoDistribution,
+                HostProblem = host.Problem,
+                Distro = host.DistroName ?? "-",
+            };
+        }
+
+        // The real distro name (e.g. "Ubuntu") when the registry was readable, not "default".
+        var distroLabel = host?.DistroName ?? shell.DistroLabel;
+
         try
         {
             var script = K8sStatusProtocol.BuildProbeScript(
@@ -46,7 +60,7 @@ public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceCli
 
             if (K8sStatusProtocol.Contains(output, K8sStatusProtocol.StateNotInstalled))
             {
-                return new ClusterStatus { State = ClusterState.NotInstalled, Distro = shell.DistroLabel };
+                return new ClusterStatus { State = ClusterState.NotInstalled, Distro = distroLabel };
             }
 
             if (K8sStatusProtocol.Contains(output, K8sStatusProtocol.StateStopped))
@@ -54,7 +68,7 @@ public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceCli
                 return new ClusterStatus
                 {
                     State = ClusterState.Stopped,
-                    Distro = shell.DistroLabel,
+                    Distro = distroLabel,
                     Message = "k3s is installed but not running.",
                 };
             }
@@ -66,7 +80,7 @@ public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceCli
             return new ClusterStatus
             {
                 State = ClusterState.Running,
-                Distro = shell.DistroLabel,
+                Distro = distroLabel,
                 NodeName = node?.Name ?? "-",
                 KubernetesVersion = node?.Version ?? "-",
             };
@@ -81,6 +95,12 @@ public sealed class K8sResourceClient(WslRootShell shell, ILogger<K8sResourceCli
     /// <summary>Reads the compact cluster status used by the app footer.</summary>
     public async Task<K8sFooterStatus> GetFooterStatusAsync(CancellationToken ct = default)
     {
+        // Without a usable host distro every probe would just launch wsl.exe to fail; skip it.
+        if (distros.ResolveKubernetesHost() is { CanHost: false })
+        {
+            return new K8sFooterStatus { State = ClusterState.NoDistribution };
+        }
+
         try
         {
             // Kept separate from GetStatusAsync so the shared StatusMonitor can poll it cheaply on

@@ -69,6 +69,7 @@ public sealed class AssistantObservationContractTests
 
     [Theory]
     [InlineData(ClusterState.NotInstalled, false)]
+    [InlineData(ClusterState.NoDistribution, false)]
     [InlineData(ClusterState.Unknown, false)]
     [InlineData(ClusterState.Stopped, true)]
     [InlineData(ClusterState.Running, true)]

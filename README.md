@@ -425,7 +425,7 @@ directory. Workspaces without host initialization commands are unaffected.
 - **Open WebUI + Ollama** — if an Ollama container already exists (for example the one behind the local AI assistant), the template deploys only the web UI and points it at that runtime by network alias; removing the template leaves that runtime alone. Otherwise it deploys its own Ollama, asks which model to download so the chat UI works immediately, and **requests GPU passthrough**.
 
 ### Kubernetes
-- **Install / uninstall** a single-node **k3s** cluster inside your WSL distro, with streaming progress.
+- **Install / uninstall** a single-node **k3s** cluster inside a WSL 2 distribution with systemd, with streaming progress. This is the only feature that needs an installed WSL distribution — containers don't. k3s uses WSL's default distribution and remembers it after installing. If that distribution can't host k3s (none installed, WSL 1, or one owned by another tool such as Docker Desktop), the page explains why and offers no Install button.
 - **Start / Stop** the cluster and **Upgrade** it to the latest stable or a specific version (with a version-skew guard that steps one minor version at a time).
 - A **metrics dashboard** and a Podman-style resource explorer for Nodes, Deployments, Pods, Services, Ingresses, PVCs, ConfigMaps, Secrets, Jobs, and CronJobs.
 - **Row quick actions** (scale, restart, run-now, delete) and a **full detail view** per object with Summary / **Kube** (editable YAML you can apply back) / Describe / Logs tabs.
@@ -434,10 +434,10 @@ directory. Workspaces without host initialization commands are unaffected.
 ### WSL engine
 - A dedicated **WSL engine** page for the platform underneath the containers.
 - **Restart WSL session** and **Shut down WSL** — the quickest recovery when the engine gets into a bad state.
-- **WSL updates** — shows your installed version against the latest available, with **Update now**. Updates come from the stable channel, which carries WSL containers since 3.0.1; an **Include early-access (pre-release) WSL builds** toggle (off by default) opts into preview builds. If you had turned on pre-release updates for the container preview, the app switches you back to the stable channel once; turn it on again if you want it.
+- **WSL updates** — shows your installed version against the latest available, with **Update now**. Installing an update needs administrator permission; the app says so up front and, while the update runs, shows how to find the Windows prompt if it only appears as a flashing shield on the taskbar. Updates come from the stable channel, which carries WSL containers since 3.0.1; an **Include early-access (pre-release) WSL builds** toggle (off by default) opts into preview builds. If you had turned on pre-release updates for the container preview, the app switches you back to the stable channel once; turn it on again if you want it.
 - **Container storage** — where the default session keeps images, containers, and volumes, and how large its disk is. **Change location…** points `session.storagePath` at an empty folder you choose (for example on a larger drive); **Reset to default** returns to `%LOCALAPPDATA%\wslc\sessions`. Existing images, containers, and volumes are **not moved** — they stay in the old location until you delete them — and the session restarts before the new location is used. Under **Container session settings**, the session's CPU, memory, maximum disk size, default port-binding address, and credential store are shown read-only; **Edit settings file** opens `settings.yaml` to change them.
 - **Platform info** — WSL version and kernel, plus the memory and processor limits currently in effect from `.wslconfig`.
-- **Distributions** — every installed distro with its state and version.
+- **Distributions** — every installed distro with its state and version. Having none is fine: WSL containers run in their own VM and don't need a distribution.
 
 ### AI features *(optional — off by default)*
 AI is entirely opt-in: nothing is enabled, and **no data leaves your machine**, until you turn it on in **Settings → AI diagnostics** and pick a provider.

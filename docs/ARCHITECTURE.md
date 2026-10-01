@@ -199,6 +199,19 @@ into cohesive collaborators over the shared `WslRootShell`:
   `kubectl get -o yaml` can be re-applied.
 - `K8sStatusProtocol` — the marker protocol (below).
 
+k3s is the only feature that needs a WSL **distribution**: WSL containers (wslc) run in their own
+VM. `WslDistroInventory` reads the user's registered distros from the `HKCU\…\Lxss` registry key
+(language-neutral, and it doesn't launch `wsl.exe`): name, WSL 2 (`Flags & 0x8`,
+`LXSS_DISTRO_FLAGS_VM_MODE`; the `Version` value is the storage layout, not WSL 1/2) and whether it
+is `DefaultDistribution`. `KubernetesHostCheck` picks the host the same way `wsl.exe` does (the
+pinned `WslDistro`, else the default) and rejects it when it is missing, WSL 1, or owned by another
+tool (`docker-desktop*`, `rancher-desktop*`, `podman-*`). Then `K8sResourceClient` reports
+`ClusterState.NoDistribution` with a `KubernetesHostProblem` without probing, and the Kubernetes page
+hides Install and explains the fix. If the registry can't be read, the normal probe runs.
+`KubernetesViewModel` pins `WslDistro` to the host after a successful install, or when it first sees
+an existing cluster. This means a later change of WSL's default distribution can't orphan the cluster.
+`K8sInstaller` checks that PID 1 is systemd before downloading the installer.
+
 ### Engine events (`EngineEventStream`, `WslcEventParser`, `ActivityLog`)
 
 `EngineEventStream` owns the long-lived `wslc events` process. The command is text-only in 3.0.1,
@@ -335,7 +348,18 @@ Host-level operations on the **WSL VM itself**, as opposed to the container engi
 *WSL engine* page. It reads `.wslconfig` resource limits (`[wsl2]` memory/processors/swap), reports
 platform info via `wsl --version` and the distro list via `wsl -l -v` (both run with `WSL_UTF8=1`
 so `wsl.exe` emits UTF-8, not UTF-16LE), and shuts WSL down via `ShutdownWslAsync`
-(`wsl --shutdown`). Note that a WSL `.vhdx` grows but never shrinks on its own; the reliable way to
+(`wsl --shutdown`). `wsl --update` installs an MSI from a non-elevated, windowless `wsl.exe`, so
+Windows often defers its UAC prompt to a flashing taskbar shield. `WslUpdateElevation` supplies the
+shared guidance text and, while the update runs, polls for the consent UI (`consent.exe`) so the
+requirement gate and the WSL engine page can say when Windows is waiting for approval.
+`wsl --version` prints a localized message (labels and even the colon vary by language), so
+`WslVersionOutputParser` reads the WSL and kernel versions by position rather than by label.
+`wsl -l -v`'s table, by contrast, has fixed English headers and state words in every language.
+`WslDistroListParser` accepts a `wsl -l -v` row only when its last column is a
+WSL version (1 or 2), so the header in any display language, and the prose `wsl.exe` prints (with a
+non-zero exit) when no distro is installed, are never shown as distros. An empty list is reported as
+"none installed" only when the Lxss registry agrees; otherwise the page says the list couldn't be
+read. Note that a WSL `.vhdx` grows but never shrinks on its own; the reliable way to
 reclaim space is pruning images/containers/volumes on the *Disk usage* page.
 
 ### WSL container requirement gate (`WslRequirementService`)

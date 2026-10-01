@@ -113,6 +113,14 @@
                             Visibility="{x:Bind ViewModel.IsNotInstalled, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                             <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Not installed" />
                         </Border>
+                        <Border
+                            Padding="10,2"
+                            VerticalAlignment="Center"
+                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                            CornerRadius="10"
+                            Visibility="{x:Bind ViewModel.IsNoDistribution, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Unavailable" />
+                        </Border>
                     </StackPanel>
                     <StackPanel
                         Orientation="Horizontal"
@@ -223,6 +231,49 @@
                         <TextBlock Text="Install Kubernetes (k3s)" />
                     </StackPanel>
                 </Button>
+            </StackPanel>
+
+            <!--  No-distribution hero: k3s needs a WSL distro; containers do not.  -->
+            <StackPanel
+                MaxWidth="560"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="14"
+                Visibility="{x:Bind ViewModel.IsNoDistribution, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <FontIcon
+                    HorizontalAlignment="Center"
+                    FontSize="52"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Glyph="&#xEB3C;" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    Style="{ThemeResource SubtitleTextBlockStyle}"
+                    Text="{x:Bind ViewModel.NoDistributionTitle, Mode=OneWay}"
+                    TextAlignment="Center"
+                    TextWrapping="Wrap" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind ViewModel.NoDistributionMessage, Mode=OneWay}"
+                    TextAlignment="Center"
+                    TextWrapping="Wrap" />
+                <StackPanel
+                    HorizontalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <HyperlinkButton Content="How to install a distribution" NavigateUri="https://learn.microsoft.com/windows/wsl/install" />
+                    <Button
+                        Command="{x:Bind ViewModel.UseDefaultDistributionCommand}"
+                        Content="Use the default distribution"
+                        ToolTipService.ToolTip="Stop using the distribution configured for Kubernetes and use WSL's default distribution instead."
+                        Visibility="{x:Bind ViewModel.CanUseDefaultDistribution, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                    <Button Command="{x:Bind ViewModel.RefreshStatusCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                            <TextBlock Text="Refresh" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </StackPanel>
 
             <!--  Operation log  -->

@@ -29,7 +29,7 @@ namespace WslContainerDesktop.Services;
 /// filesystem and the Lxss registry, and shells out to <c>wsl.exe</c> for platform info, distro
 /// disk-usage measurement, and shutdown. All calls go through <see cref="ProcessExecutor"/>.
 /// </summary>
-public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClient http) : IWslSystemService
+public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClient http, WslDistroInventory distroInventory) : IWslSystemService
 {
     private const string LxssKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Lxss";
 
@@ -125,25 +125,7 @@ public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClien
         try
         {
             var version = await RunWslAsync(ct, "--version").ConfigureAwait(false);
-            foreach (var line in version.StandardOutput.Split('\n'))
-            {
-                var colon = line.IndexOf(':');
-                if (colon <= 0)
-                {
-                    continue;
-                }
-
-                var label = line[..colon].Trim().ToLowerInvariant();
-                var value = line[(colon + 1)..].Trim();
-                if (label.Contains("wsl") && wslVersion.Length == 0)
-                {
-                    wslVersion = value;
-                }
-                else if (label.Contains("kernel") && kernel.Length == 0)
-                {
-                    kernel = value;
-                }
-            }
+            (wslVersion, kernel) = WslVersionOutputParser.Parse(version.StandardOutput);
         }
         catch (Exception ex)
         {
@@ -153,63 +135,32 @@ public sealed class WslSystemService(ILogger<WslSystemService> logger, HttpClien
         try
         {
             var list = await RunWslAsync(ct, "-l", "-v").ConfigureAwait(false);
-            distros = ParseDistroList(list.StandardOutput);
+            if (list.Success)
+            {
+                distros = WslDistroListParser.Parse(list.StandardOutput);
+            }
+            else
+            {
+                // wsl.exe exits non-zero and prints prose (not a table) when no distro is installed.
+                logger.LogDebug("wsl -l -v exited with {ExitCode}.", list.ExitCode);
+            }
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "wsl -l -v failed.");
         }
 
-        return new WslPlatformInfo { WslVersion = wslVersion, KernelVersion = kernel, Distros = distros };
-    }
+        // An empty list only means "none installed" when the registry confirms it. wsl -l -v never
+        // succeeds with an empty table, so an empty successful parse is an unrecognized format.
+        var unavailable = distros.Count == 0 && distroInventory.GetInstalledNames() is not { Count: 0 };
 
-    /// <summary>Parses the tabular output of <c>wsl -l -v</c> into distro rows.</summary>
-    internal static List<WslDistroStatus> ParseDistroList(string output)
-    {
-        var result = new List<WslDistroStatus>();
-        var lines = output.Split('\n');
-        var seenHeader = false;
-
-        foreach (var raw in lines)
+        return new WslPlatformInfo
         {
-            var line = raw.Replace('\r', ' ').TrimEnd();
-            if (line.Trim().Length == 0)
-            {
-                continue;
-            }
-
-            // The header row starts with NAME (after an optional leading marker column).
-            if (!seenHeader)
-            {
-                seenHeader = true;
-                if (line.Contains("NAME", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-            }
-
-            var isDefault = line.TrimStart().StartsWith('*');
-            var tokens = line.Replace("*", " ")
-                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (tokens.Length < 3)
-            {
-                continue;
-            }
-
-            var version = int.TryParse(tokens[^1], out var v) ? v : 0;
-            var state = tokens[^2];
-            var name = string.Join(' ', tokens[..^2]);
-
-            result.Add(new WslDistroStatus
-            {
-                Name = name,
-                State = state,
-                Version = version,
-                IsDefault = isDefault,
-            });
-        }
-
-        return result;
+            WslVersion = wslVersion,
+            KernelVersion = kernel,
+            Distros = distros,
+            DistroListUnavailable = unavailable,
+        };
     }
 
     // ---- Updates -------------------------------------------------------
