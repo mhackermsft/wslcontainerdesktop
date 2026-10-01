@@ -12,6 +12,8 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-09-30
+
 Built for **WSL containers general availability**. WSL Container Desktop now requires **WSL 3.0.1 or
 later** and uses the full `wslc` command set from that release. See Microsoft's
 [GA announcement](https://blogs.windows.com/windowsdeveloper/2026/09/29/wsl-containers-now-generally-available/).
@@ -454,7 +456,8 @@ rather than assuming one schema or flag set.
 Older versions (1.0.0 – 1.5.3) predate this changelog. Their tags remain in the repository, and
 their changes can be reviewed with `git log v1.5.2..v1.5.3` and similar.
 
-[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v1.9.1...main
+[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v2.0.0...main
+[2.0.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v2.0.0
 [1.9.1]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.9.1
 [1.9.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.9.0
 [1.8.1]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v1.8.1
