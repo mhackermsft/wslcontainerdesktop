@@ -101,6 +101,19 @@ public sealed class WslPolicyServiceTests
         Assert.Contains("ghcr.io, mcr.microsoft.com", message);
     }
 
+    [Theory]
+    [InlineData("4b275f7b1982", true)]
+    [InlineData("4b275f7b1982d1e4c5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192", true)]
+    [InlineData("sha256:4b275f7b1982d1e4c5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192", true)]
+    [InlineData("sha256:4b275f7b1982", false)]
+    [InlineData("4b275f7b198", false)]
+    [InlineData("nginx", false)]
+    [InlineData("deadbeefcafe:latest", false)]
+    [InlineData("ghcr.io/owner/4b275f7b1982", false)]
+    [InlineData("4B275F7B1982", false)]
+    public void IsImageId_RecognizesOnlyBareImageIds(string reference, bool expected) =>
+        Assert.Equal(expected, WslRegistryPolicyGuard.IsImageId(reference));
+
     [Fact]
     public void Build_IsRefusedWheneverAllowlistConfigured()
     {

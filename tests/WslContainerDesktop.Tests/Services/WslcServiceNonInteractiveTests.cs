@@ -276,6 +276,23 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
         Assert.Empty(_stub.Invocations(_stub.Quiet));
     }
 
+    [Theory]
+    [InlineData("4b275f7b1982", true)]
+    [InlineData("sha256:4b275f7b1982d1e4c5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192", true)]
+    [InlineData("0123456789ab", false)]
+    public async Task RegistryAllowlist_AllowsRunningALocalImageById(string image, bool allowed)
+    {
+        // Compose runs each service by the local image ID it resolved after an allowed pull. A bare
+        // ID would otherwise be read as a Docker Hub name and blocked.
+        var policy = new StaticPolicy(new WslRegistryAllowlist(WslRegistryAllowlistState.Configured, ["ghcr.io"]));
+        var service = Service(_stub.LocalImage, policy: policy);
+
+        var result = await service.RunContainerAsync(new RunContainerOptions { Image = image }).WaitAsync(Guard);
+
+        Assert.Equal(allowed, result.Success);
+        Assert.Equal(allowed, _stub.Invocations(_stub.LocalImage).Any(line => line.StartsWith("run ", StringComparison.Ordinal)));
+    }
+
     [Fact]
     public async Task Build_WhenAllowlistConfigured_IsRefusedBeforeLaunch()
     {

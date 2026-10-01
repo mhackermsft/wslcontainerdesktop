@@ -41,6 +41,10 @@ internal sealed class WslcStub : IDisposable
             "exit /b 0\r\n");
         Write("sleep", "ping -n 60 127.0.0.1 >nul\r\nexit /b 0\r\n");
         Write("fail", ">&2 echo Volume not found\r\nexit /b 1\r\n");
+        // Has one local image, 4b275f7b1982, so image-ID runs can be checked against it.
+        Write("localimage",
+            "if \"%1\"==\"images\" (echo [{\"Repository\":\"ollama/ollama\",\"Tag\":\"latest\",\"ID\":\"4b275f7b1982\"}]& exit /b 0)\r\n" +
+            "echo ARGS=%*\r\nexit /b 0\r\n");
     }
 
     public string Directory { get; }
@@ -49,6 +53,7 @@ internal sealed class WslcStub : IDisposable
     public string Prompt => Script("prompt");
     public string Sleep => Script("sleep");
     public string Fail => Script("fail");
+    public string LocalImage => Script("localimage");
 
     /// <summary>Argument lines recorded for <paramref name="scriptPath"/>, one per invocation.</summary>
     public string[] Invocations(string scriptPath)

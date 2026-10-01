@@ -20,6 +20,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Storage.Pickers;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Views;
@@ -148,7 +149,7 @@ public sealed partial class ContainersPage : Page
         }
     }
 
-    private async void ExportMenu_Click(object sender, RoutedEventArgs e)
+    private void ExportMenu_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
     {
         if (RowOf(sender) is not { } row)
         {
@@ -166,7 +167,7 @@ public sealed partial class ContainersPage : Page
         {
             await ViewModel.ExportContainerAsync(row, file.Path);
         }
-    }
+    });
 
     private void AttachMenu_Click(object sender, RoutedEventArgs e)
     {

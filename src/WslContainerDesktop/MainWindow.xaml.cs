@@ -301,7 +301,9 @@ public sealed partial class MainWindow : Window
 
     private void RefreshRequirementGate()
     {
-        var gated = _requirements.Current.State != WslRequirementState.Ok;
+        // Until the first version check finishes the state is merely "not checked yet", so the gate
+        // stays hidden instead of flashing the "required" screen at every launch.
+        var gated = _requirements.HasCompletedInitialCheck && _requirements.Current.State != WslRequirementState.Ok;
         foreach (var item in NavView.MenuItems.Concat(NavView.FooterMenuItems))
         {
             if (item is NavigationViewItem nvi && nvi.Tag is string tag)

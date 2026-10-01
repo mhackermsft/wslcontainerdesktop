@@ -27,20 +27,26 @@ public sealed class WslcSystemInfo
     /// <summary>Gets or sets the server.</summary>
     public WslcServerInfo Server { get; init; } = new();
 
-    /// <summary>Performs the sanitized helper used by this model or dialog.</summary>
-    /// <returns>The requested value for the caller.</returns>
-    public WslcSystemInfo Sanitized()
+    /// <summary>
+    /// Returns a copy safe to share with AI diagnostics: the profile path in the settings file
+    /// becomes <c>%USERPROFILE%</c>, and the Windows username is removed from session names
+    /// (wslc names them, for example, <c>wslc-cli-&lt;username&gt;</c>).
+    /// </summary>
+    public WslcSystemInfo Sanitized() =>
+        Sanitized(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), Environment.UserName);
+
+    /// <summary>Testable form of <see cref="Sanitized()"/> with an explicit profile path and username.</summary>
+    internal WslcSystemInfo Sanitized(string profile, string userName) => new()
     {
-        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return new WslcSystemInfo
+        Client = Client with
         {
-            Client = Client with
-            {
-                SettingsFile = SanitizePath(Client.SettingsFile, profile),
-            },
-            Server = Server,
-        };
-    }
+            SettingsFile = SanitizePath(Client.SettingsFile, profile),
+        },
+        Server = Server with
+        {
+            Sessions = Server.Sessions.Select(s => s with { Name = RemoveUserName(s.Name, userName) }).ToArray(),
+        },
+    };
 
     private static string SanitizePath(string value, string profile)
     {
@@ -49,10 +55,21 @@ public sealed class WslcSystemInfo
             return value;
         }
 
-        return value.StartsWith(profile, StringComparison.OrdinalIgnoreCase)
-            ? "%USERPROFILE%" + value[profile.Length..]
-            : value;
+        // Match the whole profile folder only: C:\Users\bob must not match C:\Users\bobby.
+        var trimmed = profile.TrimEnd('\\', '/');
+        if (!value.StartsWith(trimmed, StringComparison.OrdinalIgnoreCase))
+        {
+            return value;
+        }
+
+        var rest = value[trimmed.Length..];
+        return rest.Length == 0 || rest[0] is '\\' or '/' ? "%USERPROFILE%" + rest : value;
     }
+
+    private static string RemoveUserName(string value, string userName) =>
+        string.IsNullOrWhiteSpace(value) || string.IsNullOrWhiteSpace(userName)
+            ? value
+            : value.Replace(userName, "%USERNAME%", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Immutable or init-only data model that carries wslc client info information between services and view models.</summary>

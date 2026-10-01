@@ -41,4 +41,28 @@ public sealed class WslcSystemInfoTests
         Assert.Equal(36456, session.CreatorPid);
         Assert.Equal("wslc-cli-mhacker", session.Name);
     }
+
+    [Fact]
+    public void Sanitized_RemovesProfilePathAndUserNameForAiSharing()
+    {
+        var info = new WslcSystemInfo
+        {
+            Client = new() { SettingsFile = @"C:\Users\bob\AppData\Local\wslc\settings.yaml" },
+            Server = new() { Sessions = [new() { ID = 1, Name = "wslc-cli-bob" }] },
+        };
+
+        var safe = info.Sanitized(@"C:\Users\bob", "bob");
+
+        Assert.Equal(@"%USERPROFILE%\AppData\Local\wslc\settings.yaml", safe.Client.SettingsFile);
+        Assert.Equal("wslc-cli-%USERNAME%", Assert.Single(safe.Server.Sessions).Name);
+        Assert.Equal("wslc-cli-bob", Assert.Single(info.Server.Sessions).Name);
+    }
+
+    [Fact]
+    public void Sanitized_DoesNotTreatASimilarFolderAsTheProfile()
+    {
+        var info = new WslcSystemInfo { Client = new() { SettingsFile = @"C:\Users\bobby\settings.yaml" } };
+
+        Assert.Equal(@"C:\Users\bobby\settings.yaml", info.Sanitized(@"C:\Users\bob", "nobody").Client.SettingsFile);
+    }
 }

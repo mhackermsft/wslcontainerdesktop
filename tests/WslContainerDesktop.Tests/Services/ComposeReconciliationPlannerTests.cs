@@ -44,6 +44,38 @@ public sealed class ComposeReconciliationPlannerTests
         Assert.NotEqual(before, ComposeReconciliationPlanner.Fingerprint(project, consumer));
     }
 
+    [Fact]
+    public void NewCreateOptionsChangeTheFingerprintOnlyWhenSet()
+    {
+        var service = Service("web");
+        service.Options.Volumes = ["/scratch"];
+        service.Options.NetworkAttachments = [new() { Network = "back" }];
+        var project = Project(service);
+        project.Networks = [new ComposeNetwork { Name = "back" }];
+        var baseline = ComposeReconciliationPlanner.Fingerprint(project, service);
+
+        // Unset values must not change existing fingerprints, or every container is recreated on upgrade.
+        service.Options.Mounts = [];
+        service.Options.StopTimeoutSeconds = null;
+        Assert.Equal(baseline, ComposeReconciliationPlanner.Fingerprint(project, service));
+
+        // The same -v form with a tmpfs mount is a different container.
+        service.Options.Mounts = [new RunContainerMount { Type = "tmpfs", Target = "/scratch" }];
+        var tmpfs = ComposeReconciliationPlanner.Fingerprint(project, service);
+        Assert.NotEqual(baseline, tmpfs);
+
+        service.Options.StopTimeoutSeconds = 60;
+        var stop60 = ComposeReconciliationPlanner.Fingerprint(project, service);
+        Assert.NotEqual(tmpfs, stop60);
+        service.Options.StopTimeoutSeconds = 5;
+        Assert.NotEqual(stop60, ComposeReconciliationPlanner.Fingerprint(project, service));
+
+        service.Options.Mounts = [];
+        service.Options.StopTimeoutSeconds = null;
+        project.Networks[0].Internal = true;
+        Assert.NotEqual(baseline, ComposeReconciliationPlanner.Fingerprint(project, service));
+    }
+
     private static ComposeService Service(string name, params string[] dependencies) => new()
     {
         Name = name, Options = new() { Image = "fixture:1" },

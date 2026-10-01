@@ -48,6 +48,17 @@ public partial class RequirementGateViewModel : ObservableObject
     [ObservableProperty]
     private string _progressText = string.Empty;
 
+    /// <summary>
+    /// Why the last "Update WSL" failed. Kept separately from <see cref="ProgressText"/>, which is
+    /// only visible while busy, so the reason is still on screen after the re-check finishes.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUpdateError))]
+    private string _updateError = string.Empty;
+
+    /// <summary>True when <see cref="UpdateError"/> has a message to show.</summary>
+    public bool HasUpdateError => !string.IsNullOrWhiteSpace(UpdateError);
+
     /// <summary>Creates the RequirementGate view model and stores its injected services.</summary>
     public RequirementGateViewModel(IWslRequirementService requirements, IWslSystemService wslSystem)
     {
@@ -60,7 +71,8 @@ public partial class RequirementGateViewModel : ObservableObject
     public event EventHandler? OpenSettingsRequested;
 
     /// <summary>Whether gate visible for view binding.</summary>
-    public bool IsGateVisible => Status.State != WslRequirementState.Ok;
+    /// <remarks>Hidden until the first check completes, so a normal launch doesn't flash the gate.</remarks>
+    public bool IsGateVisible => _requirements.HasCompletedInitialCheck && Status.State != WslRequirementState.Ok;
 
     /// <summary>Whether update visible for view binding.</summary>
     public bool IsUpdateVisible => Status.State != WslRequirementState.Ok &&
@@ -120,12 +132,25 @@ public partial class RequirementGateViewModel : ObservableObject
     private async Task UpdateWslAsync()
     {
         IsBusy = true;
+        UpdateError = string.Empty;
         ProgressText = "Updating WSL…";
         try
         {
             var result = await _wslSystem.UpdateWslAsync(includePreRelease: false);
-            ProgressText = result.Success ? "Update finished. Re-checking…" : result.ErrorText;
+            if (!result.Success)
+            {
+                UpdateError = string.IsNullOrWhiteSpace(result.ErrorText)
+                    ? "wsl --update did not succeed. Try running it from a terminal to see why."
+                    : result.ErrorText;
+            }
+
+            ProgressText = result.Success ? "Update finished. Re-checking…" : "Re-checking…";
             await _requirements.RecheckAsync();
+        }
+        catch (Exception ex)
+        {
+            // A launch failure (for example wsl.exe missing) must not escape the command.
+            UpdateError = ex.Message;
         }
         finally
         {

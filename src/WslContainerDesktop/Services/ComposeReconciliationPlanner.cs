@@ -500,7 +500,23 @@ public static class ComposeReconciliationPlanner
                     v.Name, v.Driver, v.External, DriverOpts = Pairs(v.DriverOpts), v.Labels,
                 }).ToArray(),
         };
-        return HashConfiguration(projection);
+
+        // Settings added after the original projection. They are hashed only when set, so a service
+        // that doesn't use them keeps its existing fingerprint and isn't recreated after an upgrade.
+        // Typed mounts matter because `- /scratch` and `type: tmpfs, target: /scratch` share the same
+        // -v form in Volumes but create different containers.
+        var mounts = o.Mounts.Select(m => m.ToArgument()).Order(StringComparer.Ordinal).ToArray();
+        var internalNetworks = project.Networks
+            .Where(n => n.Internal && networkNames.Contains(n.Name))
+            .Select(n => n.Name).Order(StringComparer.Ordinal).ToArray();
+        if (o.StopTimeoutSeconds is null && mounts.Length == 0 && internalNetworks.Length == 0)
+            return HashConfiguration(projection);
+
+        return HashConfiguration(new
+        {
+            Base = projection,
+            Extended = new { o.StopTimeoutSeconds, Mounts = mounts, InternalNetworks = internalNetworks },
+        });
     }
 
     private static object? BuildConfiguration(ComposeBuildConfig? build) => build is null ? null : new

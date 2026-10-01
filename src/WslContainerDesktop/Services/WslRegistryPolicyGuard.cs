@@ -78,6 +78,22 @@ public static class WslRegistryPolicyGuard
     }
 
     /// <summary>
+    /// True when <paramref name="imageReference"/> is an image ID (12 to 64 hex characters, optionally
+    /// <c>sha256:</c>-prefixed) rather than a name. Compose runs services by the ID of an image it
+    /// already pulled, and a local ID names no registry, so the allowlist (which governs fetching
+    /// from registries) does not apply to it when the image is present.
+    /// </summary>
+    public static bool IsImageId(string? imageReference)
+    {
+        var text = (imageReference ?? string.Empty).Trim();
+        var prefixed = text.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase);
+        if (prefixed)
+            text = text[7..];
+        return (prefixed ? text.Length == 64 : text.Length is >= 12 and <= 64) &&
+               text.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
+    }
+
+    /// <summary>
     /// Validates build before the app uses it for an external operation.
     /// </summary>
     public static string? ValidateBuild(WslPolicySnapshot policy) =>

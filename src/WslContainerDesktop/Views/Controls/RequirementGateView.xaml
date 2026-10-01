@@ -66,6 +66,13 @@
                         Content="Read the WSL containers GA announcement" />
                 </StackPanel>
 
+                <InfoBar
+                    Title="WSL update failed"
+                    IsClosable="False"
+                    IsOpen="{x:Bind ViewModel.HasUpdateError, Mode=OneWay}"
+                    Message="{x:Bind ViewModel.UpdateError, Mode=OneWay}"
+                    Severity="Error" />
+
                 <StackPanel
                     Orientation="Horizontal"
                     Spacing="10"

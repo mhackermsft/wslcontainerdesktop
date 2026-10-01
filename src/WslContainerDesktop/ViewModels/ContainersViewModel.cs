@@ -1570,8 +1570,15 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     {
         try
         {
+            // The --size listing is slow, so by the time it returns the monitor may have reported newer
+            // state. Merge only sizes into rows that still exist; never add, remove or restate rows.
             var containers = await _wslc.ListContainersAsync(ShowAll, includeSize: true);
-            Reconcile(containers);
+            var rows = Containers.ToDictionary(r => r.Id, StringComparer.Ordinal);
+            foreach (var sized in containers)
+            {
+                if (rows.TryGetValue(sized.Id, out var row))
+                    row.ApplySize(sized);
+            }
         }
         catch (Exception ex)
         {

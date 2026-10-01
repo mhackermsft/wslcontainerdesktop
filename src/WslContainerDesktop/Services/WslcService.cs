@@ -412,7 +412,7 @@ public sealed class WslcService(
     {
         if (options.WaitsForTerminalInput())
             return new CommandResult { ExitCode = -1, StandardError = RunContainerOptions.ForegroundInteractiveError };
-        if (ValidateImagePolicy(options.Image) is { } policyError)
+        if (await ValidateRunImagePolicyAsync(options.Image, ct).ConfigureAwait(false) is { } policyError)
             return policyError;
         var resume = string.IsNullOrWhiteSpace(options.Name)
             ? (RestartSuppressionState.ResumeToken?)null : suppression.CaptureExplicitStart(options.Name, maximumStopVersion);
@@ -470,7 +470,7 @@ public sealed class WslcService(
 
     private async Task<CommandResult> CreateContainerCoreAsync(RunContainerOptions options, CancellationToken ct)
     {
-        if (ValidateImagePolicy(options.Image) is { } policyError)
+        if (await ValidateRunImagePolicyAsync(options.Image, ct).ConfigureAwait(false) is { } policyError)
             return policyError;
         var snapshot = options.Health is null ? null : await _capabilities.GetAsync(ct).ConfigureAwait(false);
         var selection = snapshot is null ? new NativeHealthSelection(true, [])
@@ -1243,6 +1243,41 @@ public sealed class WslcService(
     {
         var message = WslRegistryPolicyGuard.ValidateImageReference(_policy.GetPolicy(), reference);
         return message is null ? null : new CommandResult { ExitCode = -1, StandardError = message };
+    }
+
+    /// <summary>
+    /// The allowlist check for run and create. An image ID that matches an image already on this
+    /// machine is allowed: running it fetches nothing, and Compose runs every service this way after
+    /// its pull passed the same check. An ID that isn't present locally is checked like a name.
+    /// </summary>
+    private async Task<CommandResult?> ValidateRunImagePolicyAsync(string reference, CancellationToken ct)
+    {
+        if (ValidateImagePolicy(reference) is not { } error)
+            return null;
+        if (!WslRegistryPolicyGuard.IsImageId(reference))
+            return error;
+
+        var id = reference.Trim();
+        if (id.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+            id = id[7..];
+        try
+        {
+            var images = await ListImagesAsync(ct).ConfigureAwait(false);
+            var local = images.Any(i =>
+            {
+                var imageId = i.Id.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? i.Id[7..] : i.Id;
+                return imageId.Length > 0 &&
+                    (imageId.StartsWith(id, StringComparison.OrdinalIgnoreCase) ||
+                     id.StartsWith(imageId, StringComparison.OrdinalIgnoreCase));
+            });
+            return local ? null : error;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // If the local images can't be listed, keep the stricter answer.
+            logger.LogDebug(ex, "Could not list images to check a local image ID against the registry allowlist.");
+            return error;
+        }
     }
 
     public const string StdinDockerfileError =

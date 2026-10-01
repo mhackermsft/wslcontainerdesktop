@@ -259,7 +259,8 @@ public sealed class Wslc301RuntimeTests
 
         var images = await lease.Service.ListImagesAsync(lease.Ct);
         Assert.NotEmpty(images);
-        Assert.All(images, image => Assert.NotNull(image.Digest));
+        // Digest defaults to empty, so require at least one pulled image to have a parsed digest.
+        Assert.Contains(images, image => image.HasDigest && image.Digest.StartsWith("sha256:", StringComparison.Ordinal));
         var allImages = await lease.Service.ListImagesAsync(lease.Ct, showAll: true);
         Assert.True(allImages.Count >= images.Count);
 

@@ -39,6 +39,7 @@ public partial class ImagesViewModel : ObservableObject
     private readonly IRegistryCatalogService _catalog;
     private readonly IWslPolicyService _policy;
     private readonly IRegistryCredentialStore _credentials;
+    private readonly IWslcSettingsFileService _wslcSettings;
 
     /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
@@ -77,7 +78,7 @@ public partial class ImagesViewModel : ObservableObject
     public ObservableCollection<ImageInfo> Images { get; } = new();
 
     /// <summary>Creates the Images view model and stores its injected services.</summary>
-    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles, IActivityLog activity, IImageUpdateService updates, IRegistryCatalogService catalog, IWslPolicyService policy, IRegistryCredentialStore credentials)
+    public ImagesViewModel(IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, INotificationService notifications, IRunProfileStore profiles, IActivityLog activity, IImageUpdateService updates, IRegistryCatalogService catalog, IWslPolicyService policy, IRegistryCredentialStore credentials, IWslcSettingsFileService wslcSettings)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -91,6 +92,7 @@ public partial class ImagesViewModel : ObservableObject
         _catalog = catalog;
         _policy = policy;
         _credentials = credentials;
+        _wslcSettings = wslcSettings;
     }
 
     /// <summary>Saved run profiles that target the given image, for the one-click run submenu.</summary>
@@ -784,9 +786,14 @@ public partial class ImagesViewModel : ObservableObject
     {
         if (registry.IsDefault)
         {
-            return _credentials.IsLoggedIn(registry.LoginServer, out var user)
-                ? (RegistryLoginState.LoggedIn, user)
-                : (RegistryLoginState.Anonymous, null);
+            if (_credentials.IsLoggedIn(registry.LoginServer, out var user))
+                return (RegistryLoginState.LoggedIn, user);
+
+            // Only the "wincred" store (wslc's default) can be read here. With "file", a missing
+            // Windows credential proves nothing, so report "couldn't confirm" rather than block the push.
+            return await UsesWindowsCredentialStoreAsync()
+                ? (RegistryLoginState.Anonymous, null)
+                : (RegistryLoginState.Unknown, null);
         }
 
         var state = await _wslc.ProbeRegistryLoginAsync(registry.Host, "wslcd-login-probe");
@@ -797,6 +804,25 @@ public partial class ImagesViewModel : ObservableObject
 
         registry.LoginState = state;
         return (state, registry.Username);
+    }
+
+    /// <summary>
+    /// True when wslc keeps registry logins in Windows Credential Manager, which is the only store
+    /// the app can read. An unreadable settings file counts as the default (wincred).
+    /// </summary>
+    private async Task<bool> UsesWindowsCredentialStoreAsync()
+    {
+        try
+        {
+            var store = (await _wslcSettings.ReadAsync()).CredentialStore;
+            return string.IsNullOrWhiteSpace(store) || store.Trim().Equals("wincred", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            // The default is wincred, so an unreadable settings file keeps the normal sign-in check.
+            System.Diagnostics.Debug.WriteLine($"Could not read the wslc credential store setting: {ex.Message}");
+            return true;
+        }
     }
 
     /// <summary>Refreshes policy state for the view model.</summary>

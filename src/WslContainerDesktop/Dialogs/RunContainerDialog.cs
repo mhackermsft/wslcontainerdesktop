@@ -421,11 +421,16 @@ public sealed class RunContainerDialog : ContentDialog
 
     private void OnSaveProfile(object sender, RoutedEventArgs e)
     {
-        var options = BuildOptions();
+        var options = BuildOptions(out var stopTimeoutInvalid);
         if (options is null)
         {
-            _imageBox.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-            ShowProfileStatus("Enter an image before saving a profile.");
+            // An invalid stop timeout has already shown its own message and taken focus.
+            if (!stopTimeoutInvalid)
+            {
+                _imageBox.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+                ShowProfileStatus("Enter an image before saving a profile.");
+            }
+
             return;
         }
 
@@ -553,11 +558,12 @@ public sealed class RunContainerDialog : ContentDialog
             return;
         }
 
-        var options = BuildOptions();
+        var options = BuildOptions(out var stopTimeoutInvalid);
         if (options is null)
         {
             args.Cancel = true;
-            _imageBox.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+            if (!stopTimeoutInvalid)
+                _imageBox.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
             return;
         }
 
@@ -566,10 +572,12 @@ public sealed class RunContainerDialog : ContentDialog
 
     /// <summary>
     /// Reads the current form into a <see cref="RunContainerOptions"/>, or returns null when no
-    /// image is entered. Shared by "Run" and "Save as profile".
+    /// image is entered or the stop timeout is invalid (<paramref name="stopTimeoutInvalid"/> tells
+    /// which). Shared by "Run" and "Save as profile".
     /// </summary>
-    private RunContainerOptions? BuildOptions()
+    private RunContainerOptions? BuildOptions(out bool stopTimeoutInvalid)
     {
+        stopTimeoutInvalid = false;
         var image = (_imageBox.Text ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(image) && _imageBox.SelectedItem is string sel)
         {
@@ -593,6 +601,7 @@ public sealed class RunContainerDialog : ContentDialog
         var resolvedNetwork = ResolveNetwork();
         if (!TryReadStopTimeout(out var stopTimeout))
         {
+            stopTimeoutInvalid = true;
             _stopTimeoutBox.Focus(FocusState.Programmatic);
             ShowProfileStatus("Stop timeout must be blank, -1, or a nonnegative whole number of seconds.");
             return null;

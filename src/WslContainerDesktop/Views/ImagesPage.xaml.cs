@@ -80,13 +80,13 @@ public sealed partial class ImagesPage : Page
         }
     }
 
-    private async void SaveImageMenu_Click(object sender, RoutedEventArgs e)
+    private void SaveImageMenu_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
     {
         if (ImageOf(sender) is { } img && await PickImageArchiveSavePathAsync([img]) is { } path)
         {
             await ViewModel.SaveImagesAsync([img], path);
         }
-    }
+    });
 
     private void CopyDigestMenu_Click(object sender, RoutedEventArgs e)
     {
@@ -172,14 +172,14 @@ public sealed partial class ImagesPage : Page
         await ViewModel.BulkRemoveAsync(selected);
     }
 
-    private async void BulkSave_Click(object sender, RoutedEventArgs e)
+    private void BulkSave_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
     {
         var selected = ImagesList.SelectedItems.OfType<ImageInfo>().ToList();
         if (await PickImageArchiveSavePathAsync(selected) is { } path)
         {
             await ViewModel.SaveImagesAsync(selected, path);
         }
-    }
+    });
 
     private void LoadImage_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
     {

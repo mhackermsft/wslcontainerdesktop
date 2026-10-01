@@ -160,6 +160,22 @@ public partial class ContainerRowViewModel : ObservableObject
     /// <summary>True when there is a running, published port to open; otherwise the browser action is hidden.</summary>
     public bool CanOpenInBrowser => IsRunning && PrimaryHttpPort is not null;
 
+    /// <summary>
+    /// Copies only the size fields from <paramref name="sized"/> (a slower <c>list --size</c> result),
+    /// leaving state, ports and everything else as the latest poll reported them.
+    /// </summary>
+    public void ApplySize(ContainerInfo sized)
+    {
+        if (!sized.SizeKnown)
+            return;
+
+        Model.Size = sized.Size;
+        Model.SizeRwBytes = sized.SizeRwBytes;
+        Model.SizeRootFsBytes = sized.SizeRootFsBytes;
+        SizeDisplay = Model.SizeDisplay;
+        SizeShort = Model.SizeRwBytes is long ? Model.SizeRwDisplay : Model.SizeDisplay;
+    }
+
     /// <summary>Refreshes this row in place so selection and group position can be preserved.</summary>
     public void Update(ContainerInfo model)
     {
