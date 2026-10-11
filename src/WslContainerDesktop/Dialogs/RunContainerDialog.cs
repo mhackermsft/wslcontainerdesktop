@@ -82,9 +82,9 @@ public sealed class RunContainerDialog : ContentDialog
         _registries = registries;
         _profiles = profiles;
 
-        Title = "Run a container";
-        PrimaryButtonText = "Run";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Run_a_container_946d60", "Run a container");
+        PrimaryButtonText = UiText.Get("Workload_Text_Run_00d60e", "Run");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         // Widen the dialog so option labels are never clipped.
@@ -93,15 +93,15 @@ public sealed class RunContainerDialog : ContentDialog
 
         _imageBox = new ComboBox
         {
-            Header = "Image",
+            Header = UiText.Get("Workload_Final_1aa4cb0bcc", "Image"),
             IsEditable = true,
             MinWidth = 460,
-            PlaceholderText = "e.g. ubuntu:latest",
+            PlaceholderText = UiText.Get("Workload_Text_e_g_ubuntu_latest_d7980e", "e.g. ubuntu:latest"),
         };
 
         _registryBox = new ComboBox
         {
-            Header = "Registry (qualifies a bare image name)",
+            Header = UiText.Get("Workload_Text_Registry_qualifies_a_bare_image_name_dd2377", "Registry (qualifies a bare image name)"),
             MinWidth = 460,
         };
         foreach (var r in registries)
@@ -111,22 +111,22 @@ public sealed class RunContainerDialog : ContentDialog
 
         _registryBox.SelectedIndex = 0;
 
-        _nameBox = new TextBox { Header = "Name (optional)", PlaceholderText = "my-container" };
+        _nameBox = new TextBox { Header = UiText.Get("Workload_Text_Name_optional_e09b37", "Name (optional)"), PlaceholderText = "my-container" };
 
         _networkBox = new ComboBox
         {
-            Header = InfoTip.Header("Network", FlagHelp.RunNetwork),
+            Header = InfoTip.Header(UiText.Get("Workload_Text_Network_1744b9", "Network"), FlagHelp.RunNetwork),
             IsEditable = true,
             MinWidth = 460,
-            PlaceholderText = "Default (bridge)",
+            PlaceholderText = UiText.Get("Workload_Text_Default_bridge_83f3d5", "Default (bridge)"),
         };
         // First entry is the engine default; user networks are added on open.
-        _networkBox.Items.Add("Default (bridge)");
+        _networkBox.Items.Add(UiText.Get("Workload_Text_Default_bridge_83f3d5", "Default (bridge)"));
         _networkBox.SelectedIndex = 0;
 
         _portsBox = new TextBox
         {
-            Header = "Port mappings (one per line: host:container[/proto])",
+            Header = UiText.Get("Workload_Text_Port_mappings_one_per_line_host_a15d8a", "Port mappings (one per line: host:container[/proto])"),
             PlaceholderText = "8080:80\n5432:5432/tcp",
             AcceptsReturn = true,
             TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap,
@@ -135,7 +135,7 @@ public sealed class RunContainerDialog : ContentDialog
 
         _envBox = new TextBox
         {
-            Header = "Environment variables (one KEY=VALUE per line)",
+            Header = UiText.Get("Workload_Text_Environment_variables_one_KEY_VALUE_per_73ca3b", "Environment variables (one KEY=VALUE per line)"),
             PlaceholderText = "POSTGRES_PASSWORD=secret",
             AcceptsReturn = true,
             MinHeight = 60,
@@ -143,7 +143,7 @@ public sealed class RunContainerDialog : ContentDialog
 
         _volumesBox = new TextBox
         {
-            Header = "Volumes / binds (one per line: source:destination)",
+            Header = UiText.Get("Workload_Text_Volumes_binds_one_per_line_source_e95df3", "Volumes / binds (one per line: source:destination)"),
             PlaceholderText = "my-data:/var/lib/data",
             AcceptsReturn = true,
             MinHeight = 50,
@@ -153,17 +153,17 @@ public sealed class RunContainerDialog : ContentDialog
         // actual volume list instead of requiring the user to recall exact names.
         _existingVolumeBox = new ComboBox
         {
-            Header = "Attach an existing volume",
-            PlaceholderText = "Select a volume…",
+            Header = UiText.Get("Workload_Text_Attach_an_existing_volume_5d60f4", "Attach an existing volume"),
+            PlaceholderText = UiText.Get("Workload_Text_Select_a_volume_1e833c", "Select a volume…"),
             MinWidth = 220,
         };
         _volumeMountPathBox = new TextBox
         {
-            Header = "Mount at",
+            Header = UiText.Get("Workload_Text_Mount_at_18caee", "Mount at"),
             PlaceholderText = "/var/lib/data",
             MinWidth = 180,
         };
-        _addVolumeButton = new Button { Content = "Add", VerticalAlignment = VerticalAlignment.Bottom };
+        _addVolumeButton = new Button { Content = UiText.Get("Workload_Text_Add_9fd728", "Add"), VerticalAlignment = VerticalAlignment.Bottom };
         _addVolumeButton.Click += (_, _) =>
         {
             if (_existingVolumeBox.SelectedItem is not string volume || string.IsNullOrWhiteSpace(volume))
@@ -171,7 +171,7 @@ public sealed class RunContainerDialog : ContentDialog
             var path = _volumeMountPathBox.Text?.Trim();
             if (string.IsNullOrWhiteSpace(path))
             {
-                _volumeMountPathBox.PlaceholderText = "Enter the path inside the container";
+                _volumeMountPathBox.PlaceholderText = UiText.Get("Workload_Text_Enter_the_path_inside_the_container_a6f12a", "Enter the path inside the container");
                 return;
             }
             var entry = $"{volume}:{path}";
@@ -187,18 +187,18 @@ public sealed class RunContainerDialog : ContentDialog
 
         _commandBox = new TextBox
         {
-            Header = "Command / arguments (optional)",
+            Header = UiText.Get("Workload_Text_Command_arguments_optional_410b03", "Command / arguments (optional)"),
             PlaceholderText = "sleep infinity",
         };
 
-        _detached = new CheckBox { Content = OptionLabel("Run in background (-d)", FlagHelp.RunDetach), IsChecked = true };
-        _removeOnExit = new CheckBox { Content = OptionLabel("Remove when it exits (--rm)", FlagHelp.RunRemove) };
-        _interactive = new CheckBox { Content = OptionLabel("Keep STDIN open (-i)", FlagHelp.RunInteractive) };
-        _gpus = new CheckBox { Content = OptionLabel("Pass all GPUs (--gpus all)", FlagHelp.RunGpus) };
+        _detached = new CheckBox { Content = OptionLabel(UiText.Get("Workload_Text_Run_in_background_d_6edd7f", "Run in background (-d)"), FlagHelp.RunDetach), IsChecked = true };
+        _removeOnExit = new CheckBox { Content = OptionLabel(UiText.Get("Workload_Text_Remove_when_it_exits_rm_695a93", "Remove when it exits (--rm)"), FlagHelp.RunRemove) };
+        _interactive = new CheckBox { Content = OptionLabel(UiText.Get("Workload_Text_Keep_STDIN_open_i_780e70", "Keep STDIN open (-i)"), FlagHelp.RunInteractive) };
+        _gpus = new CheckBox { Content = OptionLabel(UiText.Get("Workload_Text_Pass_all_GPUs_gpus_all_9b7a66", "Pass all GPUs (--gpus all)"), FlagHelp.RunGpus) };
         _stopTimeoutBox = new TextBox
         {
-            Header = InfoTip.Header("Stop timeout (seconds)", FlagHelp.RunStopTimeout),
-            PlaceholderText = "Engine default; -1 never kills",
+            Header = InfoTip.Header(UiText.Get("Workload_Text_Stop_timeout_seconds_706777", "Stop timeout (seconds)"), FlagHelp.RunStopTimeout),
+            PlaceholderText = UiText.Get("Workload_Text_Engine_default_1_never_kills_035f40", "Engine default; -1 never kills"),
             MinWidth = 220,
         };
 
@@ -224,7 +224,7 @@ public sealed class RunContainerDialog : ContentDialog
         // -i without -d would leave `wslc run` waiting on input nobody can type, so Run is disabled.
         _interactiveWarning = new TextBlock
         {
-            Text = RunContainerOptions.ForegroundInteractiveError,
+            Text = UiText.Get("Root_Audit_Run_ForegroundInteractive", RunContainerOptions.ForegroundInteractiveError),
             FontSize = 12,
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCautionBrush"],
             TextWrapping = TextWrapping.Wrap,
@@ -238,29 +238,29 @@ public sealed class RunContainerDialog : ContentDialog
         // Saved run profiles: pick one to prefill the form, or save/delete the current settings.
         _profileBox = new ComboBox
         {
-            Header = "Saved profile",
+            Header = UiText.Get("Workload_Text_Saved_profile_52c48e", "Saved profile"),
             MinWidth = 460,
-            PlaceholderText = "None",
+            PlaceholderText = UiText.Get("Workload_Text_None_dc937b", "None"),
         };
         _profileBox.SelectionChanged += OnProfileSelected;
 
         _profileNameBox = new TextBox
         {
-            PlaceholderText = "Profile name",
+            PlaceholderText = UiText.Get("Workload_Text_Profile_name_d36632", "Profile name"),
             MinWidth = 220,
             VerticalAlignment = VerticalAlignment.Bottom,
         };
 
         var saveProfileButton = new Button
         {
-            Content = "Save as profile",
+            Content = UiText.Get("Workload_Text_Save_as_profile_69abb4", "Save as profile"),
             VerticalAlignment = VerticalAlignment.Bottom,
         };
         saveProfileButton.Click += OnSaveProfile;
 
         var deleteProfileButton = new Button
         {
-            Content = "Delete",
+            Content = UiText.Get("Workload_Text_Delete_e2d0a5", "Delete"),
             VerticalAlignment = VerticalAlignment.Bottom,
         };
         deleteProfileButton.Click += OnDeleteProfile;
@@ -347,7 +347,7 @@ public sealed class RunContainerDialog : ContentDialog
             _profileItems.AddRange(_profiles.GetAll());
 
             _profileBox.Items.Clear();
-            _profileBox.Items.Add("None");
+            _profileBox.Items.Add(UiText.Get("Workload_Text_None_dc937b", "None"));
             foreach (var profile in _profileItems)
             {
                 _profileBox.Items.Add(FormatProfile(profile));
@@ -428,7 +428,7 @@ public sealed class RunContainerDialog : ContentDialog
             if (!stopTimeoutInvalid)
             {
                 _imageBox.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-                ShowProfileStatus("Enter an image before saving a profile.");
+                ShowProfileStatus(UiText.Get("Workload_Text_Enter_an_image_before_saving_a_74526e", "Enter an image before saving a profile."));
             }
 
             return;
@@ -438,13 +438,13 @@ public sealed class RunContainerDialog : ContentDialog
         if (string.IsNullOrEmpty(name))
         {
             _profileNameBox.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-            ShowProfileStatus("Enter a profile name before saving.");
+            ShowProfileStatus(UiText.Get("Workload_Text_Enter_a_profile_name_before_saving_3c1897", "Enter a profile name before saving."));
             return;
         }
 
         _profiles.Save(new RunProfile { Name = name, Options = options });
         ReloadProfiles(name);
-        ShowProfileStatus($"Saved profile \"{name}\".");
+        ShowProfileStatus(UiText.Get("Workload_Text_Saved_profile_0_4f05ac", "Saved profile \"{0}\".", name));
     }
 
     private void OnDeleteProfile(object sender, RoutedEventArgs e)
@@ -452,7 +452,7 @@ public sealed class RunContainerDialog : ContentDialog
         var index = _profileBox.SelectedIndex - 1;
         if (index < 0 || index >= _profileItems.Count)
         {
-            ShowProfileStatus("Select a saved profile to delete.");
+            ShowProfileStatus(UiText.Get("Workload_Text_Select_a_saved_profile_to_delete_0e9283", "Select a saved profile to delete."));
             return;
         }
 
@@ -460,7 +460,7 @@ public sealed class RunContainerDialog : ContentDialog
         _profiles.Delete(name);
         ReloadProfiles(null);
         _profileNameBox.Text = string.Empty;
-        ShowProfileStatus($"Deleted profile \"{name}\".");
+        ShowProfileStatus(UiText.Get("Workload_Text_Deleted_profile_0_c56639", "Deleted profile \"{0}\".", name));
     }
 
     private void ShowProfileStatus(string message)
@@ -544,7 +544,7 @@ public sealed class RunContainerDialog : ContentDialog
             ApplyOptions(prefill, null);
             if (warnings is { Count: > 0 })
             {
-                ShowProfileStatus("Imported from docker run. Notes: " + string.Join("  •  ", warnings));
+                ShowProfileStatus(UiText.Get("Workload_Text_Imported_from_docker_run_Notes_7e3213", "Imported from docker run. Notes: ") + string.Join("  •  ", warnings.Select(UiText.TranslateLines)));
             }
         }
     }
@@ -603,7 +603,7 @@ public sealed class RunContainerDialog : ContentDialog
         {
             stopTimeoutInvalid = true;
             _stopTimeoutBox.Focus(FocusState.Programmatic);
-            ShowProfileStatus("Stop timeout must be blank, -1, or a nonnegative whole number of seconds.");
+            ShowProfileStatus(UiText.Get("Workload_Text_Stop_timeout_must_be_blank_1_0c4dc3", "Stop timeout must be blank, -1, or a nonnegative whole number of seconds."));
             return null;
         }
 
@@ -681,6 +681,7 @@ public sealed class RunContainerDialog : ContentDialog
         }
 
         if (string.IsNullOrWhiteSpace(value) ||
+            string.Equals(value, UiText.Get("Workload_Text_Default_bridge_83f3d5", "Default (bridge)"), StringComparison.OrdinalIgnoreCase) ||
             value.StartsWith("Default", StringComparison.OrdinalIgnoreCase))
         {
             return null;

@@ -70,14 +70,14 @@ public partial class RequirementGateViewModel : ObservableObject
 
     /// <summary>Title of the administrator-prompt guidance shown during an update.</summary>
     public string ElevationTitle => IsAwaitingElevation
-        ? WslUpdateElevation.WaitingTitle
-        : WslUpdateElevation.ExpectPromptTitle;
+        ? UiText.Translate(WslUpdateElevation.WaitingTitle)
+        : UiText.Translate(WslUpdateElevation.ExpectPromptTitle);
 
     /// <summary>How to find and approve the administrator prompt.</summary>
-    public string ElevationGuidance => WslUpdateElevation.Guidance;
+    public string ElevationGuidance => UiText.Translate(WslUpdateElevation.Guidance);
 
     /// <summary>Note under the update button that an administrator prompt will follow.</summary>
-    public string BeforeUpdateNote => WslUpdateElevation.BeforeUpdateNote;
+    public string BeforeUpdateNote => UiText.Translate(WslUpdateElevation.BeforeUpdateNote);
 
     /// <summary>Creates the RequirementGate view model and stores its injected services.</summary>
     public RequirementGateViewModel(IWslRequirementService requirements, IWslSystemService wslSystem)
@@ -85,10 +85,27 @@ public partial class RequirementGateViewModel : ObservableObject
         _requirements = requirements;
         _wslSystem = wslSystem;
         _status = requirements.Current;
+        UiText.LanguageChanged += (_, _) => RefreshLocalizedText();
         _requirements.Changed += (_, status) => Status = status;
     }
 
     public event EventHandler? OpenSettingsRequested;
+
+    /// <summary>Refreshes the current gate without rechecking or restarting an update.</summary>
+    private void RefreshLocalizedText()
+    {
+        ProgressText = UiText.Translate(ProgressText);
+        UpdateError = UiText.Translate(UpdateError);
+        foreach (var name in new[] { nameof(Title), nameof(Explanation), nameof(FoundVersionText),
+            nameof(ElevationTitle), nameof(ElevationGuidance), nameof(BeforeUpdateNote) })
+            OnPropertyChanged(name);
+    }
+
+    partial void OnProgressTextChanged(string value)
+    {
+        var translated = UiText.Translate(value);
+        if (translated != value) ProgressText = translated;
+    }
 
     /// <summary>Whether gate visible for view binding.</summary>
     /// <remarks>Hidden until the first check completes, so a normal launch doesn't flash the gate.</remarks>
@@ -110,32 +127,32 @@ public partial class RequirementGateViewModel : ObservableObject
         string.IsNullOrWhiteSpace(Status.Diagnostic) ? Visibility.Collapsed : Visibility.Visible;
 
     /// <summary>Value for title shown or edited by the view.</summary>
-    public string Title => "WSL 3.0.1 or later is required";
+    public string Title => UiText.Get("Common_Text0225", "WSL 3.0.1 or later is required");
 
     /// <summary>Value for explanation shown or edited by the view.</summary>
     public string Explanation => Status.State switch
     {
         WslRequirementState.DisabledByPolicy =>
-            "Your organization disabled WSL containers with computer policy. The app can still show Settings, WSL Engine and Kubernetes pages, but container-engine pages are unavailable until the policy changes.",
+            UiText.Get("Common_Text0226", "Your organization disabled WSL containers with computer policy. The app can still show Settings, WSL Engine and Kubernetes pages, but container-engine pages are unavailable until the policy changes."),
         WslRequirementState.NotInstalled =>
-            "The configured wslc.exe path does not exist. Install or update WSL with 'wsl --install' / 'wsl --update', or open Settings and correct the container engine path.",
+            UiText.Get("Common_Text0227", "The configured wslc.exe path does not exist. Install or update WSL with 'wsl --install' / 'wsl --update', or open Settings and correct the container engine path."),
         WslRequirementState.TooOld =>
-            $"Update WSL to {WslcRequirements.MinimumVersionDisplay} or later to use WSL containers in this app.",
+            UiText.Get("Common_Text0228", "Update WSL to {0} or later to use WSL containers in this app.", WslcRequirements.MinimumVersionDisplay),
         _ =>
-            "The app could not verify the configured WSL container engine. Review the diagnostic and re-check after fixing the issue.",
+            UiText.Get("Common_Text0229", "The app could not verify the configured WSL container engine. Review the diagnostic and re-check after fixing the issue."),
     };
 
     /// <summary>Bindable state for found version text used by the view.</summary>
     public string FoundVersionText => string.IsNullOrWhiteSpace(Status.FoundVersion)
         ? string.Empty
-        : $"Found wslc {Status.FoundVersion}";
+        : UiText.Get("Common_Text0230", "Found wslc {0}", Status.FoundVersion);
 
     /// <summary>Command handler for recheck actions triggered from the view.</summary>
     [RelayCommand]
     private async Task RecheckAsync()
     {
         IsBusy = true;
-        ProgressText = "Checking WSL container requirements…";
+        ProgressText = UiText.Get("Common_Text0231", "Checking WSL container requirements…");
         try
         {
             await _requirements.RecheckAsync();
@@ -154,7 +171,7 @@ public partial class RequirementGateViewModel : ObservableObject
         IsBusy = true;
         IsUpdating = true;
         UpdateError = string.Empty;
-        ProgressText = "Updating WSL…";
+        ProgressText = UiText.Get("Common_Text0232", "Updating WSL…");
         try
         {
             var update = _wslSystem.UpdateWslAsync(includePreRelease: false);
@@ -168,12 +185,12 @@ public partial class RequirementGateViewModel : ObservableObject
             if (!result.Success)
             {
                 var reason = string.IsNullOrWhiteSpace(result.ErrorText)
-                    ? "wsl --update did not succeed. Try running it from a terminal to see why."
+                    ? UiText.Get("Common_Text0233", "wsl --update did not succeed. Try running it from a terminal to see why.")
                     : result.ErrorText;
                 UpdateError = sawPrompt ? $"{reason}\n\n{WslUpdateElevation.DeclinedHint}" : reason;
             }
 
-            ProgressText = result.Success ? "Update finished. Re-checking…" : "Re-checking…";
+            ProgressText = result.Success ? UiText.Get("Common_Text0234", "Update finished. Re-checking…") : UiText.Get("Common_Text0235", "Re-checking…");
             await _requirements.RecheckAsync();
         }
         catch (Exception ex)

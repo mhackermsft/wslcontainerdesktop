@@ -21,6 +21,8 @@ using Windows.Storage;
 using Windows.Storage.Pickers;
 using WslContainerDesktop.Helpers;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -45,9 +47,9 @@ public sealed class ImportComposeDialog : ContentDialog
     /// <summary>Creates a new &lt;c&gt;ImportComposeDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public ImportComposeDialog()
     {
-        Title = "Import compose file";
-        PrimaryButtonText = "Import";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Import_compose_file_7279fc", "Import compose file");
+        PrimaryButtonText = UiText.Get("Workload_Text_Import_2cff9b", "Import");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         // Nothing can be imported until a file is chosen.
@@ -62,7 +64,7 @@ public sealed class ImportComposeDialog : ContentDialog
                 Children =
                 {
                     new FontIcon { FontSize = 14, Glyph = "\uE838" },
-                    new TextBlock { Text = "Choose a compose file…" },
+                    new TextBlock { Text = UiText.Get("Workload_Text_Choose_a_compose_file_51e9a3", "Choose a compose file…") },
                 },
             },
         };
@@ -72,7 +74,7 @@ public sealed class ImportComposeDialog : ContentDialog
         {
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-            Text = "No file selected",
+            Text = UiText.Get("Workload_Text_No_file_selected_26bfbd", "No file selected"),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
 
@@ -89,11 +91,7 @@ public sealed class ImportComposeDialog : ContentDialog
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Width = 460,
-            Text = "Pick a docker-compose.yml (or .yaml) from disk. A sibling .env file and relative "
-                 + "env_file paths are read from the same folder. Imported from the Compose page, the "
-                 + "project keeps its depends_on order, restart and healthcheck policies (enforced by this "
-                 + "app while it runs), environment interpolation, and resource limits. Imported from the "
-                 + "Images/Containers page, each service is saved as a standalone run profile instead.",
+            Text = UiText.Get("Workload_Text_Pick_a_docker_compose_yml_or_b779be", "Pick a docker-compose.yml (or .yaml) from disk. A sibling .env file and relative env_file paths are read from the same folder. Imported from the Compose page, the project keeps its depends_on order, restart and healthcheck policies (enforced by this app while it runs), environment interpolation, and resource limits. Imported from the Images/Containers page, each service is saved as a standalone run profile instead."),
         };
 
         Content = new StackPanel
@@ -135,10 +133,10 @@ public sealed class ImportComposeDialog : ContentDialog
         {
             Yaml = string.Empty;
             FilePath = null;
-            _fileLabel.Text = "Could not read the selected file.";
+            _fileLabel.Text = UiText.Get("Workload_Text_Could_not_read_the_selected_file_50b46f", "Could not read the selected file.");
             IsPrimaryButtonEnabled = false;
             // Keep the user-controlled path out of UiSafe's logged exception.
-            throw new IOException("Could not read the selected Compose file. Check its permissions.");
+            throw new IOException(UiText.Get("Workload_Text_Could_not_read_the_selected_Compose_548673", "Could not read the selected Compose file. Check its permissions."));
         }
     });
 

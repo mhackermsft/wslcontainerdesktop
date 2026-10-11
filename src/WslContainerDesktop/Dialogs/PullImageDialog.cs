@@ -63,14 +63,14 @@ public sealed class PullImageDialog : ContentDialog
         _registries = registries;
         _catalog = catalog;
 
-        Title = "Pull image";
-        PrimaryButtonText = "Pull";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Pull_image_77733e", "Pull image");
+        PrimaryButtonText = UiText.Get("Workload_Text_Pull_b66d04", "Pull");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         _registryBox = new ComboBox
         {
-            Header = "Registry",
+            Header = UiText.Get("Workload_Text_Registry_05c2e3", "Registry"),
             MinWidth = 380,
         };
         foreach (var r in registries)
@@ -83,14 +83,14 @@ public sealed class PullImageDialog : ContentDialog
 
         _referenceBox = new TextBox
         {
-            Header = "Image reference",
-            PlaceholderText = "e.g. ubuntu:latest or myapp:1.0",
+            Header = UiText.Get("Workload_Text_Image_reference_24f4a4", "Image reference"),
+            PlaceholderText = UiText.Get("Workload_Text_e_g_ubuntu_latest_or_myapp_78466f", "e.g. ubuntu:latest or myapp:1.0"),
         };
         _referenceBox.TextChanged += (_, _) => UpdatePreview();
 
         _browseButton = new Button
         {
-            Content = "Browse…",
+            Content = UiText.Get("Workload_Text_Browse_93c6b6", "Browse…"),
             VerticalAlignment = VerticalAlignment.Bottom,
         };
         _browseButton.Click += (_, _) => UiSafe.Run(ToggleBrowseAsync);
@@ -114,7 +114,7 @@ public sealed class PullImageDialog : ContentDialog
         _allTagsBox = new CheckBox
         {
             Content = InfoTip.Labeled(
-                new TextBlock { Text = "All tags", VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = UiText.Get("Workload_Text_All_tags_7c39c1", "All tags"), VerticalAlignment = VerticalAlignment.Center },
                 InfoTip.Create(FlagHelp.PullAllTags)),
         };
         _allTagsBox.Checked += (_, _) => UpdatePreview();
@@ -123,7 +123,7 @@ public sealed class PullImageDialog : ContentDialog
         // ---- Browse panel (collapsed until "Browse…" is clicked) --------------------------
         _repoFilterBox = new TextBox
         {
-            PlaceholderText = "Filter repositories…",
+            PlaceholderText = UiText.Get("Workload_Text_Filter_repositories_ca86ca", "Filter repositories…"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         _repoFilterBox.TextChanged += (_, _) => ApplyRepositoryFilter();
@@ -172,8 +172,8 @@ public sealed class PullImageDialog : ContentDialog
         var listsGrid = new Grid { ColumnSpacing = 12 };
         listsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         listsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var repoPane = BuildPane("Repositories", _repoList);
-        var tagPane = BuildPane("Tags", _tagList);
+        var repoPane = BuildPane(UiText.Get("Workload_Text_Repositories_1e32af", "Repositories"), _repoList);
+        var tagPane = BuildPane(UiText.Get("Workload_Text_Tags_133127", "Tags"), _tagList);
         Grid.SetColumn(repoPane, 0);
         Grid.SetColumn(tagPane, 1);
         listsGrid.Children.Add(repoPane);
@@ -241,7 +241,7 @@ public sealed class PullImageDialog : ContentDialog
         // Switching registries invalidates any listed repositories/tags; collapse and reset.
         CancelLoad();
         _browsePanel.Visibility = Visibility.Collapsed;
-        _browseButton.Content = "Browse…";
+        _browseButton.Content = UiText.Get("Workload_Text_Browse_93c6b6", "Browse…");
         _allRepositories.Clear();
         _repoList.Items.Clear();
         _tagList.Items.Clear();
@@ -256,8 +256,8 @@ public sealed class PullImageDialog : ContentDialog
         var canBrowse = _catalog.CanBrowse(SelectedRegistry);
         _browseButton.IsEnabled = canBrowse;
         ToolTipService.SetToolTip(_browseButton, canBrowse
-            ? "List the images available in this registry"
-            : "Browsing isn't available for this registry — enter a reference manually");
+            ? UiText.Get("Workload_Text_List_the_images_available_in_this_b363bc", "List the images available in this registry")
+            : UiText.Get("Workload_Text_Browsing_isn_t_available_for_this_14704e", "Browsing isn't available for this registry — enter a reference manually"));
     }
 
     private async Task ToggleBrowseAsync()
@@ -265,12 +265,12 @@ public sealed class PullImageDialog : ContentDialog
         if (_browsePanel.Visibility == Visibility.Visible)
         {
             _browsePanel.Visibility = Visibility.Collapsed;
-            _browseButton.Content = "Browse…";
+            _browseButton.Content = UiText.Get("Workload_Text_Browse_93c6b6", "Browse…");
             return;
         }
 
         _browsePanel.Visibility = Visibility.Visible;
-        _browseButton.Content = "Hide";
+        _browseButton.Content = UiText.Get("Workload_Text_Hide_ac20a5", "Hide");
         await LoadRepositoriesAsync();
     }
 
@@ -282,7 +282,7 @@ public sealed class PullImageDialog : ContentDialog
         _allRepositories.Clear();
         _repoList.Items.Clear();
         _tagList.Items.Clear();
-        SetBusy(true, "Loading repositories…");
+        SetBusy(true, UiText.Get("Workload_Text_Loading_repositories_460ca9", "Loading repositories…"));
 
         var result = await _catalog.ListRepositoriesAsync(registry, ct);
         if (ct.IsCancellationRequested)
@@ -294,18 +294,18 @@ public sealed class PullImageDialog : ContentDialog
 
         if (!result.IsOk)
         {
-            _browseStatus.Text = result.Message ?? "Could not list repositories.";
+            _browseStatus.Text = result.Message is { } message ? UiText.TranslateLines(message) : UiText.Get("Workload_Text_Could_not_list_repositories_50d18d", "Could not list repositories.");
             return;
         }
 
         if (result.Items.Count == 0)
         {
-            _browseStatus.Text = "No repositories were found in this registry.";
+            _browseStatus.Text = UiText.Get("Workload_Text_No_repositories_were_found_in_this_945b7b", "No repositories were found in this registry.");
             return;
         }
 
         _allRepositories.AddRange(result.Items.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-        _browseStatus.Text = $"{_allRepositories.Count} repositor{(_allRepositories.Count == 1 ? "y" : "ies")} — select one to see its tags.";
+        _browseStatus.Text = UiText.Get("Workload_Text_0_repositories_select_one_to_see_99bbab", "{0} repositories — select one to see its tags.", _allRepositories.Count);
         ApplyRepositoryFilter();
     }
 
@@ -341,7 +341,7 @@ public sealed class PullImageDialog : ContentDialog
         var ct = BeginLoad();
 
         _tagList.Items.Clear();
-        SetBusy(true, $"Loading tags for {repository}…");
+        SetBusy(true, UiText.Get("Workload_Text_Loading_tags_for_0_2934a8", "Loading tags for {0}…", repository));
 
         var result = await _catalog.ListTagsAsync(registry, repository, ct);
         if (ct.IsCancellationRequested)
@@ -353,13 +353,13 @@ public sealed class PullImageDialog : ContentDialog
 
         if (!result.IsOk)
         {
-            _browseStatus.Text = result.Message ?? "Could not list tags.";
+            _browseStatus.Text = result.Message is { } message ? UiText.TranslateLines(message) : UiText.Get("Workload_Text_Could_not_list_tags_fe3b7c", "Could not list tags.");
             return;
         }
 
         if (result.Items.Count == 0)
         {
-            _browseStatus.Text = $"No tags were found for {repository}.";
+            _browseStatus.Text = UiText.Get("Workload_Text_No_tags_were_found_for_0_eb50fa", "No tags were found for {0}.", repository);
             return;
         }
 
@@ -368,7 +368,7 @@ public sealed class PullImageDialog : ContentDialog
             _tagList.Items.Add(tag);
         }
 
-        _browseStatus.Text = $"{repository}: select a tag to fill the image reference.";
+        _browseStatus.Text = UiText.Get("Workload_Text_0_select_a_tag_to_fill_2892ab", "{0}: select a tag to fill the image reference.", repository);
     }
 
     private void OnTagSelected()
@@ -379,7 +379,7 @@ public sealed class PullImageDialog : ContentDialog
         }
 
         _referenceBox.Text = $"{repository}:{tag}";
-        _browseStatus.Text = $"Selected {repository}:{tag}.";
+        _browseStatus.Text = UiText.Get("Workload_Text_Selected_0_1_96ae7f", "Selected {0}:{1}.", repository, tag);
         UpdatePreview();
     }
 
@@ -415,13 +415,13 @@ public sealed class PullImageDialog : ContentDialog
         var input = (_referenceBox?.Text ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(input))
         {
-            _preview.Text = "Will pull: —";
+            _preview.Text = UiText.Get("Workload_Text_Will_pull_1cbdae", "Will pull: —");
             return;
         }
 
         _preview.Text = _allTagsBox.IsChecked == true
-            ? $"Will pull all tags in: {WslContainerDesktop.Services.WslcService.StripTag(SelectedRegistry.Qualify(input))}"
-            : $"Will pull: {SelectedRegistry.Qualify(input)}";
+            ? UiText.Get("Workload_Text_Will_pull_all_tags_in_0_c1c7d0", "Will pull all tags in: {0}", WslContainerDesktop.Services.WslcService.StripTag(SelectedRegistry.Qualify(input)))
+            : UiText.Get("Workload_Text_Will_pull_0_8e5c64", "Will pull: {0}", SelectedRegistry.Qualify(input));
     }
 
     private void OnPrimary(ContentDialog sender, ContentDialogButtonClickEventArgs args)

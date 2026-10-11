@@ -27,8 +27,14 @@
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26226.0" />
   </Dependencies>
 
+  <!--
+    Packaged WinUI 3 only ships localized resources for the languages declared here: x-generate
+    means "whatever the build infers", which silently drops every Strings\<language> folder. Every
+    locale under Strings\ must be listed here to reach the app at runtime.
+  -->
   <Resources>
-    <Resource Language="x-generate"/>
+    <Resource Language="en-US"/>
+    <Resource Language="zh-Hans"/>
   </Resources>
 
   <Applications>

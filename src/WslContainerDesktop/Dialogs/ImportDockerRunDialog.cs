@@ -40,9 +40,9 @@ public sealed class ImportDockerRunDialog : ContentDialog
     /// <summary>Creates a new &lt;c&gt;ImportDockerRunDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public ImportDockerRunDialog()
     {
-        Title = "Import from docker run";
-        PrimaryButtonText = "Import";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Import_from_docker_run_8ad3ed", "Import from docker run");
+        PrimaryButtonText = UiText.Get("Workload_Text_Import_2cff9b", "Import");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         Resources["ContentDialogMaxWidth"] = 720.0;
@@ -50,7 +50,7 @@ public sealed class ImportDockerRunDialog : ContentDialog
 
         _input = new TextBox
         {
-            Header = "Paste a docker run command",
+            Header = UiText.Get("Workload_Text_Paste_a_docker_run_command_777185", "Paste a docker run command"),
             PlaceholderText = "docker run -d --name web -p 8080:80 -e TZ=UTC nginx:alpine",
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
@@ -65,9 +65,7 @@ public sealed class ImportDockerRunDialog : ContentDialog
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             Width = 500,
-            Text = "Recognized flags (ports, env, volumes, --name, --network, -w, -u, --entrypoint, "
-                 + "--gpus, and more) prefill the Run dialog. Line-continuation backslashes are fine. "
-                 + "Anything that can't be represented is reported and skipped.",
+            Text = UiText.Get("Workload_Text_Recognized_flags_ports_env_volumes_name_371bc3", "Recognized flags (ports, env, volumes, --name, --network, -w, -u, --entrypoint, --gpus, and more) prefill the Run dialog. Line-continuation backslashes are fine. Anything that can't be represented is reported and skipped."),
         };
 
         _status = new TextBlock
@@ -94,8 +92,7 @@ public sealed class ImportDockerRunDialog : ContentDialog
         if (result.Options is null)
         {
             args.Cancel = true;
-            _status.Text = "Couldn't find an image reference in that command. "
-                         + "Paste a full 'docker run … <image>' line.";
+            _status.Text = UiText.Get("Workload_Text_Couldn_t_find_an_image_reference_3b55b5", "Couldn't find an image reference in that command. Paste a full 'docker run … <image>' line.");
             _status.Visibility = Visibility.Visible;
             _input.Focus(FocusState.Programmatic);
             return;

@@ -17,6 +17,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>Collects username + password to log in to an already-registered registry.</summary>
@@ -36,22 +38,22 @@ public sealed class RegistryLoginDialog : ContentDialog
     /// <param name="prefillUsername">The prefill username value supplied by the caller.</param>
     public RegistryLoginDialog(string registryName, string? prefillUsername)
     {
-        Title = $"Log in to {registryName}";
-        PrimaryButtonText = "Log in";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Log_in_to_0_78a87c", "Log in to {0}", registryName);
+        PrimaryButtonText = UiText.Get("Workload_Text_Log_in_c18984", "Log in");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         _userBox = new TextBox
         {
-            Header = "Username",
-            PlaceholderText = "username or token name",
+            Header = UiText.Get("Workload_Text_Username_e3b89e", "Username"),
+            PlaceholderText = UiText.Get("Workload_Text_username_or_token_name_39f3c5", "username or token name"),
             Text = prefillUsername ?? string.Empty,
             MinWidth = 360,
         };
 
         _passwordBox = new PasswordBox
         {
-            Header = "Password / token",
+            Header = UiText.Get("Workload_Text_Password_token_051a24", "Password / token"),
         };
 
         Content = new StackPanel

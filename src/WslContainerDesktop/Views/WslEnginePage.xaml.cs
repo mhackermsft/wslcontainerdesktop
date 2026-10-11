@@ -21,6 +21,7 @@ using Microsoft.UI.Xaml.Navigation;
 using Windows.Storage.Pickers;
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views;
 
@@ -40,6 +41,8 @@ public sealed partial class WslEnginePage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        UiText.LanguageChanged += OnUiLanguageChanged;
+        ViewModel.RefreshLocalizedText();
         await ViewModel.RefreshAsync();
     }
 
@@ -58,4 +61,15 @@ public sealed partial class WslEnginePage : Page
             await ViewModel.ChangeStorageLocationAsync(folder.Path);
         }
     });
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        UiText.LanguageChanged -= OnUiLanguageChanged;
+        base.OnNavigatedFrom(e);
+    }
+
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLocalizedText();
+        Bindings.Update();
+    }
 }

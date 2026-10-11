@@ -31,7 +31,7 @@ public partial class ShellViewModel : ObservableObject
 
     /// <summary>Bindable state for engine status text used by the view.</summary>
     [ObservableProperty]
-    private string _engineStatusText = "Connecting…";
+    private string _engineStatusText = UiText.Get("Common_Text0247", "Connecting…");
 
     /// <summary>Bindable state for engine status brush used by the view.</summary>
     [ObservableProperty]
@@ -39,7 +39,7 @@ public partial class ShellViewModel : ObservableObject
 
     /// <summary>Bindable state for kubernetes status text used by the view.</summary>
     [ObservableProperty]
-    private string _kubernetesStatusText = "Kubernetes: …";
+    private string _kubernetesStatusText = UiText.Get("Common_Text0248", "Kubernetes: …");
 
     /// <summary>Bindable state for kubernetes status brush used by the view.</summary>
     [ObservableProperty]
@@ -53,6 +53,11 @@ public partial class ShellViewModel : ObservableObject
     public ShellViewModel(StatusMonitor monitor)
     {
         _monitor = monitor;
+        UiText.LanguageChanged += (_, _) =>
+        {
+            EngineStatusText = UiText.Translate(EngineStatusText);
+            KubernetesStatusText = UiText.Translate(KubernetesStatusText);
+        };
         _monitor.StatusChanged += OnStatusChanged;
         _monitor.K8sStatusChanged += OnK8sStatusChanged;
 
@@ -77,7 +82,7 @@ public partial class ShellViewModel : ObservableObject
     private void ApplyK8s(K8sStatusSnapshot snapshot)
     {
         KubernetesVisibility = snapshot.IsInstalled ? Visibility.Visible : Visibility.Collapsed;
-        KubernetesStatusText = snapshot.Summary;
+        KubernetesStatusText = UiText.Translate(snapshot.Summary);
 
         var color = snapshot.State switch
         {
@@ -92,7 +97,7 @@ public partial class ShellViewModel : ObservableObject
     /// <summary>Applies apply state to bindable properties.</summary>
     private void Apply(EngineStatusSnapshot snapshot)
     {
-        EngineStatusText = snapshot.Summary;
+        EngineStatusText = UiText.Translate(snapshot.Summary);
         var color = snapshot.Health switch
         {
             EngineHealth.Healthy => Color.FromArgb(255, 45, 200, 95),

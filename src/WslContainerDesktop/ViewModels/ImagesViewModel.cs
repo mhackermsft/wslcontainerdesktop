@@ -28,6 +28,14 @@ namespace WslContainerDesktop.ViewModels;
 /// <summary>Backs the Images page, where users pull, build, tag, push, save, restore and remove container images through the WSL container engine.</summary>
 public partial class ImagesViewModel : ObservableObject
 {
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string StatusMessageDisplay => UiText.Translate(StatusMessage);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string BuildPolicyMessageDisplay => UiText.Translate(BuildPolicyMessage);
+
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
     private readonly DialogService _dialogs;
@@ -48,6 +56,7 @@ public partial class ImagesViewModel : ObservableObject
 
     /// <summary>Bindable state for status message used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusMessageDisplay))]
     private string _statusMessage = "Ready";
 
     /// <summary>Value for selected shown or edited by the view.</summary>
@@ -70,10 +79,11 @@ public partial class ImagesViewModel : ObservableObject
 
     /// <summary>Bindable state for build policy message used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BuildPolicyMessageDisplay))]
     private string _buildPolicyMessage = "Build an image from a Dockerfile";
 
     /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
-    public string SelectionSummary => $"{SelectedCount} selected";
+    public string SelectionSummary => UiText.Get("Resource_Text_e5084bffcc17", "{0} selected", SelectedCount);
 
     /// <summary>Value for images shown or edited by the view.</summary>
     public ObservableCollection<ImageInfo> Images { get; } = new();
@@ -138,7 +148,7 @@ public partial class ImagesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Failed to load images", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_68d903613f94", "Failed to load images"), ex.Message);
             StatusMessage = "Error";
         }
         finally
@@ -194,7 +204,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.PullImageAsync(reference, allTags: dialog.AllTags);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Pull failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_8ee0e62563d4", "Pull failed"), result.ErrorText);
                 StatusMessage = "Pull failed";
                 _notifications.NotifyImagePull(reference, success: false, result.ErrorText);
                 _activity.RecordImagePull(reference, success: false, result.ErrorText);
@@ -276,7 +286,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.PullImageAsync(reference);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Pull failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_8ee0e62563d4", "Pull failed"), result.ErrorText);
                 StatusMessage = "Pull failed";
                 _notifications.NotifyImagePull(reference, success: false, result.ErrorText);
                 _activity.RecordImagePull(reference, success: false, result.ErrorText);
@@ -355,7 +365,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.RunContainerAsync(options);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Run failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_9a731f3d6dec", "Run failed"), result.ErrorText);
                 StatusMessage = "Run failed";
             }
             else
@@ -381,9 +391,9 @@ public partial class ImagesViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove image",
-            $"Remove image \"{image.Reference}\" ({image.ShortId})?",
-            "Remove");
+            UiText.Get("Resource_Text_5f94b03c2e6a", "Remove image"),
+            UiText.Get("Resource_Text_92bffa1208b8", "Remove image \"{0}\" ({1})?", image.Reference, image.ShortId),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -396,7 +406,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.RemoveImageAsync(image.Id);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Remove failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_debe01de259b", "Remove failed"), result.ErrorText);
                 StatusMessage = "Remove failed";
             }
             else
@@ -429,9 +439,9 @@ public partial class ImagesViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove images",
-            $"Remove {items.Count} image(s)?\n\n{BulkNames(items.Select(i => i.Reference))}",
-            "Remove");
+            UiText.Get("Resource_Text_aea8cc2d34a5", "Remove images"),
+            UiText.Get("Resource_Text_eb37f372523b", "Remove {0} image(s)?\n\n{1}", items.Count, BulkNames(items.Select(i => i.Reference))),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -462,8 +472,8 @@ public partial class ImagesViewModel : ObservableObject
         if (failures.Count > 0)
         {
             await _dialogs.ShowMessageAsync(
-                "Some images were not removed",
-                $"{failures.Count} of {items.Count} could not be removed (they may be in use by a container):\n\n{BulkNames(failures)}");
+                UiText.Get("Resource_Text_7800478a75f7", "Some images were not removed"),
+                UiText.Get("Resource_Text_ca3ab35903c6", "{0} of {1} could not be removed (they may be in use by a container):\n\n{2}", failures.Count, items.Count, BulkNames(failures)));
         }
         else
         {
@@ -477,7 +487,7 @@ public partial class ImagesViewModel : ObservableObject
         var list = names.ToList();
         const int max = 12;
         var shown = string.Join("\n", list.Take(max).Select(n => "• " + n));
-        return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
+        return list.Count > max ? UiText.Get("Resource_Text_5b44479e9557", "{0}\n… and {1} more", shown, list.Count - max) : shown;
     }
 
     /// <summary>Command handler for tag actions triggered from the view.</summary>
@@ -491,9 +501,9 @@ public partial class ImagesViewModel : ObservableObject
         }
 
         var dialog = new SimpleInputDialog(
-            "Tag image",
-            "New tag",
-            "e.g. myrepo/myimage:v1")
+            UiText.Get("Resource_Text_95562ee52bdb", "Tag image"),
+            UiText.Get("Resource_Text_0a6181aadd01", "New tag"),
+            UiText.Get("Resource_Text_3ad374153994", "e.g. myrepo/myimage:v1"))
         {
             Value = image.Reference,
         };
@@ -514,7 +524,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.TagImageAsync(image.Id, target);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Tag failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_b5d06eb9a6ed", "Tag failed"), result.ErrorText);
             }
             else
             {
@@ -577,8 +587,8 @@ public partial class ImagesViewModel : ObservableObject
             var tagResult = await _wslc.TagImageAsync(image.Id, reference);
             if (!tagResult.Success)
             {
-                await _dialogs.ShowMessageAsync("Push failed",
-                    $"Couldn't tag the image as {reference}.\n\n{tagResult.ErrorText}");
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_0ef1f1bf6b99", "Push failed"),
+                    UiText.Get("Resource_Text_b9f7af9f92c3", "Couldn't tag the image as {0}.\n\n{1}", reference, tagResult.ErrorText));
                 StatusMessage = "Push failed";
                 return;
             }
@@ -595,15 +605,15 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.PushImageAsync(reference, allTags: allTags);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Push failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_0ef1f1bf6b99", "Push failed"), result.ErrorText);
                 StatusMessage = "Push failed";
             }
             else
             {
                 StatusMessage = allTags ? $"Pushed all tags for {pushReference}" : $"Pushed {reference}";
-                await _dialogs.ShowMessageAsync("Push complete",
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_3c60d06bc185", "Push complete"),
                     string.IsNullOrWhiteSpace(result.StandardOutput)
-                        ? (allTags ? $"Pushed all tags for {pushReference}." : $"Pushed {reference}.")
+                        ? (allTags ? UiText.Get("Resource_Text_d443bd63ddee", "Pushed all tags for {0}.", pushReference) : UiText.Get("Resource_Text_6bbef811d085", "Pushed {0}.", reference))
                         : result.StandardOutput.Trim());
             }
 
@@ -643,7 +653,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.SaveImagesAsync(targets, outputPath);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Save failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_0a4444676244", "Save failed"), result.ErrorText);
                 StatusMessage = "Save failed";
                 return;
             }
@@ -666,7 +676,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.LoadImageAsync(inputPath);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Couldn't restore images", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_7c7a8c1ac2c8", "Couldn't restore images"), result.ErrorText);
                 StatusMessage = "Load failed";
                 return;
             }
@@ -684,9 +694,9 @@ public partial class ImagesViewModel : ObservableObject
     public async Task ImportImageAsync(string inputPath)
     {
         var dialog = new SimpleInputDialog(
-            "Create image from exported files",
-            "Name for the new image (optional; without one it is listed as <none>)",
-            "e.g. my-snapshot:latest")
+            UiText.Get("Resource_Text_043660976a99", "Create image from exported files"),
+            UiText.Get("Resource_Text_47e73c701cb3", "Name for the new image (optional; without one it is listed as <none>)"),
+            UiText.Get("Resource_Text_73b3566a1003", "e.g. my-snapshot:latest"))
         {
             Value = string.Empty,
         };
@@ -703,7 +713,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.ImportImageAsync(inputPath, string.IsNullOrEmpty(image) ? null : image);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Couldn't create the image", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_6d490981d8f3", "Couldn't create the image"), result.ErrorText);
                 StatusMessage = "Import failed";
                 return;
             }
@@ -745,7 +755,7 @@ public partial class ImagesViewModel : ObservableObject
         try
         {
             var result = await _wslc.InspectImageAsync(image.Id);
-            await _dialogs.ShowMessageAsync($"Inspect · {image.Reference}",
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_f306c4f01fc3", "Inspect · {0}", image.Reference),
                 result.Success ? result.StandardOutput : result.ErrorText);
         }
         finally
@@ -761,7 +771,7 @@ public partial class ImagesViewModel : ObservableObject
         RefreshPolicyState();
         if (!CanBuild)
         {
-            await _dialogs.ShowMessageAsync("Build blocked by policy", BuildPolicyMessage);
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_be5db383a1cb", "Build blocked by policy"), BuildPolicyMessage);
             return;
         }
 
@@ -778,7 +788,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.BuildImageAsync(dialog.ContextPath, dialog.ImageTag, dialog.Dockerfile);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Build failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_2f8e461f4b9f", "Build failed"), result.ErrorText);
                 StatusMessage = "Build failed";
                 _notifications.NotifyImageBuild(dialog.ImageTag, success: false, result.ErrorText);
                 _activity.RecordImageBuild(dialog.ImageTag, success: false, result.ErrorText);
@@ -787,7 +797,7 @@ public partial class ImagesViewModel : ObservableObject
             {
                 _notifications.NotifyImageBuild(dialog.ImageTag, success: true);
                 _activity.RecordImageBuild(dialog.ImageTag, success: true);
-                await _dialogs.ShowMessageAsync("Build complete", result.StandardOutput);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_9e1ba089f927", "Build complete"), result.StandardOutput);
                 await RefreshAsync();
             }
         }
@@ -858,9 +868,9 @@ public partial class ImagesViewModel : ObservableObject
     private async Task PruneAsync()
     {
         var ok = await _dialogs.ShowConfirmAsync(
-            "Prune images",
-            "Remove all dangling (unused) images?",
-            "Prune");
+            UiText.Get("Resource_Text_58d3b07833b2", "Prune images"),
+            UiText.Get("Resource_Text_c2370bb291a5", "Remove all dangling (unused) images?"),
+            UiText.Get("Resource_Text_2f24ebaee0aa", "Prune"));
         if (!ok)
         {
             return;
@@ -872,7 +882,7 @@ public partial class ImagesViewModel : ObservableObject
             var result = await _wslc.PruneImagesAsync();
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Prune failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_4133934aa616", "Prune failed"), result.ErrorText);
             }
             else
             {
@@ -883,5 +893,12 @@ public partial class ImagesViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (var item in Images) item.RefreshLocalizedText();
     }
 }

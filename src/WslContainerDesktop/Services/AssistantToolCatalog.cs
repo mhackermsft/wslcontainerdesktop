@@ -37,42 +37,42 @@ public static class AssistantToolCatalog
     /// </summary>
     public static IReadOnlyList<AssistantToolGroup> Groups { get; } =
     [
-        new("Images", [new("pull_image", "Pull images")]),
-        new("Containers — create & run", [new("run_container", "Run a container")]),
-        new("Containers — lifecycle",
+        new("Images", [new("pull_image", UiText.Get("Common_Text0487", "Pull images"))]),
+        new(UiText.Get("Common_Text0488", "Containers — create & run"), [new("run_container", UiText.Get("Common_Text0489", "Run a container"))]),
+        new(UiText.Get("Common_Text0490", "Containers — lifecycle"),
         [
-            new("start_container", "Start a container"),
-            new("stop_container", "Stop a container"),
-            new("restart_container", "Restart a container"),
-            new("stop_all_containers", "Stop all / multiple containers"),
+            new("start_container", UiText.Get("Common_Text0491", "Start a container")),
+            new("stop_container", UiText.Get("Common_Text0492", "Stop a container")),
+            new("restart_container", UiText.Get("Common_Text0493", "Restart a container")),
+            new("stop_all_containers", UiText.Get("Common_Text0494", "Stop all / multiple containers")),
         ]),
-        new("Containers — remove (destructive)",
+        new(UiText.Get("Common_Text0495", "Containers — remove (destructive)"),
         [
-            new("remove_container", "Remove a container", IsDestructive: true),
-            new("remove_all_containers", "Remove all / multiple containers", IsDestructive: true),
+            new("remove_container", UiText.Get("Common_Text0496", "Remove a container"), IsDestructive: true),
+            new("remove_all_containers", UiText.Get("Common_Text0497", "Remove all / multiple containers"), IsDestructive: true),
         ]),
         new("Volumes",
         [
-            new("create_volume", "Create a volume"),
-            new("remove_volume", "Remove a volume — deletes its data", IsDestructive: true),
+            new("create_volume", UiText.Get("Common_Text0498", "Create a volume")),
+            new("remove_volume", UiText.Get("Common_Text0499", "Remove a volume — deletes its data"), IsDestructive: true),
         ]),
         new("Networks",
         [
-            new("create_network", "Create a network"),
-            new("remove_network", "Remove a network", IsDestructive: true),
+            new("create_network", UiText.Get("Common_Text0500", "Create a network")),
+            new("remove_network", UiText.Get("Common_Text0501", "Remove a network"), IsDestructive: true),
         ]),
         new("Templates",
         [
-            new("deploy_template", "Deploy a single-container template (Compose always requires review)"),
+            new("deploy_template", UiText.Get("Common_Text0502", "Deploy a single-container template (Compose always requires review)")),
         ]),
         new("Kubernetes (k3s)",
         [
-            new("apply_yaml", "Apply a manifest"),
-            new("scale_deployment", "Scale a deployment"),
-            new("restart_deployment", "Restart a deployment"),
-            new("delete_resource", "Delete a resource", IsDestructive: true),
-            new("cluster_start", "Start the cluster"),
-            new("cluster_stop", "Stop the cluster"),
+            new("apply_yaml", UiText.Get("Common_Text0504", "Apply a manifest")),
+            new("scale_deployment", UiText.Get("Common_Text0505", "Scale a deployment")),
+            new("restart_deployment", UiText.Get("Common_Text0506", "Restart a deployment")),
+            new("delete_resource", UiText.Get("Common_Text0507", "Delete a resource"), IsDestructive: true),
+            new("cluster_start", UiText.Get("Common_Text0508", "Start the cluster")),
+            new("cluster_stop", UiText.Get("Common_Text0509", "Stop the cluster")),
         ]),
     ];
 

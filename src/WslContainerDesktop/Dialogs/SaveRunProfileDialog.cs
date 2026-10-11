@@ -19,6 +19,8 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Models;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -36,9 +38,9 @@ public sealed class SaveRunProfileDialog : ContentDialog
     public SaveRunProfileDialog(string suggestedName, RunContainerOptions options, IReadOnlyList<string> notCaptured,
         IReadOnlyList<string>? warnings = null)
     {
-        Title = "Save as run profile";
-        PrimaryButtonText = "Save";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Save_as_run_profile_e6193b", "Save as run profile");
+        PrimaryButtonText = UiText.Get("Workload_Text_Save_1509f5", "Save");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = warnings is { Count: > 0 } ? ContentDialogButton.Close : ContentDialogButton.Primary;
         AutomationProperties.SetAutomationId(this, "SaveRunProfileDialog");
 
@@ -47,7 +49,7 @@ public sealed class SaveRunProfileDialog : ContentDialog
 
         _nameBox = new TextBox
         {
-            Header = "Profile name",
+            Header = UiText.Get("Workload_Text_Profile_name_d36632", "Profile name"),
             Text = suggestedName ?? string.Empty,
             PlaceholderText = "my-profile",
             MinWidth = 440,
@@ -78,7 +80,7 @@ public sealed class SaveRunProfileDialog : ContentDialog
                 _nameBox,
                 new TextBlock
                 {
-                    Text = "Captured settings",
+                    Text = UiText.Get("Workload_Text_Captured_settings_0eb697", "Captured settings"),
                     FontSize = 12,
                     Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
                 },
@@ -90,8 +92,8 @@ public sealed class SaveRunProfileDialog : ContentDialog
         {
             var warningText = new TextBlock
             {
-                Text = "Review storage before saving:\n\n" + string.Join("\n\n", warnings.Distinct(StringComparer.Ordinal))
-                     + "\n\nCancel to keep profiles unchanged, or save and review storage after loading the profile.",
+                Text = UiText.Get("Workload_Text_Review_storage_before_saving_4c4ee4", "Review storage before saving:\n\n") + string.Join("\n\n", warnings.Distinct(StringComparer.Ordinal).Select(UiText.TranslateLines))
+                     + UiText.Get("Workload_Text_Cancel_to_keep_profiles_unchanged_or_64ca1c", "\n\nCancel to keep profiles unchanged, or save and review storage after loading the profile."),
                 TextWrapping = TextWrapping.Wrap,
                 Width = 440,
             };
@@ -108,9 +110,9 @@ public sealed class SaveRunProfileDialog : ContentDialog
         {
             children.Children.Add(new TextBlock
             {
-                Text = "Not captured (a running container doesn't expose these): "
+                Text = UiText.Get("Workload_Text_Not_captured_a_running_container_doesn_868de2", "Not captured (a running container doesn't expose these): ")
                      + string.Join(", ", notCaptured)
-                     + ". Add them after loading the profile if needed.",
+                     + UiText.Get("Workload_Text_Add_them_after_loading_the_profile_e0266e", ". Add them after loading the profile if needed."),
                 Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCautionBrush"],
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap,
@@ -138,60 +140,60 @@ public sealed class SaveRunProfileDialog : ContentDialog
 
     private static string BuildSummary(RunContainerOptions o)
     {
-        var lines = new List<string> { $"image: {o.Image}" };
+        var lines = new List<string> { UiText.Get("Workload_Text_image_0_13f3da", "image: {0}", o.Image) };
         if (!string.IsNullOrWhiteSpace(o.Name))
         {
-            lines.Add($"name: {o.Name}");
+            lines.Add(UiText.Get("Workload_Text_name_0_f86121", "name: {0}", o.Name));
         }
 
         if (!string.IsNullOrWhiteSpace(o.Network))
         {
-            lines.Add($"network: {o.Network}");
+            lines.Add(UiText.Get("Workload_Text_network_0_4deab9", "network: {0}", o.Network));
         }
 
         foreach (var p in o.PortMappings)
         {
-            lines.Add($"port: {p}");
+            lines.Add(UiText.Get("Workload_Text_port_0_f21231", "port: {0}", p));
         }
 
         foreach (var e in o.EnvironmentVariables)
         {
-            lines.Add($"env: {e}");
+            lines.Add(UiText.Get("Workload_Text_env_0_48f549", "env: {0}", e));
         }
 
         foreach (var volume in o.Volumes)
         {
-            lines.Add($"mount: {volume}");
+            lines.Add(UiText.Get("Workload_Text_mount_0_0f247a", "mount: {0}", volume));
         }
 
         foreach (var mount in o.Mounts)
         {
-            lines.Add($"mount: {mount.ToArgument()}");
+            lines.Add(UiText.Get("Workload_Text_mount_0_0f247a", "mount: {0}", mount.ToArgument()));
         }
 
         if (o.StopTimeoutSeconds is int stopTimeout)
         {
-            lines.Add($"stop timeout: {stopTimeout}");
+            lines.Add(UiText.Get("Workload_Text_stop_timeout_0_5571f3", "stop timeout: {0}", stopTimeout));
         }
 
         if (!string.IsNullOrWhiteSpace(o.WorkingDir))
         {
-            lines.Add($"workdir: {o.WorkingDir}");
+            lines.Add(UiText.Get("Workload_Text_workdir_0_95c98f", "workdir: {0}", o.WorkingDir));
         }
 
         if (!string.IsNullOrWhiteSpace(o.User))
         {
-            lines.Add($"user: {o.User}");
+            lines.Add(UiText.Get("Workload_Text_user_0_b84b5c", "user: {0}", o.User));
         }
 
         if (!string.IsNullOrWhiteSpace(o.Command))
         {
-            lines.Add($"command: {o.Command}");
+            lines.Add(UiText.Get("Workload_Text_command_0_d5f841", "command: {0}", o.Command));
         }
 
         if (!string.IsNullOrWhiteSpace(o.Entrypoint))
         {
-            lines.Add($"entrypoint: {o.Entrypoint}");
+            lines.Add(UiText.Get("Workload_Text_entrypoint_0_a89ece", "entrypoint: {0}", o.Entrypoint));
         }
 
         return string.Join('\n', lines);

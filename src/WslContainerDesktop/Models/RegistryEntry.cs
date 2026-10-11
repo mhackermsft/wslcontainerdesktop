@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json.Serialization;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Models;
 
@@ -102,12 +103,12 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
     [JsonIgnore]
     public string LoginStateText => _loginState switch
     {
-        RegistryLoginState.LoggedIn => "Logged in",
-        RegistryLoginState.LoggedOut => "Not logged in",
-        RegistryLoginState.Checking => "Checking…",
-        RegistryLoginState.Unreachable => "Unreachable",
-        RegistryLoginState.Anonymous => "Anonymous",
-        _ => "Unknown",
+        RegistryLoginState.LoggedIn => UiText.Get("Resource_Text_75d39bfaedaf", "Logged in"),
+        RegistryLoginState.LoggedOut => UiText.Get("Resource_Text_53802e672d6d", "Not logged in"),
+        RegistryLoginState.Checking => UiText.Get("Resource_Text_820d6004b037", "Checking…"),
+        RegistryLoginState.Unreachable => UiText.Get("Resource_Text_aa284d0c56a2", "Unreachable"),
+        RegistryLoginState.Anonymous => UiText.Get("Resource_Text_9bed5104004c", "Anonymous"),
+        _ => UiText.Get("Resource_Text_bc7819b34ff8", "Unknown"),
     };
 
     /// <summary>Segoe Fluent glyph for the status dot/icon.</summary>
@@ -211,5 +212,11 @@ public sealed class RegistryEntry : CommunityToolkit.Mvvm.ComponentModel.Observa
         IsDefault = true,
         LoginState = RegistryLoginState.Anonymous,
     };
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+    }
 }
 

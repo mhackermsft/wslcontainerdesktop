@@ -21,6 +21,8 @@ using Microsoft.UI.Xaml.Navigation;
 using WslContainerDesktop.ViewModels;
 using WslContainerDesktop.Helpers;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Views;
 
 /// <summary>Page for imported Docker Compose projects and their desktop-managed up/down/restart actions.</summary>
@@ -31,6 +33,24 @@ public sealed partial class ComposePage : Page
     {
         ViewModel = App.Current.Services.GetRequiredService<ComposeViewModel>();
         InitializeComponent();
+        Loaded += OnLoadedForLanguage;
+        Unloaded += OnUnloadedForLanguage;
+    }
+
+    private void OnLoadedForLanguage(object sender, RoutedEventArgs e)
+    {
+        UiText.LanguageChanged -= OnLanguageChanged;
+        UiText.LanguageChanged += OnLanguageChanged;
+        OnLanguageChanged(this, EventArgs.Empty);
+    }
+
+    private void OnUnloadedForLanguage(object sender, RoutedEventArgs e) =>
+        UiText.LanguageChanged -= OnLanguageChanged;
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLanguage();
+        Bindings.Update();
     }
 
     /// <summary>Compose project view model bound by the page.</summary>

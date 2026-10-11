@@ -17,6 +17,8 @@
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Models;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>Collects a target (pod or service) and local/remote ports for a port-forward.</summary>
@@ -44,21 +46,21 @@ public sealed class PortForwardDialog : ContentDialog
         _pods = pods;
         _services = services;
 
-        Title = "Forward a port";
-        PrimaryButtonText = "Forward";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Forward_a_port_c39bd3", "Forward a port");
+        PrimaryButtonText = UiText.Get("Workload_Text_Forward_f1c65e", "Forward");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
-        _kindBox = new ComboBox { Header = "Target type", MinWidth = 420 };
-        _kindBox.Items.Add("Service");
-        _kindBox.Items.Add("Pod");
+        _kindBox = new ComboBox { Header = UiText.Get("Workload_Text_Target_type_8a1c2f", "Target type"), MinWidth = 420 };
+        _kindBox.Items.Add(UiText.Get("Workload_Text_Service_d67719", "Service"));
+        _kindBox.Items.Add(UiText.Get("Workload_Text_Pod_0a6bb8", "Pod"));
         _kindBox.SelectedIndex = 0;
         _kindBox.SelectionChanged += (_, _) => PopulateTargets();
 
-        _targetBox = new ComboBox { Header = "Target", MinWidth = 420 };
+        _targetBox = new ComboBox { Header = UiText.Get("Workload_Text_Target_978354", "Target"), MinWidth = 420 };
 
-        _localPortBox = new TextBox { Header = "Local port", PlaceholderText = "e.g. 8080" };
-        _remotePortBox = new TextBox { Header = "Target port", PlaceholderText = "e.g. 80" };
+        _localPortBox = new TextBox { Header = UiText.Get("Workload_Text_Local_port_9bc348", "Local port"), PlaceholderText = UiText.Get("Workload_Text_e_g_8080_452a03", "e.g. 8080") };
+        _remotePortBox = new TextBox { Header = UiText.Get("Workload_Text_Target_port_cab875", "Target port"), PlaceholderText = UiText.Get("Workload_Text_e_g_80_d3a954", "e.g. 80") };
 
         var ports = new StackPanel
         {

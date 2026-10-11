@@ -44,6 +44,13 @@ public interface ISettingsService
     /// <summary>App theme: "Default", "Light", or "Dark".</summary>
     string Theme { get; set; }
 
+    /// <summary>
+    /// BCP-47 tag of the UI language, or empty to follow the system's display language. Values not
+    /// listed in <see cref="AppLanguage.Supported"/> are normalized away on load. Applied at startup,
+    /// so a change takes effect the next time the app launches.
+    /// </summary>
+    string Language { get; set; }
+
     /// <summary>Master switch for Windows toast notifications. When false, all toasts are muted.</summary>
     bool NotificationsEnabled { get; set; }
 

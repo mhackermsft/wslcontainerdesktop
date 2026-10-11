@@ -29,6 +29,10 @@ namespace WslContainerDesktop.ViewModels;
 /// <summary>View model for the Volumes page, listing <c>wslc</c> volumes and running create, inspect, remove, prune, and bulk-remove commands.</summary>
 public partial class VolumesViewModel : ObservableObject
 {
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string StatusMessageDisplay => UiText.Translate(StatusMessage);
+
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
     private readonly ILogger<VolumesViewModel> _logger;
@@ -40,6 +44,7 @@ public partial class VolumesViewModel : ObservableObject
 
     /// <summary>Status text shown at the top of the Volumes page.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusMessageDisplay))]
     private string _statusMessage = "Ready";
 
     /// <summary>Currently selected volume row, or <c>null</c> when nothing is selected.</summary>
@@ -57,7 +62,7 @@ public partial class VolumesViewModel : ObservableObject
     private int _selectedCount;
 
     /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
-    public string SelectionSummary => $"{SelectedCount} selected";
+    public string SelectionSummary => UiText.Get("Resource_Text_e5084bffcc17", "{0} selected", SelectedCount);
 
     /// <summary>Volume rows displayed by the page.</summary>
     public ObservableCollection<VolumeInfo> Volumes { get; } = new();
@@ -144,7 +149,7 @@ public partial class VolumesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Failed to load volumes", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_587588037564", "Failed to load volumes"), ex.Message);
             StatusMessage = "Error";
         }
         finally
@@ -164,7 +169,7 @@ public partial class VolumesViewModel : ObservableObject
     [RelayCommand]
     private async Task CreateAsync()
     {
-        var dialog = new SimpleInputDialog("Create volume", "Volume name", "e.g. my-data");
+        var dialog = new SimpleInputDialog(UiText.Get("Resource_Text_1c2351331a73", "Create volume"), UiText.Get("Resource_Text_9665af7c3b74", "Volume name"), UiText.Get("Resource_Text_389e0c4950f6", "e.g. my-data"));
         if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary)
         {
             return;
@@ -190,9 +195,9 @@ public partial class VolumesViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove volume",
-            $"Remove volume \"{volume.Name}\"? Data in the volume will be lost.",
-            "Remove");
+            UiText.Get("Resource_Text_7fa7f416b8c2", "Remove volume"),
+            UiText.Get("Resource_Text_9cd3f346fe82", "Remove volume \"{0}\"? Data in the volume will be lost.", volume.Name),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -215,7 +220,7 @@ public partial class VolumesViewModel : ObservableObject
         try
         {
             var result = await _wslc.InspectVolumeAsync(volume.Name);
-            await _dialogs.ShowMessageAsync($"Inspect · {volume.Name}",
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_f306c4f01fc3", "Inspect · {0}", volume.Name),
                 result.Success ? result.StandardOutput : result.ErrorText);
         }
         finally
@@ -228,7 +233,7 @@ public partial class VolumesViewModel : ObservableObject
     [RelayCommand]
     private async Task PruneAsync()
     {
-        var ok = await _dialogs.ShowConfirmAsync("Prune volumes", "Remove all unused volumes?", "Prune");
+        var ok = await _dialogs.ShowConfirmAsync(UiText.Get("Resource_Text_cb5d30ca0eaa", "Prune volumes"), UiText.Get("Resource_Text_075341e9d7a5", "Remove all unused volumes?"), UiText.Get("Resource_Text_2f24ebaee0aa", "Prune"));
         if (!ok)
         {
             return;
@@ -255,9 +260,9 @@ public partial class VolumesViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove volumes",
-            $"Remove {items.Count} volume(s)? Data in these volumes will be lost.\n\n{BulkNames(items.Select(v => v.Name))}",
-            "Remove");
+            UiText.Get("Resource_Text_97e7c38762f2", "Remove volumes"),
+            UiText.Get("Resource_Text_895d5f585893", "Remove {0} volume(s)? Data in these volumes will be lost.\n\n{1}", items.Count, BulkNames(items.Select(v => v.Name))),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -287,8 +292,8 @@ public partial class VolumesViewModel : ObservableObject
         if (failures.Count > 0)
         {
             await _dialogs.ShowMessageAsync(
-                "Some volumes were not removed",
-                $"{failures.Count} of {items.Count} could not be removed (they may still be attached to a container):\n\n{BulkNames(failures)}");
+                UiText.Get("Resource_Text_7e216826243b", "Some volumes were not removed"),
+                UiText.Get("Resource_Text_2c7e82a6c879", "{0} of {1} could not be removed (they may still be attached to a container):\n\n{2}", failures.Count, items.Count, BulkNames(failures)));
         }
     }
 
@@ -297,7 +302,7 @@ public partial class VolumesViewModel : ObservableObject
         var list = names.ToList();
         const int max = 12;
         var shown = string.Join("\n", list.Take(max).Select(n => "• " + n));
-        return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
+        return list.Count > max ? UiText.Get("Resource_Text_5b44479e9557", "{0}\n… and {1} more", shown, list.Count - max) : shown;
     }
 
     private async Task ExecuteAsync(Func<Task<CommandResult>> action, string? volumeName = null)
@@ -314,15 +319,15 @@ public partial class VolumesViewModel : ObservableObject
                 if (message.Contains("ERROR_SHARING_VIOLATION", StringComparison.OrdinalIgnoreCase) ||
                     message.Contains("is in use", StringComparison.OrdinalIgnoreCase))
                 {
-                    var name = string.IsNullOrEmpty(volumeName) ? "This volume" : $"\"{volumeName}\"";
+                    var name = string.IsNullOrEmpty(volumeName) ? UiText.Get("Resource_Text_815f075b8069", "This volume") : $"\"{volumeName}\"";
                     message =
-                        $"{name} is still attached to a container, so it can't be removed.\n\n" +
-                        "Stop and remove the container that uses it first, then try again.\n\n" +
-                        "The Used by column includes stopped containers when inspect metadata is available. " +
-                        "Unknown or partial usage is not proof that a volume is unused.";
+                        UiText.Get("Resource_Text_01d84a089f65", "{0} is still attached to a container, so it can't be removed.\n\n", name) +
+                        UiText.Get("Resource_Text_0d553567c19c", "Stop and remove the container that uses it first, then try again.\n\n") +
+                        UiText.Get("Resource_Text_ea8c28b99ef3", "The Used by column includes stopped containers when inspect metadata is available. ") +
+                        UiText.Get("Resource_Text_148f26a65911", "Unknown or partial usage is not proof that a volume is unused.");
                 }
 
-                await _dialogs.ShowMessageAsync("Can't remove volume", message);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_69047d7b411a", "Can't remove volume"), message);
             }
             else
             {
@@ -333,5 +338,12 @@ public partial class VolumesViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (var item in Volumes) item.RefreshLocalizedText();
     }
 }

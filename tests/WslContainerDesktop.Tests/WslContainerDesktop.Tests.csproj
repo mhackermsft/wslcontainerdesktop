@@ -132,6 +132,9 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\ISettingsService.cs" Link="Services\ISettingsService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\SettingsService.cs" Link="Services\SettingsService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AppConstants.cs" Link="Services\AppConstants.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AppLanguage.cs" Link="Services\AppLanguage.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\UiText.cs" Link="Services\UiText.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\LocalizedOption.cs" Link="Services\LocalizedOption.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\CommandErrorText.cs" Link="Services\CommandErrorText.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslPolicyService.cs" Link="Services\IWslPolicyService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslRequirementService.cs" Link="Services\IWslRequirementService.cs" />

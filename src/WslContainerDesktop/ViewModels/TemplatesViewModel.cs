@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
@@ -28,7 +29,7 @@ using WslContainerDesktop.Services;
 namespace WslContainerDesktop.ViewModels;
 
 /// <summary>A category section of templates for the grouped gallery.</summary>
-public sealed class TemplateGroup : List<StackTemplate>
+public sealed class TemplateGroup : List<StackTemplate>, INotifyPropertyChanged
 {
     /// <summary>Creates the TemplateGroup instance and stores the services it needs.</summary>
     public TemplateGroup(string category, IEnumerable<StackTemplate> items)
@@ -40,8 +41,16 @@ public sealed class TemplateGroup : List<StackTemplate>
     /// <summary>Value for category shown or edited by the view.</summary>
     public string Category { get; }
 
+    /// <summary>Localizes catalog categories while preserving user-authored category values.</summary>
+    public string DisplayCategory => this.FirstOrDefault(template => template.Source == TemplateSource.BuiltIn)?.DisplayCategory ?? Category;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>Updates the group label without replacing its stable items.</summary>
+    public void RefreshLanguage() => PropertyChanged?.Invoke(this, new(nameof(DisplayCategory)));
+
     /// <summary>Returns the category so screen readers announce the section name, not the type.</summary>
-    public override string ToString() => Category;
+    public override string ToString() => DisplayCategory;
 }
 
 /// <summary>
@@ -76,7 +85,7 @@ public partial class TemplatesViewModel : ObservableObject
 
     /// <summary>Bindable state for status message used by the view.</summary>
     [ObservableProperty]
-    private string _statusMessage = "Pick a template to get started.";
+    private string _statusMessage = UiText.Get("Workload_Text_Pick_a_template_to_get_started_e1abfd", "Pick a template to get started.");
 
     /// <summary>Value for groups shown or edited by the view.</summary>
     public ObservableCollection<TemplateGroup> Groups { get; } = new();
@@ -115,6 +124,14 @@ public partial class TemplatesViewModel : ObservableObject
         _monitor.StatusChanged += OnStatusChanged;
         _catalog.Changed += OnCatalogOrVisibilityChanged;
         _visibility.Changed += OnCatalogOrVisibilityChanged;
+    }
+
+    /// <summary>Refreshes labels from the catalog while preserving custom template contents.</summary>
+    public void RefreshLanguage()
+    {
+        StatusMessage = UiText.Translate(StatusMessage);
+        foreach (var template in _catalog.Templates) template.RefreshLanguage();
+        foreach (var group in Groups) group.RefreshLanguage();
     }
 
     /// <summary>Handles catalog or visibility changed changes and updates related view-model state.</summary>
@@ -336,9 +353,9 @@ public partial class TemplatesViewModel : ObservableObject
     /// <summary>Helper for the report launch failure workflow in this view model.</summary>
     private async Task ReportLaunchFailureAsync(Exception error)
     {
-        StatusMessage = "Launch failed";
-        await _dialogs.ShowMessageAsync("Launch failed",
-            $"The launch could not complete. Check the container engine and retry.\n\n{error.Message}");
+        StatusMessage = UiText.Get("Workload_Text_Launch_failed_1755d5", "Launch failed");
+        await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Launch_failed_1755d5", "Launch failed"),
+            UiText.Get("Workload_Text_The_launch_could_not_complete_Check_6eee79", "The launch could not complete. Check the container engine and retry.\n\n{0}", error.Message));
     }
 
     /// <summary>
@@ -371,7 +388,7 @@ public partial class TemplatesViewModel : ObservableObject
         {
             var chooser = new ComboBox
             {
-                Header = "Which deployment?",
+                Header = UiText.Get("Workload_Text_Which_deployment_44c49c", "Which deployment?"),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 MinWidth = 320,
                 ItemsSource = deployments.Select(d => d.Label).ToList(),
@@ -379,7 +396,7 @@ public partial class TemplatesViewModel : ObservableObject
             };
             var pick = new ContentDialog
             {
-                Title = $"Remove a {template.Name} deployment",
+                Title = UiText.Get("Workload_Text_Remove_a_0_deployment_01fe9f", "Remove a {0} deployment", template.DisplayName),
                 Content = new StackPanel
                 {
                     Spacing = 12,
@@ -388,15 +405,14 @@ public partial class TemplatesViewModel : ObservableObject
                     {
                         new TextBlock
                         {
-                            Text = $"There are {deployments.Count} separate {template.Name} deployments. "
-                                + "Choose the one to remove; the others are left running.",
+                            Text = UiText.Get("Workload_Text_There_are_0_separate_1_deployments_1f4289", "There are {0} separate {1} deployments. Choose the one to remove; the others are left running.", deployments.Count, template.DisplayName),
                             TextWrapping = TextWrapping.Wrap,
                         },
                         chooser,
                     },
                 },
-                PrimaryButtonText = "Continue",
-                CloseButtonText = "Cancel",
+                PrimaryButtonText = UiText.Get("Workload_Text_Continue_31fbef", "Continue"),
+                CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel"),
                 DefaultButton = ContentDialogButton.Primary,
             };
             if (await _dialogs.ShowDialogAsync(pick) != ContentDialogResult.Primary)
@@ -409,12 +425,12 @@ public partial class TemplatesViewModel : ObservableObject
 
         var volumesCheck = new CheckBox
         {
-            Content = "Also delete data volumes (permanently deletes stored data)",
+            Content = UiText.Get("Workload_Text_Also_delete_data_volumes_permanently_deletes_c126ec", "Also delete data volumes (permanently deletes stored data)"),
             IsChecked = false,
         };
         var dialog = new ContentDialog
         {
-            Title = $"Remove {target.Label}?",
+            Title = UiText.Get("Workload_Text_Remove_0_9d64ce", "Remove {0}?", target.Label),
             Content = new StackPanel
             {
                 Spacing = 12,
@@ -423,15 +439,15 @@ public partial class TemplatesViewModel : ObservableObject
                     new TextBlock
                     {
                         Text = template.Kind == StackTemplateKind.Compose
-                            ? $"Stops and removes the \"{target.Label}\" stack's containers and its network."
-                            : $"Stops and removes the \"{target.Label}\" container.",
+                            ? UiText.Get("Workload_Text_Stops_and_removes_the_0_stack_9276d2", "Stops and removes the \"{0}\" stack's containers and its network.", target.Label)
+                            : UiText.Get("Workload_Text_Stops_and_removes_the_0_container_f4fce7", "Stops and removes the \"{0}\" container.", target.Label),
                         TextWrapping = TextWrapping.Wrap,
                     },
                     volumesCheck,
                 },
             },
-            PrimaryButtonText = "Remove",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = UiText.Get("Workload_Text_Remove_c3812f", "Remove"),
+            CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel"),
             DefaultButton = ContentDialogButton.Close,
         };
 
@@ -443,7 +459,7 @@ public partial class TemplatesViewModel : ObservableObject
         var removeVolumes = volumesCheck.IsChecked == true;
 
         template.IsRemoving = true;
-        StatusMessage = $"Removing {template.Name}…";
+        StatusMessage = UiText.Get("Workload_Text_Removing_0_8e3a5e", "Removing {0}…", template.DisplayName);
         try
         {
             if (template.Kind == StackTemplateKind.Compose)
@@ -455,14 +471,14 @@ public partial class TemplatesViewModel : ObservableObject
                 await RemoveContainerAsync(target, removeVolumes);
             }
 
-            var volumeNote = removeVolumes ? " and its data volumes" : string.Empty;
-            StatusMessage = $"{target.Label}{volumeNote} removed.";
+            var volumeNote = removeVolumes ? UiText.Get("Workload_Text_and_its_data_volumes_fee57a", " and its data volumes") : string.Empty;
+            StatusMessage = UiText.Get("Workload_Text_0_1_removed_ae80f8", "{0}{1} removed.", target.Label, volumeNote);
             _monitor.RequestRefresh();
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Remove failed", ex.Message);
-            StatusMessage = "Remove failed";
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Final_7a91db72b7", "Remove failed"), ex.Message);
+            StatusMessage = UiText.Get("Workload_Final_7a91db72b7", "Remove failed");
         }
         finally
         {
@@ -499,10 +515,9 @@ public partial class TemplatesViewModel : ObservableObject
         }
 
         var confirmed = await _dialogs.ShowConfirmAsync(
-            $"Delete the \"{template.Name}\" template?",
-            "This removes the template from your gallery. Any containers it already launched are not "
-                + "affected — use \"Remove deployment\" first if you also want to tear those down.",
-            "Delete");
+            UiText.Get("Workload_Text_Delete_the_0_template_fb09f8", "Delete the \"{0}\" template?", template.DisplayName),
+            UiText.Get("Workload_Text_This_removes_the_template_from_your_44188d", "This removes the template from your gallery. Any containers it already launched are not affected — use \"Remove deployment\" first if you also want to tear those down."),
+            UiText.Get("Workload_Text_Delete_e2d0a5", "Delete"));
         if (!confirmed)
         {
             return;
@@ -511,7 +526,7 @@ public partial class TemplatesViewModel : ObservableObject
         _userTemplates.Delete(template.Id);
         _configs.Delete(template.Id);
         _visibility.SetHidden(template.Id, false);
-        StatusMessage = $"Deleted the \"{template.Name}\" template.";
+        StatusMessage = UiText.Get("Workload_Text_Deleted_the_0_template_cdabb5", "Deleted the \"{0}\" template.", template.DisplayName);
     }
 
     /// <summary>Opens the editor to author a brand-new user template, saving it on confirm.</summary>
@@ -557,7 +572,7 @@ public partial class TemplatesViewModel : ObservableObject
         _configs.Delete(template.Id);
         _userTemplates.Save(template);
 
-        var verb = source is null ? "Created" : (isDuplicate ? "Created a copy" : "Saved");
+        var verb = source is null ? UiText.Get("Workload_Text_Created_d70b9e", "Created") : (isDuplicate ? UiText.Get("Workload_Text_Created_a_copy_e721ce", "Created a copy") : UiText.Get("Workload_Text_Saved_b5c120", "Saved"));
         StatusMessage = $"{verb}: \"{template.Name}\".";
     }
 
@@ -582,9 +597,8 @@ public partial class TemplatesViewModel : ObservableObject
         }
 
         await _dialogs.ShowMessageAsync(
-            "Nothing to export",
-            "You don't have any custom or imported templates yet. Create or import one first, or "
-                + "use a card's Export… to share a built-in template.");
+            UiText.Get("Workload_Text_Nothing_to_export_fd3032", "Nothing to export"),
+            UiText.Get("Workload_Text_You_don_t_have_any_custom_1b1898", "You don't have any custom or imported templates yet. Create or import one first, or use a card's Export… to share a built-in template."));
         return false;
     }
 
@@ -603,15 +617,14 @@ public partial class TemplatesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Import failed", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Import_failed_0a26f4", "Import failed"), ex.Message);
             return;
         }
 
         var confirmed = await _dialogs.ShowConfirmAsync(
-            "Import templates?",
-            $"Import {parsed.Count} template(s) into your gallery? Anything that clashes with an "
-                + "existing template is imported as a separate copy — nothing is overwritten.",
-            "Import");
+            UiText.Get("Workload_Text_Import_templates_91deef", "Import templates?"),
+            UiText.Get("Workload_Text_Import_0_template_s_into_your_67ba38", "Import {0} template(s) into your gallery? Anything that clashes with an existing template is imported as a separate copy — nothing is overwritten.", parsed.Count),
+            UiText.Get("Workload_Text_Import_2cff9b", "Import"));
         if (!confirmed)
         {
             return;
@@ -645,7 +658,7 @@ public partial class TemplatesViewModel : ObservableObject
         }
 
         _userTemplates.SaveRange(toSave);
-        StatusMessage = $"Imported {toSave.Count} template(s).";
+        StatusMessage = UiText.Get("Workload_Text_Imported_0_template_s_6e2106", "Imported {0} template(s).", toSave.Count);
     }
 
     /// <summary>Helper for the make unique id workflow in this view model.</summary>
@@ -664,11 +677,11 @@ public partial class TemplatesViewModel : ObservableObject
     /// <summary>Helper for the make unique name workflow in this view model.</summary>
     private static string MakeUniqueName(string name, HashSet<string> existing)
     {
-        var candidate = $"{name} (imported)";
+        var candidate = UiText.Get("Workload_Text_0_imported_d226e7", "{0} (imported)", name);
         var counter = 2;
         while (existing.Contains(candidate))
         {
-            candidate = $"{name} (imported {counter++})";
+            candidate = UiText.Get("Workload_Text_0_imported_1_a03a98", "{0} (imported {1})", name, counter++);
         }
 
         return candidate;
@@ -827,21 +840,18 @@ public partial class TemplatesViewModel : ObservableObject
         if (adjustment.Adjusted)
         {
             var again = await _dialogs.ShowConfirmAsync(
-                $"{template.Name} is already deployed",
-                $"Launch another one? It runs alongside the existing deployment as \"{options.Name}\", "
-                    + "with its own ports and its own data volumes, so neither can affect the other's data."
-                    + $"\n\n{adjustment.Summary}"
-                    + "\n\nTo replace the existing deployment instead, remove it first.",
-                "Launch another");
+                UiText.Get("Workload_Text_0_is_already_deployed_314a85", "{0} is already deployed", template.DisplayName),
+                UiText.Get("Workload_Text_Launch_another_one_It_runs_alongside_a9e08c", "Launch another one? It runs alongside the existing deployment as \"{0}\", with its own ports and its own data volumes, so neither can affect the other's data.\n\n{1}\n\nTo replace the existing deployment instead, remove it first.", options.Name, adjustment.Summary),
+                UiText.Get("Workload_Text_Launch_another_c189f3", "Launch another"));
             if (!again)
             {
-                StatusMessage = "Launch cancelled.";
+                StatusMessage = UiText.Get("Workload_Text_Launch_cancelled_c36806", "Launch cancelled.");
                 return;
             }
         }
 
         IsBusy = true;
-        StatusMessage = $"Starting {template.Name}… downloading the image if needed, this can take a moment.";
+        StatusMessage = UiText.Get("Workload_Text_Starting_0_downloading_the_image_if_1a0af8", "Starting {0}… downloading the image if needed, this can take a moment.", template.DisplayName);
         try
         {
             // `wslc run` auto-pulls if the image is absent, so refresh Azure auth first.
@@ -850,16 +860,16 @@ public partial class TemplatesViewModel : ObservableObject
             var result = await _wslc.RunContainerAsync(options);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Launch failed", result.ErrorText);
-                StatusMessage = "Launch failed";
+                await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Launch_failed_1755d5", "Launch failed"), result.ErrorText);
+                StatusMessage = UiText.Get("Workload_Text_Launch_failed_1755d5", "Launch failed");
             }
             else
             {
                 var note = NoteClause(template);
                 // Name the deployment that actually started; "MySQL started" would be ambiguous once
                 // more than one exists.
-                var started = adjustment.Adjusted ? $"{template.Name} started as \"{options.Name}\"" : $"{template.Name} started";
-                StatusMessage = $"{started}{note}. See it in the Containers view.";
+                var started = adjustment.Adjusted ? UiText.Get("Workload_Text_0_started_as_1_d8356c", "{0} started as \"{1}\"", template.DisplayName, options.Name) : UiText.Get("Workload_Text_0_started_43003e", "{0} started", template.DisplayName);
+                StatusMessage = UiText.Get("Workload_Text_0_1_See_it_in_the_60c2ff", "{0}{1}. See it in the Containers view.", started, note);
                 _monitor.RequestRefresh();
             }
         }
@@ -875,7 +885,7 @@ public partial class TemplatesViewModel : ObservableObject
     /// in the Containers view." once a status line continued after one.
     /// </summary>
     private static string NoteClause(StackTemplate template) =>
-        string.IsNullOrWhiteSpace(template.Note) ? string.Empty : $" — {template.Note.TrimEnd('.', ' ')}";
+        string.IsNullOrWhiteSpace(template.DisplayNote) ? string.Empty : $" — {template.DisplayNote.TrimEnd('.', ' ')}";
 
     /// <summary>Resolves the compose YAML/name to use: the saved config if present, else defaults.</summary>
     private (string Yaml, string? Name) ResolveComposeConfig(StackTemplate template)
@@ -889,7 +899,7 @@ public partial class TemplatesViewModel : ObservableObject
     /// <summary>Notes GPU passthrough when the deployed runtime asked for it. The container's GPU
     /// badge confirms the access itself; this only reports what was requested.</summary>
     private static string Acceleration(OpenWebUiPlanner.Plan? plan) =>
-        plan is { UsesGpu: true } ? " using your GPU" : string.Empty;
+        plan is { UsesGpu: true } ? UiText.Get("Workload_Text_using_your_GPU_4b145b", " using your GPU") : string.Empty;
 
     /// <summary>Helper for the launch compose workflow in this view model.</summary>
     private async Task LaunchComposeAsync(StackTemplate template)
@@ -919,7 +929,7 @@ public partial class TemplatesViewModel : ObservableObject
                 var choice = await _dialogs.ShowDialogAsync(chooser);
                 if (choice == ContentDialogResult.None)
                 {
-                    StatusMessage = "Launch cancelled.";
+                    StatusMessage = UiText.Get("Workload_Text_Launch_cancelled_c36806", "Launch cancelled.");
                     return;
                 }
                 model = choice == ContentDialogResult.Primary ? chooser.Model : string.Empty;
@@ -927,12 +937,12 @@ public partial class TemplatesViewModel : ObservableObject
         }
 
         IsBusy = true;
-        StatusMessage = $"Reviewing {template.Name}… no images or services are changed before confirmation.";
+        StatusMessage = UiText.Get("Workload_Text_Reviewing_0_no_images_or_services_2159fa", "Reviewing {0}… no images or services are changed before confirmation.", template.DisplayName);
         try
         {
             if (!await _compose.ImportAndUpAsync(yaml, suggestedName: name))
             {
-                StatusMessage = "Compose launch was cancelled, blocked, or incomplete. Check Compose details and refresh actual state before retrying.";
+                StatusMessage = UiText.Get("Workload_Text_Compose_launch_was_cancelled_blocked_or_41a796", "Compose launch was cancelled, blocked, or incomplete. Check Compose details and refresh actual state before retrying.");
                 return;
             }
             var note = NoteClause(template);
@@ -943,24 +953,22 @@ public partial class TemplatesViewModel : ObservableObject
                 // silently lists no models.
                 var attach = await _openWebUi.AttachExistingAsync(plan.ExistingOllamaId!);
                 StatusMessage = attach.Success
-                    ? $"{template.Name} launched using the existing \"{plan.ExistingOllamaName}\" runtime{note}."
-                    : $"{template.Name} started, but \"{plan.ExistingOllamaName}\" could not join the "
-                      + $"{OpenWebUiPlanner.NetworkName} network, so no models will appear. Connect it from the Networks page.";
+                    ? UiText.Get("Workload_Text_0_launched_using_the_existing_1_ee72be", "{0} launched using the existing \"{1}\" runtime{2}.", template.DisplayName, plan.ExistingOllamaName, note)
+                    : UiText.Get("Workload_Text_0_started_but_1_could_not_6165d9", "{0} started, but \"{1}\" could not join the {2} network, so no models will appear. Connect it from the Networks page.", template.DisplayName, plan.ExistingOllamaName, OpenWebUiPlanner.NetworkName);
             }
             else if (!string.IsNullOrEmpty(model))
             {
-                StatusMessage = $"Downloading {model}… this can take several minutes.";
+                StatusMessage = UiText.Get("Workload_Text_Downloading_0_this_can_take_several_8294ec", "Downloading {0}… this can take several minutes.", model);
                 var pull = await _openWebUi.InstallModelAsync(model);
                 StatusMessage = pull.Success
-                    ? $"{template.Name} is ready with {model}{Acceleration(plan)}{note}."
-                    : $"{template.Name} started, but {model} could not be downloaded. "
-                      + "Open the web UI and pull a model there, or retry from the container's terminal.";
+                    ? UiText.Get("Workload_Text_0_is_ready_with_1_2_12e6ac", "{0} is ready with {1}{2}{3}.", template.DisplayName, model, Acceleration(plan), note)
+                    : UiText.Get("Workload_Text_0_started_but_1_could_not_c04bc8", "{0} started, but {1} could not be downloaded. Open the web UI and pull a model there, or retry from the container's terminal.", template.DisplayName, model);
             }
             else
             {
                 StatusMessage = plan is null
-                    ? $"{template.Name} launched{note}. See it in the Containers view."
-                    : $"{template.Name} launched without a model{Acceleration(plan)}{note}. Add one from the web UI before chatting.";
+                    ? UiText.Get("Workload_Text_0_launched_1_See_it_in_2da307", "{0} launched{1}. See it in the Containers view.", template.DisplayName, note)
+                    : UiText.Get("Workload_Text_0_launched_without_a_model_1_c556f5", "{0} launched without a model{1}{2}. Add one from the web UI before chatting.", template.DisplayName, Acceleration(plan), note);
             }
             _monitor.RequestRefresh();
         }
@@ -979,21 +987,21 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        var dialog = new ConfigureComposeDialog(template.Name, name ?? string.Empty, yaml);
+        var dialog = new ConfigureComposeDialog(template.DisplayName, name ?? string.Empty, yaml);
         if (await _dialogs.ShowDialogAsync(dialog) != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(dialog.Yaml))
         {
             return;
         }
 
         IsBusy = true;
-        StatusMessage = $"Launching {template.Name}…";
+        StatusMessage = UiText.Get("Workload_Text_Launching_0_3dad1d", "Launching {0}…", template.DisplayName);
         try
         {
             if (!await _compose.ImportAndUpAsync(
                 dialog.Yaml,
                 suggestedName: string.IsNullOrWhiteSpace(dialog.ProjectName) ? template.ComposeProjectName : dialog.ProjectName))
             {
-                StatusMessage = "Compose launch was cancelled, blocked, or incomplete. Saved template defaults were not changed; check Compose details.";
+                StatusMessage = UiText.Get("Workload_Text_Compose_launch_was_cancelled_blocked_or_e9222d", "Compose launch was cancelled, blocked, or incomplete. Saved template defaults were not changed; check Compose details.");
                 return;
             }
             // Preserve template defaults unless the reviewed deployment completed successfully.
@@ -1003,7 +1011,7 @@ public partial class TemplatesViewModel : ObservableObject
                 ComposeYaml = dialog.Yaml,
                 ComposeProjectName = string.IsNullOrWhiteSpace(dialog.ProjectName) ? null : dialog.ProjectName,
             });
-            StatusMessage = $"{template.Name} launched";
+            StatusMessage = UiText.Get("Workload_Text_0_launched_680a32", "{0} launched", template.DisplayName);
         }
         finally
         {

@@ -20,6 +20,7 @@ using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Helpers;
 
@@ -52,7 +53,7 @@ public sealed class StateToStringConverter : IValueConverter
 {
     /// <summary>Converts the bound value into the display value used by XAML.</summary>
     public object Convert(object value, Type targetType, object parameter, string language) =>
-        value is ContainerState s ? s.ToDisplayString() : "Unknown";
+        UiText.Translate(value is ContainerState s ? s.ToDisplayString() : "Unknown");
 
     /// <summary>Reverse conversion is not supported because the converter is only used for display bindings.</summary>
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>

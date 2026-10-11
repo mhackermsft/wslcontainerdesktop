@@ -38,35 +38,35 @@ public sealed class CreateNetworkDialog : ContentDialog
     /// <summary>Creates a new &lt;c&gt;CreateNetworkDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public CreateNetworkDialog()
     {
-        Title = "Create network";
-        PrimaryButtonText = "Create";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Create_network_dbf4e6", "Create network");
+        PrimaryButtonText = UiText.Get("Workload_Text_Create_475949", "Create");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
-        _nameBox = new TextBox { Header = "Network name", PlaceholderText = "e.g. app-net", MinWidth = 420 };
+        _nameBox = new TextBox { Header = UiText.Get("Workload_Text_Network_name_b97af0", "Network name"), PlaceholderText = UiText.Get("Workload_Text_e_g_app_net_8fe647", "e.g. app-net"), MinWidth = 420 };
         _internalBox = new CheckBox
         {
             Content = InfoTip.Labeled(
-                new TextBlock { Text = "Internal network (--internal)", VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = UiText.Get("Workload_Text_Internal_network_internal_7c7e70", "Internal network (--internal)"), VerticalAlignment = VerticalAlignment.Center },
                 InfoTip.Create(FlagHelp.NetworkInternal)),
         };
         _driverOptionsBox = new TextBox
         {
-            Header = InfoTip.Header("Driver options (one key=value per line)", FlagHelp.NetworkDriverOptions),
+            Header = InfoTip.Header(UiText.Get("Workload_Text_Driver_options_one_key_value_per_0d7e76", "Driver options (one key=value per line)"), FlagHelp.NetworkDriverOptions),
             AcceptsReturn = true,
             MinHeight = 76,
             PlaceholderText = "com.example.option=value",
         };
         _labelsBox = new TextBox
         {
-            Header = "Labels (one key=value per line)",
+            Header = UiText.Get("Workload_Text_Labels_one_key_value_per_line_f7aa78", "Labels (one key=value per line)"),
             AcceptsReturn = true,
             MinHeight = 76,
             PlaceholderText = "com.example.owner=team",
         };
-        _subnetBox = new TextBox { Header = "Subnet (optional, CIDR)", PlaceholderText = "e.g. 172.28.0.0/16" };
-        _gatewayBox = new TextBox { Header = "Gateway (optional)", PlaceholderText = "e.g. 172.28.0.1" };
-        _ipRangeBox = new TextBox { Header = "IP range (optional, CIDR within the subnet)", PlaceholderText = "e.g. 172.28.5.0/24" };
+        _subnetBox = new TextBox { Header = UiText.Get("Workload_Text_Subnet_optional_CIDR_786318", "Subnet (optional, CIDR)"), PlaceholderText = UiText.Get("Workload_Text_e_g_172_28_0_0_c3ba25", "e.g. 172.28.0.0/16") };
+        _gatewayBox = new TextBox { Header = UiText.Get("Workload_Text_Gateway_optional_9a3176", "Gateway (optional)"), PlaceholderText = UiText.Get("Workload_Text_e_g_172_28_0_1_af839f", "e.g. 172.28.0.1") };
+        _ipRangeBox = new TextBox { Header = UiText.Get("Workload_Text_IP_range_optional_CIDR_within_the_205cbd", "IP range (optional, CIDR within the subnet)"), PlaceholderText = UiText.Get("Workload_Text_e_g_172_28_5_0_dba741", "e.g. 172.28.5.0/24") };
         _errorText = new TextBlock
         {
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
@@ -77,7 +77,7 @@ public sealed class CreateNetworkDialog : ContentDialog
         // Addressing, driver options and labels are rarely needed, so they start collapsed.
         _advanced = new Expander
         {
-            Header = "Advanced options",
+            Header = UiText.Get("Workload_Text_Advanced_options_9443ff", "Advanced options"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Content = new StackPanel
@@ -120,7 +120,7 @@ public sealed class CreateNetworkDialog : ContentDialog
         var name = (_nameBox.Text ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
-            Fail(args, "Enter a network name.");
+            Fail(args, UiText.Get("Workload_Text_Enter_a_network_name_d93a83", "Enter a network name."));
             _nameBox.Focus(FocusState.Programmatic);
             return;
         }
@@ -129,7 +129,7 @@ public sealed class CreateNetworkDialog : ContentDialog
             !TryParseKeyValues(_labelsBox.Text, requireValue: false, out var labels, out error))
         {
             _advanced.IsExpanded = true;
-            Fail(args, error ?? "Invalid key/value entry.");
+            Fail(args, error ?? UiText.Get("Workload_Text_Invalid_key_value_entry_16c85f", "Invalid key/value entry."));
             return;
         }
 
@@ -175,13 +175,13 @@ public sealed class CreateNetworkDialog : ContentDialog
             var value = equals < 0 ? string.Empty : line[(equals + 1)..].Trim();
             if (string.IsNullOrWhiteSpace(key) || key.Contains('=') || key.Any(char.IsControl))
             {
-                error = $"Invalid key '{key}'. Keys cannot be blank, contain '=', or contain control characters.";
+                error = UiText.Get("Workload_Text_Invalid_key_0_Keys_cannot_be_062b6d", "Invalid key '{0}'. Keys cannot be blank, contain '=', or contain control characters.", key);
                 return false;
             }
 
             if ((requireValue && equals < 0) || value.Any(char.IsControl))
             {
-                error = $"Invalid value for '{key}'. Use key=value and avoid control characters.";
+                error = UiText.Get("Workload_Text_Invalid_value_for_0_Use_key_981fe2", "Invalid value for '{0}'. Use key=value and avoid control characters.", key);
                 return false;
             }
 

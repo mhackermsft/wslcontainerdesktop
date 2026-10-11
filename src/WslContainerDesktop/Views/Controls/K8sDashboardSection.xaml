@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.Views.Controls.K8sDashboardSection"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:helpers="using:WslContainerDesktop.Helpers"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -26,191 +27,180 @@
 
     <ScrollViewer>
         <helpers:WrapPanel HorizontalSpacing="12" VerticalSpacing="12">
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_001" i18n:Localization.Uid="Workload_K8sDashboardSection_001"
                 Grid.Row="0"
                 Grid.Column="0"
-                AutomationProperties.Name="View nodes"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Nodes"
-                ToolTipService.ToolTip="View nodes">
+                >
                 <StackPanel Spacing="6">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE968;" />
-                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Nodes" />
+                        <TextBlock x:Uid="Workload_K8sDashboardSection_002" i18n:Localization.Uid="Workload_K8sDashboardSection_002" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="14">
                         <StackPanel>
-                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="Ready" />
+                            <TextBlock x:Uid="Workload_K8sDashboardSection_003" i18n:Localization.Uid="Workload_K8sDashboardSection_003" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"  />
                             <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.NodeActiveCount, Mode=OneWay}" />
                         </StackPanel>
                         <StackPanel>
-                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="Total" />
+                            <TextBlock x:Uid="Workload_K8sDashboardSection_004" i18n:Localization.Uid="Workload_K8sDashboardSection_004" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"  />
                             <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.NodeCount, Mode=OneWay}" />
                         </StackPanel>
                     </StackPanel>
                 </StackPanel>
             </Button>
 
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_005" i18n:Localization.Uid="Workload_K8sDashboardSection_005"
                 Grid.Row="0"
                 Grid.Column="1"
-                AutomationProperties.Name="View deployments"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Deployments"
-                ToolTipService.ToolTip="View deployments">
+                >
                 <StackPanel Spacing="6">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE7B8;" />
-                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Deployments" />
+                        <TextBlock x:Uid="Workload_K8sDashboardSection_006" i18n:Localization.Uid="Workload_K8sDashboardSection_006" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="14">
                         <StackPanel>
-                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="Healthy" />
+                            <TextBlock x:Uid="Workload_K8sDashboardSection_007" i18n:Localization.Uid="Workload_K8sDashboardSection_007" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"  />
                             <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.DeploymentActiveCount, Mode=OneWay}" />
                         </StackPanel>
                         <StackPanel>
-                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="Total" />
+                            <TextBlock x:Uid="Workload_K8sDashboardSection_008" i18n:Localization.Uid="Workload_K8sDashboardSection_008" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"  />
                             <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.DeploymentCount, Mode=OneWay}" />
                         </StackPanel>
                     </StackPanel>
                 </StackPanel>
             </Button>
 
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_009" i18n:Localization.Uid="Workload_K8sDashboardSection_009"
                 Grid.Row="0"
                 Grid.Column="2"
-                AutomationProperties.Name="View pods"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Pods"
-                ToolTipService.ToolTip="View pods">
+                >
                 <StackPanel Spacing="6">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE7F4;" />
-                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Pods" />
+                        <TextBlock x:Uid="Workload_K8sDashboardSection_010" i18n:Localization.Uid="Workload_K8sDashboardSection_010" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     </StackPanel>
                     <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.PodCount, Mode=OneWay}" />
                 </StackPanel>
             </Button>
 
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_011" i18n:Localization.Uid="Workload_K8sDashboardSection_011"
                 Grid.Row="0"
                 Grid.Column="3"
-                AutomationProperties.Name="View services"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Services"
-                ToolTipService.ToolTip="View services">
+                >
                 <StackPanel Spacing="6">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE9D2;" />
-                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Services" />
+                        <TextBlock x:Uid="Workload_K8sDashboardSection_012" i18n:Localization.Uid="Workload_K8sDashboardSection_012" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     </StackPanel>
                     <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.ServiceCount, Mode=OneWay}" />
                 </StackPanel>
             </Button>
 
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_013" i18n:Localization.Uid="Workload_K8sDashboardSection_013"
                 Grid.Row="1"
                 Grid.Column="0"
-                AutomationProperties.Name="View ingresses"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Ingresses"
-                ToolTipService.ToolTip="View ingresses">
+                >
                 <StackPanel Spacing="6">
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Ingresses" />
+                    <TextBlock x:Uid="Workload_K8sDashboardSection_014" i18n:Localization.Uid="Workload_K8sDashboardSection_014" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.IngressCount, Mode=OneWay}" />
                 </StackPanel>
             </Button>
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_015" i18n:Localization.Uid="Workload_K8sDashboardSection_015"
                 Grid.Row="1"
                 Grid.Column="1"
-                AutomationProperties.Name="View persistent volume claims"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Persistent Volume Claims"
-                ToolTipService.ToolTip="View persistent volume claims">
+                >
                 <StackPanel Spacing="6">
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Persistent Volume Claims" TextWrapping="Wrap" />
+                    <TextBlock x:Uid="Workload_K8sDashboardSection_016" i18n:Localization.Uid="Workload_K8sDashboardSection_016" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  TextWrapping="Wrap" />
                     <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.PvcCount, Mode=OneWay}" />
                 </StackPanel>
             </Button>
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_017" i18n:Localization.Uid="Workload_K8sDashboardSection_017"
                 Grid.Row="1"
                 Grid.Column="2"
-                AutomationProperties.Name="View config maps"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="ConfigMaps"
-                ToolTipService.ToolTip="View config maps">
+                >
                 <StackPanel Spacing="6">
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="ConfigMaps" />
+                    <TextBlock x:Uid="Workload_K8sDashboardSection_018" i18n:Localization.Uid="Workload_K8sDashboardSection_018" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.ConfigMapCount, Mode=OneWay}" />
                 </StackPanel>
             </Button>
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_019" i18n:Localization.Uid="Workload_K8sDashboardSection_019"
                 Grid.Row="1"
                 Grid.Column="3"
-                AutomationProperties.Name="View secrets"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Secrets"
-                ToolTipService.ToolTip="View secrets">
+                >
                 <StackPanel Spacing="6">
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Secrets" />
+                    <TextBlock x:Uid="Workload_K8sDashboardSection_020" i18n:Localization.Uid="Workload_K8sDashboardSection_020" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.SecretCount, Mode=OneWay}" />
                 </StackPanel>
             </Button>
 
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_021" i18n:Localization.Uid="Workload_K8sDashboardSection_021"
                 Grid.Row="2"
                 Grid.Column="0"
-                AutomationProperties.Name="View jobs"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Jobs"
-                ToolTipService.ToolTip="View jobs">
+                >
                 <StackPanel Spacing="6">
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Jobs" />
+                    <TextBlock x:Uid="Workload_K8sDashboardSection_022" i18n:Localization.Uid="Workload_K8sDashboardSection_022" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.JobCount, Mode=OneWay}" />
                 </StackPanel>
             </Button>
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_023" i18n:Localization.Uid="Workload_K8sDashboardSection_023"
                 Grid.Row="2"
                 Grid.Column="1"
-                AutomationProperties.Name="View cronjobs"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="CronJobs"
-                ToolTipService.ToolTip="View cronjobs">
+                >
                 <StackPanel Spacing="6">
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="CronJobs" />
+                    <TextBlock x:Uid="Workload_K8sDashboardSection_024" i18n:Localization.Uid="Workload_K8sDashboardSection_024" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.CronJobCount, Mode=OneWay}" />
                 </StackPanel>
             </Button>
-            <Button
+            <Button x:Uid="Workload_K8sDashboardSection_025" i18n:Localization.Uid="Workload_K8sDashboardSection_025"
                 Grid.Row="2"
                 Grid.Column="2"
-                AutomationProperties.Name="View port forwarding"
                 Click="DashboardCard_Click"
                 Style="{StaticResource CardButton}"
                 Tag="Port Forwarding"
-                ToolTipService.ToolTip="View port forwarding">
+                >
                 <StackPanel Spacing="6">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE71B;" />
-                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Port Forwarding" />
+                        <TextBlock x:Uid="Workload_K8sDashboardSection_026" i18n:Localization.Uid="Workload_K8sDashboardSection_026" Foreground="{ThemeResource TextFillColorSecondaryBrush}"  />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock FontSize="26" FontWeight="SemiBold" Text="{x:Bind ViewModel.PortForwards.Count, Mode=OneWay}" />
-                        <TextBlock
+                        <TextBlock x:Uid="Workload_K8sDashboardSection_027" i18n:Localization.Uid="Workload_K8sDashboardSection_027"
                             Margin="0,0,0,4"
                             VerticalAlignment="Bottom"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="active" />
+                             />
                     </StackPanel>
                 </StackPanel>
             </Button>

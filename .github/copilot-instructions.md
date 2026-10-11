@@ -45,6 +45,26 @@ in its own right, independent of how reputable the publisher is or how badly a f
   from the repository root; use focused filters for changed behavior. Build to **0 warnings**.
   Coordinate packaged smoke runs: deployment affects the registered app, even from another worktree.
 
+## Localization
+
+- Keep localization changes focused and include the affected XAML or C# display text and both
+  locale resources in the same change.
+- Keep `Strings/en-US/Resources.resw` and `Strings/zh-Hans/Resources.resw` key sets identical. A
+  `x:Uid` applies every matching property to every element with that Uid. Share one Uid only among
+  the same control type with compatible properties; a TextBox cannot consume a Button's `.Content`.
+  Resource keys must also be unique ignoring case. Run `I18nResourceTests` as a quick check,
+  then open the affected page in a packaged test build: the XAML compiler does not catch every
+  resource property error.
+- Set the nonempty effective language before constructing the shell. Pair each `x:Uid` with
+  `i18n:Localization.Uid` so a runtime language switch updates existing controls and preserves
+  input, selection and operation state. Refresh computed display properties on `UiText.LanguageChanged`.
+  An empty saved preference means System default; resolve it independently of the persisted
+  application override before writing to WinRT language APIs. See
+  [the localization guide](../docs/LOCALIZATION.md) for resource and protocol-value rules.
+- Follow [the localization validation steps](../docs/LOCALIZATION.md#validate-changes) for
+  automated checks and packaged GUI coverage. Record the tested version, date and remaining gaps.
+  Automated tests do not verify WinUI rendering or state retention during language switching.
+
 ## Releasing
 
 `CHANGELOG.md` is the user-facing record of each release, and the generated release notes link to

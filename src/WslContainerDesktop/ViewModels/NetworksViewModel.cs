@@ -28,6 +28,30 @@ namespace WslContainerDesktop.ViewModels;
 /// <summary>Backs the Networks page, listing WSL container networks and exposing create, inspect, prune and removal commands.</summary>
 public partial class NetworksViewModel : ObservableObject
 {
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string StatusMessageDisplay
+    {
+        get
+        {
+            if (_loadedSummary is not { } summary || StatusMessage != summary.Raw)
+                return UiText.Translate(StatusMessage);
+            if (summary.UserCount == 0)
+                return summary.BuiltInCount == 1
+                    ? UiText.Get("Root_Network_BuiltInSingular", "{0} built-in network", summary.BuiltInCount)
+                    : UiText.Get("Root_Network_BuiltInPlural", "{0} built-in networks", summary.BuiltInCount);
+            if (summary.UserCount == 1)
+                return summary.BuiltInCount == 1
+                    ? UiText.Get("Root_Network_UserSingularBuiltInSingular", "{0} user network + {1} built-in network", summary.UserCount, summary.BuiltInCount)
+                    : UiText.Get("Root_Network_UserSingularBuiltInPlural", "{0} user network + {1} built-in networks", summary.UserCount, summary.BuiltInCount);
+            return summary.BuiltInCount == 1
+                ? UiText.Get("Root_Network_UserPluralBuiltInSingular", "{0} user networks + {1} built-in network", summary.UserCount, summary.BuiltInCount)
+                : UiText.Get("Root_Network_UserPluralBuiltInPlural", "{0} user networks + {1} built-in networks", summary.UserCount, summary.BuiltInCount);
+        }
+    }
+
+    private (string Raw, int BuiltInCount, int UserCount)? _loadedSummary;
+
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
 
@@ -48,6 +72,7 @@ public partial class NetworksViewModel : ObservableObject
 
     /// <summary>Bindable state for status message used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusMessageDisplay))]
     private string _statusMessage = "Ready";
 
     /// <summary>Value for selected shown or edited by the view.</summary>
@@ -65,7 +90,7 @@ public partial class NetworksViewModel : ObservableObject
     private int _selectedCount;
 
     /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
-    public string SelectionSummary => $"{SelectedCount} selected";
+    public string SelectionSummary => UiText.Get("Resource_Text_e5084bffcc17", "{0} selected", SelectedCount);
 
     /// <summary>Value for networks shown or edited by the view.</summary>
     public ObservableCollection<NetworkInfo> Networks { get; } = new();
@@ -100,16 +125,18 @@ public partial class NetworksViewModel : ObservableObject
             var builtInCount = Networks.Count(n => n.IsBuiltIn);
             var userCount = Networks.Count - builtInCount;
             var builtInLabel = $"{builtInCount} built-in network{(builtInCount == 1 ? "" : "s")}";
-            StatusMessage = userCount == 0
+            var rawSummary = userCount == 0
                 ? builtInLabel
                 : $"{userCount} user network{(userCount == 1 ? "" : "s")} + {builtInLabel}";
+            _loadedSummary = (rawSummary, builtInCount, userCount);
+            StatusMessage = rawSummary;
 
             // The list is shown now; "Used by" fills in afterwards so it never holds up the page.
             _ = ResolveUsageAsync(networks);
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Failed to load networks", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_fce244da09aa", "Failed to load networks"), ex.Message);
             StatusMessage = "Error";
         }
         finally
@@ -188,9 +215,9 @@ public partial class NetworksViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove network",
-            $"Remove network \"{network.Name}\"?",
-            "Remove");
+            UiText.Get("Resource_Text_13ebc1f3d6b6", "Remove network"),
+            UiText.Get("Resource_Text_dfd89cd8c84d", "Remove network \"{0}\"?", network.Name),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -213,7 +240,7 @@ public partial class NetworksViewModel : ObservableObject
         try
         {
             var result = await _wslc.InspectNetworkAsync(network.Name);
-            await _dialogs.ShowMessageAsync($"Inspect · {network.Name}",
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_f306c4f01fc3", "Inspect · {0}", network.Name),
                 result.Success ? result.StandardOutput : result.ErrorText);
         }
         finally
@@ -226,7 +253,7 @@ public partial class NetworksViewModel : ObservableObject
     [RelayCommand]
     private async Task PruneAsync()
     {
-        var ok = await _dialogs.ShowConfirmAsync("Prune networks", "Remove all unused networks?", "Prune");
+        var ok = await _dialogs.ShowConfirmAsync(UiText.Get("Resource_Text_6b11865fce3e", "Prune networks"), UiText.Get("Resource_Text_31e11fbaef14", "Remove all unused networks?"), UiText.Get("Resource_Text_2f24ebaee0aa", "Prune"));
         if (!ok)
         {
             return;
@@ -255,9 +282,9 @@ public partial class NetworksViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove networks",
-            $"Remove {items.Count} network(s)? (Built-in networks are skipped.)\n\n{BulkNames(items.Select(n => n.Name))}",
-            "Remove");
+            UiText.Get("Resource_Text_680e9fe1f01f", "Remove networks"),
+            UiText.Get("Resource_Text_cd105da7078d", "Remove {0} network(s)? (Built-in networks are skipped.)\n\n{1}", items.Count, BulkNames(items.Select(n => n.Name))),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -287,8 +314,8 @@ public partial class NetworksViewModel : ObservableObject
         if (failures.Count > 0)
         {
             await _dialogs.ShowMessageAsync(
-                "Some networks were not removed",
-                $"{failures.Count} of {items.Count} could not be removed (they may still have attached containers):\n\n{BulkNames(failures)}");
+                UiText.Get("Resource_Text_e596a4450bb9", "Some networks were not removed"),
+                UiText.Get("Resource_Text_2f1332b9df3c", "{0} of {1} could not be removed (they may still have attached containers):\n\n{2}", failures.Count, items.Count, BulkNames(failures)));
         }
     }
 
@@ -298,7 +325,7 @@ public partial class NetworksViewModel : ObservableObject
         var list = names.ToList();
         const int max = 12;
         var shown = string.Join("\n", list.Take(max).Select(n => "• " + n));
-        return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
+        return list.Count > max ? UiText.Get("Resource_Text_5b44479e9557", "{0}\n… and {1} more", shown, list.Count - max) : shown;
     }
 
     /// <summary>Helper for the execute workflow in this view model.</summary>
@@ -310,7 +337,7 @@ public partial class NetworksViewModel : ObservableObject
             var result = await action();
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Operation failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"), result.ErrorText);
             }
             else
             {
@@ -321,5 +348,12 @@ public partial class NetworksViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (var item in Networks) item.RefreshLocalizedText();
     }
 }

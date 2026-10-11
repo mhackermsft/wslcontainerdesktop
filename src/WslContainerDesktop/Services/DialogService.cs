@@ -78,18 +78,18 @@ public sealed class DialogService
 
         var dialog = new ContentDialog
         {
-            Title = title,
+            Title = UiText.Translate(title),
             Content = new ScrollViewer
             {
                 Content = new TextBlock
                 {
-                    Text = message,
+                    Text = UiText.TranslateLines(message),
                     TextWrapping = TextWrapping.Wrap,
                     IsTextSelectionEnabled = true,
                 },
                 MaxHeight = 480,
             },
-            CloseButtonText = "OK",
+            CloseButtonText = UiText.Get("Common_Text0485", "OK"),
             XamlRoot = XamlRoot,
         };
 
@@ -107,10 +107,10 @@ public sealed class DialogService
 
         var dialog = new ContentDialog
         {
-            Title = title,
-            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = primaryText,
-            CloseButtonText = closeText,
+            Title = UiText.Translate(title),
+            Content = new TextBlock { Text = UiText.TranslateLines(message), TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = UiText.Translate(primaryText),
+            CloseButtonText = UiText.Translate(closeText),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = XamlRoot,
         };

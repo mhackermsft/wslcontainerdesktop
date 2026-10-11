@@ -23,6 +23,7 @@ using Microsoft.UI.Xaml.Input;
 using Windows.System;
 using Windows.UI.Core;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views.Controls;
 
@@ -35,6 +36,8 @@ public sealed partial class AssistantPanel : UserControl
         ViewModel = App.Current.Services.GetRequiredService<AssistantViewModel>();
         InitializeComponent();
         ViewModel.Messages.CollectionChanged += Messages_CollectionChanged;
+        Loaded += (_, _) => UiText.LanguageChanged += OnLanguageChanged;
+        Unloaded += (_, _) => UiText.LanguageChanged -= OnLanguageChanged;
     }
 
     /// <summary>Raised when the user asks the host window to close the assistant overlay.</summary>
@@ -42,6 +45,9 @@ public sealed partial class AssistantPanel : UserControl
 
     /// <summary>Assistant conversation view model bound by the panel.</summary>
     public AssistantViewModel ViewModel { get; }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) =>
+        DispatcherQueue.TryEnqueue(() => Bindings.Update());
 
     /// <summary>Converts a Boolean to visibility for <c>x:Bind</c> expressions in the panel.</summary>
     public Visibility BoolToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;

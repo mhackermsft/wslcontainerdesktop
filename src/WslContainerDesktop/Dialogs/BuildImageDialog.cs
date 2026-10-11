@@ -18,6 +18,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Models;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -27,7 +29,7 @@ namespace WslContainerDesktop.Dialogs;
 /// </summary>
 public sealed class BuildImageDialog : ContentDialog
 {
-    private const string LocalOnly = "None — keep it on this PC";
+    private static string LocalOnly => UiText.Get("Workload_Text_None_keep_it_on_this_PC_3f35de", "None — keep it on this PC");
 
     private readonly ComboBox _registryBox;
     private readonly TextBox _contextBox;
@@ -54,27 +56,27 @@ public sealed class BuildImageDialog : ContentDialog
     {
         _hostRegistries = registries.Where(r => r.HasHost).ToList();
 
-        Title = "Build image";
-        PrimaryButtonText = "Build";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Build_image_327d5c", "Build image");
+        PrimaryButtonText = UiText.Get("Workload_Text_Build_bdd254", "Build");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         _contextBox = new TextBox
         {
-            Header = "Folder to build (contains your Dockerfile)",
+            Header = UiText.Get("Workload_Text_Folder_to_build_contains_your_Dockerfile_06d592", "Folder to build (contains your Dockerfile)"),
             PlaceholderText = @"C:\src\myapp",
             MinWidth = 420,
         };
 
         _dockerfileBox = new TextBox
         {
-            Header = "Dockerfile (optional, relative to the folder)",
+            Header = UiText.Get("Workload_Text_Dockerfile_optional_relative_to_the_folder_6c47c0", "Dockerfile (optional, relative to the folder)"),
             PlaceholderText = "Dockerfile",
         };
 
         _tagBox = new TextBox
         {
-            Header = "Image name",
+            Header = UiText.Get("Workload_Text_Image_name_52493e", "Image name"),
             PlaceholderText = "myapp:latest",
         };
         _tagBox.TextChanged += (_, _) => { _tagBox.Description = null; UpdatePreview(); };
@@ -82,7 +84,7 @@ public sealed class BuildImageDialog : ContentDialog
 
         _registryBox = new ComboBox
         {
-            Header = "Prepare for pushing to a registry (optional)",
+            Header = UiText.Get("Workload_Text_Prepare_for_pushing_to_a_registry_69afc1", "Prepare for pushing to a registry (optional)"),
             MinWidth = 420,
             Visibility = _hostRegistries.Count > 0 ? Visibility.Visible : Visibility.Collapsed,
         };
@@ -115,13 +117,13 @@ public sealed class BuildImageDialog : ContentDialog
             if (string.IsNullOrWhiteSpace(ContextPath))
             {
                 args.Cancel = true;
-                _contextBox.Description = "Enter the folder that contains your Dockerfile.";
+                _contextBox.Description = UiText.Get("Workload_Text_Enter_the_folder_that_contains_your_0376dd", "Enter the folder that contains your Dockerfile.");
                 _contextBox.Focus(FocusState.Programmatic);
             }
             else if (string.IsNullOrWhiteSpace(_tagBox.Text))
             {
                 args.Cancel = true;
-                _tagBox.Description = "Enter a name for the image, for example myapp:latest.";
+                _tagBox.Description = UiText.Get("Workload_Text_Enter_a_name_for_the_image_cd0692", "Enter a name for the image, for example myapp:latest.");
                 _tagBox.Focus(FocusState.Programmatic);
             }
             else if (Services.WslcService.IsStdinDockerfile(Dockerfile))
@@ -143,12 +145,12 @@ public sealed class BuildImageDialog : ContentDialog
         var tag = (_tagBox?.Text ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(tag))
         {
-            _preview.Text = "The image is built and kept on this PC. Nothing is uploaded.";
+            _preview.Text = UiText.Get("Workload_Text_The_image_is_built_and_kept_ee8e62", "The image is built and kept on this PC. Nothing is uploaded.");
             return;
         }
 
         _preview.Text = SelectedRegistry is null
-            ? $"Builds {tag} on this PC. Nothing is uploaded; use Push later if you want to share it."
-            : $"Builds {ImageTag} on this PC, named so it is ready to push. Nothing is uploaded until you use Push.";
+            ? UiText.Get("Workload_Text_Builds_0_on_this_PC_Nothing_c00a00", "Builds {0} on this PC. Nothing is uploaded; use Push later if you want to share it.", tag)
+            : UiText.Get("Workload_Text_Builds_0_on_this_PC_named_748512", "Builds {0} on this PC, named so it is ready to push. Nothing is uploaded until you use Push.", ImageTag);
     }
 }

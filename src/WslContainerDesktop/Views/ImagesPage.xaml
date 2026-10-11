@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.Views.ImagesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -28,14 +29,14 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Spacing="2">
-            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Images" />
+            <TextBlock x:Uid="Resource_Images_001" i18n:Localization.Uid="Resource_Images_001" Style="{ThemeResource TitleTextBlockStyle}" />
             <TextBlock
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
-                Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" />
+                Text="{x:Bind ViewModel.StatusMessageDisplay, Mode=OneWay}" />
         </StackPanel>
 
-        <!--  Actions wrap on narrow windows; Select and the view toggle stay pinned right.  -->
+        <!-- Actions wrap on narrow windows; Select and the view toggle stay pinned right.  -->
         <Grid
             Grid.Row="1"
             ColumnSpacing="12"
@@ -51,27 +52,27 @@
             <Button Command="{x:Bind ViewModel.PullCommand}" Style="{ThemeResource AccentButtonStyle}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE896;" />
-                    <TextBlock Text="Pull image" />
+                    <TextBlock x:Uid="Resource_Images_002" i18n:Localization.Uid="Resource_Images_002" />
                 </StackPanel>
             </Button>
             <Button
                 Command="{x:Bind ViewModel.BuildCommand}"
                 IsEnabled="{x:Bind ViewModel.CanBuild, Mode=OneWay}"
-                ToolTipService.ToolTip="{x:Bind ViewModel.BuildPolicyMessage, Mode=OneWay}">
+                ToolTipService.ToolTip="{x:Bind ViewModel.BuildPolicyMessageDisplay, Mode=OneWay}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE9F9;" />
-                    <TextBlock Text="Build" />
+                    <TextBlock x:Uid="Resource_Images_003" i18n:Localization.Uid="Resource_Images_003" />
                 </StackPanel>
             </Button>
-            <DropDownButton AutomationProperties.Name="Import images" ToolTipService.ToolTip="Bring images in from a .tar file">
+            <DropDownButton x:Uid="Resource_Images_004" i18n:Localization.Uid="Resource_Images_004" >
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE8B5;" />
-                    <TextBlock Text="Import" />
+                    <TextBlock x:Uid="Resource_Images_005" i18n:Localization.Uid="Resource_Images_005" />
                 </StackPanel>
                 <DropDownButton.Flyout>
-                    <!--  Each option says what it does and which action makes its file, because the two are easy to confuse.  -->
+                    <!-- Each option says what it does and which action makes its file, because the two are easy to confuse.  -->
                     <Flyout x:Name="ImportFlyout" Placement="BottomEdgeAlignedLeft">
-                        <!--  The default presenter caps width at 456px, which forced a horizontal scrollbar.  -->
+                        <!-- The default presenter caps width at 456px, which forced a horizontal scrollbar.  -->
                         <Flyout.FlyoutPresenterStyle>
                             <Style BasedOn="{StaticResource DefaultFlyoutPresenterStyle}" TargetType="FlyoutPresenter">
                                 <Setter Property="MaxWidth" Value="520" />
@@ -80,12 +81,12 @@
                             </Style>
                         </Flyout.FlyoutPresenterStyle>
                         <StackPanel Width="440" Spacing="4">
-                            <Button
+                            <Button x:Uid="Resource_Images_006" i18n:Localization.Uid="Resource_Images_006"
                                 Padding="12,10"
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Left"
                                 AutomationProperties.AutomationId="RestoreSavedImages"
-                                AutomationProperties.Name="Restore saved images"
+
                                 Background="Transparent"
                                 BorderThickness="0"
                                 Click="LoadImage_Click">
@@ -96,24 +97,24 @@
                                     </Grid.ColumnDefinitions>
                                     <FontIcon VerticalAlignment="Top" Margin="0,3,0,0" FontSize="18" Glyph="&#xE777;" />
                                     <StackPanel Grid.Column="1" Spacing="4">
-                                        <TextBlock FontWeight="SemiBold" Text="Restore saved images…" />
-                                        <TextBlock
+                                        <TextBlock x:Uid="Resource_Images_007" i18n:Localization.Uid="Resource_Images_007" FontWeight="SemiBold" />
+                                        <TextBlock x:Uid="Resource_Images_008" i18n:Localization.Uid="Resource_Images_008"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Text="Brings images back exactly as they were: the same names, tags and start command. Use it to move images to another PC or restore a backup."
+
                                             TextWrapping="Wrap" />
                                         <TextBlock Foreground="{ThemeResource TextFillColorTertiaryBrush}" FontSize="12" TextWrapping="Wrap">
-                                            <Run FontWeight="SemiBold" Text="To make this file:" />
-                                            <Run Text="on this page, choose ⋯ → Save to file… on an image, or Select several images → Save selected." />
+                                            <Run x:Uid="Resource_Images_009" i18n:Localization.Uid="Resource_Images_009" FontWeight="SemiBold" />
+                                            <Run x:Uid="Resource_Images_010" i18n:Localization.Uid="Resource_Images_010" />
                                         </TextBlock>
                                     </StackPanel>
                                 </Grid>
                             </Button>
-                            <Button
+                            <Button x:Uid="Resource_Images_011" i18n:Localization.Uid="Resource_Images_011"
                                 Padding="12,10"
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Left"
                                 AutomationProperties.AutomationId="CreateImageFromExport"
-                                AutomationProperties.Name="Create image from exported files"
+
                                 Background="Transparent"
                                 BorderThickness="0"
                                 Click="ImportImage_Click">
@@ -124,14 +125,14 @@
                                     </Grid.ColumnDefinitions>
                                     <FontIcon VerticalAlignment="Top" Margin="0,3,0,0" FontSize="18" Glyph="&#xE8B7;" />
                                     <StackPanel Grid.Column="1" Spacing="4">
-                                        <TextBlock FontWeight="SemiBold" Text="Create image from exported files…" />
-                                        <TextBlock
+                                        <TextBlock x:Uid="Resource_Images_012" i18n:Localization.Uid="Resource_Images_012" FontWeight="SemiBold" />
+                                        <TextBlock x:Uid="Resource_Images_013" i18n:Localization.Uid="Resource_Images_013"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Text="Makes a new image from a copy of a container's files. Only the files are kept: not the start command, environment variables or ports, so give it a command when you run it."
+
                                             TextWrapping="Wrap" />
                                         <TextBlock Foreground="{ThemeResource TextFillColorTertiaryBrush}" FontSize="12" TextWrapping="Wrap">
-                                            <Run FontWeight="SemiBold" Text="To make this file:" />
-                                            <Run Text="on the Containers page, choose ⋯ → Export filesystem… on a container." />
+                                            <Run x:Uid="Resource_Images_014" i18n:Localization.Uid="Resource_Images_014" FontWeight="SemiBold" />
+                                            <Run x:Uid="Resource_Images_015" i18n:Localization.Uid="Resource_Images_015" />
                                         </TextBlock>
                                     </StackPanel>
                                 </Grid>
@@ -143,19 +144,19 @@
             <Button Command="{x:Bind ViewModel.RefreshCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE72C;" />
-                    <TextBlock Text="Refresh" />
+                    <TextBlock x:Uid="Resource_Images_016" i18n:Localization.Uid="Resource_Images_016" />
                 </StackPanel>
             </Button>
-            <Button Command="{x:Bind ViewModel.CheckUpdatesCommand}" AutomationProperties.Name="Check for image updates" ToolTipService.ToolTip="Compare local images against their registry for newer versions">
+            <Button x:Uid="Resource_Images_017" i18n:Localization.Uid="Resource_Images_017" Command="{x:Bind ViewModel.CheckUpdatesCommand}" >
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE895;" />
-                    <TextBlock Text="Check for updates" />
+                    <TextBlock x:Uid="Resource_Images_018" i18n:Localization.Uid="Resource_Images_018" />
                 </StackPanel>
             </Button>
             <Button Command="{x:Bind ViewModel.PruneCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                    <TextBlock Text="Prune" />
+                    <TextBlock x:Uid="Resource_Images_019" i18n:Localization.Uid="Resource_Images_019" />
                 </StackPanel>
             </Button>
             </converters:WrapPanel>
@@ -164,16 +165,16 @@
                 Orientation="Horizontal"
                 Spacing="8"
                 VerticalAlignment="Center">
-                <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" AutomationProperties.Name="Select multiple images" ToolTipService.ToolTip="Select multiple images">
+                <ToggleButton x:Uid="Resource_Images_020" i18n:Localization.Uid="Resource_Images_020" IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" >
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="14" Glyph="&#xE762;" />
-                        <TextBlock Text="Select" />
+                        <TextBlock x:Uid="Resource_Images_021" i18n:Localization.Uid="Resource_Images_021" />
                     </StackPanel>
                 </ToggleButton>
             </StackPanel>
         </Grid>
 
-        <!--  Bulk-action bar (shown while selecting)  -->
+        <!-- Bulk-action bar (shown while selecting)  -->
         <StackPanel
             Grid.Row="1"
             Orientation="Horizontal"
@@ -186,7 +187,7 @@
             <Button Click="BulkRemove_Click">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                    <TextBlock Text="Remove selected" />
+                    <TextBlock x:Uid="Resource_Images_022" i18n:Localization.Uid="Resource_Images_022" />
                 </StackPanel>
             </Button>
             <Button Click="BulkSave_Click">
@@ -201,18 +202,18 @@
                 </ToolTipService.ToolTip>
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE74E;" />
-                    <TextBlock Text="Save selected" />
+                    <TextBlock x:Uid="Resource_Images_023" i18n:Localization.Uid="Resource_Images_023" />
                 </StackPanel>
             </Button>
             <Button Click="BulkCancel_Click">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE711;" />
-                    <TextBlock Text="Cancel" />
+                    <TextBlock x:Uid="Resource_Images_024" i18n:Localization.Uid="Resource_Images_024" />
                 </StackPanel>
             </Button>
         </StackPanel>
 
-        <!--  Table: column header (wide only) + list  -->
+        <!-- Table: column header (wide only) + list  -->
         <Grid Grid.Row="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -254,16 +255,15 @@
                     <ColumnDefinition Width="110" />
                     <ColumnDefinition Width="92" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="REPOSITORY" />
-                <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="TAG" />
-                <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="IMAGE ID" />
-                <TextBlock Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" Text="SIZE" />
-                <TextBlock Grid.Column="4" Style="{ThemeResource CaptionTextBlockStyle}" Text="CREATED" />
-                <TextBlock
+                <TextBlock x:Uid="Resource_Images_025" i18n:Localization.Uid="Resource_Images_025" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Images_026" i18n:Localization.Uid="Resource_Images_026" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Images_027" i18n:Localization.Uid="Resource_Images_027" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Images_028" i18n:Localization.Uid="Resource_Images_028" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Images_029" i18n:Localization.Uid="Resource_Images_029" Grid.Column="4" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Images_030" i18n:Localization.Uid="Resource_Images_030"
                     Grid.Column="5"
                     HorizontalAlignment="Right"
-                    Style="{ThemeResource CaptionTextBlockStyle}"
-                    Text="ACTIONS" />
+                    Style="{ThemeResource CaptionTextBlockStyle}" />
             </Grid>
         </Border>
 
@@ -331,7 +331,7 @@
                                             FontWeight="SemiBold"
                                             Text="{x:Bind Repository}"
                                             TextTrimming="CharacterEllipsis" />
-                                        <!--  An untagged image reads "<none>", which says nothing about why it is still here.  -->
+                                        <!-- An untagged image reads "<none>", which says nothing about why it is still here.  -->
                                         <TextBlock
                                             FontSize="12"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -340,14 +340,14 @@
                                             ToolTipService.ToolTip="{x:Bind UsedByCaption, Mode=OneWay}"
                                             Visibility="{x:Bind IsInUse, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                                                     </StackPanel>
-                                    <!--  A real button: the badge looks actionable, so clicking it pulls the update.  -->
-                                    <Button
+                                    <!-- A real button: the badge looks actionable, so clicking it pulls the update.  -->
+                                    <Button x:Uid="Resource_Images_031" i18n:Localization.Uid="Resource_Images_031"
                                         Grid.Column="1"
                                         MinWidth="0"
                                         MinHeight="0"
                                         Padding="7,1"
                                         VerticalAlignment="Center"
-                                        AutomationProperties.Name="Pull update"
+
                                         Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}"
                                         BorderThickness="0"
                                         Click="PullUpdateMenu_Click"
@@ -356,10 +356,9 @@
                                         Visibility="{x:Bind UpdateAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <FontIcon FontSize="11" Foreground="{ThemeResource SystemFillColorSuccessBrush}" Glyph="&#xE896;" />
-                                            <TextBlock
+                                            <TextBlock x:Uid="Resource_Images_032" i18n:Localization.Uid="Resource_Images_032"
                                                 FontSize="11"
-                                                Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                                                Text="Update" />
+                                                Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
                                         </StackPanel>
                                     </Button>
                                     <ProgressRing
@@ -399,39 +398,38 @@
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
                                     Spacing="4">
-                                    <Button
+                                    <Button x:Uid="Resource_Images_033" i18n:Localization.Uid="Resource_Images_033"
                                         Padding="7,5"
-                                        AutomationProperties.Name="Run"
-                                        Click="RunButton_Click"
-                                        ToolTipService.ToolTip="Run">
+
+                                        Click="RunButton_Click">
                                         <FontIcon FontSize="14" Glyph="&#xE768;" />
                                     </Button>
-                                    <Button Padding="7,5" AutomationProperties.Name="More actions" ToolTipService.ToolTip="More">
+                                    <Button x:Uid="Resource_Images_034" i18n:Localization.Uid="Resource_Images_034" Padding="7,5" >
                                         <FontIcon FontSize="14" Glyph="&#xE712;" />
                                         <Button.Flyout>
                                             <MenuFlyout Opening="MoreFlyout_Opening">
-                                                <MenuFlyoutItem Click="PullUpdateMenu_Click" Text="Pull update">
+                                                <MenuFlyoutItem x:Uid="Resource_Images_035" i18n:Localization.Uid="Resource_Images_035" Click="PullUpdateMenu_Click" >
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE896;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
-                                                <MenuFlyoutSubItem Text="Run profile">
+                                                <MenuFlyoutSubItem x:Uid="Resource_Images_036" i18n:Localization.Uid="Resource_Images_036" >
                                                     <MenuFlyoutSubItem.Icon>
                                                         <FontIcon Glyph="&#xE768;" />
                                                     </MenuFlyoutSubItem.Icon>
                                                 </MenuFlyoutSubItem>
                                                 <MenuFlyoutSeparator />
-                                                <MenuFlyoutItem Click="TagMenu_Click" Text="Tag" />
-                                                <MenuFlyoutItem Click="PushMenu_Click" Text="Push">
+                                                <MenuFlyoutItem x:Uid="Resource_Images_037" i18n:Localization.Uid="Resource_Images_037" Click="TagMenu_Click" />
+                                                <MenuFlyoutItem x:Uid="Resource_Images_038" i18n:Localization.Uid="Resource_Images_038" Click="PushMenu_Click" >
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE898;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
-                                                <MenuFlyoutItem Click="SaveImageMenu_Click" Text="Save to file…" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ImageSave.Text}" />
-                                                <MenuFlyoutItem Click="CopyDigestMenu_Click" Text="Copy digest" />
-                                                <MenuFlyoutItem Click="InspectMenu_Click" Text="Inspect" />
+                                                <MenuFlyoutItem x:Uid="Resource_Images_039" i18n:Localization.Uid="Resource_Images_039" Click="SaveImageMenu_Click" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ImageSave.Text}" />
+                                                <MenuFlyoutItem x:Uid="Resource_Images_040" i18n:Localization.Uid="Resource_Images_040" Click="CopyDigestMenu_Click" />
+                                                <MenuFlyoutItem x:Uid="Resource_Images_041" i18n:Localization.Uid="Resource_Images_041" Click="InspectMenu_Click" />
                                                 <MenuFlyoutSeparator />
-                                                <MenuFlyoutItem Click="RemoveMenu_Click" Text="Remove">
+                                                <MenuFlyoutItem x:Uid="Resource_Images_042" i18n:Localization.Uid="Resource_Images_042" Click="RemoveMenu_Click" >
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE74D;" />
                                                     </MenuFlyoutItem.Icon>
@@ -442,7 +440,7 @@
                                 </StackPanel>
                                 </Grid>
 
-                                <!--  Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
+                                <!-- Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
                                 <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xEB9F;" />
@@ -460,46 +458,46 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="TAG" />
+                                        <TextBlock x:Uid="Resource_Images_043" i18n:Localization.Uid="Resource_Images_043" Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Row="0" Grid.Column="1" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Tag}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="IMAGE ID" />
+                                        <TextBlock x:Uid="Resource_Images_044" i18n:Localization.Uid="Resource_Images_044" Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Row="1" Grid.Column="1" FontFamily="Consolas" FontSize="12" Text="{x:Bind ShortId}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="SIZE" />
+                                        <TextBlock x:Uid="Resource_Images_045" i18n:Localization.Uid="Resource_Images_045" Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Bind Size, Converter={StaticResource BytesToSize}}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="CREATED" />
+                                        <TextBlock x:Uid="Resource_Images_046" i18n:Localization.Uid="Resource_Images_046" Grid.Row="3" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Row="3" Grid.Column="1" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind CreatedUtc, Converter={StaticResource RelativeTime}}" />
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Button Padding="7,5" Click="RunButton_Click" AutomationProperties.Name="Run" ToolTipService.ToolTip="Run">
+                                        <Button x:Uid="Resource_Images_047" i18n:Localization.Uid="Resource_Images_047" Padding="7,5" Click="RunButton_Click" >
                                             <FontIcon FontSize="14" Glyph="&#xE768;" />
                                         </Button>
-                                        <Button Padding="7,5" AutomationProperties.Name="More actions" ToolTipService.ToolTip="More">
+                                        <Button x:Uid="Resource_Images_048" i18n:Localization.Uid="Resource_Images_048" Padding="7,5" >
                                             <FontIcon FontSize="14" Glyph="&#xE712;" />
                                             <Button.Flyout>
                                                 <MenuFlyout Opening="MoreFlyout_Opening">
-                                                    <MenuFlyoutItem Click="PullUpdateMenu_Click" Text="Pull update">
+                                                    <MenuFlyoutItem x:Uid="Resource_Images_049" i18n:Localization.Uid="Resource_Images_049" Click="PullUpdateMenu_Click" >
                                                         <MenuFlyoutItem.Icon>
                                                             <FontIcon Glyph="&#xE896;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
-                                                    <MenuFlyoutSubItem Text="Run profile">
+                                                    <MenuFlyoutSubItem x:Uid="Resource_Images_050" i18n:Localization.Uid="Resource_Images_050" >
                                                         <MenuFlyoutSubItem.Icon>
                                                             <FontIcon Glyph="&#xE768;" />
                                                         </MenuFlyoutSubItem.Icon>
                                                     </MenuFlyoutSubItem>
                                                     <MenuFlyoutSeparator />
-                                                    <MenuFlyoutItem Click="TagMenu_Click" Text="Tag" />
-                                                    <MenuFlyoutItem Click="PushMenu_Click" Text="Push">
+                                                    <MenuFlyoutItem x:Uid="Resource_Images_051" i18n:Localization.Uid="Resource_Images_051" Click="TagMenu_Click" />
+                                                    <MenuFlyoutItem x:Uid="Resource_Images_052" i18n:Localization.Uid="Resource_Images_052" Click="PushMenu_Click" >
                                                         <MenuFlyoutItem.Icon>
                                                             <FontIcon Glyph="&#xE898;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
-                                                    <MenuFlyoutItem Click="SaveImageMenu_Click" Text="Save to file…" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ImageSave.Text}" />
-                                                    <MenuFlyoutItem Click="CopyDigestMenu_Click" Text="Copy digest" />
-                                                    <MenuFlyoutItem Click="InspectMenu_Click" Text="Inspect" />
+                                                    <MenuFlyoutItem x:Uid="Resource_Images_053" i18n:Localization.Uid="Resource_Images_053" Click="SaveImageMenu_Click" ToolTipService.ToolTip="{x:Bind helpers:FlagHelp.ImageSave.Text}" />
+                                                    <MenuFlyoutItem x:Uid="Resource_Images_054" i18n:Localization.Uid="Resource_Images_054" Click="CopyDigestMenu_Click" />
+                                                    <MenuFlyoutItem x:Uid="Resource_Images_055" i18n:Localization.Uid="Resource_Images_055" Click="InspectMenu_Click" />
                                                     <MenuFlyoutSeparator />
-                                                    <MenuFlyoutItem Click="RemoveMenu_Click" Text="Remove">
+                                                    <MenuFlyoutItem x:Uid="Resource_Images_056" i18n:Localization.Uid="Resource_Images_056" Click="RemoveMenu_Click" >
                                                         <MenuFlyoutItem.Icon>
                                                             <FontIcon Glyph="&#xE74D;" />
                                                         </MenuFlyoutItem.Icon>
@@ -525,10 +523,9 @@
                         FontSize="40"
                         Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                         Glyph="&#xEB9F;" />
-                    <TextBlock
+                    <TextBlock x:Uid="Resource_Images_057" i18n:Localization.Uid="Resource_Images_057"
                         HorizontalAlignment="Center"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="No images. Pull one to get started." />
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
 
                 <ProgressBar

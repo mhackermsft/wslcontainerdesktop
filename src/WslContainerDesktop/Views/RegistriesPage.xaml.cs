@@ -20,6 +20,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views;
 
@@ -39,6 +40,8 @@ public sealed partial class RegistriesPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        UiText.LanguageChanged += OnUiLanguageChanged;
+        ViewModel.RefreshLocalizedText();
         ViewModel.Load();
     }
 
@@ -67,5 +70,16 @@ public sealed partial class RegistriesPage : Page
         {
             ViewModel.RemoveCommand.Execute(row);
         }
+    }
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        UiText.LanguageChanged -= OnUiLanguageChanged;
+        base.OnNavigatedFrom(e);
+    }
+
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLocalizedText();
+        Bindings.Update();
     }
 }

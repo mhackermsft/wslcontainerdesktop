@@ -17,6 +17,8 @@
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Tray;
 
 /// <summary>Requests a start/stop of a container from the tray quick-actions menu.</summary>
@@ -63,7 +65,7 @@ public sealed class TrayIcon : IDisposable
 
     private EngineHealth _health = EngineHealth.Unknown;
     private string _tooltip = "WSL Container Desktop";
-    private string _statusText = "Status: unknown";
+    private string _statusText = UiText.Get("Common_Text0269", "Status: unknown");
     private int _runningCount;
     private IReadOnlyList<ContainerInfo> _containers = Array.Empty<ContainerInfo>();
     private bool _notificationsEnabled = true;
@@ -93,6 +95,7 @@ public sealed class TrayIcon : IDisposable
     {
         _wndProcDelegate = WndProc;
         _taskbarCreatedMessage = NativeMethods.RegisterWindowMessageW("TaskbarCreated");
+        UiText.LanguageChanged += OnLanguageChanged;
     }
 
     /// <summary>Creates the hidden Win32 window and adds the notification-area icon.</summary>
@@ -145,8 +148,8 @@ public sealed class TrayIcon : IDisposable
         bool notificationsEnabled)
     {
         _health = health;
-        _tooltip = tooltip;
-        _statusText = statusText;
+        _tooltip = UiText.TranslateLines(tooltip);
+        _statusText = UiText.Translate(statusText);
         _runningCount = runningCount;
         _containers = containers ?? Array.Empty<ContainerInfo>();
         _notificationsEnabled = notificationsEnabled;
@@ -180,12 +183,20 @@ public sealed class TrayIcon : IDisposable
             uID = TrayIconId,
             uFlags = NativeMethods.NIF_INFO,
             szTip = _tooltip,
-            szInfo = Truncate(message, 255),
-            szInfoTitle = Truncate(title, 63),
+            szInfo = Truncate(UiText.TranslateLines(message), 255),
+            szInfoTitle = Truncate(UiText.Translate(title), 63),
             dwInfoFlags = NativeMethods.NIIF_WARNING,
         };
 
         NativeMethods.Shell_NotifyIconW(NativeMethods.NIM_MODIFY, ref data);
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        if (_disposed) return;
+        _tooltip = UiText.TranslateLines(_tooltip);
+        _statusText = UiText.Translate(_statusText);
+        if (_iconAdded) AddOrUpdateIcon(NativeMethods.NIM_MODIFY);
     }
 
     private void AddOrUpdateIcon(int message)
@@ -275,7 +286,7 @@ public sealed class TrayIcon : IDisposable
 
         try
         {
-            NativeMethods.AppendMenuW(menu, NativeMethods.MF_STRING, IdOpen, "Open WSL Container Desktop");
+            NativeMethods.AppendMenuW(menu, NativeMethods.MF_STRING, IdOpen, UiText.Get("Common_Text0270", "Open WSL Container Desktop"));
             NativeMethods.SetMenuDefaultItem(menu, IdOpen, 0);
             NativeMethods.AppendMenuW(menu, NativeMethods.MF_SEPARATOR, 0, null);
 
@@ -291,10 +302,10 @@ public sealed class TrayIcon : IDisposable
 
             // Notifications mute toggle. Checked means notifications are muted.
             var muteFlags = NativeMethods.MF_STRING | (!_notificationsEnabled ? NativeMethods.MF_CHECKED : 0);
-            NativeMethods.AppendMenuW(menu, muteFlags, IdMute, "Mute notifications");
+            NativeMethods.AppendMenuW(menu, muteFlags, IdMute, UiText.Get("Common_Text0271", "Mute notifications"));
 
             NativeMethods.AppendMenuW(menu, NativeMethods.MF_SEPARATOR, 0, null);
-            NativeMethods.AppendMenuW(menu, NativeMethods.MF_STRING, IdQuit, "Quit");
+            NativeMethods.AppendMenuW(menu, NativeMethods.MF_STRING, IdQuit, UiText.Get("Common_Extra0524", "Quit"));
 
             NativeMethods.GetCursorPos(out var pt);
             NativeMethods.SetForegroundWindow(_hwnd);
@@ -336,7 +347,7 @@ public sealed class TrayIcon : IDisposable
             menu,
             NativeMethods.MF_STRING | NativeMethods.MF_GRAYED | NativeMethods.MF_DISABLED,
             IdStatus,
-            $"Running containers: {_runningCount}");
+            UiText.Get("Common_Text0272", "Running containers: {0}", _runningCount));
 
         var ordered = _containers
             .OrderByDescending(c => c.State == ContainerState.Running)
@@ -349,7 +360,7 @@ public sealed class TrayIcon : IDisposable
         {
             var isRunning = container.State == ContainerState.Running;
             var name = string.IsNullOrWhiteSpace(container.Name) ? container.ShortId : container.Name;
-            var label = $"{(isRunning ? "Stop" : "Start")}  {Truncate(name, 40)}";
+            var label = $"{(isRunning ? UiText.Get("Common_Extra0525", "Stop") : UiText.Get("Common_Extra0526", "Start"))}  {Truncate(name, 40)}";
 
             _containerActions[nextId] = new TrayContainerAction
             {
@@ -414,5 +425,6 @@ public sealed class TrayIcon : IDisposable
 
         _iconFactory.Dispose();
         _disposed = true;
+        UiText.LanguageChanged -= OnLanguageChanged;
     }
 }

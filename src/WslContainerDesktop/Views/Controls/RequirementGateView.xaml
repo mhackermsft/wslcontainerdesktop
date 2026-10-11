@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.Views.Controls.RequirementGateView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:WslContainerDesktop"
@@ -42,7 +43,7 @@
                     <InfoBar
                         IsClosable="False"
                         IsOpen="True"
-                        Message="{x:Bind ViewModel.Status.Diagnostic, Mode=OneWay}"
+                        Message="{x:Bind ViewModel.Status.Diagnostic, Mode=OneWay, Converter={StaticResource UiTextConverter}}"
                         Severity="Warning"
                         Visibility="{x:Bind ViewModel.DiagnosticVisibility, Mode=OneWay}" />
                 </StackPanel>
@@ -54,22 +55,22 @@
                         IsEnabled="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource InverseBool}}"
                         Style="{ThemeResource AccentButtonStyle}"
                         ToolTipService.ToolTip="{x:Bind ViewModel.BeforeUpdateNote}"
-                        Visibility="{x:Bind local:MainWindow.ToVisibility(ViewModel.IsUpdateVisible), Mode=OneWay}">
+                        Visibility="{x:Bind local:MainWindow.ToVisibility(ViewModel.IsUpdateVisible), Mode=OneWay}" x:Uid="Common_RequirementGateView_001" i18n:Localization.Uid="Common_RequirementGateView_001" >
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon FontSize="14" Glyph="&#xEA18;" />
-                            <TextBlock Text="Update WSL" />
+                            <TextBlock Text="Update WSL" x:Uid="Common_RequirementGateView_002" i18n:Localization.Uid="Common_RequirementGateView_002" />
                         </StackPanel>
                     </Button>
                     <Button
                         Command="{x:Bind ViewModel.RecheckCommand}"
-                        Content="Re-check" />
+                        Content="Re-check" x:Uid="Common_RequirementGateView_003" i18n:Localization.Uid="Common_RequirementGateView_003" />
                     <Button
                         Command="{x:Bind ViewModel.OpenSettingsCommand}"
                         Content="Open Settings"
-                        Visibility="{x:Bind local:MainWindow.ToVisibility(ViewModel.IsOpenSettingsVisible), Mode=OneWay}" />
+                        Visibility="{x:Bind local:MainWindow.ToVisibility(ViewModel.IsOpenSettingsVisible), Mode=OneWay}" x:Uid="Common_RequirementGateView_004" i18n:Localization.Uid="Common_RequirementGateView_004" />
                     <HyperlinkButton
                         Command="{x:Bind ViewModel.OpenAnnouncementCommand}"
-                        Content="Read the WSL containers GA announcement" />
+                        Content="Read the WSL containers GA announcement" x:Uid="Common_RequirementGateView_005" i18n:Localization.Uid="Common_RequirementGateView_005" />
                 </StackPanel>
 
                 <TextBlock
@@ -92,7 +93,7 @@
                     IsClosable="False"
                     IsOpen="{x:Bind ViewModel.HasUpdateError, Mode=OneWay}"
                     Message="{x:Bind ViewModel.UpdateError, Mode=OneWay}"
-                    Severity="Error" />
+                    Severity="Error" x:Uid="Common_RequirementGateView_006" i18n:Localization.Uid="Common_RequirementGateView_006" />
 
                 <StackPanel
                     Orientation="Horizontal"

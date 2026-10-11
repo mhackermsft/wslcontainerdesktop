@@ -78,8 +78,8 @@ public partial class DashboardStatRow : ObservableObject
 
     /// <summary>Tooltip for the GPU badge.</summary>
     public string GpuTooltip => string.IsNullOrWhiteSpace(GpuName)
-        ? "GPU passthrough enabled"
-        : $"GPU: {GpuName}";
+        ? UiText.Get("Resource_Text_cc4941571be3", "GPU passthrough enabled")
+        : UiText.Get("Resource_Text_f190b111a23c", "GPU: {0}", GpuName);
 
     /// <summary>
     /// Returns the container name. The dashboard's clickable ListView uses this as each row's
@@ -99,11 +99,25 @@ public partial class DashboardStatRow : ObservableObject
         NetIO = s.NetIO;
         BlockIO = s.BlockIO;
     }
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+    }
 }
 
 /// <summary>Backs the Dashboard page with engine health, inventory counts and a short-lived polling loop for live container statistics.</summary>
 public partial class DashboardViewModel : ObservableObject
 {
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EngineStatusDisplay => UiText.Translate(EngineStatus);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EngineVersionDisplay => UiText.Translate(EngineVersion);
+
     private readonly IWslcService _wslc;
     private readonly StatusMonitor _monitor;
     private readonly IWindowVisibility _visibility;
@@ -114,6 +128,7 @@ public partial class DashboardViewModel : ObservableObject
 
     /// <summary>Bindable state for engine status used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EngineStatusDisplay))]
     private string _engineStatus = "Checking…";
 
     /// <summary>Bindable state for engine healthy used by the view.</summary>
@@ -122,6 +137,7 @@ public partial class DashboardViewModel : ObservableObject
 
     /// <summary>Bindable state for engine version used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EngineVersionDisplay))]
     private string _engineVersion = "-";
 
     /// <summary>Bindable state for running containers used by the view.</summary>
@@ -345,5 +361,12 @@ public partial class DashboardViewModel : ObservableObject
 
         _statsCts?.Dispose();
         _statsCts = null;
+    }
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (var item in LiveStats) item.RefreshLocalizedText();
     }
 }

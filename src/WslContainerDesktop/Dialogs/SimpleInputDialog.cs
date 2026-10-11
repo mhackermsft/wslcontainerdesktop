@@ -17,6 +17,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>A minimal single-text-field prompt dialog.</summary>
@@ -31,8 +33,8 @@ public sealed class SimpleInputDialog : ContentDialog
     public SimpleInputDialog(string title, string label, string placeholder)
     {
         Title = title;
-        PrimaryButtonText = "OK";
-        CloseButtonText = "Cancel";
+        PrimaryButtonText = UiText.Get("Workload_Text_OK_565339", "OK");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         _textBox = new TextBox

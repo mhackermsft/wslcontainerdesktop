@@ -57,7 +57,7 @@ public partial class KubernetesViewModel : ObservableObject
 
     /// <summary>Status text describing the cluster lifecycle state or current operation.</summary>
     [ObservableProperty]
-    private string _statusMessage = "Checking cluster status…";
+    private string _statusMessage = UiText.Get("Workload_Text_Checking_cluster_status_8c6339", "Checking cluster status…");
 
     /// <summary>Name of the single k3s node when the cluster is running.</summary>
     [ObservableProperty]
@@ -101,6 +101,9 @@ public partial class KubernetesViewModel : ObservableObject
 
     /// <summary>Namespace options for the filter, including the synthetic all-namespaces option.</summary>
     public ObservableCollection<string> Namespaces { get; } = new();
+
+    /// <summary>Stable namespace values with independently localized labels.</summary>
+    public ObservableCollection<K8sNamespaceOption> NamespaceOptions { get; } = new();
 
     // ---- Resource collections ----
     /// <summary>Node rows returned by the resource poller.</summary>
@@ -221,6 +224,17 @@ public partial class KubernetesViewModel : ObservableObject
 
         // Seed the default namespace option so the ComboBox shows a selection immediately.
         Namespaces.Add("All namespaces");
+        NamespaceOptions.Add(new("All namespaces"));
+    }
+
+    /// <summary>Refreshes display text without changing cluster, namespace or log values.</summary>
+    public void RefreshLanguage()
+    {
+        StatusMessage = UiText.Translate(StatusMessage);
+        foreach (var option in NamespaceOptions) option.RefreshLanguage();
+        OnPropertyChanged(nameof(SelectedSection));
+        OnPropertyChanged(nameof(NoDistributionTitle));
+        OnPropertyChanged(nameof(NoDistributionMessage));
     }
 
     /// <summary>
@@ -244,18 +258,13 @@ public partial class KubernetesViewModel : ObservableObject
             // The remote installer changed since it was last approved. Surface both hashes and
             // let the user decide; a legitimate upstream update is expected to land here.
             var approve = await _dialogs.ShowConfirmAsync(
-                "k3s installer script changed",
-                "The installer downloaded from https://get.k3s.io no longer matches the script you " +
-                "previously approved on this machine.\n\n" +
-                $"Previously approved SHA-256:\n{previousPin}\n\n" +
-                $"Newly downloaded SHA-256:\n{result.InstallerHash}\n\n" +
-                "This is normal when the k3s project updates its installer, but only continue if you " +
-                "trust the source. Approve the new script and continue?",
-                "Approve and continue");
+                UiText.Get("Workload_Text_k3s_installer_script_changed_31ef79", "k3s installer script changed"),
+                UiText.Get("Workload_Text_The_installer_downloaded_from_https_get_5dbca2", "The installer downloaded from https://get.k3s.io no longer matches the script you previously approved on this machine.\n\nPreviously approved SHA-256:\n{0}\n\nNewly downloaded SHA-256:\n{1}\n\nThis is normal when the k3s project updates its installer, but only continue if you trust the source. Approve the new script and continue?", previousPin, result.InstallerHash),
+                UiText.Get("Workload_Text_Approve_and_continue_e94a79", "Approve and continue"));
             if (!approve)
             {
                 AppendLog(string.Empty);
-                AppendLog("Cancelled: the changed installer script was not approved.");
+                AppendLog(UiText.Get("Workload_Text_Cancelled_the_changed_installer_script_was_a25d67", "Cancelled: the changed installer script was not approved."));
                 return result;
             }
 
@@ -368,12 +377,12 @@ public partial class KubernetesViewModel : ObservableObject
         CanUseDefaultDistribution = pinned && status.State == ClusterState.NoDistribution;
         StatusMessage = status.State switch
         {
-            ClusterState.NotInstalled => "Kubernetes (k3s) is not installed.",
+            ClusterState.NotInstalled => UiText.Get("Workload_Text_Kubernetes_k3s_is_not_installed_7dc35f", "Kubernetes (k3s) is not installed."),
             ClusterState.NoDistribution => KubernetesHostCheck.Summary(status.HostProblem, hostDistro),
-            ClusterState.Stopped => string.IsNullOrEmpty(status.Message) ? "Cluster is installed but stopped." : status.Message,
-            ClusterState.Starting => "k3s is starting… WSL just started its distribution.",
-            ClusterState.Running => $"Cluster running · node {status.NodeName} · {status.KubernetesVersion}",
-            ClusterState.Unknown => string.IsNullOrEmpty(status.Message) ? "Unable to determine status." : status.Message,
+            ClusterState.Stopped => string.IsNullOrEmpty(status.Message) ? UiText.Get("Workload_Text_Cluster_is_installed_but_stopped_4527a7", "Cluster is installed but stopped.") : status.Message,
+            ClusterState.Starting => UiText.Get("Workload_Text_k3s_is_starting_WSL_just_started_497de6", "k3s is starting… WSL just started its distribution."),
+            ClusterState.Running => UiText.Get("Workload_Text_Cluster_running_node_0_1_4c9575", "Cluster running · node {0} · {1}", status.NodeName, status.KubernetesVersion),
+            ClusterState.Unknown => string.IsNullOrEmpty(status.Message) ? UiText.Get("Workload_Text_Unable_to_determine_status_c9aef1", "Unable to determine status.") : status.Message,
             _ => status.Message,
         };
     }
@@ -391,11 +400,11 @@ public partial class KubernetesViewModel : ObservableObject
 
         var host = Distro is "-" or "default" or "" ? null : Distro;
         var ok = await _dialogs.ShowConfirmAsync(
-            "Install Kubernetes",
-            "This installs k3s (a lightweight single-node Kubernetes) into " +
-            (host is null ? "your WSL distribution" : $"the WSL distribution \"{host}\"") + ". " +
-            "It runs as a systemd service and can be uninstalled later. Continue?",
-            "Install");
+            UiText.Get("Workload_Text_Install_Kubernetes_0f8576", "Install Kubernetes"),
+            UiText.Get("Workload_Text_This_installs_k3s_a_lightweight_single_06d10a", "This installs k3s (a lightweight single-node Kubernetes) into ") +
+            (host is null ? UiText.Get("Workload_Text_your_WSL_distribution_f67676", "your WSL distribution") : UiText.Get("Workload_Text_the_WSL_distribution_0_55fe8a", "the WSL distribution \"{0}\"", host)) + ". " +
+            UiText.Get("Workload_Text_It_runs_as_a_systemd_service_07d477", "It runs as a systemd service and can be uninstalled later. Continue?"),
+            UiText.Get("Workload_Text_Install_569ca4", "Install"));
         if (!ok)
         {
             return;
@@ -404,7 +413,7 @@ public partial class KubernetesViewModel : ObservableObject
         Working = true;
         ShowOperationLog = true;
         OperationLog = string.Empty;
-        StatusMessage = "Installing k3s… this can take a few minutes.";
+        StatusMessage = UiText.Get("Workload_Text_Installing_k3s_this_can_take_a_63291c", "Installing k3s… this can take a few minutes.");
 
         try
         {
@@ -415,11 +424,11 @@ public partial class KubernetesViewModel : ObservableObject
             }
             else if (result.SystemdMissing)
             {
-                await _dialogs.ShowMessageAsync("Kubernetes needs systemd", K8sInstaller.SystemdMissingMessage);
+                await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Kubernetes_needs_systemd_dbce45", "Kubernetes needs systemd"), K8sInstaller.SystemdMissingMessage);
             }
             else if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Install failed", result.Result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Install_failed_33b471", "Install failed"), result.Result.ErrorText);
             }
             else
             {
@@ -439,10 +448,9 @@ public partial class KubernetesViewModel : ObservableObject
     private async Task UninstallAsync()
     {
         var ok = await _dialogs.ShowConfirmAsync(
-            "Uninstall Kubernetes",
-            "This stops and completely removes k3s and all cluster data from your WSL distro. " +
-            "Running workloads will be destroyed. This cannot be undone. Continue?",
-            "Uninstall");
+            UiText.Get("Workload_Text_Uninstall_Kubernetes_70f934", "Uninstall Kubernetes"),
+            UiText.Get("Workload_Text_This_stops_and_completely_removes_k3s_0dc606", "This stops and completely removes k3s and all cluster data from your WSL distro. Running workloads will be destroyed. This cannot be undone. Continue?"),
+            UiText.Get("Workload_Text_Uninstall_fe1995", "Uninstall"));
         if (!ok)
         {
             return;
@@ -453,14 +461,14 @@ public partial class KubernetesViewModel : ObservableObject
         Working = true;
         ShowOperationLog = true;
         OperationLog = string.Empty;
-        StatusMessage = "Uninstalling k3s and cleaning up…";
+        StatusMessage = UiText.Get("Workload_Text_Uninstalling_k3s_and_cleaning_up_187610", "Uninstalling k3s and cleaning up…");
 
         try
         {
             var result = await _k8s.UninstallAsync(AppendLog);
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Uninstall failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Uninstall_failed_ecbcb5", "Uninstall failed"), result.ErrorText);
             }
             else
             {
@@ -490,7 +498,7 @@ public partial class KubernetesViewModel : ObservableObject
         var latestTask = _k8s.GetLatestStableVersionAsync();
         await Task.WhenAll(currentTask, latestTask);
 
-        var currentStr = await currentTask ?? (KubernetesVersion == "-" ? "unknown" : KubernetesVersion);
+        var currentStr = await currentTask ?? (KubernetesVersion == "-" ? UiText.Get("Workload_Text_unknown_b23a6a", "unknown") : KubernetesVersion);
         var latest = await latestTask;
 
         var dialog = new UpgradeK3sDialog(currentStr, latest);
@@ -514,9 +522,8 @@ public partial class KubernetesViewModel : ObservableObject
             if (tgt < cur)
             {
                 await _dialogs.ShowMessageAsync(
-                    "Downgrade not supported",
-                    $"The selected version {targetStr} is older than the installed version {cur.Original}. " +
-                    "k3s does not support downgrades; pick the same or a newer version.");
+                    UiText.Get("Workload_Text_Downgrade_not_supported_0748a2", "Downgrade not supported"),
+                    UiText.Get("Workload_Text_The_selected_version_0_is_older_a76984", "The selected version {0} is older than the installed version {1}. k3s does not support downgrades; pick the same or a newer version.", targetStr, cur.Original));
                 return;
             }
 
@@ -527,20 +534,15 @@ public partial class KubernetesViewModel : ObservableObject
                 if (stepVersion is null)
                 {
                     await _dialogs.ShowMessageAsync(
-                        "Cannot determine next version",
-                        $"Upgrading from {cur.Original} to {targetStr} would skip intermediate minor versions, " +
-                        $"which is not supported. Could not resolve the {nextChannel} channel to step through. " +
-                        "Check your network and try again.");
+                        UiText.Get("Workload_Text_Cannot_determine_next_version_4cd9a9", "Cannot determine next version"),
+                        UiText.Get("Workload_Text_Upgrading_from_0_to_1_would_b0814e", "Upgrading from {0} to {1} would skip intermediate minor versions, which is not supported. Could not resolve the {2} channel to step through. Check your network and try again.", cur.Original, targetStr, nextChannel));
                     return;
                 }
 
                 var proceed = await _dialogs.ShowConfirmAsync(
-                    "Upgrade one minor version at a time",
-                    $"You're on {cur.Original}. Upgrading straight to {targetStr} would skip intermediate minor " +
-                    $"versions (v{cur.Major}.{cur.Minor + 1} … v{tgt.Major}.{tgt.Minor - 1}), which the Kubernetes " +
-                    $"version-skew policy does not allow.\n\n" +
-                    $"Upgrade to {stepVersion} first instead? You can repeat the upgrade afterwards to continue toward {targetStr}.",
-                    "Upgrade to next minor");
+                    UiText.Get("Workload_Text_Upgrade_one_minor_version_at_a_3f0567", "Upgrade one minor version at a time"),
+                    UiText.Get("Workload_Text_You_re_on_0_Upgrading_straight_9b7945", "You're on {0}. Upgrading straight to {1} would skip intermediate minor versions (v{2}.{3} … v{4}.{5}), which the Kubernetes version-skew policy does not allow.\n\nUpgrade to {6} first instead? You can repeat the upgrade afterwards to continue toward {7}.", cur.Original, targetStr, cur.Major, cur.Minor + 1, tgt.Major, tgt.Minor - 1, stepVersion, targetStr),
+                    UiText.Get("Workload_Text_Upgrade_to_next_minor_8477ce", "Upgrade to next minor"));
                 if (!proceed)
                 {
                     return;
@@ -555,8 +557,8 @@ public partial class KubernetesViewModel : ObservableObject
         ShowOperationLog = true;
         OperationLog = string.Empty;
         StatusMessage = installVersion is null
-            ? "Upgrading k3s to the latest stable release…"
-            : $"Installing k3s {installVersion}…";
+            ? UiText.Get("Workload_Text_Upgrading_k3s_to_the_latest_stable_473d09", "Upgrading k3s to the latest stable release…")
+            : UiText.Get("Workload_Text_Installing_k3s_0_9cb7e1", "Installing k3s {0}…", installVersion);
 
         try
         {
@@ -567,12 +569,12 @@ public partial class KubernetesViewModel : ObservableObject
             }
             else if (!upgrade.Success)
             {
-                await _dialogs.ShowMessageAsync("Upgrade failed", upgrade.Result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Upgrade_failed_9b8d54", "Upgrade failed"), upgrade.Result.ErrorText);
             }
             else
             {
                 AppendLog(string.Empty);
-                AppendLog("Upgrade complete.");
+                AppendLog(UiText.Get("Workload_Text_Upgrade_complete_b68ef9", "Upgrade complete."));
                 ShowOperationLog = false;
             }
         }
@@ -588,13 +590,13 @@ public partial class KubernetesViewModel : ObservableObject
     private async Task StartAsync()
     {
         Working = true;
-        StatusMessage = "Starting cluster…";
+        StatusMessage = UiText.Get("Workload_Text_Starting_cluster_1c3f3a", "Starting cluster…");
         try
         {
             var result = await _k8s.StartAsync();
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Failed to start", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Failed_to_start_99ef15", "Failed to start"), result.ErrorText);
             }
 
             // Give k3s a moment to bring the node up.
@@ -613,13 +615,13 @@ public partial class KubernetesViewModel : ObservableObject
     {
         StopPolling();
         Working = true;
-        StatusMessage = "Stopping cluster…";
+        StatusMessage = UiText.Get("Workload_Text_Stopping_cluster_ba0634", "Stopping cluster…");
         try
         {
             var result = await _k8s.StopAsync();
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Failed to stop", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Failed_to_stop_6408b3", "Failed to stop"), result.ErrorText);
             }
 
             Nodes.Clear();
@@ -653,9 +655,9 @@ public partial class KubernetesViewModel : ObservableObject
         if (applied.Success)
         {
             var summary = string.IsNullOrWhiteSpace(applied.StandardOutput)
-                ? "Manifest applied."
+                ? UiText.Get("Workload_Text_Manifest_applied_c4a4ae", "Manifest applied.")
                 : applied.StandardOutput.Trim();
-            await _dialogs.ShowMessageAsync("Manifest applied", summary);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Manifest_applied_716a5c", "Manifest applied"), summary);
 
             // Refresh immediately so the new objects show up without waiting for the next poll.
             if (State == ClusterState.Running)
@@ -665,7 +667,7 @@ public partial class KubernetesViewModel : ObservableObject
         }
         else
         {
-            await _dialogs.ShowMessageAsync("Apply failed", applied.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Apply_failed_cae4cf", "Apply failed"), applied.ErrorText);
         }
     }
 
@@ -675,9 +677,9 @@ public partial class KubernetesViewModel : ObservableObject
     public async Task DeleteResourceAsync(K8sResourceRef reference)
     {
         var ok = await _dialogs.ShowConfirmAsync(
-            $"Delete {reference.DisplayKind}",
-            $"Delete {reference.DisplayKind.ToLowerInvariant()} \"{reference.Name}\"? This cannot be undone.",
-            "Delete");
+            UiText.Get("Workload_Text_Delete_0_7eab12", "Delete {0}", UiText.Translate(reference.DisplayKind)),
+            UiText.Get("Workload_Text_Delete_0_1_This_cannot_be_0b19ba", "Delete {0} \"{1}\"? This cannot be undone.", UiText.Translate(reference.DisplayKind), reference.Name),
+            UiText.Get("Workload_Text_Delete_e2d0a5", "Delete"));
         if (!ok)
         {
             return;
@@ -686,7 +688,7 @@ public partial class KubernetesViewModel : ObservableObject
         var result = await _k8s.DeleteResourceAsync(reference.Kind, reference.Namespace, reference.Name);
         if (!result.Success)
         {
-            await _dialogs.ShowMessageAsync("Delete failed", result.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Delete_failed_8727e2", "Delete failed"), result.ErrorText);
         }
 
         await PollOnceAsync(CancellationToken.None);
@@ -695,7 +697,7 @@ public partial class KubernetesViewModel : ObservableObject
     /// <summary>Prompts for replicas and scales the selected deployment row.</summary>
     public async Task ScaleDeploymentAsync(K8sResourceRef reference)
     {
-        var dialog = new SimpleInputDialog($"Scale {reference.Name}", "Desired replicas", "e.g. 3");
+        var dialog = new SimpleInputDialog(UiText.Get("Workload_Text_Scale_0_c8b401", "Scale {0}", reference.Name), UiText.Get("Workload_Text_Desired_replicas_598a02", "Desired replicas"), UiText.Get("Workload_Text_e_g_3_8c2fb7", "e.g. 3"));
         var result = await _dialogs.ShowDialogAsync(dialog);
         if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary ||
             !int.TryParse(dialog.Value.Trim(), out var replicas) || replicas < 0)
@@ -706,7 +708,7 @@ public partial class KubernetesViewModel : ObservableObject
         var scaled = await _k8s.ScaleDeploymentAsync(reference.Namespace, reference.Name, replicas);
         if (!scaled.Success)
         {
-            await _dialogs.ShowMessageAsync("Scale failed", scaled.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Scale_failed_d6a24c", "Scale failed"), scaled.ErrorText);
         }
 
         await PollOnceAsync(CancellationToken.None);
@@ -718,7 +720,7 @@ public partial class KubernetesViewModel : ObservableObject
         var restarted = await _k8s.RestartDeploymentAsync(reference.Namespace, reference.Name);
         if (!restarted.Success)
         {
-            await _dialogs.ShowMessageAsync("Restart failed", restarted.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Restart_failed_b8864c", "Restart failed"), restarted.ErrorText);
         }
 
         await PollOnceAsync(CancellationToken.None);
@@ -730,7 +732,7 @@ public partial class KubernetesViewModel : ObservableObject
         var result = await _k8s.SetCronJobSuspendAsync(reference.Namespace, reference.Name, suspend);
         if (!result.Success)
         {
-            await _dialogs.ShowMessageAsync("Failed", result.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Failed_031a8f", "Failed"), result.ErrorText);
         }
 
         await PollOnceAsync(CancellationToken.None);
@@ -743,15 +745,15 @@ public partial class KubernetesViewModel : ObservableObject
         if (result.Success)
         {
             await _dialogs.ShowMessageAsync(
-                "Job started",
+                UiText.Get("Workload_Text_Job_started_514ca6", "Job started"),
                 string.IsNullOrWhiteSpace(result.StandardOutput)
-                    ? "A one-off job was created from this cronjob."
+                    ? UiText.Get("Workload_Text_A_one_off_job_was_created_8a1a9c", "A one-off job was created from this cronjob.")
                     : result.StandardOutput.Trim());
             await PollOnceAsync(CancellationToken.None);
         }
         else
         {
-            await _dialogs.ShowMessageAsync("Trigger failed", result.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Trigger_failed_78bed2", "Trigger failed"), result.ErrorText);
         }
     }
 
@@ -774,8 +776,8 @@ public partial class KubernetesViewModel : ObservableObject
         var forward = dialog.Result;
         if (PortForwards.Any(f => f.LocalPort == forward.LocalPort))
         {
-            await _dialogs.ShowMessageAsync("Port in use",
-                $"Local port {forward.LocalPort} is already being forwarded.");
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Port_in_use_3bb735", "Port in use"),
+                UiText.Get("Workload_Text_Local_port_0_is_already_being_ee8135", "Local port {0} is already being forwarded.", forward.LocalPort));
             return;
         }
 
@@ -785,8 +787,8 @@ public partial class KubernetesViewModel : ObservableObject
         }
         else
         {
-            await _dialogs.ShowMessageAsync("Port forward failed",
-                "Could not start the port-forward. Check that the target and ports are valid.");
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Port_forward_failed_8e0e0e", "Port forward failed"),
+                UiText.Get("Workload_Text_Could_not_start_the_port_forward_84c580", "Could not start the port-forward. Check that the target and ports are valid."));
         }
     }
 
@@ -890,6 +892,7 @@ public partial class KubernetesViewModel : ObservableObject
                     }
 
                     // Preserve selection (defaults to "All namespaces").
+                    Sync(NamespaceOptions, Namespaces.Select(value => new K8sNamespaceOption(value)).ToList());
                     SelectedNamespace = Namespaces.Contains(current) ? current : "All namespaces";
                 });
             }
@@ -1101,4 +1104,16 @@ public partial class KubernetesViewModel : ObservableObject
             target.RemoveAt(target.Count - 1);
         }
     }
+}
+
+/// <summary>Keeps kubectl namespace values separate from the synthetic option's display text.</summary>
+public sealed class K8sNamespaceOption(string value) : ObservableObject
+{
+    public string Value { get; } = value;
+    public string DisplayName => Value == "All namespaces"
+        ? UiText.Get("Workload_Text_All_namespaces_50c3cb", "All namespaces")
+        : Value;
+    public void RefreshLanguage() => OnPropertyChanged(nameof(DisplayName));
+    public override bool Equals(object? obj) => obj is K8sNamespaceOption other && Value == other.Value;
+    public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Value);
 }

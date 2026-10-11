@@ -20,6 +20,8 @@ using Microsoft.UI.Xaml.Controls;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -38,9 +40,9 @@ public sealed class ApplyYamlDialog : ContentDialog
     /// <summary>Creates a new &lt;c&gt;ApplyYamlDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public ApplyYamlDialog()
     {
-        Title = "Apply YAML manifest";
-        PrimaryButtonText = "Apply";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Apply_YAML_manifest_72cc14", "Apply YAML manifest");
+        PrimaryButtonText = UiText.Get("Workload_Text_Apply_31e392", "Apply");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         var browseButton = new Button
@@ -52,7 +54,7 @@ public sealed class ApplyYamlDialog : ContentDialog
                 Children =
                 {
                     new FontIcon { FontSize = 14, Glyph = "\uE838" },
-                    new TextBlock { Text = "Browse for a .yaml file…" },
+                    new TextBlock { Text = UiText.Get("Workload_Text_Browse_for_a_yaml_file_e5c7af", "Browse for a .yaml file…") },
                 },
             },
         };
@@ -62,7 +64,7 @@ public sealed class ApplyYamlDialog : ContentDialog
         {
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-            Text = "No file selected",
+            Text = UiText.Get("Workload_Text_No_file_selected_26bfbd", "No file selected"),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
 
@@ -79,7 +81,7 @@ public sealed class ApplyYamlDialog : ContentDialog
             TextWrapping = TextWrapping.NoWrap,
             FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
             FontSize = 13,
-            PlaceholderText = "Paste a Kubernetes manifest here, or browse for a .yaml file.",
+            PlaceholderText = UiText.Get("Workload_Text_Paste_a_Kubernetes_manifest_here_or_1bbcea", "Paste a Kubernetes manifest here, or browse for a .yaml file."),
             Height = 320,
             Width = 640,
         };
@@ -91,7 +93,7 @@ public sealed class ApplyYamlDialog : ContentDialog
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Text = "Objects are created in the namespace defined in the manifest, or \"default\" if none is specified.",
+            Text = UiText.Get("Workload_Text_Objects_are_created_in_the_namespace_a0a1e5", "Objects are created in the namespace defined in the manifest, or \"default\" if none is specified."),
         };
 
         Content = new StackPanel
@@ -130,7 +132,7 @@ public sealed class ApplyYamlDialog : ContentDialog
         }
         catch
         {
-            _fileLabel.Text = "Could not read the selected file.";
+            _fileLabel.Text = UiText.Get("Workload_Text_Could_not_read_the_selected_file_50b46f", "Could not read the selected file.");
         }
     }
 

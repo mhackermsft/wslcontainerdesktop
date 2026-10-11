@@ -30,6 +30,7 @@ using Windows.UI;
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views;
 
@@ -50,7 +51,7 @@ public sealed partial class ContainerDetailPage : Page
 
     /// <summary>Returns the tooltip text for a collapsible section toggle.</summary>
     public static string CollapseTooltip(bool collapsed) =>
-        collapsed ? "Expand" : "Collapse";
+        collapsed ? UiText.Get("Resource_Text_9869e506c38f", "Expand") : UiText.Get("Resource_Text_9cf188d3a677", "Collapse");
 
     private void DiagnosisFeedbackBar_CloseButtonClick(InfoBar sender, object args) =>
         ViewModel.DismissDiagnosisFeedbackCommand.Execute(null);
@@ -138,6 +139,8 @@ public sealed partial class ContainerDetailPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        UiText.LanguageChanged += OnUiLanguageChanged;
+        ViewModel.RefreshLocalizedText();
         _logBuffer.Clear();
         LogText.Text = string.Empty;
         ViewModel.ResumeStreaming();
@@ -146,6 +149,7 @@ public sealed partial class ContainerDetailPage : Page
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
+        UiText.LanguageChanged -= OnUiLanguageChanged;
         base.OnNavigatedFrom(e);
         ViewModel.StopStreaming();
         ViewModel.StopStatsPolling();
@@ -450,7 +454,7 @@ public sealed partial class ContainerDetailPage : Page
         }
         else if (!hasMatches)
         {
-            MatchCountText.Text = "No results";
+            MatchCountText.Text = UiText.Get("Resource_Text_b993b0c53719", "No results");
         }
         else
         {
@@ -505,8 +509,8 @@ public sealed partial class ContainerDetailPage : Page
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
             SuggestedFileName = $"{ViewModel.Selected?.Name ?? "container"}-logs",
         };
-        picker.FileTypeChoices.Add("Text file", new List<string> { ".txt" });
-        picker.FileTypeChoices.Add("Log file", new List<string> { ".log" });
+        picker.FileTypeChoices.Add(UiText.Get("Resource_Text_ee3d21a8808c", "Text file"), new List<string> { ".txt" });
+        picker.FileTypeChoices.Add(UiText.Get("Resource_Text_60c1e625e1e8", "Log file"), new List<string> { ".log" });
         WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
 
         var file = await picker.PickSaveFileAsync();
@@ -544,7 +548,7 @@ public sealed partial class ContainerDetailPage : Page
                 SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
                 SuggestedFileName = ViewModel.Selected.Name + "-filesystem",
             };
-            picker.FileTypeChoices.Add("Tar archive", [".tar"]);
+            picker.FileTypeChoices.Add(UiText.Get("Resource_Text_517cef447ed8", "Tar archive"), [".tar"]);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
             if (await picker.PickSaveFileAsync() is { } file)
             {
@@ -717,7 +721,7 @@ public sealed partial class ContainerDetailPage : Page
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "Upload to container";
+            e.DragUIOverride.Caption = UiText.Get("Resource_Text_694a9eea485e", "Upload to container");
             e.DragUIOverride.IsGlyphVisible = true;
         }
         else
@@ -788,19 +792,19 @@ public sealed partial class ContainerDetailPage : Page
 
     private MenuFlyout BuildItemContextFlyout()
     {
-        var open = new MenuFlyoutItem { Text = "Open" };
+        var open = new MenuFlyoutItem { Text = UiText.Get("Resource_Text_cf9b77061f7b", "Open") };
         open.Click += async (_, _) => await ViewModel.OpenFileAsync();
 
-        var downloadTo = new MenuFlyoutItem { Text = "Download to…" };
+        var downloadTo = new MenuFlyoutItem { Text = UiText.Get("Resource_Text_cd3422258efb", "Download to…") };
         downloadTo.Click += CtxDownloadTo_Click;
 
-        var copyPath = new MenuFlyoutItem { Text = "Copy path" };
+        var copyPath = new MenuFlyoutItem { Text = UiText.Get("Resource_Text_9804556fd4b8", "Copy path") };
         copyPath.Click += (_, _) => ViewModel.CopyPathToClipboard();
 
-        var rename = new MenuFlyoutItem { Text = "Rename" };
+        var rename = new MenuFlyoutItem { Text = UiText.Get("Resource_Text_d3f4cb898fbe", "Rename") };
         rename.Click += async (_, _) => await ViewModel.RenameAsync();
 
-        var delete = new MenuFlyoutItem { Text = "Delete" };
+        var delete = new MenuFlyoutItem { Text = UiText.Get("Resource_Text_f6fdbe48dc54", "Delete") };
         delete.Click += async (_, _) => await ViewModel.DeleteSelectedFileAsync();
 
         var flyout = new MenuFlyout();
@@ -834,17 +838,17 @@ public sealed partial class ContainerDetailPage : Page
 
     private MenuFlyout BuildBackgroundContextFlyout()
     {
-        var uploadFiles = new MenuFlyoutItem { Text = "Upload files…" };
+        var uploadFiles = new MenuFlyoutItem { Text = UiText.Get("Resource_Text_25cef6554cad", "Upload files…") };
         uploadFiles.Click += CopyInFile_Click;
 
-        var newFolder = new MenuFlyoutItem { Text = "New folder" };
+        var newFolder = new MenuFlyoutItem { Text = UiText.Get("Resource_Text_a711999b72aa", "New folder") };
         newFolder.Click += FilesNewFolder_Click;
 
-        var refresh = new MenuFlyoutItem { Text = "Refresh" };
+        var refresh = new MenuFlyoutItem { Text = UiText.Get("Resource_Text_56e3badc4e6c", "Refresh") };
         refresh.Click += FilesRefresh_Click;
 
         // For paths the list doesn't show (hidden or outside the current folder).
-        var downloadByPath = new MenuFlyoutItem { Text = "Download by path…" };
+        var downloadByPath = new MenuFlyoutItem { Text = UiText.Get("Resource_Text_0f620c7a4975", "Download by path…") };
         downloadByPath.Click += DownloadPath_Click;
 
         var flyout = new MenuFlyout();
@@ -863,4 +867,9 @@ public sealed partial class ContainerDetailPage : Page
 
     private static nint GetMainWindowHandle() =>
         Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLocalizedText();
+        Bindings.Update();
+    }
 }

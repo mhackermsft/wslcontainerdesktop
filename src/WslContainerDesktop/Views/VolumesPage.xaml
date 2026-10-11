@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.Views.VolumesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -25,11 +26,11 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Spacing="2">
-            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Volumes" />
+            <TextBlock x:Uid="Resource_Volumes_001" i18n:Localization.Uid="Resource_Volumes_001" Style="{ThemeResource TitleTextBlockStyle}" />
             <TextBlock
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
-                Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" />
+                Text="{x:Bind ViewModel.StatusMessageDisplay, Mode=OneWay}" />
         </StackPanel>
 
         <StackPanel
@@ -40,30 +41,30 @@
             <Button Command="{x:Bind ViewModel.CreateCommand}" Style="{ThemeResource AccentButtonStyle}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE710;" />
-                    <TextBlock Text="Create volume" />
+                    <TextBlock x:Uid="Resource_Volumes_002" i18n:Localization.Uid="Resource_Volumes_002" />
                 </StackPanel>
             </Button>
             <Button Command="{x:Bind ViewModel.RefreshCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE72C;" />
-                    <TextBlock Text="Refresh" />
+                    <TextBlock x:Uid="Resource_Volumes_003" i18n:Localization.Uid="Resource_Volumes_003" />
                 </StackPanel>
             </Button>
             <Button Command="{x:Bind ViewModel.PruneCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                    <TextBlock Text="Prune" />
+                    <TextBlock x:Uid="Resource_Volumes_004" i18n:Localization.Uid="Resource_Volumes_004" />
                 </StackPanel>
             </Button>
-            <ToggleButton IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" AutomationProperties.Name="Select multiple volumes" ToolTipService.ToolTip="Select multiple volumes">
+            <ToggleButton x:Uid="Resource_Volumes_005" i18n:Localization.Uid="Resource_Volumes_005" IsChecked="{x:Bind ViewModel.IsSelectionMode, Mode=TwoWay}" >
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE762;" />
-                    <TextBlock Text="Select" />
+                    <TextBlock x:Uid="Resource_Volumes_006" i18n:Localization.Uid="Resource_Volumes_006" />
                 </StackPanel>
             </ToggleButton>
         </StackPanel>
 
-        <!--  Bulk-action bar (shown while selecting)  -->
+        <!-- Bulk-action bar (shown while selecting)  -->
         <StackPanel
             Grid.Row="1"
             Orientation="Horizontal"
@@ -76,18 +77,18 @@
             <Button Click="BulkRemove_Click">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                    <TextBlock Text="Remove selected" />
+                    <TextBlock x:Uid="Resource_Volumes_007" i18n:Localization.Uid="Resource_Volumes_007" />
                 </StackPanel>
             </Button>
             <Button Click="BulkCancel_Click">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE711;" />
-                    <TextBlock Text="Cancel" />
+                    <TextBlock x:Uid="Resource_Volumes_008" i18n:Localization.Uid="Resource_Volumes_008" />
                 </StackPanel>
             </Button>
         </StackPanel>
 
-        <!--  Table: column header (wide only) + list  -->
+        <!-- Table: column header (wide only) + list  -->
         <Grid Grid.Row="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -128,15 +129,14 @@
                     <ColumnDefinition Width="120" />
                     <ColumnDefinition Width="92" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="NAME" />
-                <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="TYPE" />
-                <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="USED BY" />
-                <TextBlock Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" Text="CREATED" />
-                <TextBlock
+                <TextBlock x:Uid="Resource_Volumes_009" i18n:Localization.Uid="Resource_Volumes_009" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Volumes_010" i18n:Localization.Uid="Resource_Volumes_010" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Volumes_011" i18n:Localization.Uid="Resource_Volumes_011" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Volumes_012" i18n:Localization.Uid="Resource_Volumes_012" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Volumes_013" i18n:Localization.Uid="Resource_Volumes_013"
                     Grid.Column="4"
                     HorizontalAlignment="Right"
-                    Style="{ThemeResource CaptionTextBlockStyle}"
-                    Text="ACTIONS" />
+                    Style="{ThemeResource CaptionTextBlockStyle}" />
             </Grid>
         </Border>
 
@@ -221,7 +221,7 @@
                                     <TextBlock
                                         FontSize="12"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        Text="{x:Bind TypeLabel}" />
+                                        Text="{x:Bind TypeLabel, Mode=OneWay}" />
                                 </Border>
 
                                 <TextBlock
@@ -229,8 +229,8 @@
                                     Margin="0,0,8,0"
                                     VerticalAlignment="Center"
                                     FontSize="13"
-                                    Text="{x:Bind UsedByDisplay}"
-                                    ToolTipService.ToolTip="{x:Bind UsageDescription}"
+                                    Text="{x:Bind UsedByDisplay, Mode=OneWay}"
+                                    ToolTipService.ToolTip="{x:Bind UsageDescription, Mode=OneWay}"
                                     TextTrimming="CharacterEllipsis" />
 
                                 <TextBlock
@@ -246,24 +246,22 @@
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
                                     Spacing="4">
-                                    <Button
+                                    <Button x:Uid="Resource_Volumes_014" i18n:Localization.Uid="Resource_Volumes_014"
                                         Padding="7,5"
-                                        AutomationProperties.Name="Inspect"
-                                        Click="InspectButton_Click"
-                                        ToolTipService.ToolTip="Inspect">
+
+                                        Click="InspectButton_Click">
                                         <FontIcon FontSize="14" Glyph="&#xE946;" />
                                     </Button>
-                                    <Button
+                                    <Button x:Uid="Resource_Volumes_015" i18n:Localization.Uid="Resource_Volumes_015"
                                         Padding="7,5"
-                                        AutomationProperties.Name="Remove"
-                                        Click="RemoveButton_Click"
-                                        ToolTipService.ToolTip="Remove">
+
+                                        Click="RemoveButton_Click">
                                         <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                     </Button>
                                 </StackPanel>
                                 </Grid>
 
-                                <!--  Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
+                                <!-- Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
                                 <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE8B7;" />
@@ -280,21 +278,21 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="TYPE" />
+                                        <TextBlock x:Uid="Resource_Volumes_016" i18n:Localization.Uid="Resource_Volumes_016" Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <Border Grid.Row="0" Grid.Column="1" Padding="8,2" HorizontalAlignment="Left" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="10">
-                                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind TypeLabel}" />
+                                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind TypeLabel, Mode=OneWay}" />
                                         </Border>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="USED BY" />
-                                        <TextBlock Grid.Row="1" Grid.Column="1" FontSize="13" Text="{x:Bind UsedByDisplay}" ToolTipService.ToolTip="{x:Bind UsageDescription}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="CREATED" />
+                                        <TextBlock x:Uid="Resource_Volumes_017" i18n:Localization.Uid="Resource_Volumes_017" Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1" FontSize="13" Text="{x:Bind UsedByDisplay, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind UsageDescription, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Uid="Resource_Volumes_018" i18n:Localization.Uid="Resource_Volumes_018" Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Row="2" Grid.Column="1" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind CreatedAt, Converter={StaticResource RelativeTime}}" />
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Button Padding="7,5" Click="InspectButton_Click" AutomationProperties.Name="Inspect" ToolTipService.ToolTip="Inspect">
+                                        <Button x:Uid="Resource_Volumes_019" i18n:Localization.Uid="Resource_Volumes_019" Padding="7,5" Click="InspectButton_Click" >
                                             <FontIcon FontSize="14" Glyph="&#xE946;" />
                                         </Button>
-                                        <Button Padding="7,5" Click="RemoveButton_Click" AutomationProperties.Name="Remove" ToolTipService.ToolTip="Remove">
+                                        <Button x:Uid="Resource_Volumes_020" i18n:Localization.Uid="Resource_Volumes_020" Padding="7,5" Click="RemoveButton_Click" >
                                             <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                         </Button>
                                     </StackPanel>
@@ -315,10 +313,9 @@
                         FontSize="40"
                         Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                         Glyph="&#xE8B7;" />
-                    <TextBlock
+                    <TextBlock x:Uid="Resource_Volumes_021" i18n:Localization.Uid="Resource_Volumes_021"
                         HorizontalAlignment="Center"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="No volumes." />
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
 
                 <ProgressBar

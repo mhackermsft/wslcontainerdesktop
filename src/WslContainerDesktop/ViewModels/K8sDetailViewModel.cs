@@ -98,15 +98,24 @@ public partial class K8sDetailViewModel : ObservableObject
     {
         Resource = reference;
         Title = reference.Name;
-        DisplayKind = reference.DisplayKind;
+        DisplayKind = UiText.Translate(reference.DisplayKind);
         Subtitle = reference.ClusterScoped
-            ? reference.DisplayKind
-            : $"{reference.DisplayKind}  ·  namespace {reference.Namespace}";
+            ? UiText.Translate(reference.DisplayKind)
+            : UiText.Get("Workload_Text_0_namespace_1_f105f4", "{0}  ·  namespace {1}", UiText.Translate(reference.DisplayKind), reference.Namespace);
         SupportsLogs = reference.SupportsLogs;
         SupportsScale = reference.SupportsScale;
         SupportsCron = reference.SupportsCron;
 
         await RefreshAllAsync();
+    }
+
+    /// <summary>Updates labels while preserving edited YAML and captured engine output.</summary>
+    public void RefreshLanguage()
+    {
+        if (Resource is not { } resource) return;
+        DisplayKind = UiText.Translate(resource.DisplayKind);
+        Subtitle = resource.ClusterScoped ? DisplayKind :
+            UiText.Get("Workload_Text_0_namespace_1_f105f4", "{0}  ·  namespace {1}", DisplayKind, resource.Namespace);
     }
 
     /// <summary>Refreshes YAML, describe output, and logs for the loaded resource.</summary>
@@ -143,7 +152,7 @@ public partial class K8sDetailViewModel : ObservableObject
                     : logs.ErrorText;
                 if (string.IsNullOrWhiteSpace(LogsText))
                 {
-                    LogsText = "(no logs)";
+                    LogsText = UiText.Get("Workload_Text_no_logs_b52742", "(no logs)");
                 }
             }
 
@@ -171,7 +180,7 @@ public partial class K8sDetailViewModel : ObservableObject
         LogsText = logs.Success ? logs.StandardOutput.TrimEnd() : logs.ErrorText;
         if (string.IsNullOrWhiteSpace(LogsText))
         {
-            LogsText = "(no logs)";
+            LogsText = UiText.Get("Workload_Text_no_logs_b52742", "(no logs)");
         }
     }
 
@@ -191,15 +200,15 @@ public partial class K8sDetailViewModel : ObservableObject
             if (result.Success)
             {
                 await _dialogs.ShowMessageAsync(
-                    "Changes applied",
+                    UiText.Get("Workload_Text_Changes_applied_9cf6db", "Changes applied"),
                     string.IsNullOrWhiteSpace(result.StandardOutput)
-                        ? "Configuration applied to the cluster."
+                        ? UiText.Get("Workload_Text_Configuration_applied_to_the_cluster_270136", "Configuration applied to the cluster.")
                         : result.StandardOutput.Trim());
                 await RefreshAllAsync();
             }
             else
             {
-                await _dialogs.ShowMessageAsync("Apply failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Apply_failed_cae4cf", "Apply failed"), result.ErrorText);
             }
         }
         finally
@@ -218,9 +227,9 @@ public partial class K8sDetailViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            $"Delete {Resource.DisplayKind}",
-            $"Delete {Resource.DisplayKind.ToLowerInvariant()} \"{Resource.Name}\"? This cannot be undone.",
-            "Delete");
+            UiText.Get("Workload_Text_Delete_0_7eab12", "Delete {0}", UiText.Translate(Resource.DisplayKind)),
+            UiText.Get("Workload_Text_Delete_0_1_This_cannot_be_0b19ba", "Delete {0} \"{1}\"? This cannot be undone.", UiText.Translate(Resource.DisplayKind), Resource.Name),
+            UiText.Get("Workload_Text_Delete_e2d0a5", "Delete"));
         if (!ok)
         {
             return;
@@ -233,7 +242,7 @@ public partial class K8sDetailViewModel : ObservableObject
         }
         else
         {
-            await _dialogs.ShowMessageAsync("Delete failed", result.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Delete_failed_8727e2", "Delete failed"), result.ErrorText);
         }
     }
 
@@ -247,7 +256,7 @@ public partial class K8sDetailViewModel : ObservableObject
         }
 
         var dialog = new Dialogs.SimpleInputDialog(
-            $"Scale {Resource.Name}", "Desired replicas", "e.g. 3");
+            UiText.Get("Workload_Text_Scale_0_c8b401", "Scale {0}", Resource.Name), UiText.Get("Workload_Text_Desired_replicas_598a02", "Desired replicas"), UiText.Get("Workload_Text_e_g_3_8c2fb7", "e.g. 3"));
         var result = await _dialogs.ShowDialogAsync(dialog);
         if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary ||
             !int.TryParse(dialog.Value.Trim(), out var replicas) || replicas < 0)
@@ -258,7 +267,7 @@ public partial class K8sDetailViewModel : ObservableObject
         var scaled = await _k8s.ScaleDeploymentAsync(Resource.Namespace, Resource.Name, replicas);
         if (!scaled.Success)
         {
-            await _dialogs.ShowMessageAsync("Scale failed", scaled.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Scale_failed_d6a24c", "Scale failed"), scaled.ErrorText);
         }
 
         await RefreshAllAsync();
@@ -276,7 +285,7 @@ public partial class K8sDetailViewModel : ObservableObject
         var restarted = await _k8s.RestartDeploymentAsync(Resource.Namespace, Resource.Name);
         if (!restarted.Success)
         {
-            await _dialogs.ShowMessageAsync("Restart failed", restarted.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Restart_failed_b8864c", "Restart failed"), restarted.ErrorText);
         }
 
         await RefreshAllAsync();
@@ -295,7 +304,7 @@ public partial class K8sDetailViewModel : ObservableObject
         var result = await _k8s.SetCronJobSuspendAsync(Resource.Namespace, Resource.Name, suspend);
         if (!result.Success)
         {
-            await _dialogs.ShowMessageAsync("Failed", result.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Failed_031a8f", "Failed"), result.ErrorText);
         }
 
         await RefreshAllAsync();
@@ -314,14 +323,14 @@ public partial class K8sDetailViewModel : ObservableObject
         if (result.Success)
         {
             await _dialogs.ShowMessageAsync(
-                "Job started",
+                UiText.Get("Workload_Text_Job_started_514ca6", "Job started"),
                 string.IsNullOrWhiteSpace(result.StandardOutput)
-                    ? "A one-off job was created from this cronjob."
+                    ? UiText.Get("Workload_Text_A_one_off_job_was_created_8a1a9c", "A one-off job was created from this cronjob.")
                     : result.StandardOutput.Trim());
         }
         else
         {
-            await _dialogs.ShowMessageAsync("Trigger failed", result.ErrorText);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Trigger_failed_78bed2", "Trigger failed"), result.ErrorText);
         }
     }
 }

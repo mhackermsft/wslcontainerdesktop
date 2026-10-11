@@ -62,9 +62,9 @@ public sealed class DevContainerHostCommandPresenter(DialogService dialogs) : ID
         /// <summary>Builds the dialog content from already-sanitized review text.</summary>
         public HostCommandDialog(DevContainerHostCommandReview review)
         {
-            Title = "Allow Windows host commands?";
-            PrimaryButtonText = "Run on Windows";
-            CloseButtonText = "Cancel";
+            Title = UiText.Get("Root_Audit_HostCommands_Title", "Allow Windows host commands?");
+            PrimaryButtonText = UiText.Get("Root_Audit_HostCommands_Run", "Run on Windows");
+            CloseButtonText = UiText.Get("Root_Audit_HostCommands_Cancel", "Cancel");
             DefaultButton = ContentDialogButton.Close;
             AutomationProperties.SetAutomationId(this, "DevContainerHostCommandReview");
 
@@ -75,12 +75,12 @@ public sealed class DevContainerHostCommandPresenter(DialogService dialogs) : ID
                 {
                     new TextBlock
                     {
-                        Text = "These initializeCommand scripts run on your Windows host with your user privileges, " +
+                        Text = UiText.Get("Root_Audit_HostCommands_Explanation", "These initializeCommand scripts run on your Windows host with your user privileges, " +
                                "NOT inside the container. They can read, change, or delete your files and run other programs. " +
-                               "Only allow commands you trust. Approval applies only to this start or rebuild.",
+                               "Only allow commands you trust. Approval applies only to this start or rebuild."),
                         TextWrapping = TextWrapping.Wrap,
                     },
-                    new TextBlock { Text = "Windows workspace (working directory):" },
+                    new TextBlock { Text = UiText.Get("Root_Audit_HostCommands_Workspace", "Windows workspace (working directory):") },
                     new TextBlock
                     {
                         Text = review.DisplayWorkspacePath, TextWrapping = TextWrapping.Wrap,
@@ -88,17 +88,17 @@ public sealed class DevContainerHostCommandPresenter(DialogService dialogs) : ID
                     },
                     new TextBlock
                     {
-                        Text = @"Escaped display: backslashes appear as \\, and invisible controls/format characters " +
-                               @"as \uXXXX or \UXXXXXXXX. Ordinary script line breaks are preserved. The original text executes.",
+                        Text = UiText.Get("Root_Audit_HostCommands_Escaping", @"Escaped display: backslashes appear as \\, and invisible controls/format characters " +
+                               @"as \uXXXX or \UXXXXXXXX. Ordinary script line breaks are preserved. The original text executes."),
                         TextWrapping = TextWrapping.Wrap,
                     },
-                    new TextBlock { Text = "Commands, in execution order (cmd.exe /d /c):" },
+                    new TextBlock { Text = UiText.Get("Root_Audit_HostCommands_Order", "Commands, in execution order (cmd.exe /d /c):") },
                     new ScrollViewer
                     {
                         MaxHeight = 320,
                         Content = new TextBlock
                         {
-                            Text = string.Join("\n\n", review.DisplayCommands.Select((command, index) => $"Command {index + 1}:\n{command}")),
+                            Text = string.Join("\n\n", review.DisplayCommands.Select((command, index) => UiText.Get("Root_Audit_HostCommands_Command", "Command {0}:\n{1}", index + 1, command))),
                             TextWrapping = TextWrapping.Wrap,
                             IsTextSelectionEnabled = true,
                             FlowDirection = FlowDirection.LeftToRight,

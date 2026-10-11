@@ -32,6 +32,7 @@ namespace WslContainerDesktop.ViewModels;
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsService _settings;
+    private readonly ITextLocalizer _localizer;
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
     private readonly StartupService _startup;
@@ -89,11 +90,33 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>Bindable state for run at login note used by the view.</summary>
     [ObservableProperty]
     private string _runAtLoginNote =
-        "Automatically launch WSL Container Desktop when you sign in to Windows.";
+        UiText.Get("Common_Text0000", "Automatically launch WSL Container Desktop when you sign in to Windows.");
 
     /// <summary>Bindable state for selected theme index used by the view.</summary>
-    [ObservableProperty]
     private int _selectedThemeIndex;
+
+    public int SelectedThemeIndex
+    {
+        get => _selectedThemeIndex;
+        set
+        {
+            if (value < 0 || value >= ThemeOptions.Count || !SetProperty(ref _selectedThemeIndex, value)) return;
+            OnSelectedThemeIndexChanged(value);
+        }
+    }
+
+    /// <summary>Bindable state for the selected UI language index used by the view.</summary>
+    private int _selectedLanguageIndex;
+
+    public int SelectedLanguageIndex
+    {
+        get => _selectedLanguageIndex;
+        set
+        {
+            if (value < 0 || value >= LanguageOptions.Count || !SetProperty(ref _selectedLanguageIndex, value)) return;
+            OnSelectedLanguageIndexChanged(value);
+        }
+    }
 
     /// <summary>Bindable state for notifications enabled used by the view.</summary>
     [ObservableProperty]
@@ -204,19 +227,19 @@ public partial class SettingsViewModel : ObservableObject
     /// and connectivity test — rendered inside Provider settings, never in the local AI card.</summary>
     [ObservableProperty]
     private AiFeedback _providerFeedback = AiFeedback.Informational(
-        "AI features are off",
-        "AI features are off by default. Enable them and review the payload preview before sending diagnostics.");
+        UiText.Get("Common_Text0001", "AI features are off"),
+        UiText.Get("Common_Text0002", "AI features are off by default. Enable them and review the payload preview before sending diagnostics."));
 
     /// <summary>Bindable state for engine version used by the view.</summary>
     [ObservableProperty]
-    private string _engineVersion = "Unknown";
+    private string _engineVersion = UiText.Get("Common_Text0003", "Unknown");
 
     /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
     private bool _isBusy;
 
     /// <summary>Bindable state for app version used by the view.</summary>
-    public string AppVersion { get; } = ResolveAppVersion();
+    public string AppVersion => ResolveAppVersion();
 
     /// <summary>The app's GitHub repository page, shown in About.</summary>
     public Uri RepositoryUri { get; } = new($"https://github.com/{AppConstants.UpdateRepository}");
@@ -263,8 +286,8 @@ public partial class SettingsViewModel : ObservableObject
 
     /// <summary>Bindable state for quick start hint used by the view.</summary>
     public string QuickStartHint => IsOllamaRuntimePresent
-        ? "Ollama is set up and selected as your provider."
-        : "Run a model on this machine, or use Provider below to configure a service yourself.";
+        ? UiText.Get("Common_Text0004", "Ollama is set up and selected as your provider.")
+        : UiText.Get("Common_Text0005", "Run a model on this machine, or use Provider below to configure a service yourself.");
 
     /// <summary>Refreshes which local runtimes exist, so setup and removal reflect reality.</summary>
     public async Task RefreshLocalRuntimePresenceAsync(CancellationToken ct = default)
@@ -278,11 +301,11 @@ public partial class SettingsViewModel : ObservableObject
     public string ActiveProviderName => CurrentAiProvider switch
     {
         AiProviderKind.GitHubCopilot => "GitHub Copilot",
-        AiProviderKind.Ollama => "Ollama (local container)",
+        AiProviderKind.Ollama => UiText.Get("Common_Text0007", "Ollama (local container)"),
         AiProviderKind.AzureOpenAi => "Azure OpenAI",
-        AiProviderKind.OpenAi => "OpenAI-compatible",
-        AiProviderKind.FoundryLocal => "Foundry Local (on Windows)",
-        _ => "None selected",
+        AiProviderKind.OpenAi => UiText.Get("Common_OpenAiCompatible", "OpenAI-compatible"),
+        AiProviderKind.FoundryLocal => UiText.Get("Common_Text0009", "Foundry Local (on Windows)"),
+        _ => UiText.Get("Common_Text0010", "None selected"),
     };
 
     /// <summary>Endpoint/model detail for the active provider so the page cannot be misread.</summary>
@@ -291,11 +314,11 @@ public partial class SettingsViewModel : ObservableObject
         get
         {
             if (!AiFeaturesEnabled)
-                return "AI features are off. Turn them on to use a provider.";
+                return UiText.Get("Common_Text0011", "AI features are off. Turn them on to use a provider.");
             return CurrentAiProvider switch
             {
-                AiProviderKind.None => "Choose a provider below, or use Quick start to run a model on this machine.",
-                AiProviderKind.GitHubCopilot => Describe("Model", AiGitHubCopilotModel),
+                AiProviderKind.None => UiText.Get("Common_Text0012", "Choose a provider below, or use Quick start to run a model on this machine."),
+                AiProviderKind.GitHubCopilot => Describe(UiText.Get("Common_Text0013", "Model"), AiGitHubCopilotModel),
                 AiProviderKind.Ollama => $"{Describe("Model", AiOllamaModel)} · {Describe("Endpoint", AiOllamaEndpoint)}",
                 AiProviderKind.AzureOpenAi => $"{Describe("Deployment", AiAzureOpenAiDeployment)} · {Describe("Endpoint", AiAzureOpenAiEndpoint)}",
                 AiProviderKind.OpenAi => $"{Describe("Model", AiOpenAiModel)} · {Describe("Endpoint", AiOpenAiEndpoint)}",
@@ -303,7 +326,7 @@ public partial class SettingsViewModel : ObservableObject
                 _ => string.Empty,
             };
             static string Describe(string label, string value) =>
-                $"{label}: {(string.IsNullOrWhiteSpace(value) ? "not set" : value.Trim())}";
+                $"{UiText.Translate(label)}: {(string.IsNullOrWhiteSpace(value) ? UiText.Get("Common_NotSet", "not set") : value.Trim())}";
         }
     }
 
@@ -371,12 +394,12 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             var v = Windows.ApplicationModel.Package.Current.Id.Version;
-            return $"Version {v.Major}.{v.Minor}.{v.Build}";
+            return UiText.Get("Common_Text0014", "Version {0}.{1}.{2}", v.Major, v.Minor, v.Build);
         }
         catch
         {
             var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-            return v is null ? "Version 1.0.0" : $"Version {v.Major}.{v.Minor}.{v.Build}";
+            return v is null ? UiText.Get("Common_Text0015", "Version 1.0.0") : UiText.Get("Common_Text0014", "Version {0}.{1}.{2}", v.Major, v.Minor, v.Build);
         }
     }
 
@@ -427,13 +450,13 @@ public partial class SettingsViewModel : ObservableObject
             Helpers.UiSafe.Run(async () =>
             {
                 var confirmed = await _dialogs.ShowConfirmAsync(
-                    "Let the assistant act without asking?",
-                    "The assistant will carry out every action immediately — including removing containers and "
-                        + "volumes, and deploying Compose stacks it wrote itself.\n\n"
-                        + "You will not be asked again until you turn this back off. Actions still appear in "
-                        + "Activity, and plans the app cannot apply safely are still refused.",
-                    "Don't ask me again",
-                    "Keep asking");
+                    UiText.Get("Common_Text0016", "Let the assistant act without asking?"),
+                    UiText.Get("Common_Text0017", "The assistant will carry out every action immediately — including removing containers and ")
+                        + UiText.Get("Common_Text0018", "volumes, and deploying Compose stacks it wrote itself.\n\n")
+                        + UiText.Get("Common_Text0019", "You will not be asked again until you turn this back off. Actions still appear in ")
+                        + UiText.Get("Common_Text0020", "Activity, and plans the app cannot apply safely are still refused."),
+                    UiText.Get("Common_Text0021", "Don't ask me again"),
+                    UiText.Get("Common_Text0022", "Keep asking"));
                 if (confirmed)
                 {
                     Apply(true);
@@ -476,13 +499,13 @@ public partial class SettingsViewModel : ObservableObject
             Helpers.UiSafe.Run(async () =>
             {
                 var confirmed = await _dialogs.ShowConfirmAsync(
-                    "Allow the assistant to delete things?",
-                    "The assistant will be able to remove containers, volumes and networks, and delete Kubernetes "
-                        + "resources. Removing a volume destroys the data in it, and none of this can be undone by "
-                        + "the app.\n\n"
-                        + "It will still ask before each one unless you also auto-approve that action below.",
-                    "Allow deleting",
-                    "Keep it off");
+                    UiText.Get("Common_Text0023", "Allow the assistant to delete things?"),
+                    UiText.Get("Common_Text0024", "The assistant will be able to remove containers, volumes and networks, and delete Kubernetes ")
+                        + UiText.Get("Common_Text0025", "resources. Removing a volume destroys the data in it, and none of this can be undone by ")
+                        + UiText.Get("Common_Text0026", "the app.\n\n")
+                        + UiText.Get("Common_Text0027", "It will still ask before each one unless you also auto-approve that action below."),
+                    UiText.Get("Common_Text0028", "Allow deleting"),
+                    UiText.Get("Common_Text0029", "Keep it off"));
                 if (confirmed)
                 {
                     Apply(true);
@@ -530,17 +553,18 @@ public partial class SettingsViewModel : ObservableObject
                         && (!tool.IsDestructive || _settings.AiAssistantAllowDestructive),
                 })
                 .ToList();
-            groups.Add(new AssistantToolPermissionGroup { Header = group.Header, Tools = tools });
+            groups.Add(new AssistantToolPermissionGroup { Header = UiText.Translate(group.Header), Tools = tools });
         }
 
         return groups;
     }
 
     /// <summary>Creates the Settings view model and stores its injected services.</summary>
-    public SettingsViewModel(ISettingsService settings, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger, FoundryLocalSettingsViewModel foundryLocal)
+    public SettingsViewModel(ISettingsService settings, ITextLocalizer localizer, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger, FoundryLocalSettingsViewModel foundryLocal)
     {
         FoundryLocal = foundryLocal;
         _settings = settings;
+        _localizer = localizer;
         _wslc = wslc;
         _dialogs = dialogs;
         _startup = startup;
@@ -557,6 +581,7 @@ public partial class SettingsViewModel : ObservableObject
         };
         _http = http;
         _logger = logger;
+        UiText.LanguageChanged += (_, _) => RefreshCommonLocalizedText();
 
         _wslcPath = settings.WslcPath;
         _refreshIntervalSeconds = settings.RefreshIntervalSeconds;
@@ -591,6 +616,13 @@ public partial class SettingsViewModel : ObservableObject
             "Dark" => 2,
             _ => 0,
         };
+
+        RefreshLocalizedOptions();
+
+        // Seed the backing fields directly: assigning the observable properties here would run their
+        // change handlers, persisting a value the user never chose.
+        _selectedLanguageIndex = AppLanguage.IndexOf(settings.Language);
+        UiText.LanguageChanged += (_, _) => RefreshLocalizedOptions();
     }
 
     /// <summary>Handles wslc path changed changes and updates related view-model state.</summary>
@@ -782,8 +814,8 @@ public partial class SettingsViewModel : ObservableObject
         _settings.Save();
         AiApiKey = string.Empty;
         ProviderFeedback = AiFeedback.Success(
-            "Credential saved",
-            $"Saved {_settings.AiProvider.DisplayName()} credential in Windows Credential Manager.");
+            UiText.Get("Common_Text0030", "Credential saved"),
+            UiText.Get("Common_Text0031", "Saved {0} credential in Windows Credential Manager.", _settings.AiProvider.DisplayName()));
     }
 
     /// <summary>Refreshes load stored ai secret indicator state for the view model.</summary>
@@ -793,22 +825,22 @@ public partial class SettingsViewModel : ObservableObject
         if (_settings.AiProvider == AiProviderKind.FoundryLocal)
         {
             ProviderFeedback = AiFeedback.Informational("Foundry Local",
-                "Uses only your explicit loopback URL and actual model ID. No API key, cloud fallback, WSLC engine or Ollama container is used for inference.");
+                UiText.Get("Common_Text0033", "Uses only your explicit loopback URL and actual model ID. No API key, cloud fallback, WSLC engine or Ollama container is used for inference."));
             return;
         }
         if (_settings.AiProvider == AiProviderKind.GitHubCopilot)
         {
             ProviderFeedback = AiFeedback.Informational(
                 "GitHub Copilot",
-                "Uses your logged-in Copilot CLI account. No API key is needed.");
+                UiText.Get("Common_Text0034", "Uses your logged-in Copilot CLI account. No API key is needed."));
             return;
         }
 
         if (_settings.AiProvider is AiProviderKind.None or AiProviderKind.Ollama)
         {
             ProviderFeedback = _settings.AiProvider == AiProviderKind.Ollama
-                ? AiFeedback.Informational("Ollama", "Uses the configured local endpoint and model.")
-                : AiFeedback.Informational("No provider selected", "Choose an AI provider to configure diagnostics.");
+                ? AiFeedback.Informational("Ollama", UiText.Get("Common_Text0035", "Uses the configured local endpoint and model."))
+                : AiFeedback.Informational(UiText.Get("Common_Text0036", "No provider selected"), UiText.Get("Common_Text0037", "Choose an AI provider to configure diagnostics."));
             return;
         }
 
@@ -818,14 +850,14 @@ public partial class SettingsViewModel : ObservableObject
                 ? OpenAiProvider.DefaultEndpoint
                 : _settings.AiOpenAiEndpoint.Trim();
             ProviderFeedback = _aiCredentials.TryReadSecret(AiProviderKind.OpenAi, out _)
-                ? AiFeedback.Informational("OpenAI-compatible", $"Using {endpoint} with a saved API key.")
-                : AiFeedback.Informational("OpenAI-compatible", $"Using {endpoint} with no API key. That is fine for local servers; hosted services such as OpenAI need one.");
+                ? AiFeedback.Informational("OpenAI-compatible", UiText.Get("Common_Text0038", "Using {0} with a saved API key.", endpoint))
+                : AiFeedback.Informational("OpenAI-compatible", UiText.Get("Common_Text0039", "Using {0} with no API key. That is fine for local servers; hosted services such as OpenAI need one.", endpoint));
             return;
         }
 
         ProviderFeedback = _aiCredentials.TryReadSecret(_settings.AiProvider, out _)
-            ? AiFeedback.Informational(_settings.AiProvider.DisplayName(), $"{_settings.AiProvider.DisplayName()} has a saved credential.")
-            : AiFeedback.Warning(_settings.AiProvider.DisplayName(), "No credential is saved for the selected provider.");
+            ? AiFeedback.Informational(_settings.AiProvider.DisplayName(), UiText.Get("Common_Text0040", "{0} has a saved credential.", _settings.AiProvider.DisplayName()))
+            : AiFeedback.Warning(_settings.AiProvider.DisplayName(), UiText.Get("Common_Text0041", "No credential is saved for the selected provider."));
     }
 
     /// <summary>Handles run at login changed changes and updates related view-model state.</summary>
@@ -847,8 +879,8 @@ public partial class SettingsViewModel : ObservableObject
         {
             case StartupToggleResult.Applied:
                 RunAtLoginNote = value
-                    ? "WSL Container Desktop will launch when you sign in to Windows."
-                    : "Automatically launch WSL Container Desktop when you sign in to Windows.";
+                    ? UiText.Get("Common_Text0042", "WSL Container Desktop will launch when you sign in to Windows.")
+                    : UiText.Get("Common_Text0000", "Automatically launch WSL Container Desktop when you sign in to Windows.");
                 break;
 
             case StartupToggleResult.BlockedByUser:
@@ -856,22 +888,22 @@ public partial class SettingsViewModel : ObservableObject
                 SetRunAtLoginSilently(false);
                 RunAtLoginEnabled = false;
                 RunAtLoginNote =
-                    "Startup is turned off for this app in Windows Task Manager (Startup apps). " +
-                    "Re-enable it there to allow launching at sign-in.";
-                await _dialogs.ShowMessageAsync("Managed by Windows",
-                    "This app's startup is controlled in Task Manager → Startup apps. " +
-                    "Please enable it there.");
+                    UiText.Get("Common_Text0043", "Startup is turned off for this app in Windows Task Manager (Startup apps). ") +
+                    UiText.Get("Common_Text0044", "Re-enable it there to allow launching at sign-in.");
+                await _dialogs.ShowMessageAsync(UiText.Get("Common_Text0045", "Managed by Windows"),
+                    UiText.Get("Common_Text0046", "This app's startup is controlled in Task Manager → Startup apps. ") +
+                    UiText.Get("Common_Text0047", "Please enable it there."));
                 break;
 
             case StartupToggleResult.BlockedByPolicy:
                 SetRunAtLoginSilently(!value);
                 RunAtLoginEnabled = false;
-                RunAtLoginNote = "This setting is managed by your organization's policy.";
+                RunAtLoginNote = UiText.Get("Common_Text0048", "This setting is managed by your organization's policy.");
                 break;
 
             case StartupToggleResult.Unavailable:
                 SetRunAtLoginSilently(!value);
-                RunAtLoginNote = "Run at sign-in isn't available for this installation.";
+                RunAtLoginNote = UiText.Get("Common_Text0049", "Run at sign-in isn't available for this installation.");
                 break;
         }
     }
@@ -888,14 +920,14 @@ public partial class SettingsViewModel : ObservableObject
         if (!canToggle && !enabled)
         {
             RunAtLoginNote =
-                "Startup for this app is turned off in Windows Task Manager (Startup apps). " +
-                "Enable it there to allow launching at sign-in.";
+                UiText.Get("Common_Text0050", "Startup for this app is turned off in Windows Task Manager (Startup apps). ") +
+                UiText.Get("Common_Text0051", "Enable it there to allow launching at sign-in.");
         }
         else
         {
             RunAtLoginNote = enabled
-                ? "WSL Container Desktop will launch when you sign in to Windows."
-                : "Automatically launch WSL Container Desktop when you sign in to Windows.";
+                ? UiText.Get("Common_Text0042", "WSL Container Desktop will launch when you sign in to Windows.")
+                : UiText.Get("Common_Text0000", "Automatically launch WSL Container Desktop when you sign in to Windows.");
         }
     }
 
@@ -908,7 +940,7 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Handles selected theme index changed changes and updates related view-model state.</summary>
-    partial void OnSelectedThemeIndexChanged(int value)
+    private void OnSelectedThemeIndexChanged(int value)
     {
         _settings.Theme = value switch
         {
@@ -921,6 +953,63 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     public event EventHandler<string>? ThemeChangeRequested;
+
+    /// <summary>Localized theme names, in the order <see cref="SelectedThemeIndex"/> expects.</summary>
+    public ObservableCollection<LocalizedOption> ThemeOptions { get; } = new();
+
+    /// <summary>Localized UI language names, in the order <see cref="SelectedLanguageIndex"/> expects.</summary>
+    public ObservableCollection<LocalizedOption> LanguageOptions { get; } = new();
+
+    private void RefreshLocalizedOptions()
+    {
+        var themes = new[]
+        {
+            _localizer.Get("Settings_Theme_Option_System"),
+            _localizer.Get("Settings_Theme_Option_Light"),
+            _localizer.Get("Settings_Theme_Option_Dark"),
+        };
+        var languages = AppLanguage.Supported
+            .Select(option => _localizer.Get(option.ResourceKey))
+            .ToArray();
+        UpdateOptions(ThemeOptions, themes);
+        UpdateOptions(LanguageOptions, languages);
+    }
+
+    private static void UpdateOptions(ObservableCollection<LocalizedOption> options, IReadOnlyList<string> translated)
+    {
+        for (var i = 0; i < translated.Count; i++)
+        {
+            if (i == options.Count)
+                options.Add(new LocalizedOption(i.ToString(System.Globalization.CultureInfo.InvariantCulture), translated[i]));
+            else
+                options[i].DisplayName = translated[i];
+        }
+    }
+
+    /// <summary>Handles selected UI language index changed and persists the choice.</summary>
+    private void OnSelectedLanguageIndexChanged(int value)
+    {
+        // A ComboBox can briefly report -1 while its items are replaced. That is not a user choice.
+        if (value < 0 || value >= AppLanguage.Supported.Count)
+        {
+            return;
+        }
+
+        var tag = AppLanguage.Supported[value].Tag;
+
+        _settings.Language = tag;
+        _settings.Save();
+
+        // The shell refreshes its own labels and navigates to a fresh page for x:Uid resources.
+        LanguageChangeRequested?.Invoke(this, tag);
+
+        // Refresh after the shell changes the app-wide resource override. The option collection stays
+        // bound across the navigation, so changing its items updates the newly loaded picker.
+        RefreshLocalizedOptions();
+    }
+
+    /// <summary>Raised after the language choice is persisted, carrying the new BCP-47 tag (empty = system).</summary>
+    public event EventHandler<string>? LanguageChangeRequested;
 
     /// <summary>Opens the folder that holds the rolling diagnostic logs in File Explorer.</summary>
     [RelayCommand]
@@ -957,13 +1046,13 @@ public partial class SettingsViewModel : ObservableObject
             if (result.Success)
             {
                 EngineVersion = result.StandardOutput.Trim();
-                await _dialogs.ShowMessageAsync("Connection OK", $"Connected to WSL container engine.\n\n{EngineVersion}");
+                await _dialogs.ShowMessageAsync(UiText.Get("Common_Text0052", "Connection OK"), UiText.Get("Common_Text0053", "Connected to WSL container engine.\n\n{0}", EngineVersion));
             }
             else
             {
-                EngineVersion = "Unreachable";
-                await _dialogs.ShowMessageAsync("Connection failed",
-                    $"Could not reach the WSL container engine using:\n{_settings.WslcPath}\n\n{result.ErrorText}");
+                EngineVersion = UiText.Get("Common_EngineUnreachable", "Unreachable");
+                await _dialogs.ShowMessageAsync(UiText.Get("Common_Text0054", "Connection failed"),
+                    UiText.Get("Common_Text0055", "Could not reach the WSL container engine using:\n{0}\n\n{1}", _settings.WslcPath, result.ErrorText));
             }
         }
         finally
@@ -973,8 +1062,8 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Bindable state for ai capability status used by the view.</summary>
-    public string AiCapabilityStatus => _aiAvailability.Observation?.StatusText
-        ?? "Enable AI and choose a provider. Capability observations are unknown until checked.";
+    public string AiCapabilityStatus => UiText.TranslateLines(_aiAvailability.Observation?.StatusText
+        ?? UiText.Get("Common_Text0056", "Enable AI and choose a provider. Capability observations are unknown until checked."));
 
     /// <summary>Single-line headline so the full capability report can stay collapsed.</summary>
     public string AiCapabilityHeadline
@@ -983,15 +1072,15 @@ public partial class SettingsViewModel : ObservableObject
         {
             var observation = _aiAvailability.Observation;
             if (observation is null)
-                return "AI capabilities: not checked yet";
+                return UiText.Get("Common_Text0057", "AI capabilities: not checked yet");
             var chat = observation.Chat.Support;
             var tools = observation.Tools.Support;
             return chat switch
             {
-                AiSupport.Supported when tools == AiSupport.Supported => "AI capabilities: chat and tools ready",
-                AiSupport.Supported => "AI capabilities: chat ready, tools unconfirmed",
-                AiSupport.Unsupported => "AI capabilities: provider not usable — see details",
-                _ => "AI capabilities: unconfirmed — see details",
+                AiSupport.Supported when tools == AiSupport.Supported => UiText.Get("Common_Text0058", "AI capabilities: chat and tools ready"),
+                AiSupport.Supported => UiText.Get("Common_Text0059", "AI capabilities: chat ready, tools unconfirmed"),
+                AiSupport.Unsupported => UiText.Get("Common_Text0060", "AI capabilities: provider not usable — see details"),
+                _ => UiText.Get("Common_Text0061", "AI capabilities: unconfirmed — see details"),
             };
         }
     }
@@ -1001,23 +1090,23 @@ public partial class SettingsViewModel : ObservableObject
     private async Task TestAiProviderAsync(CancellationToken ct)
     {
         IsBusy = true;
-        ProviderFeedback = AiFeedback.Informational("Testing capabilities",
-            "Checking metadata and bounded synthetic chat/tool/JSON requests. Cold starts may take up to 90 seconds. No app actions or downloads run; cancel at any time.");
+        ProviderFeedback = AiFeedback.Informational(UiText.Get("Common_Text0062", "Testing capabilities"),
+            UiText.Get("Common_Text0063", "Checking metadata and bounded synthetic chat/tool/JSON requests. Cold starts may take up to 90 seconds. No app actions or downloads run; cancel at any time."));
         try
         {
             var result = await _aiDiagnostics.TestProviderAsync(ct);
             await _aiAvailability.RefreshAsync(ct);
-            ProviderFeedback = AiFeedback.Informational("Capability observations", result);
+            ProviderFeedback = AiFeedback.Informational(UiText.Get("Common_Text0064", "Capability observations"), result);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            ProviderFeedback = AiFeedback.Informational("Test cancelled",
-                "The test stopped. Only completed checks can remain cached. No model download or app action was started.");
+            ProviderFeedback = AiFeedback.Informational(UiText.Get("Common_Text0065", "Test cancelled"),
+                UiText.Get("Common_Text0066", "The test stopped. Only completed checks can remain cached. No model download or app action was started."));
         }
         catch (Exception ex)
         {
             _logger.LogWarning("AI capability test could not complete.");
-            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Provider test"));
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext(UiText.Get("Common_Text0067", "Provider test")));
         }
         finally
         {
@@ -1030,8 +1119,8 @@ public partial class SettingsViewModel : ObservableObject
     private void SignInGitHubCopilot()
     {
         ProviderFeedback = AiFeedback.Informational(
-            "GitHub Copilot sign-in",
-            "GitHub Copilot uses your logged-in Copilot CLI account. Run `copilot login` outside the app if you need to sign in.");
+            UiText.Get("Common_Text0068", "GitHub Copilot sign-in"),
+            UiText.Get("Common_Text0069", "GitHub Copilot uses your logged-in Copilot CLI account. Run `copilot login` outside the app if you need to sign in."));
     }
 
     /// <summary>Command handler for refresh git hub copilot models actions triggered from the view.</summary>
@@ -1054,7 +1143,7 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             IsBusy = true;
-            ProviderFeedback = AiFeedback.Informational("Loading models", "Loading GitHub Copilot models…");
+            ProviderFeedback = AiFeedback.Informational(UiText.Get("Common_Text0070", "Loading models"), UiText.Get("Common_Text0071", "Loading GitHub Copilot models…"));
             await using var client = GitHubCopilotProvider.CreateClient(_logger);
             await client.StartAsync();
             var models = await client.ListModelsAsync();
@@ -1067,26 +1156,26 @@ public partial class SettingsViewModel : ObservableObject
                 .Select(model =>
                 {
                     var supportsReasoning = model.SupportedReasoningEfforts is { Count: > 0 };
-                    var suffix = supportsReasoning ? " · reasoning" : string.Empty;
+                    var suffix = supportsReasoning ? UiText.Get("Common_Text0072", " · reasoning") : string.Empty;
                     return new AiModelOption(model.Id, $"{model.Id} — {model.Name}{suffix}");
                 })
                 .ToList();
 
             EnsureOption(options, "auto", "auto");
-            EnsureOption(options, persisted, $"{persisted} (configured)");
+            EnsureOption(options, persisted, UiText.Get("Common_Text0073", "{0} (configured)", persisted));
             ReplaceGitHubCopilotModels(options);
             ReapplyGitHubCopilotModel(persisted);
 
             ProviderFeedback = !configuredAvailable
-                ? AiFeedback.Warning("Configured model unavailable", $"Configured model '{persisted}' is not available. Choose a model from the list.")
-                : AiFeedback.Success("Models loaded", $"Loaded {GitHubCopilotModels.Count} GitHub Copilot model(s).");
+                ? AiFeedback.Warning(UiText.Get("Common_Text0074", "Configured model unavailable"), UiText.Get("Common_Text0075", "Configured model '{0}' is not available. Choose a model from the list.", persisted))
+                : AiFeedback.Success(UiText.Get("Common_Text0076", "Models loaded"), UiText.Get("Common_Text0077", "Loaded {0} GitHub Copilot model(s).", GitHubCopilotModels.Count));
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to load GitHub Copilot models.");
             SeedGitHubCopilotModels(persisted);
             ReapplyGitHubCopilotModel(persisted);
-            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Refresh GitHub Copilot models"));
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext(UiText.Get("Common_Text0078", "Refresh GitHub Copilot models")));
         }
         finally
         {
@@ -1101,7 +1190,7 @@ public partial class SettingsViewModel : ObservableObject
             new AiModelOption("auto", "auto"),
             new AiModelOption(persisted, string.Equals(persisted, "auto", StringComparison.OrdinalIgnoreCase)
                 ? "auto"
-                : $"{persisted} (configured)"),
+                : UiText.Get("Common_Text0073", "{0} (configured)", persisted)),
         ]);
         ReapplyGitHubCopilotModel(persisted);
     }
@@ -1115,7 +1204,7 @@ public partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        GitHubCopilotModels.Add(new AiModelOption(id, $"{id} (configured)"));
+        GitHubCopilotModels.Add(new AiModelOption(id, UiText.Get("Common_Text0073", "{0} (configured)", id)));
     }
 
     /// <summary>Helper for the reapply github copilot model workflow in this view model.</summary>
@@ -1179,20 +1268,20 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             IsOllamaBusy = true;
-            ProviderFeedback = AiFeedback.Informational("Loading models", "Loading installed Ollama models…");
+            ProviderFeedback = AiFeedback.Informational(UiText.Get("Common_Text0070", "Loading models"), UiText.Get("Common_Text0079", "Loading installed Ollama models…"));
             endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
             var names = await ReadInstalledOllamaModelsAsync(endpoint, CancellationToken.None);
 
             ReplaceOllamaModels(names, persisted);
             ProviderFeedback = names.Count == 0
-                ? AiFeedback.Warning("No models installed", "No Ollama models are installed. Download one below to use this provider.")
-                : AiFeedback.Success("Models loaded", $"Loaded {names.Count} installed Ollama model(s).");
+                ? AiFeedback.Warning(UiText.Get("Common_Text0080", "No models installed"), UiText.Get("Common_Text0081", "No Ollama models are installed. Download one below to use this provider."))
+                : AiFeedback.Success(UiText.Get("Common_Text0076", "Models loaded"), UiText.Get("Common_Text0082", "Loaded {0} installed Ollama model(s).", names.Count));
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to load Ollama models.");
             ReplaceOllamaModels([], persisted);
-            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Refresh Ollama models", endpoint?.ToString(), persisted));
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext(UiText.Get("Common_Text0083", "Refresh Ollama models"), endpoint?.ToString(), persisted));
         }
         finally
         {
@@ -1221,7 +1310,7 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             IsOllamaBusy = true;
-            ProviderFeedback = AiFeedback.Informational("Loading models", "Loading models from the OpenAI-compatible endpoint…");
+            ProviderFeedback = AiFeedback.Informational(UiText.Get("Common_Text0070", "Loading models"), UiText.Get("Common_Text0084", "Loading models from the OpenAI-compatible endpoint…"));
 
             var uri = OpenAiProvider.BuildUri(_settings.AiOpenAiEndpoint, "models");
             endpoint = uri.ToString();
@@ -1235,7 +1324,7 @@ public partial class SettingsViewModel : ObservableObject
             var body = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
             {
-                throw AiProviderException.FromHttpFailure(AiProviderKind.OpenAi, "Refresh OpenAI-compatible models", response.StatusCode, endpoint, persisted, body);
+                throw AiProviderException.FromHttpFailure(AiProviderKind.OpenAi, UiText.Get("Common_Text0085", "Refresh OpenAI-compatible models"), response.StatusCode, endpoint, persisted, body);
             }
 
             var ids = new List<string>();
@@ -1259,14 +1348,14 @@ public partial class SettingsViewModel : ObservableObject
 
             ReplaceOpenAiModels(ids, persisted);
             ProviderFeedback = ids.Count == 0
-                ? AiFeedback.Warning("No models listed", "The endpoint responded but listed no models. Type the model id your server expects.")
-                : AiFeedback.Success("Models loaded", $"Loaded {ids.Count} model(s) from the OpenAI-compatible endpoint.");
+                ? AiFeedback.Warning(UiText.Get("Common_Text0086", "No models listed"), UiText.Get("Common_Text0087", "The endpoint responded but listed no models. Type the model id your server expects."))
+                : AiFeedback.Success(UiText.Get("Common_Text0076", "Models loaded"), UiText.Get("Common_Text0088", "Loaded {0} model(s) from the OpenAI-compatible endpoint.", ids.Count));
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to load OpenAI-compatible models.");
             ReplaceOpenAiModels([], persisted);
-            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Refresh OpenAI-compatible models", endpoint, persisted));
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext(UiText.Get("Common_Text0085", "Refresh OpenAI-compatible models"), endpoint, persisted));
         }
         finally
         {
@@ -1309,7 +1398,7 @@ public partial class SettingsViewModel : ObservableObject
         var name = OllamaPullModel?.Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
-            ProviderFeedback = AiFeedback.Warning("Model name required", "Enter a model name to pull (for example qwen2.5:7b).");
+            ProviderFeedback = AiFeedback.Warning(UiText.Get("Common_Text0089", "Model name required"), UiText.Get("Common_Text0090", "Enter a model name to pull (for example qwen2.5:7b)."));
             return;
         }
 
@@ -1320,13 +1409,13 @@ public partial class SettingsViewModel : ObservableObject
             IsOllamaBusy = true;
             endpoint = NormalizeOllamaEndpoint(_settings.AiOllamaEndpoint);
             if (!await _dialogs.ShowConfirmAsync(
-                    "Download model",
-                    $"Download '{name}' to {endpoint}?\n\n" +
-                    "Models can be several GB and are downloaded by the Ollama runtime.",
+                    UiText.Get("Common_Text0091", "Download model"),
+                    UiText.Get("Common_Text0092", "Download '{0}' to {1}?\n\n", name, endpoint) +
+                    UiText.Get("Common_Text0093", "Models can be several GB and are downloaded by the Ollama runtime."),
                     primaryText: "Download",
-                    closeText: "Cancel"))
+                    closeText: UiText.Get("Common_Text0094", "Cancel")))
             {
-                ProviderFeedback = AiFeedback.Informational("Download cancelled", "No model was downloaded.");
+                ProviderFeedback = AiFeedback.Informational(UiText.Get("Common_Text0095", "Download cancelled"), UiText.Get("Common_Text0096", "No model was downloaded."));
                 return;
             }
 
@@ -1337,13 +1426,13 @@ public partial class SettingsViewModel : ObservableObject
                 OllamaPullModel = string.Empty;
                 await LoadOllamaModelsAsync();
                 AiOllamaModel = name;
-                ProviderFeedback = AiFeedback.Success("Model pulled", $"Pulled '{name}' and selected it.");
+                ProviderFeedback = AiFeedback.Success(UiText.Get("Common_Text0097", "Model pulled"), UiText.Get("Common_Text0098", "Pulled '{0}' and selected it.", name));
             }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Ollama pull failed.");
-            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext("Pull Ollama model", endpoint?.ToString(), name));
+            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext(UiText.Get("Common_Text0099", "Pull Ollama model"), endpoint?.ToString(), name));
         }
         finally
         {
@@ -1364,7 +1453,7 @@ public partial class SettingsViewModel : ObservableObject
     /// </summary>
     private async Task<bool> StreamPullModelAsync(string name, Uri endpoint, Action<AiFeedback> report, CancellationToken ct = default)
     {
-        report(AiFeedback.Informational("Pulling model", $"Pulling '{name}'…"));
+        report(AiFeedback.Informational(UiText.Get("Common_Text0100", "Pulling model"), UiText.Get("Common_Text0101", "Pulling '{0}'…", name)));
 
         // Pulls can take minutes for multi-GB models, so use a dedicated client with no timeout
         // and stream the NDJSON progress rather than the shared 20s HttpClient.
@@ -1377,8 +1466,8 @@ public partial class SettingsViewModel : ObservableObject
         if (!response.IsSuccessStatusCode)
         {
             var err = await response.Content.ReadAsStringAsync(ct);
-            var ex = AiProviderException.FromHttpFailure(AiProviderKind.Ollama, "Pull model", response.StatusCode, endpoint.ToString(), name, err);
-            report(AiErrorClassifier.Classify(ex, ProviderContext("Pull model", endpoint.ToString(), name)));
+            var ex = AiProviderException.FromHttpFailure(AiProviderKind.Ollama, UiText.Get("Common_Text0102", "Pull model"), response.StatusCode, endpoint.ToString(), name, err);
+            report(AiErrorClassifier.Classify(ex, ProviderContext(UiText.Get("Common_Text0102", "Pull model"), endpoint.ToString(), name)));
             return false;
         }
 
@@ -1397,7 +1486,7 @@ public partial class SettingsViewModel : ObservableObject
                 var root = doc.RootElement;
                 if (root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String)
                 {
-                    report(AiFeedback.Error("Pull failed", error.GetString() ?? "Unknown error."));
+                    report(AiFeedback.Error(UiText.Get("Common_Text0103", "Pull failed"), error.GetString() ?? UiText.Get("Common_Text0104", "Unknown error.")));
                     return false;
                 }
 
@@ -1413,11 +1502,11 @@ public partial class SettingsViewModel : ObservableObject
                     && root.TryGetProperty("completed", out var compEl) && compEl.TryGetInt64(out var completed))
                 {
                     var pct = Math.Clamp(completed * 100.0 / total, 0, 100);
-                    report(AiFeedback.Informational("Pulling model", $"Pulling {name}: {status} {pct:0}% ({FormatBytes(completed)} / {FormatBytes(total)})"));
+                    report(AiFeedback.Informational(UiText.Get("Common_Text0100", "Pulling model"), UiText.Get("Common_Text0105", "Pulling {0}: {1} {2:0}% ({3} / {4})", name, status, pct, FormatBytes(completed), FormatBytes(total))));
                 }
                 else if (!string.IsNullOrWhiteSpace(status))
                 {
-                    report(AiFeedback.Informational("Pulling model", $"Pulling {name}: {status}"));
+                    report(AiFeedback.Informational(UiText.Get("Common_Text0100", "Pulling model"), UiText.Get("Common_Text0106", "Pulling {0}: {1}", name, status)));
                 }
             }
             catch (JsonException)
@@ -1426,7 +1515,7 @@ public partial class SettingsViewModel : ObservableObject
             }
         }
 
-        report(AiFeedback.Error("Pull incomplete", "The server closed the progress stream without confirming success. Refresh installed models before retrying."));
+        report(AiFeedback.Error(UiText.Get("Common_Text0107", "Pull incomplete"), UiText.Get("Common_Text0108", "The server closed the progress stream without confirming success. Refresh installed models before retrying.")));
         return false;
     }
 
@@ -1450,11 +1539,11 @@ public partial class SettingsViewModel : ObservableObject
                 if (generation == Volatile.Read(ref _localAiSetupGeneration)
                     && Volatile.Read(ref isAcceptingProgress) && !ct.IsCancellationRequested)
                 {
-                    LocalAiFeedback = AiFeedback.Informational("Setting up local AI", msg);
+                    LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0109", "Setting up local AI"), msg);
                 }
             });
 
-            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Verifying the app-owned Ollama container…");
+            LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0109", "Setting up local AI"), UiText.Get("Common_Text0110", "Verifying the app-owned Ollama container…"));
             var result = await _localAi.EnsureOllamaContainerAsync(progress, ct);
             Volatile.Write(ref isAcceptingProgress, false);
             if (!result.Success || result.State is not (LocalAiContainerState.AlreadyRunning
@@ -1463,22 +1552,22 @@ public partial class SettingsViewModel : ObservableObject
             {
                 // Failure/cancellation messages include the service's recovery outcome.
                 LocalAiFeedback = result.State == LocalAiContainerState.Cancelled
-                    ? AiFeedback.Warning("Local AI setup cancelled", result.Message)
-                    : AiFeedback.Error("Local AI setup failed", result.Message);
+                    ? AiFeedback.Warning(UiText.Get("Common_Text0111", "Local AI setup cancelled"), LocalizeLocalAiSetupMessage(result))
+                    : AiFeedback.Error(UiText.Get("Common_Text0112", "Local AI setup failed"), LocalizeLocalAiSetupMessage(result));
                 return;
             }
 
             ct.ThrowIfCancellationRequested();
-            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Waiting for the owned Ollama runtime API…");
+            LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0109", "Setting up local AI"), UiText.Get("Common_Text0113", "Waiting for the owned Ollama runtime API…"));
             if (!await WaitForOllamaReadyAsync(endpoint, TimeSpan.FromSeconds(90), ct))
             {
                 LocalAiFeedback = AiFeedback.Error(
-                    "Local AI setup failed",
-                    "The owned container started but its API did not become ready in time. The container may still be running. Check its logs before retrying or removing it.");
+                    UiText.Get("Common_Text0112", "Local AI setup failed"),
+                    UiText.Get("Common_Text0114", "The owned container started but its API did not become ready in time. The container may still be running. Check its logs before retrying or removing it."));
                 return;
             }
 
-            LocalAiFeedback = AiFeedback.Informational("Setting up local AI", "Reading installed model metadata…");
+            LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0109", "Setting up local AI"), UiText.Get("Common_Text0115", "Reading installed model metadata…"));
             var installedModels = await ReadInstalledOllamaModelsAsync(endpoint, ct);
             ct.ThrowIfCancellationRequested();
             var previousModel = _settings.AiOllamaModel?.Trim();
@@ -1492,13 +1581,13 @@ public partial class SettingsViewModel : ObservableObject
             {
                 Volatile.Write(ref isAcceptingProgress, false);
                 if (await _dialogs.ShowConfirmAsync(
-                        "Download a model?",
-                        $"The runtime is ready but has no model yet, so it cannot answer anything.\n\n" +
-                        $"Download {DefaultOllamaModel}? It is a small chat model that supports tool calling, so the AI assistant can work.\n\n" +
-                        "• About 5 GB, downloaded by the Ollama runtime\n" +
-                        "• You can pick a different model later under Provider",
-                        primaryText: $"Download {DefaultOllamaModel}",
-                        closeText: "Skip for now"))
+                        UiText.Get("Common_Text0116", "Download a model?"),
+                        UiText.Get("Common_Text0117", "The runtime is ready but has no model yet, so it cannot answer anything.\n\n") +
+                        UiText.Get("Common_Text0118", "Download {0}? It is a small chat model that supports tool calling, so the AI assistant can work.\n\n", DefaultOllamaModel) +
+                        UiText.Get("Common_Text0119", "• About 5 GB, downloaded by the Ollama runtime\n") +
+                        UiText.Get("Common_Text0120", "• You can pick a different model later under Provider"),
+                        primaryText: UiText.Get("Common_Text0121", "Download {0}", DefaultOllamaModel),
+                        closeText: UiText.Get("Common_Text0122", "Skip for now")))
                 {
                     _aiCapabilities.Invalidate();
                     if (await StreamPullModelAsync(DefaultOllamaModel, endpoint,
@@ -1531,12 +1620,12 @@ public partial class SettingsViewModel : ObservableObject
             await RefreshLocalRuntimePresenceAsync(ct);
 
             var modelMessage = string.IsNullOrEmpty(model)
-                ? "No model is installed yet, so the assistant stays hidden. Download one under Provider below to finish."
-                : $"Using model '{model}'.";
-            LocalAiFeedback = AiFeedback.Success("Ollama is ready",
+                ? UiText.Get("Common_Text0123", "No model is installed yet, so the assistant stays hidden. Download one under Provider below to finish.")
+                : UiText.Get("Common_Text0124", "Using model '{0}'.", model);
+            LocalAiFeedback = AiFeedback.Success(UiText.Get("Common_Text0125", "Ollama is ready"),
                 string.IsNullOrEmpty(model)
                     ? modelMessage
-                    : $"{modelMessage} Checking what this model supports…");
+                    : UiText.Get("Common_Text0126", "{0} Checking what this model supports…", modelMessage));
 
             // Setup is only useful once capabilities are observed: the assistant button stays hidden
             // until tool support is confirmed, so check now instead of leaving the user wondering.
@@ -1547,29 +1636,29 @@ public partial class SettingsViewModel : ObservableObject
                     await _aiAvailability.RefreshAsync(ct);
                     var observation = _aiAvailability.Observation;
                     LocalAiFeedback = observation?.CanUseTools == true
-                        ? AiFeedback.Success("Ollama is ready",
-                            $"Using model '{model}'. Tool calling is supported, so the AI assistant is available from the toolbar.")
-                        : AiFeedback.Warning("Ollama is ready, assistant unavailable",
-                            $"Using model '{model}', but tool calling was not confirmed, so the assistant stays hidden. " +
-                            "Try a tool-capable model such as qwen2.5:7b, or use Test capabilities for details.");
+                        ? AiFeedback.Success(UiText.Get("Common_Text0125", "Ollama is ready"),
+                            UiText.Get("Common_Text0127", "Using model '{0}'. Tool calling is supported, so the AI assistant is available from the toolbar.", model))
+                        : AiFeedback.Warning(UiText.Get("Common_Text0128", "Ollama is ready, assistant unavailable"),
+                            UiText.Get("Common_Text0129", "Using model '{0}', but tool calling was not confirmed, so the assistant stays hidden. ", model) +
+                            UiText.Get("Common_Text0130", "Try a tool-capable model such as qwen2.5:7b, or use Test capabilities for details."));
                 }
                 catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
                 {
                     _logger.LogDebug(ex, "Capability check after local AI setup was unavailable.");
-                    LocalAiFeedback = AiFeedback.Success("Ollama is ready",
-                        $"Using model '{model}'. Capabilities were not checked; use Test capabilities below.");
+                    LocalAiFeedback = AiFeedback.Success(UiText.Get("Common_Text0125", "Ollama is ready"),
+                        UiText.Get("Common_Text0131", "Using model '{0}'. Capabilities were not checked; use Test capabilities below.", model));
                 }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            LocalAiFeedback = AiFeedback.Warning("Local AI setup cancelled",
-                "Setup was cancelled. The owned container may still be running and model data may be retained. Check the runtime before retrying or removing local AI. No model download or warm-up was requested.");
+            LocalAiFeedback = AiFeedback.Warning(UiText.Get("Common_Text0111", "Local AI setup cancelled"),
+                UiText.Get("Common_Text0132", "Setup was cancelled. The owned container may still be running and model data may be retained. Check the runtime before retrying or removing local AI. No model download or warm-up was requested."));
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Local AI setup failed.");
-            LocalAiFeedback = AiErrorClassifier.Classify(ex, LocalAiContext("Set up local AI"));
+            LocalAiFeedback = AiErrorClassifier.Classify(ex, LocalAiContext(UiText.Get("Common_Text0133", "Set up local AI")));
         }
         finally
         {
@@ -1583,26 +1672,26 @@ public partial class SettingsViewModel : ObservableObject
     private async Task RemoveLocalAiAsync()
     {
         if (!await _dialogs.ShowConfirmAsync(
-                "Remove Ollama",
-                $"This removes the app's '{_localAi.ContainerName}' container.\n\n" +
-                "Ollama installed outside this app, other containers, and remote endpoints are not touched.",
+                UiText.Get("Common_Text0134", "Remove Ollama"),
+                UiText.Get("Common_Text0135", "This removes the app's '{0}' container.\n\n", _localAi.ContainerName) +
+                UiText.Get("Common_Text0136", "Ollama installed outside this app, other containers, and remote endpoints are not touched."),
                 primaryText: "Remove",
-                closeText: "Cancel"))
+                closeText: UiText.Get("Common_Text0094", "Cancel")))
         {
             return;
         }
 
         var removeVolume = await _dialogs.ShowConfirmAsync(
-            "Delete downloaded models too?",
-            "Downloaded models can be several GB.\n\n" +
-            "Delete them to free the space, or keep them so setting up again is fast.",
-            primaryText: "Delete models",
-            closeText: "Keep models");
+            UiText.Get("Common_Text0137", "Delete downloaded models too?"),
+            UiText.Get("Common_Text0138", "Downloaded models can be several GB.\n\n") +
+            UiText.Get("Common_Text0139", "Delete them to free the space, or keep them so setting up again is fast."),
+            primaryText: UiText.Get("Common_Text0140", "Delete models"),
+            closeText: UiText.Get("Common_Text0141", "Keep models"));
 
         try
         {
             IsOllamaBusy = true;
-            LocalAiFeedback = AiFeedback.Informational("Removing local AI", "Removing the local AI container…");
+            LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0142", "Removing local AI"), UiText.Get("Common_Text0143", "Removing the local AI container…"));
             if (removeVolume)
             {
                 _aiCapabilities.Invalidate();
@@ -1622,15 +1711,15 @@ public partial class SettingsViewModel : ObservableObject
                 _settings.Save();
             }
             LocalAiFeedback = result.Success && isRuntimeGone && !isModelDeletionUnfulfilled
-                ? AiFeedback.Success("Ollama removed", result.Message)
+                ? AiFeedback.Success(UiText.Get("Common_Text0144", "Ollama removed"), result.Message)
                 : isRuntimeGone
-                    ? AiFeedback.Warning("Ollama removed, models kept", result.Message)
-                    : AiFeedback.Error("Could not remove Ollama", result.Message);
+                    ? AiFeedback.Warning(UiText.Get("Common_Text0145", "Ollama removed, models kept"), result.Message)
+                    : AiFeedback.Error(UiText.Get("Common_Text0146", "Could not remove Ollama"), result.Message);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Local AI removal failed.");
-            LocalAiFeedback = AiErrorClassifier.Classify(ex, LocalAiContext("Remove local AI"));
+            LocalAiFeedback = AiErrorClassifier.Classify(ex, LocalAiContext(UiText.Get("Common_Text0147", "Remove local AI")));
         }
         finally
         {
@@ -1703,7 +1792,7 @@ public partial class SettingsViewModel : ObservableObject
         var body = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
         {
-            throw AiProviderException.FromHttpFailure(AiProviderKind.Ollama, "Read installed Ollama models",
+            throw AiProviderException.FromHttpFailure(AiProviderKind.Ollama, UiText.Get("Common_Text0148", "Read installed Ollama models"),
                 response.StatusCode, endpoint.ToString(), null, body);
         }
 
@@ -1744,7 +1833,7 @@ public partial class SettingsViewModel : ObservableObject
             if (!string.IsNullOrWhiteSpace(persisted)
                 && !OllamaModels.Any(m => string.Equals(m.Id, persisted, StringComparison.OrdinalIgnoreCase)))
             {
-                OllamaModels.Add(new AiModelOption(persisted, $"{persisted} (not installed)"));
+                OllamaModels.Add(new AiModelOption(persisted, UiText.Get("Common_Text0149", "{0} (not installed)", persisted)));
             }
         }
         finally
@@ -1789,17 +1878,100 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             var result = await _wslc.GetVersionAsync();
-            EngineVersion = result.Success ? result.StandardOutput.Trim() : "Unreachable";
+            EngineVersion = result.Success ? result.StandardOutput.Trim() : UiText.Get("Common_EngineUnreachable", "Unreachable");
         }
         catch
         {
-            EngineVersion = "Unreachable";
+            EngineVersion = UiText.Get("Common_EngineUnreachable", "Unreachable");
         }
     }
 
     /// <summary>Refreshes load ai secret state state for the view model.</summary>
     public void LoadAiSecretState() => LoadStoredAiSecretIndicator();
+
+    /// <summary>Projects the setup service's structured recovery message without rewriting raw evidence.</summary>
+    private static string LocalizeLocalAiSetupMessage(LocalAiSetupResult result)
+    {
+        // These delimiters and cleanup outcomes are emitted by LocalAiSetupService itself.
+        // Requiring the complete wrapper keeps unrelated diagnostics and user text untouched.
+        const string marker = " Model data was not deleted (";
+        const string recovery = "Recovery: inspect wslcd-ollama labels and immutable container ID; retry setup only after resolving conflicts.";
+        var message = result.Message;
+        var markerIndex = message.IndexOf(marker, StringComparison.Ordinal);
+        var recoveryIndex = message.IndexOf("). " + recovery, StringComparison.Ordinal);
+        if (markerIndex < 0 || recoveryIndex <= markerIndex)
+            return UiText.TranslateLines(message);
+
+        string[] cleanupOutcomes =
+        [
+            "No automatic runtime cleanup was attempted.",
+            "No partial runtime was observed; an interrupted creation may still finish. Inspect before retrying.",
+            "A different runtime was retained; this operation does not own it.",
+            "Only this operation's verified partial runtime was removed.",
+            "Partial runtime cleanup could not be confirmed; inspect before retrying.",
+        ];
+        var prefix = message[..markerIndex];
+        var cleanup = cleanupOutcomes.FirstOrDefault(outcome => prefix.EndsWith(" " + outcome, StringComparison.Ordinal));
+        if (cleanup is null)
+            return UiText.TranslateLines(message);
+
+        var reason = prefix[..(prefix.Length - cleanup.Length - 1)];
+        var suffix = message[(recoveryIndex + 3 + recovery.Length)..];
+        return UiText.Get("Common_LocalAiSetupRecovery", "{0} {1} Model data was not deleted ({2}). {3}{4}",
+            UiText.TranslateLines(reason), UiText.Translate(cleanup),
+            UiText.Translate(result.ModelData.ToString()), UiText.Translate(recovery), UiText.Translate(suffix));
+    }
+
+    /// <summary>Refreshes public display text while keeping user input and active operations intact.</summary>
+    private void RefreshCommonLocalizedText()
+    {
+        RunAtLoginNote = UiText.Translate(RunAtLoginNote);
+        EngineVersion = UiText.Translate(EngineVersion);
+        foreach (var model in GitHubCopilotModels.Concat(OllamaModels))
+            model.RefreshLanguage();
+        ProviderFeedback = LocalizedFeedback(ProviderFeedback);
+        LocalAiFeedback = LocalizedFeedback(LocalAiFeedback);
+        foreach (var group in AssistantToolPermissions)
+            group.RefreshLocalizedText();
+        foreach (var property in new[] { nameof(AppVersion), nameof(QuickStartHint), nameof(ActiveProviderName),
+            nameof(ActiveProviderDetail), nameof(AiCapabilityStatus), nameof(AiCapabilityHeadline) })
+            OnPropertyChanged(property);
+    }
+
+    private static AiFeedback LocalizedFeedback(AiFeedback value) => new()
+    {
+        Severity = value.Severity,
+        Title = UiText.Translate(value.Title),
+        Message = UiText.TranslateLines(value.Message),
+        TechnicalDetails = value.TechnicalDetails,
+    };
+
+    partial void OnProviderFeedbackChanged(AiFeedback value)
+    {
+        var translated = LocalizedFeedback(value);
+        if (translated.Title != value.Title || translated.Message != value.Message)
+            ProviderFeedback = translated;
+    }
+
+    partial void OnLocalAiFeedbackChanged(AiFeedback value)
+    {
+        var translated = LocalizedFeedback(value);
+        if (translated.Title != value.Title || translated.Message != value.Message)
+            LocalAiFeedback = translated;
+    }
 }
 
 /// <summary>Defines the AiModelOption type used by WSL Container Desktop.</summary>
-public sealed record AiModelOption(string Id, string DisplayName);
+public sealed record AiModelOption(string Id, string DisplayName) : System.ComponentModel.INotifyPropertyChanged
+{
+    /// <summary>Localizes app-owned annotations while preserving the exact model ID and name.</summary>
+    public string LocalizedDisplayName => string.Equals(Id, DisplayName, StringComparison.Ordinal)
+        ? DisplayName : UiText.Translate(DisplayName);
+
+    /// <summary>Raised when an app-owned caption changes language.</summary>
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>Updates the caption without replacing the selected model object.</summary>
+    public void RefreshLanguage() =>
+        PropertyChanged?.Invoke(this, new(nameof(LocalizedDisplayName)));
+}

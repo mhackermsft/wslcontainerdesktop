@@ -51,10 +51,12 @@ public partial class AppUpdateViewModel : ObservableObject
 
     /// <summary>Bindable state for bar title used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BarTitleDisplay))]
     private string _barTitle = string.Empty;
 
     /// <summary>Bindable state for bar message used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BarMessageDisplay))]
     private string _barMessage = string.Empty;
 
     /// <summary>Bindable state for bar severity used by the view.</summary>
@@ -83,6 +85,7 @@ public partial class AppUpdateViewModel : ObservableObject
 
     /// <summary>Bindable state for update button text used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateButtonTextDisplay))]
     private string _updateButtonText = "Update now";
 
     /// <summary>Whether release notes visible for view binding.</summary>
@@ -91,7 +94,13 @@ public partial class AppUpdateViewModel : ObservableObject
 
     /// <summary>One-line updater status for the Settings page.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusTextDisplay))]
     private string _statusText = string.Empty;
+
+    public string BarTitleDisplay => UiText.Translate(BarTitle);
+    public string BarMessageDisplay => UiText.Translate(BarMessage);
+    public string UpdateButtonTextDisplay => UiText.Translate(UpdateButtonText);
+    public string StatusTextDisplay => UiText.Translate(StatusText);
 
     /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
@@ -106,6 +115,13 @@ public partial class AppUpdateViewModel : ObservableObject
         _notifications = notifications;
         _settings = settings;
         _logger = logger;
+        UiText.LanguageChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(BarTitleDisplay));
+            OnPropertyChanged(nameof(BarMessageDisplay));
+            OnPropertyChanged(nameof(UpdateButtonTextDisplay));
+            OnPropertyChanged(nameof(StatusTextDisplay));
+        };
         StatusText = updates.CurrentVersion is null
             ? "Updates are available only for the installed app."
             : "Not checked yet.";

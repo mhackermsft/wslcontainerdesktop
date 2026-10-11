@@ -16,6 +16,7 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
@@ -25,6 +26,18 @@ namespace WslContainerDesktop.ViewModels;
 /// </summary>
 public partial class ContainerRowViewModel : ObservableObject
 {
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string PortsDisplayText => UiText.Translate(PortsDisplay);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string SizeDisplayText => UiText.Translate(SizeDisplay);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string SizeShortDisplay => UiText.Translate(SizeShort);
+
     /// <summary>
     /// Returns the container name. List controls use this as each row's screen-reader name;
     /// without it Narrator announces the .NET type name instead.
@@ -49,6 +62,7 @@ public partial class ContainerRowViewModel : ObservableObject
     /// <summary>Comma-separated published-port display text for the grid.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanOpenInBrowser))]
+    [NotifyPropertyChangedFor(nameof(PortsDisplayText))]
     private string _portsDisplay = string.Empty;
 
     /// <summary>Primary network name resolved from container inspect.</summary>
@@ -57,10 +71,12 @@ public partial class ContainerRowViewModel : ObservableObject
 
     /// <summary>Full size text for details, including virtual size when known.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SizeDisplayText))]
     private string _sizeDisplay = "-";
 
     /// <summary>Compact list-column size: the writable layer only; <see cref="SizeDisplay"/> adds the virtual size.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SizeShortDisplay))]
     private string _sizeShort = "-";
 
     /// <summary>Container creation time used for sorting and display.</summary>
@@ -116,20 +132,20 @@ public partial class ContainerRowViewModel : ObservableObject
 
     /// <summary>Tooltip text for the GPU badge.</summary>
     public string GpuTooltip => string.IsNullOrWhiteSpace(GpuName)
-        ? "GPU passthrough enabled"
-        : $"GPU: {GpuName}";
+        ? UiText.Get("Resource_Text_cc4941571be3", "GPU passthrough enabled")
+        : UiText.Get("Resource_Text_f190b111a23c", "GPU: {0}", GpuName);
 
     /// <summary>Tooltip text for the health badge.</summary>
-    public string HealthTooltip => !string.IsNullOrWhiteSpace(HealthDetail) ? HealthDetail : Health switch
+    public string HealthTooltip => !string.IsNullOrWhiteSpace(HealthDetail) ? UiText.Translate(HealthDetail) : Health switch
     {
-        ContainerHealthState.Healthy => "Health check: healthy",
+        ContainerHealthState.Healthy => UiText.Get("Resource_Text_8e3e84404b4c", "Health check: healthy"),
         ContainerHealthState.Degraded => HealthMaxRestarts > 0
-            ? $"Health check: unhealthy — auto-restarting ({HealthRestartCount}/{HealthMaxRestarts})"
-            : "Health check: unhealthy",
+            ? UiText.Get("Resource_Text_d361a643faee", "Health check: unhealthy — auto-restarting ({0}/{1})", HealthRestartCount, HealthMaxRestarts)
+            : UiText.Get("Resource_Text_2561aa510ea7", "Health check: unhealthy"),
         ContainerHealthState.Down => HealthMaxRestarts > 0
-            ? $"Health check: down after {HealthMaxRestarts} restart attempt(s)"
-            : "Health check: down",
-        _ => "Health check: pending",
+            ? UiText.Get("Resource_Text_aa7b49519d41", "Health check: down after {0} restart attempt(s)", HealthMaxRestarts)
+            : UiText.Get("Resource_Text_b1a7b2ac9b99", "Health check: down"),
+        _ => UiText.Get("Resource_Text_d91e96180566", "Health check: pending"),
     };
 
     /// <summary>Creates a grid row from the latest container model.</summary>
@@ -210,5 +226,11 @@ public partial class ContainerRowViewModel : ObservableObject
             HasGpu = false;
             GpuName = null;
         }
+    }
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
     }
 }

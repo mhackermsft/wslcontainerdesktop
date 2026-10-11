@@ -75,6 +75,15 @@ public App()
 /// <summary>Returns the running app instance with the concrete <see cref="App"/> type.</summary>
 public new static App Current => (App)Application.Current;
 
+    /// <summary>
+    /// Resolves the saved preference before writing MRT. Empty/null are storage markers only: MRT
+    /// rejects an empty HSTRING. The app language list includes persistent overrides, so it cannot
+    /// tell us the Windows display language even before this process has written anything.
+    /// </summary>
+    internal static string ApplyPrimaryLanguageOverride(string? preference) => AppLanguage.Apply(
+        preference, SystemUiLanguages.Get(),
+        effective => Microsoft.Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = effective);
+
 /// <summary>Root dependency-injection provider used by views to resolve their view models.</summary>
 public IServiceProvider Services { get; }
 
@@ -114,6 +123,19 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
     var settings = Services.GetRequiredService<ISettingsService>();
     settings.Load();
+
+    // x:Uid resolves during XAML construction, before a root element can inherit Language.
+    // Set MRT's app-wide override before constructing the window or its pages.
+    var effectiveLanguage = ApplyPrimaryLanguageOverride(settings.Language);
+
+    // Before anything is constructed: view models build their display text in their constructors, so
+    // the localizer's language has to be settled first or they would cache the previous locale for
+    // the whole session.
+    var textLocalizer = Services.GetRequiredService<ITextLocalizer>();
+    textLocalizer.SetLanguage(effectiveLanguage);
+    UiText.Initialize(textLocalizer.Get);
+    UiText.SetLanguage(effectiveLanguage);
+    UiText.LanguageChanged += (_, _) => UpdateTray();
 
         // Reclaim files staged from containers in previous sessions (including any a crash left
         // behind), since they are never deleted while the app is running.
@@ -180,6 +202,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         _window = new MainWindow();
         _window.ApplyTheme(settings.Theme);
+        _window.ApplyLanguage(settings.Language);
 
         // In-app updates: report on an update the previous session was closed to install (and
         // clear its download), then offer any newer release once the window exists.
@@ -369,7 +392,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
     }
 
     private void OnHealthNotification(string title, string message) =>
-        _tray?.ShowNotification(title, message);
+        _tray?.ShowNotification(UiText.Translate(title), UiText.Translate(message));
 
     /// <summary>Rolls the engine status and per-container health into the single tray glyph.</summary>
     private void UpdateTray()
@@ -388,22 +411,22 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         var tooltip = _engineHealth switch
         {
-            EngineHealth.Healthy => $"WSL Container Desktop — {_engineSummary}",
-            EngineHealth.Down => "WSL Container Desktop — engine unreachable",
+            EngineHealth.Healthy => $"WSL Container Desktop — {UiText.Translate(_engineSummary)}",
+            EngineHealth.Down => UiText.Get("Root_EngineUnreachable", "WSL Container Desktop — engine unreachable"),
             _ => "WSL Container Desktop",
         };
 
         if (health == EngineHealth.Degraded)
         {
-            tooltip += " · a container is unhealthy";
+            tooltip += UiText.Get("Root_ContainerUnhealthy", " · a container is unhealthy");
         }
         else if (health == EngineHealth.Down && _engineHealth == EngineHealth.Healthy)
         {
-            tooltip += " · a container is down";
+            tooltip += UiText.Get("Root_ContainerDown", " · a container is down");
         }
 
         var settings = Services.GetRequiredService<ISettingsService>();
-        var statusText = _engineSummary.Length == 0 ? "Status: unknown" : _engineSummary;
+        var statusText = _engineSummary.Length == 0 ? UiText.Get("Root_StatusUnknown", "Status: unknown") : UiText.Translate(_engineSummary);
         _tray?.UpdateStatus(health, tooltip, statusText, _runningCount, _lastContainers, settings.NotificationsEnabled);
     }
 
@@ -510,6 +533,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         });
 
         services.AddSingleton<ISettingsService, SettingsService>();
+        services.AddSingleton<ITextLocalizer, TextLocalizer>();
         services.AddSingleton<ProcessRunner>();
         services.AddSingleton<IWslPolicyRegistryReader, RegistryWslPolicyRegistryReader>();
         services.AddSingleton<IWslPolicyService, WslPolicyService>();

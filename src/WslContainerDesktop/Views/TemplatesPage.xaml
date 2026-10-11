@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.Views.TemplatesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -28,51 +29,47 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Spacing="2">
-                    <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Templates" />
-                    <TextBlock
+                    <TextBlock x:Uid="Workload_TemplatesPage_001" i18n:Localization.Uid="Workload_TemplatesPage_001" Style="{ThemeResource TitleTextBlockStyle}"  />
+                    <TextBlock x:Uid="Workload_TemplatesPage_002" i18n:Localization.Uid="Workload_TemplatesPage_002"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Style="{ThemeResource CaptionTextBlockStyle}"
-                        Text="One-click stacks — launch a common image or multi-service project in seconds." />
+                         />
                 </StackPanel>
                 <StackPanel
                     Grid.Column="1"
                     VerticalAlignment="Top"
                     Orientation="Horizontal"
                     Spacing="8">
-                    <Button
-                        AutomationProperties.Name="New template"
+                    <Button x:Uid="Workload_TemplatesPage_003" i18n:Localization.Uid="Workload_TemplatesPage_003"
                         Click="NewTemplateButton_Click"
                         Style="{StaticResource AccentButtonStyle}"
-                        ToolTipService.ToolTip="Create a new custom template">
+                        >
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <FontIcon FontSize="14" Glyph="&#xE710;" />
-                            <TextBlock Text="New template" />
+                            <TextBlock x:Uid="Workload_TemplatesPage_004" i18n:Localization.Uid="Workload_TemplatesPage_004"  />
                         </StackPanel>
                     </Button>
-                    <Button
-                        AutomationProperties.Name="Import templates"
+                    <Button x:Uid="Workload_TemplatesPage_005" i18n:Localization.Uid="Workload_TemplatesPage_005"
                         Click="ImportButton_Click"
-                        ToolTipService.ToolTip="Import templates from a file">
+                        >
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <FontIcon FontSize="14" Glyph="&#xE896;" />
-                            <TextBlock Text="Import" />
+                            <TextBlock x:Uid="Workload_TemplatesPage_006" i18n:Localization.Uid="Workload_TemplatesPage_006"  />
                         </StackPanel>
                     </Button>
-                    <Button
-                        AutomationProperties.Name="Export all custom templates"
+                    <Button x:Uid="Workload_TemplatesPage_007" i18n:Localization.Uid="Workload_TemplatesPage_007"
                         Click="ExportAllButton_Click"
-                        ToolTipService.ToolTip="Export your custom and imported templates to a file">
+                        >
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <FontIcon FontSize="14" Glyph="&#xE898;" />
-                            <TextBlock Text="Export all" />
+                            <TextBlock x:Uid="Workload_TemplatesPage_008" i18n:Localization.Uid="Workload_TemplatesPage_008"  />
                         </StackPanel>
                     </Button>
-                    <ToggleSwitch
+                    <ToggleSwitch x:Uid="Workload_TemplatesPage_009" i18n:Localization.Uid="Workload_TemplatesPage_009"
                         MinWidth="0"
                         VerticalAlignment="Center"
                         IsOn="{x:Bind ViewModel.ShowHidden, Mode=TwoWay}"
-                        OffContent="Show hidden"
-                        OnContent="Show hidden" />
+                         />
                 </StackPanel>
             </Grid>
 
@@ -106,7 +103,7 @@
                         Grid.Column="2"
                         VerticalAlignment="Center"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                        Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay, Converter={StaticResource UiTextConverter}}"
                         TextWrapping="Wrap" />
                 </Grid>
             </Border>
@@ -124,7 +121,7 @@
                             <TextBlock
                                 Margin="4,12,0,4"
                                 Style="{ThemeResource SubtitleTextBlockStyle}"
-                                Text="{Binding Category}" />
+                                Text="{Binding DisplayCategory}" />
                         </DataTemplate>
                     </GroupStyle.HeaderTemplate>
                 </GroupStyle>
@@ -160,14 +157,14 @@
                                 <TextBlock
                                     VerticalAlignment="Center"
                                     Style="{ThemeResource BodyStrongTextBlockStyle}"
-                                    Text="{x:Bind Name}" />
+                                    Text="{x:Bind DisplayName, Mode=OneWay}" />
                             </StackPanel>
 
                             <TextBlock
                                 Grid.Row="1"
                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                 Style="{ThemeResource CaptionTextBlockStyle}"
-                                Text="{x:Bind Description}"
+                                Text="{x:Bind DisplayDescription, Mode=OneWay}"
                                 TextWrapping="Wrap" />
 
                             <StackPanel Grid.Row="2" Spacing="10">
@@ -185,7 +182,7 @@
                                         <TextBlock
                                             FontSize="11"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Text="{x:Bind KindLabel}" />
+                                            Text="{x:Bind KindLabel, Mode=OneWay, Converter={StaticResource UiTextConverter}}" />
                                     </Border>
 
                                     <!--  "Custom" / "Imported" badge for user-owned templates  -->
@@ -198,7 +195,7 @@
                                         <TextBlock
                                             FontSize="11"
                                             Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                                            Text="{x:Bind SourceLabel}" />
+                                            Text="{x:Bind SourceLabel, Mode=OneWay, Converter={StaticResource UiTextConverter}}" />
                                     </Border>
 
                                     <Border
@@ -213,15 +210,15 @@
                                                 FontSize="10"
                                                 Foreground="{ThemeResource SystemFillColorSuccessBrush}"
                                                 Glyph="&#xE73E;" />
-                                            <TextBlock
+                                            <TextBlock x:Uid="Workload_TemplatesPage_010" i18n:Localization.Uid="Workload_TemplatesPage_010"
                                                 FontSize="11"
                                                 Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                                                Text="Deployed" />
+                                                 />
                                             <TextBlock
                                                 FontSize="11"
                                                 FontWeight="SemiBold"
                                                 Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                                                Text="{x:Bind DeploymentSummary, Mode=OneWay}"
+                                                Text="{x:Bind DeploymentSummary, Mode=OneWay, Converter={StaticResource UiTextConverter}}"
                                                 Visibility="{x:Bind HasMultipleDeployments, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
                                     </Border>
@@ -242,7 +239,7 @@
                                                 Spacing="6"
                                                 Visibility="{x:Bind IsLaunching, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
                                                 <FontIcon FontSize="13" Glyph="&#xE768;" />
-                                                <TextBlock Text="Launch" />
+                                                <TextBlock x:Uid="Workload_TemplatesPage_011" i18n:Localization.Uid="Workload_TemplatesPage_011"  />
                                             </StackPanel>
                                             <StackPanel
                                                 Orientation="Horizontal"
@@ -254,86 +251,81 @@
                                                     VerticalAlignment="Center"
                                                     Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
                                                     IsActive="{x:Bind IsLaunching, Mode=OneWay}" />
-                                                <TextBlock Text="Launching…" />
+                                                <TextBlock x:Uid="Workload_TemplatesPage_012" i18n:Localization.Uid="Workload_TemplatesPage_012"  />
                                             </StackPanel>
                                         </Grid>
                                     </Button>
 
                                     <!--  Secondary actions: text-labelled so nothing is ambiguous  -->
-                                    <Button
+                                    <Button x:Uid="Workload_TemplatesPage_013" i18n:Localization.Uid="Workload_TemplatesPage_013"
                                         Padding="8"
-                                        AutomationProperties.Name="More actions"
-                                        ToolTipService.ToolTip="More actions">
+
+                                        >
                                         <FontIcon FontSize="14" Glyph="&#xE712;" />
                                         <Button.Flyout>
                                             <MenuFlyout>
-                                                <MenuFlyoutItem
+                                                <MenuFlyoutItem x:Uid="Workload_TemplatesPage_014" i18n:Localization.Uid="Workload_TemplatesPage_014"
                                                     Click="ConfigureMenuItem_Click"
                                                     IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
                                                     Tag="{x:Bind}"
-                                                    Text="Configure…">
+                                                    >
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE713;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
-                                                <MenuFlyoutItem
+                                                <MenuFlyoutItem x:Uid="Workload_TemplatesPage_015" i18n:Localization.Uid="Workload_TemplatesPage_015"
                                                     Click="DuplicateMenuItem_Click"
                                                     Tag="{x:Bind}"
-                                                    Text="Duplicate…">
+                                                    >
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE8C8;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
-                                                <MenuFlyoutItem
+                                                <MenuFlyoutItem x:Uid="Workload_TemplatesPage_016" i18n:Localization.Uid="Workload_TemplatesPage_016"
                                                     Click="EditMenuItem_Click"
                                                     Tag="{x:Bind}"
-                                                    Text="Edit…"
                                                     Visibility="{x:Bind IsUserManaged, Converter={StaticResource BoolToVis}}">
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE70F;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
-                                                <MenuFlyoutItem
+                                                <MenuFlyoutItem x:Uid="Workload_TemplatesPage_017" i18n:Localization.Uid="Workload_TemplatesPage_017"
                                                     Click="ExportMenuItem_Click"
                                                     Tag="{x:Bind}"
-                                                    Text="Export…">
+                                                    >
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE898;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
-                                                <MenuFlyoutItem
+                                                <MenuFlyoutItem x:Uid="Workload_TemplatesPage_018" i18n:Localization.Uid="Workload_TemplatesPage_018"
                                                     Click="RemoveDeploymentMenuItem_Click"
                                                     IsEnabled="{x:Bind IsBusyCard, Mode=OneWay, Converter={StaticResource InverseBool}}"
                                                     Tag="{x:Bind}"
-                                                    Text="Remove deployment"
                                                     Visibility="{x:Bind IsDeployed, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE738;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
                                                 <MenuFlyoutSeparator />
-                                                <MenuFlyoutItem
+                                                <MenuFlyoutItem x:Uid="Workload_TemplatesPage_019" i18n:Localization.Uid="Workload_TemplatesPage_019"
                                                     Click="HideMenuItem_Click"
                                                     Tag="{x:Bind}"
-                                                    Text="Hide"
                                                     Visibility="{x:Bind IsHidden, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xED1A;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
-                                                <MenuFlyoutItem
+                                                <MenuFlyoutItem x:Uid="Workload_TemplatesPage_020" i18n:Localization.Uid="Workload_TemplatesPage_020"
                                                     Click="HideMenuItem_Click"
                                                     Tag="{x:Bind}"
-                                                    Text="Unhide"
                                                     Visibility="{x:Bind IsHidden, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE7B3;" />
                                                     </MenuFlyoutItem.Icon>
                                                 </MenuFlyoutItem>
-                                                <MenuFlyoutItem
+                                                <MenuFlyoutItem x:Uid="Workload_TemplatesPage_021" i18n:Localization.Uid="Workload_TemplatesPage_021"
                                                     Click="DeleteTemplateMenuItem_Click"
                                                     Tag="{x:Bind}"
-                                                    Text="Delete template"
                                                     Visibility="{x:Bind IsUserManaged, Converter={StaticResource BoolToVis}}">
                                                     <MenuFlyoutItem.Icon>
                                                         <FontIcon Glyph="&#xE74D;" />

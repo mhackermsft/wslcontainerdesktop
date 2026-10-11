@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views;
 
@@ -37,6 +38,8 @@ public sealed partial class DashboardPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        UiText.LanguageChanged += OnUiLanguageChanged;
+        ViewModel.RefreshLocalizedText();
         await ViewModel.RefreshAsync();
         ViewModel.StartStatsPolling();
     }
@@ -51,7 +54,13 @@ public sealed partial class DashboardPage : Page
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
+        UiText.LanguageChanged -= OnUiLanguageChanged;
         base.OnNavigatedFrom(e);
         ViewModel.StopStatsPolling();
+    }
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLocalizedText();
+        Bindings.Update();
     }
 }

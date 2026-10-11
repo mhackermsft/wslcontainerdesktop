@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.Views.RegistriesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -23,16 +24,16 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!--  Header  -->
+        <!-- Header  -->
         <StackPanel Grid.Row="0" Spacing="2">
-            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Registries" />
+            <TextBlock x:Uid="Resource_Registries_001" i18n:Localization.Uid="Resource_Registries_001" Style="{ThemeResource TitleTextBlockStyle}" />
             <TextBlock
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
-                Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" />
+                Text="{x:Bind ViewModel.StatusMessageDisplay, Mode=OneWay}" />
         </StackPanel>
 
-        <!--  Toolbar  -->
+        <!-- Toolbar  -->
         <StackPanel
             Grid.Row="1"
             Orientation="Horizontal"
@@ -40,32 +41,31 @@
             <Button Command="{x:Bind ViewModel.AddCommand}" Style="{ThemeResource AccentButtonStyle}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE710;" />
-                    <TextBlock Text="Add registry" />
+                    <TextBlock x:Uid="Resource_Registries_002" i18n:Localization.Uid="Resource_Registries_002" />
                 </StackPanel>
             </Button>
             <Button Command="{x:Bind ViewModel.AddFromAzureCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE753;" />
-                    <TextBlock Text="Add from Azure" />
+                    <TextBlock x:Uid="Resource_Registries_003" i18n:Localization.Uid="Resource_Registries_003" />
                 </StackPanel>
             </Button>
             <Button Command="{x:Bind ViewModel.RefreshLoginStatesCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE72C;" />
-                    <TextBlock Text="Refresh status" />
+                    <TextBlock x:Uid="Resource_Registries_004" i18n:Localization.Uid="Resource_Registries_004" />
                 </StackPanel>
             </Button>
         </StackPanel>
 
-        <InfoBar
+        <InfoBar x:Uid="Resource_Registries_Extra1" i18n:Localization.Uid="Resource_Registries_Extra1"
             Grid.Row="2"
             IsClosable="False"
             IsOpen="{x:Bind ViewModel.IsPolicyInfoVisible, Mode=OneWay}"
-            Message="{x:Bind ViewModel.PolicyInfoMessage, Mode=OneWay}"
-            Severity="Informational"
-            Title="Registry policy" />
+            Message="{x:Bind ViewModel.PolicyInfoMessageDisplay, Mode=OneWay}"
+            Severity="Informational" />
 
-        <!--  Table: column header (wide only) + list  -->
+        <!-- Table: column header (wide only) + list  -->
         <Grid Grid.Row="3">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -90,7 +90,7 @@
                 </VisualStateGroup>
             </VisualStateManager.VisualStateGroups>
 
-        <!--  Column header  -->
+        <!-- Column header  -->
         <Border
             x:Name="HeaderBorder"
             Grid.Row="0"
@@ -107,19 +107,18 @@
                     <ColumnDefinition Width="1*" MinWidth="80" />
                     <ColumnDefinition Width="150" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="NAME" />
-                <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="HOST" />
-                <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="USERNAME" />
-                <TextBlock Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" Text="STATUS" />
-                <TextBlock
+                <TextBlock x:Uid="Resource_Registries_005" i18n:Localization.Uid="Resource_Registries_005" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Registries_006" i18n:Localization.Uid="Resource_Registries_006" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Registries_007" i18n:Localization.Uid="Resource_Registries_007" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Registries_008" i18n:Localization.Uid="Resource_Registries_008" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Resource_Registries_009" i18n:Localization.Uid="Resource_Registries_009"
                     Grid.Column="4"
                     HorizontalAlignment="Right"
-                    Style="{ThemeResource CaptionTextBlockStyle}"
-                    Text="ACTIONS" />
+                    Style="{ThemeResource CaptionTextBlockStyle}" />
             </Grid>
         </Border>
 
-        <!--  List  -->
+        <!-- List  -->
         <Border
             Grid.Row="1"
             Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
@@ -196,7 +195,7 @@
                                     Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
                                     CornerRadius="8"
                                     Visibility="{x:Bind IsDefault, Converter={StaticResource BoolToVis}}">
-                                    <TextBlock FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="default" />
+                                    <TextBlock x:Uid="Resource_Registries_010" i18n:Localization.Uid="Resource_Registries_010" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </Border>
                             </Grid>
 
@@ -216,7 +215,7 @@
                                 Text="{x:Bind Username}"
                                 TextTrimming="CharacterEllipsis" />
 
-                            <!--  Status  -->
+                            <!-- Status  -->
                             <StackPanel
                                 Grid.Column="3"
                                 VerticalAlignment="Center"
@@ -233,32 +232,32 @@
                                     Text="{x:Bind LoginStateText, Mode=OneWay}" />
                             </StackPanel>
 
-                            <!--  Actions  -->
+                            <!-- Actions  -->
                             <StackPanel
                                 Grid.Column="4"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center"
                                 Orientation="Horizontal"
                                 Spacing="4">
-                                <Button Click="Login_Click" AutomationProperties.Name="Log in" ToolTipService.ToolTip="Log in / re-authenticate" Visibility="{x:Bind ShowLoginButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <Button x:Uid="Resource_Registries_011" i18n:Localization.Uid="Resource_Registries_011" Click="Login_Click" Visibility="{x:Bind ShowLoginButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <FontIcon FontSize="13" Glyph="&#xE77B;" />
-                                        <TextBlock FontSize="13" Text="Log in" />
+                                        <TextBlock x:Uid="Resource_Registries_012" i18n:Localization.Uid="Resource_Registries_012" FontSize="13" />
                                     </StackPanel>
                                 </Button>
-                                <Button Click="Logout_Click" AutomationProperties.Name="Log out" ToolTipService.ToolTip="Log out" Visibility="{x:Bind ShowLogoutButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                <Button x:Uid="Resource_Registries_013" i18n:Localization.Uid="Resource_Registries_013" Click="Logout_Click" Visibility="{x:Bind ShowLogoutButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <FontIcon FontSize="13" Glyph="&#xE7E8;" />
-                                        <TextBlock FontSize="13" Text="Log out" />
+                                        <TextBlock x:Uid="Resource_Registries_014" i18n:Localization.Uid="Resource_Registries_014" FontSize="13" />
                                     </StackPanel>
                                 </Button>
-                                <Button Click="Remove_Click" AutomationProperties.Name="Remove" ToolTipService.ToolTip="Remove" Visibility="{x:Bind ShowRemoveButton, Converter={StaticResource BoolToVis}}">
+                                <Button x:Uid="Resource_Registries_015" i18n:Localization.Uid="Resource_Registries_015" Click="Remove_Click" Visibility="{x:Bind ShowRemoveButton, Converter={StaticResource BoolToVis}}">
                                     <FontIcon FontSize="13" Glyph="&#xE74D;" />
                                 </Button>
                             </StackPanel>
                                 </Grid>
 
-                                <!--  Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
+                                <!-- Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
                                 <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
                                     <Grid ColumnSpacing="8">
                                         <Grid.ColumnDefinitions>
@@ -269,7 +268,7 @@
                                         <FontIcon Grid.Column="0" FontSize="15" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE753;" />
                                         <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
                                         <Border Grid.Column="2" Padding="8,1" VerticalAlignment="Center" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="8" Visibility="{x:Bind IsDefault, Converter={StaticResource BoolToVis}}">
-                                            <TextBlock FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="default" />
+                                            <TextBlock x:Uid="Resource_Registries_016" i18n:Localization.Uid="Resource_Registries_016" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </Border>
                                     </Grid>
 
@@ -283,11 +282,11 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="HOST" />
+                                        <TextBlock x:Uid="Resource_Registries_017" i18n:Localization.Uid="Resource_Registries_017" Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Row="0" Grid.Column="1" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind DisplayHost}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="USERNAME" />
+                                        <TextBlock x:Uid="Resource_Registries_018" i18n:Localization.Uid="Resource_Registries_018" Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Row="1" Grid.Column="1" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Username}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="STATUS" />
+                                        <TextBlock x:Uid="Resource_Registries_019" i18n:Localization.Uid="Resource_Registries_019" Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="7">
                                             <FontIcon FontSize="13" Foreground="{x:Bind LoginStateColor, Mode=OneWay, Converter={StaticResource HexToBrush}}" Glyph="{x:Bind LoginStateGlyph, Mode=OneWay}" />
                                             <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind LoginStateText, Mode=OneWay}" />
@@ -295,19 +294,19 @@
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Button Click="Login_Click" AutomationProperties.Name="Log in" ToolTipService.ToolTip="Log in / re-authenticate" Visibility="{x:Bind ShowLoginButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <Button x:Uid="Resource_Registries_020" i18n:Localization.Uid="Resource_Registries_020" Click="Login_Click" Visibility="{x:Bind ShowLoginButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <FontIcon FontSize="13" Glyph="&#xE77B;" />
-                                                <TextBlock FontSize="13" Text="Log in" />
+                                                <TextBlock x:Uid="Resource_Registries_021" i18n:Localization.Uid="Resource_Registries_021" FontSize="13" />
                                             </StackPanel>
                                         </Button>
-                                        <Button Click="Logout_Click" AutomationProperties.Name="Log out" ToolTipService.ToolTip="Log out" Visibility="{x:Bind ShowLogoutButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <Button x:Uid="Resource_Registries_022" i18n:Localization.Uid="Resource_Registries_022" Click="Logout_Click" Visibility="{x:Bind ShowLogoutButton, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <FontIcon FontSize="13" Glyph="&#xE7E8;" />
-                                                <TextBlock FontSize="13" Text="Log out" />
+                                                <TextBlock x:Uid="Resource_Registries_023" i18n:Localization.Uid="Resource_Registries_023" FontSize="13" />
                                             </StackPanel>
                                         </Button>
-                                        <Button Click="Remove_Click" AutomationProperties.Name="Remove" ToolTipService.ToolTip="Remove" Visibility="{x:Bind ShowRemoveButton, Converter={StaticResource BoolToVis}}">
+                                        <Button x:Uid="Resource_Registries_024" i18n:Localization.Uid="Resource_Registries_024" Click="Remove_Click" Visibility="{x:Bind ShowRemoveButton, Converter={StaticResource BoolToVis}}">
                                             <FontIcon FontSize="13" Glyph="&#xE74D;" />
                                         </Button>
                                     </StackPanel>

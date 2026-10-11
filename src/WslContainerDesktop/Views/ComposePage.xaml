@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.Views.ComposePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -26,11 +27,11 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Spacing="2">
-            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Compose" />
+            <TextBlock x:Uid="Workload_ComposePage_001" i18n:Localization.Uid="Workload_ComposePage_001" Style="{ThemeResource TitleTextBlockStyle}"  />
             <TextBlock
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
-                Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" />
+                Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay, Converter={StaticResource UiTextConverter}}" />
         </StackPanel>
 
         <StackPanel
@@ -40,18 +41,17 @@
             <Button AutomationProperties.AutomationId="ComposeImport" Command="{x:Bind ViewModel.ImportCommand}" Style="{ThemeResource AccentButtonStyle}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE898;" />
-                    <TextBlock Text="Import compose file" />
+                    <TextBlock x:Uid="Workload_ComposePage_002" i18n:Localization.Uid="Workload_ComposePage_002"  />
                 </StackPanel>
             </Button>
             <Button AutomationProperties.AutomationId="ComposeRefresh" Command="{x:Bind ViewModel.RefreshCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE72C;" />
-                    <TextBlock Text="Refresh" />
+                    <TextBlock x:Uid="Workload_ComposePage_003" i18n:Localization.Uid="Workload_ComposePage_003"  />
                 </StackPanel>
             </Button>
-            <Button
+            <Button x:Uid="Workload_ComposePage_004" i18n:Localization.Uid="Workload_ComposePage_004"
                 AutomationProperties.AutomationId="ComposeRestartSession"
-                AutomationProperties.Name="Restart WSL session"
                 Command="{x:Bind ViewModel.RestartSessionCommand}">
                 <ToolTipService.ToolTip>
                     <ToolTip>
@@ -64,16 +64,16 @@
                 </ToolTipService.ToolTip>
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE777;" />
-                    <TextBlock Text="Restart WSL session" />
+                    <TextBlock x:Uid="Workload_ComposePage_005" i18n:Localization.Uid="Workload_ComposePage_005"  />
                 </StackPanel>
             </Button>
         </StackPanel>
 
         <InfoBar
+            x:Uid="Root_Static_Compose_Supervision" i18n:Localization.Uid="Root_Static_Compose_Supervision"
             Grid.Row="2"
             IsClosable="False"
             IsOpen="True"
-            Message="App-owned health probes, restart policies, and auto-heal require this app to be running. Supported native health checks are managed by WSLC. When the app relaunches, app-owned supervision resumes for projects whose containers still exist."
             Severity="Informational" />
 
         <!--  Table: column header (wide only) + list  -->
@@ -116,14 +116,14 @@
                     <ColumnDefinition Width="210" />
                     <ColumnDefinition Width="190" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="PROJECT" />
-                <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="SERVICES" />
-                <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="STATUS" />
-                <TextBlock
+                <TextBlock x:Uid="Workload_ComposePage_006" i18n:Localization.Uid="Workload_ComposePage_006" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}"  />
+                <TextBlock x:Uid="Workload_ComposePage_007" i18n:Localization.Uid="Workload_ComposePage_007" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}"  />
+                <TextBlock x:Uid="Workload_ComposePage_008" i18n:Localization.Uid="Workload_ComposePage_008" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}"  />
+                <TextBlock x:Uid="Workload_ComposePage_009" i18n:Localization.Uid="Workload_ComposePage_009"
                     Grid.Column="3"
                     HorizontalAlignment="Right"
                     Style="{ThemeResource CaptionTextBlockStyle}"
-                    Text="ACTIONS" />
+                     />
             </Grid>
         </Border>
 
@@ -200,7 +200,7 @@
                                     VerticalAlignment="Center"
                                     FontSize="13"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="{x:Bind ServicesSummary}"
+                                    Text="{x:Bind ServicesSummary, Converter={StaticResource UiTextConverter}}"
                                     ToolTipService.ToolTip="{x:Bind ServicesSummary}"
                                     TextTrimming="CharacterEllipsis" />
 
@@ -214,7 +214,7 @@
                                     <TextBlock
                                         FontSize="12"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        Text="{x:Bind StatusText, Mode=OneWay}"
+                                        Text="{x:Bind StatusText, Mode=OneWay, Converter={StaticResource UiTextConverter}}"
                                         TextTrimming="CharacterEllipsis"
                                         ToolTipService.ToolTip="{x:Bind StatusText, Mode=OneWay}" />
                                 </Border>
@@ -224,43 +224,39 @@
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Spacing="4">
-                                    <Button
+                                    <Button x:Uid="Workload_ComposePage_010" i18n:Localization.Uid="Workload_ComposePage_010"
                                         AutomationProperties.AutomationId="ComposeManageServicesWide"
                                         HorizontalAlignment="Right"
                                         Command="{x:Bind ManageServicesCommand}"
                                         CommandParameter="{x:Bind}"
-                                        Content="Manage services" />
+                                         />
                                     <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
-                                    <Button
+                                    <Button x:Uid="Workload_ComposePage_011" i18n:Localization.Uid="Workload_ComposePage_011"
                                         AutomationProperties.AutomationId="ComposeUpWide"
                                         Padding="7,5"
-                                        AutomationProperties.Name="Bring up"
                                         Click="UpButton_Click"
-                                        ToolTipService.ToolTip="Up (Apply): apply configuration; keep unchanged running containers">
+                                        >
                                         <FontIcon FontSize="14" Glyph="&#xE768;" />
                                     </Button>
-                                    <Button
+                                    <Button x:Uid="Workload_ComposePage_012" i18n:Localization.Uid="Workload_ComposePage_012"
                                         AutomationProperties.AutomationId="ComposeRestartWide"
                                         Padding="7,5"
-                                        AutomationProperties.Name="Restart"
                                         Click="RestartButton_Click"
-                                        ToolTipService.ToolTip="Stop and start existing containers without applying configuration or rebuilding">
+                                        >
                                         <FontIcon FontSize="14" Glyph="&#xE72C;" />
                                     </Button>
-                                    <Button
+                                    <Button x:Uid="Workload_ComposePage_013" i18n:Localization.Uid="Workload_ComposePage_013"
                                         AutomationProperties.AutomationId="ComposeDownWide"
                                         Padding="7,5"
-                                        AutomationProperties.Name="Bring down"
                                         Click="DownButton_Click"
-                                        ToolTipService.ToolTip="Bring down">
+                                        >
                                         <FontIcon FontSize="14" Glyph="&#xE71A;" />
                                     </Button>
-                                    <Button
+                                    <Button x:Uid="Workload_ComposePage_014" i18n:Localization.Uid="Workload_ComposePage_014"
                                         AutomationProperties.AutomationId="ComposeRemoveProjectWide"
                                         Padding="7,5"
-                                        AutomationProperties.Name="Remove project"
                                         Click="RemoveButton_Click"
-                                        ToolTipService.ToolTip="Remove project">
+                                        >
                                         <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                     </Button>
                                     </StackPanel>
@@ -283,30 +279,30 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="SERVICES" />
-                                        <TextBlock Grid.Row="0" Grid.Column="1" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ServicesSummary}" ToolTipService.ToolTip="{x:Bind ServicesSummary}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="STATUS" />
+                                        <TextBlock x:Uid="Workload_ComposePage_015" i18n:Localization.Uid="Workload_ComposePage_015" Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}"  />
+                                        <TextBlock Grid.Row="0" Grid.Column="1" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ServicesSummary, Converter={StaticResource UiTextConverter}}" ToolTipService.ToolTip="{x:Bind ServicesSummary}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Uid="Workload_ComposePage_016" i18n:Localization.Uid="Workload_ComposePage_016" Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}"  />
                                         <Border Grid.Row="1" Grid.Column="1" Padding="8,2" HorizontalAlignment="Left" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="10">
-                                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind StatusText, Mode=OneWay}" />
+                                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind StatusText, Mode=OneWay, Converter={StaticResource UiTextConverter}}" />
                                         </Border>
                                     </Grid>
 
-                                    <Button
+                                    <Button x:Uid="Workload_ComposePage_017" i18n:Localization.Uid="Workload_ComposePage_017"
                                         AutomationProperties.AutomationId="ComposeManageServicesNarrow"
                                         Command="{x:Bind ManageServicesCommand}"
                                         CommandParameter="{x:Bind}"
-                                        Content="Manage services" />
+                                         />
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Button AutomationProperties.AutomationId="ComposeUpNarrow" Padding="7,5" AutomationProperties.Name="Bring up" Click="UpButton_Click" ToolTipService.ToolTip="Up (Apply): apply configuration; keep unchanged running containers">
+                                        <Button x:Uid="Workload_ComposePage_018" i18n:Localization.Uid="Workload_ComposePage_018" AutomationProperties.AutomationId="ComposeUpNarrow" Padding="7,5"  Click="UpButton_Click" >
                                             <FontIcon FontSize="14" Glyph="&#xE768;" />
                                         </Button>
-                                        <Button AutomationProperties.AutomationId="ComposeRestartNarrow" Padding="7,5" AutomationProperties.Name="Restart" Click="RestartButton_Click" ToolTipService.ToolTip="Stop and start existing containers without applying configuration or rebuilding">
+                                        <Button x:Uid="Workload_ComposePage_019" i18n:Localization.Uid="Workload_ComposePage_019" AutomationProperties.AutomationId="ComposeRestartNarrow" Padding="7,5"  Click="RestartButton_Click" >
                                             <FontIcon FontSize="14" Glyph="&#xE72C;" />
                                         </Button>
-                                        <Button AutomationProperties.AutomationId="ComposeDownNarrow" Padding="7,5" AutomationProperties.Name="Bring down" Click="DownButton_Click" ToolTipService.ToolTip="Bring down">
+                                        <Button x:Uid="Workload_ComposePage_020" i18n:Localization.Uid="Workload_ComposePage_020" AutomationProperties.AutomationId="ComposeDownNarrow" Padding="7,5"  Click="DownButton_Click" >
                                             <FontIcon FontSize="14" Glyph="&#xE71A;" />
                                         </Button>
-                                        <Button AutomationProperties.AutomationId="ComposeRemoveProjectNarrow" Padding="7,5" AutomationProperties.Name="Remove project" Click="RemoveButton_Click" ToolTipService.ToolTip="Remove project">
+                                        <Button x:Uid="Workload_ComposePage_021" i18n:Localization.Uid="Workload_ComposePage_021" AutomationProperties.AutomationId="ComposeRemoveProjectNarrow" Padding="7,5"  Click="RemoveButton_Click" >
                                             <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                         </Button>
                                     </StackPanel>
@@ -327,10 +323,10 @@
                         FontSize="40"
                         Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                         Glyph="&#xE81E;" />
-                    <TextBlock
+                    <TextBlock x:Uid="Workload_ComposePage_022" i18n:Localization.Uid="Workload_ComposePage_022"
                         HorizontalAlignment="Center"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="No compose projects. Import a docker-compose.yml to get started." />
+                         />
                 </StackPanel>
 
                 <ProgressBar

@@ -43,6 +43,7 @@ public sealed partial class MainWindow : Window
     private readonly RequirementGateViewModel _gate;
     private readonly WindowVisibility _visibility;
     private string _currentTag = "dashboard";
+    private string _effectiveLanguage = string.Empty;
 
     private static readonly HashSet<string> GatedTags = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -105,6 +106,7 @@ public sealed partial class MainWindow : Window
         _aiAvailability.Changed += OnAiAvailabilityChanged;
         _requirements.Changed += OnRequirementChanged;
         _gate.OpenSettingsRequested += OnGateOpenSettingsRequested;
+        Activated += OnWindowActivated;
 
         NavFrame.NavigateWithPreference(typeof(DashboardPage));
         RefreshRequirementGate();
@@ -115,6 +117,18 @@ public sealed partial class MainWindow : Window
 
     /// <summary>View model for the in-app update banner and update actions in the shell.</summary>
     public AppUpdateViewModel Updates { get; }
+
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState == WindowActivationState.Deactivated || AppLanguage.Normalize(_settings.Language) != AppLanguage.SystemDefault)
+            return;
+        try { ApplyLanguage(_settings.Language, refreshUi: true); }
+        catch (Exception ex)
+        {
+            App.Current.Services.GetService<ILoggerFactory>()?.CreateLogger<MainWindow>()
+                .LogWarning(ex, "Could not refresh the Windows display language.");
+        }
+    }
 
     /// <summary>Converts a Boolean into WinUI <see cref="Visibility"/> for <c>x:Bind</c> expressions.</summary>
     public static Visibility ToVisibility(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
@@ -529,5 +543,99 @@ public sealed partial class MainWindow : Window
                 _ => ElementTheme.Default,
             };
         }
+    }
+
+    /// <summary>
+    /// Applies the app-wide resource language and pins the shell root's inherited language.
+    /// </summary>
+    /// <remarks>
+    /// An empty preference means "follow the system". Resolve it before either native property is
+    /// written; an empty/null HSTRING is rejected. The saved preference itself stays unchanged.
+    /// </remarks>
+    /// <param name="languageTag">BCP-47 tag, or empty to follow the system.</param>
+    /// <param name="refreshUi">
+    /// Whether to refresh shell bindings after a runtime switch without discarding the loaded page.
+    /// False at startup, before the window is shown.
+    /// </param>
+    public void ApplyLanguage(string languageTag, bool refreshUi = false)
+    {
+        var tag = App.ApplyPrimaryLanguageOverride(languageTag);
+        var changed = tag != _effectiveLanguage;
+        _effectiveLanguage = tag;
+        App.Current.Services.GetRequiredService<ITextLocalizer>().SetLanguage(tag);
+        UiText.SetLanguage(tag);
+        if (Content is not FrameworkElement root)
+        {
+            return;
+        }
+
+        try
+        {
+            // The storage sentinel is never assigned to this WinRT property.
+            root.Language = tag;
+        }
+        catch (Exception ex)
+        {
+            App.Current.Services.GetService<ILoggerFactory>()?.CreateLogger<MainWindow>()
+                .LogWarning(ex, "Could not apply the effective UI language {Language}.", tag);
+            return;
+        }
+
+        if (changed)
+            UiText.NotifyLanguageChanged();
+        if (refreshUi && changed)
+        {
+            RefreshForLanguage();
+        }
+    }
+
+    /// <summary>
+    /// Updates shell bindings; Localization.Uid refreshes resource properties on existing controls.
+    /// </summary>
+    private void RefreshForLanguage()
+    {
+        try
+        {
+            RefreshShellText();
+
+            // Localization.Uid reapplies static resource properties on existing controls. Keeping
+            // the view alive preserves passwords, drafts, navigation parameters and active streams.
+            Bindings.Update();
+
+            RefreshRequirementGate();
+            RefreshAssistantButtonVisibility();
+        }
+        catch (Exception ex)
+        {
+            App.Current.Services.GetService<ILoggerFactory>()?.CreateLogger<MainWindow>()
+                .LogWarning(ex, "Could not rebuild the UI after switching language.");
+        }
+    }
+
+    private void RefreshShellText()
+    {
+        var text = App.Current.Services.GetRequiredService<ITextLocalizer>();
+        foreach (var item in NavView.MenuItems.Concat(NavView.FooterMenuItems))
+        {
+            if (item is NavigationViewItem { Tag: string tag } navItem)
+            {
+                var key = tag switch
+                {
+                    "wsl" => "Nav_WslEngine.Content",
+                    "reclaim" => "Nav_Reclaim.Content",
+                    "devcontainers" => "Nav_DevContainers.Content",
+                    _ => $"Nav_{char.ToUpperInvariant(tag[0])}{tag[1..]}.Content",
+                };
+                navItem.Content = text.Get(key);
+            }
+        }
+
+        if (NavView.SettingsItem is NavigationViewItem settingsItem)
+        {
+            settingsItem.Content = text.Get("Nav_Settings.Content");
+        }
+
+        AssistantLabel.Text = text.Get("Nav_Assistant.Text");
+        WhatsNewButton.Content = text.Get("Update_WhatsNew.Content");
     }
 }

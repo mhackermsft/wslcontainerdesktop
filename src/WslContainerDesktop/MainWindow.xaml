@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:WslContainerDesktop"
@@ -43,7 +44,7 @@
                     CornerRadius="{ThemeResource ControlCornerRadius}"
                     Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
                     Click="AssistantButton_Click"
-                    ToolTipService.ToolTip="Container AI Assistant"
+                    x:Uid="Root_AssistantButton" i18n:Localization.Uid="Root_AssistantButton"
                     Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon
@@ -51,9 +52,10 @@
                             Height="16"
                             Data="M8,0 L9.6,6.4 L16,8 L9.6,9.6 L8,16 L6.4,9.6 L0,8 L6.4,6.4 Z" />
                         <TextBlock
+                            x:Name="AssistantLabel"
                             VerticalAlignment="Center"
                             Style="{ThemeResource BodyStrongTextBlockStyle}"
-                            Text="Assistant" />
+                            x:Uid="Nav_Assistant" i18n:Localization.Uid="Nav_Assistant" />
                     </StackPanel>
                 </Button>
             </TitleBar.RightHeader>
@@ -71,63 +73,63 @@
             ItemInvoked="NavView_ItemInvoked"
             SelectionChanged="NavView_SelectionChanged">
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="Dashboard" IsSelected="True" Tag="dashboard">
+                <NavigationViewItem x:Uid="Nav_Dashboard" i18n:Localization.Uid="Nav_Dashboard" IsSelected="True" Tag="dashboard">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE80F;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Containers" Tag="containers">
+                <NavigationViewItem x:Uid="Nav_Containers" i18n:Localization.Uid="Nav_Containers" Tag="containers">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7F4;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Images" Tag="images">
+                <NavigationViewItem x:Uid="Nav_Images" i18n:Localization.Uid="Nav_Images" Tag="images">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xEB9F;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Volumes" Tag="volumes">
+                <NavigationViewItem x:Uid="Nav_Volumes" i18n:Localization.Uid="Nav_Volumes" Tag="volumes">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8B7;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Networks" Tag="networks">
+                <NavigationViewItem x:Uid="Nav_Networks" i18n:Localization.Uid="Nav_Networks" Tag="networks">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE968;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Endpoints" Tag="endpoints">
+                <NavigationViewItem x:Uid="Nav_Endpoints" i18n:Localization.Uid="Nav_Endpoints" Tag="endpoints">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE774;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Activity" Tag="activity">
+                <NavigationViewItem x:Uid="Nav_Activity" i18n:Localization.Uid="Nav_Activity" Tag="activity">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE81C;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Registries" Tag="registries">
+                <NavigationViewItem x:Uid="Nav_Registries" i18n:Localization.Uid="Nav_Registries" Tag="registries">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE753;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Compose" Tag="compose">
+                <NavigationViewItem x:Uid="Nav_Compose" i18n:Localization.Uid="Nav_Compose" Tag="compose">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE81E;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <!-- Hidden until we have a better VS Code integration; re-enable by removing Visibility="Collapsed" -->
-                <NavigationViewItem Content="Dev Containers" Tag="devcontainers" Visibility="Collapsed">
+                <NavigationViewItem x:Uid="Nav_DevContainers" i18n:Localization.Uid="Nav_DevContainers" Tag="devcontainers" Visibility="Collapsed">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8B7;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Templates" Tag="templates">
+                <NavigationViewItem x:Uid="Nav_Templates" i18n:Localization.Uid="Nav_Templates" Tag="templates">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE71D;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Kubernetes" Tag="kubernetes">
+                <NavigationViewItem x:Uid="Nav_Kubernetes" i18n:Localization.Uid="Nav_Kubernetes" Tag="kubernetes">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xEB3C;" />
                     </NavigationViewItem.Icon>
@@ -135,12 +137,12 @@
             </NavigationView.MenuItems>
 
             <NavigationView.FooterMenuItems>
-                <NavigationViewItem Content="WSL engine" Tag="wsl">
+                <NavigationViewItem x:Uid="Nav_WslEngine" i18n:Localization.Uid="Nav_WslEngine" Tag="wsl">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE977;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Disk usage" Tag="reclaim">
+                <NavigationViewItem x:Uid="Nav_Reclaim" i18n:Localization.Uid="Nav_Reclaim" Tag="reclaim">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xEDA2;" />
                     </NavigationViewItem.Icon>
@@ -201,9 +203,9 @@
                     CloseButtonClick="UpdateBar_CloseButtonClick"
                     IsClosable="{x:Bind Updates.IsBarClosable, Mode=OneWay}"
                     IsOpen="{x:Bind Updates.IsBarOpen, Mode=OneWay}"
-                    Message="{x:Bind Updates.BarMessage, Mode=OneWay}"
+                    Message="{x:Bind Updates.BarMessageDisplay, Mode=OneWay}"
                     Severity="{x:Bind Updates.BarSeverity, Mode=OneWay}"
-                    Title="{x:Bind Updates.BarTitle, Mode=OneWay}">
+                    Title="{x:Bind Updates.BarTitleDisplay, Mode=OneWay}">
                     <InfoBar.Content>
                         <StackPanel Margin="0,0,0,12" Spacing="8">
                             <ProgressBar
@@ -215,12 +217,13 @@
                                 <Button
                                     AutomationProperties.AutomationId="AppUpdateNowButton"
                                     Command="{x:Bind Updates.UpdateNowCommand}"
-                                    Content="{x:Bind Updates.UpdateButtonText, Mode=OneWay}"
+                                    Content="{x:Bind Updates.UpdateButtonTextDisplay, Mode=OneWay}"
                                     Style="{ThemeResource AccentButtonStyle}"
                                     Visibility="{x:Bind local:MainWindow.ToVisibility(Updates.IsUpdateButtonVisible), Mode=OneWay}" />
                                 <Button
+                                    x:Name="WhatsNewButton"
                                     Command="{x:Bind Updates.ViewReleaseNotesCommand}"
-                                    Content="What's new"
+                                    x:Uid="Update_WhatsNew" i18n:Localization.Uid="Update_WhatsNew"
                                     Visibility="{x:Bind local:MainWindow.ToVisibility(Updates.IsReleaseNotesVisible), Mode=OneWay}" />
                             </StackPanel>
                         </StackPanel>

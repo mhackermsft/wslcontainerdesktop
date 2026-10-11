@@ -19,6 +19,8 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using WslContainerDesktop.Models;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -73,26 +75,26 @@ public sealed class TemplateEditorDialog : ContentDialog
         _baseOptions = source?.RunOptions?.Clone() ?? new RunContainerOptions();
 
         Title = source is null
-            ? "New template"
-            : (isDuplicate ? $"Duplicate {source.Name}" : $"Edit {source.Name}");
-        PrimaryButtonText = "Save";
-        CloseButtonText = "Cancel";
+            ? UiText.Get("Workload_Text_New_template_30d87e", "New template")
+            : (isDuplicate ? UiText.Get("Workload_Text_Duplicate_0_3afa7b", "Duplicate {0}", source.DisplayName) : UiText.Get("Workload_Text_Edit_0_fdd9d5", "Edit {0}", source.DisplayName));
+        PrimaryButtonText = UiText.Get("Workload_Text_Save_1509f5", "Save");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
         Resources["ContentDialogMaxWidth"] = 780.0;
         Resources["ContentDialogMinWidth"] = 660.0;
 
         var defaultName = source is null
             ? string.Empty
-            : (isDuplicate ? $"{source.Name} (copy)" : source.Name);
+            : (isDuplicate ? UiText.Get("Workload_Text_0_copy_c24257", "{0} (copy)", source.Name) : source.Name);
 
-        _nameBox = new TextBox { Header = "Name", Text = defaultName, PlaceholderText = "e.g. My PostgreSQL" };
+        _nameBox = new TextBox { Header = UiText.Get("Workload_Text_Name_dcd1d5", "Name"), Text = defaultName, PlaceholderText = UiText.Get("Workload_Text_e_g_My_PostgreSQL_bb660a", "e.g. My PostgreSQL") };
 
         _categoryBox = new ComboBox
         {
-            Header = "Category",
+            Header = UiText.Get("Workload_Text_Category_292c06", "Category"),
             IsEditable = true,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            PlaceholderText = "e.g. Databases",
+            PlaceholderText = UiText.Get("Workload_Text_e_g_Databases_da64e7", "e.g. Databases"),
         };
         foreach (var category in categories.Distinct().OrderBy(c => c))
         {
@@ -101,9 +103,9 @@ public sealed class TemplateEditorDialog : ContentDialog
 
         _descriptionBox = new TextBox
         {
-            Header = "Description",
+            Header = UiText.Get("Workload_Text_Description_526e00", "Description"),
             Text = source?.Description ?? string.Empty,
-            PlaceholderText = "Short one-line summary shown on the card",
+            PlaceholderText = UiText.Get("Workload_Text_Short_one_line_summary_shown_on_a55f71", "Short one-line summary shown on the card"),
         };
 
         _selectedGlyph = NormalizeGlyph(source?.Glyph);
@@ -118,13 +120,13 @@ public sealed class TemplateEditorDialog : ContentDialog
 
         _noteBox = new TextBox
         {
-            Header = "Note (optional)",
+            Header = UiText.Get("Workload_Text_Note_optional_f9b73e", "Note (optional)"),
             Text = source?.Note ?? string.Empty,
-            PlaceholderText = "e.g. default credentials, shown after launch",
+            PlaceholderText = UiText.Get("Workload_Text_e_g_default_credentials_shown_after_ecb42d", "e.g. default credentials, shown after launch"),
         };
 
-        _containerKind = new RadioButton { Content = "Single container", GroupName = "kind" };
-        _composeKind = new RadioButton { Content = "Compose stack", GroupName = "kind" };
+        _containerKind = new RadioButton { Content = UiText.Get("Workload_Text_Single_container_faa72c", "Single container"), GroupName = "kind" };
+        _composeKind = new RadioButton { Content = UiText.Get("Workload_Text_Compose_stack_2c23f1", "Compose stack"), GroupName = "kind" };
         var isCompose = source?.Kind == StackTemplateKind.Compose;
         _containerKind.IsChecked = !isCompose;
         _composeKind.IsChecked = isCompose;
@@ -134,19 +136,19 @@ public sealed class TemplateEditorDialog : ContentDialog
         // Container payload fields.
         _imageBox = new TextBox
         {
-            Header = "Image",
+            Header = UiText.Get("Workload_Final_1aa4cb0bcc", "Image"),
             Text = _baseOptions.Image,
-            PlaceholderText = "e.g. postgres:16",
+            PlaceholderText = UiText.Get("Workload_Text_e_g_postgres_16_0a25a7", "e.g. postgres:16"),
         };
         _containerNameBox = new TextBox
         {
-            Header = "Container name (optional)",
+            Header = UiText.Get("Workload_Text_Container_name_optional_f0ba06", "Container name (optional)"),
             Text = _baseOptions.Name ?? string.Empty,
-            PlaceholderText = "e.g. my-postgres",
+            PlaceholderText = UiText.Get("Workload_Text_e_g_my_postgres_8c1cd3", "e.g. my-postgres"),
         };
-        _portsBox = MakeMultiline("Ports (one per line, host:container)", _baseOptions.PortMappings, "5432:5432");
-        _envBox = MakeMultiline("Environment (one per line, KEY=VALUE)", _baseOptions.EnvironmentVariables, "POSTGRES_PASSWORD=secret");
-        _volumesBox = MakeMultiline("Volumes (one per line, source:destination)", _baseOptions.Volumes, "pgdata:/var/lib/postgresql/data");
+        _portsBox = MakeMultiline(UiText.Get("Workload_Text_Ports_one_per_line_host_container_c09caa", "Ports (one per line, host:container)"), _baseOptions.PortMappings, "5432:5432");
+        _envBox = MakeMultiline(UiText.Get("Workload_Text_Environment_one_per_line_KEY_VALUE_bfc3bb", "Environment (one per line, KEY=VALUE)"), _baseOptions.EnvironmentVariables, "POSTGRES_PASSWORD=secret");
+        _volumesBox = MakeMultiline(UiText.Get("Workload_Text_Volumes_one_per_line_source_destination_4707bc", "Volumes (one per line, source:destination)"), _baseOptions.Volumes, "pgdata:/var/lib/postgresql/data");
 
         _containerPanel = new StackPanel
         {
@@ -157,13 +159,13 @@ public sealed class TemplateEditorDialog : ContentDialog
         // Compose payload fields.
         _projectNameBox = new TextBox
         {
-            Header = "Project name (optional)",
+            Header = UiText.Get("Workload_Text_Project_name_optional_16ad4a", "Project name (optional)"),
             Text = source?.ComposeProjectName ?? string.Empty,
-            PlaceholderText = "e.g. my-stack",
+            PlaceholderText = UiText.Get("Workload_Text_e_g_my_stack_defd5e", "e.g. my-stack"),
         };
         _yamlBox = new TextBox
         {
-            Header = "Compose YAML",
+            Header = UiText.Get("Workload_Text_Compose_YAML_bed00b", "Compose YAML"),
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,
             FontFamily = new FontFamily("Cascadia Mono, Consolas"),
@@ -201,7 +203,7 @@ public sealed class TemplateEditorDialog : ContentDialog
                 _descriptionBox,
                 _glyphGrid,
                 _noteBox,
-                new TextBlock { Text = "Type", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                new TextBlock { Text = UiText.Get("Workload_Text_Type_baaddf", "Type"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
                 kindRow,
                 _containerPanel,
                 _composePanel,
@@ -347,7 +349,7 @@ public sealed class TemplateEditorDialog : ContentDialog
     {
         var grid = new GridView
         {
-            Header = "Icon glyph",
+            Header = UiText.Get("Workload_Text_Icon_glyph_5a4a54", "Icon glyph"),
             SelectionMode = ListViewSelectionMode.Single,
             IsItemClickEnabled = false,
             Height = 148,

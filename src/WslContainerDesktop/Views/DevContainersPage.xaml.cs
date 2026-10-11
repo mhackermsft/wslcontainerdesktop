@@ -23,6 +23,8 @@ using Windows.Storage.Pickers;
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Views;
 
 /// <summary>Page for importing and supervising devcontainer workspaces through the container engine.</summary>
@@ -33,6 +35,24 @@ public sealed partial class DevContainersPage : Page
     {
         ViewModel = App.Current.Services.GetRequiredService<DevContainersViewModel>();
         InitializeComponent();
+        Loaded += OnLoadedForLanguage;
+        Unloaded += OnUnloadedForLanguage;
+    }
+
+    private void OnLoadedForLanguage(object sender, RoutedEventArgs e)
+    {
+        UiText.LanguageChanged -= OnLanguageChanged;
+        UiText.LanguageChanged += OnLanguageChanged;
+        OnLanguageChanged(this, EventArgs.Empty);
+    }
+
+    private void OnUnloadedForLanguage(object sender, RoutedEventArgs e) =>
+        UiText.LanguageChanged -= OnLanguageChanged;
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLanguage();
+        Bindings.Update();
     }
 
     /// <summary>Devcontainer view model bound by the page.</summary>

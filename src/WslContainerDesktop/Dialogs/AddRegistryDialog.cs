@@ -18,6 +18,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Models;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -45,39 +47,39 @@ public sealed class AddRegistryDialog : ContentDialog
     /// <summary>Creates a new &lt;c&gt;AddRegistryDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public AddRegistryDialog()
     {
-        Title = "Add registry";
-        PrimaryButtonText = "Save";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Add_registry_503bed", "Add registry");
+        PrimaryButtonText = UiText.Get("Workload_Text_Save_1509f5", "Save");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         _nameBox = new TextBox
         {
-            Header = "Display name",
-            PlaceholderText = "e.g. Company ACR",
+            Header = UiText.Get("Workload_Text_Display_name_2b7f6a", "Display name"),
+            PlaceholderText = UiText.Get("Workload_Text_e_g_Company_ACR_68810c", "e.g. Company ACR"),
             MinWidth = 380,
         };
 
         _hostBox = new TextBox
         {
-            Header = "Registry host",
-            PlaceholderText = "e.g. myregistry.azurecr.io, ghcr.io",
+            Header = UiText.Get("Workload_Text_Registry_host_743f8e", "Registry host"),
+            PlaceholderText = UiText.Get("Workload_Text_e_g_myregistry_azurecr_io_ghcr_6930ef", "e.g. myregistry.azurecr.io, ghcr.io"),
         };
 
         _userBox = new TextBox
         {
-            Header = "Username (optional)",
-            PlaceholderText = "username or token name",
+            Header = UiText.Get("Workload_Text_Username_optional_e946bd", "Username (optional)"),
+            PlaceholderText = UiText.Get("Workload_Text_username_or_token_name_39f3c5", "username or token name"),
         };
 
         _passwordBox = new PasswordBox
         {
-            Header = "Password / token (optional)",
-            PlaceholderText = "used only to log in now",
+            Header = UiText.Get("Workload_Text_Password_token_optional_5caf4d", "Password / token (optional)"),
+            PlaceholderText = UiText.Get("Workload_Text_used_only_to_log_in_now_fe26ce", "used only to log in now"),
         };
 
         _loginNow = new CheckBox
         {
-            Content = "Log in to this registry now",
+            Content = UiText.Get("Workload_Text_Log_in_to_this_registry_now_510d38", "Log in to this registry now"),
             IsChecked = false,
         };
 
@@ -86,7 +88,7 @@ public sealed class AddRegistryDialog : ContentDialog
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Text = "Credentials are handed to the container engine (wslc login) and stored in its credential store — the app never saves your password.",
+            Text = UiText.Get("Workload_Text_Credentials_are_handed_to_the_container_c9f29e", "Credentials are handed to the container engine (wslc login) and stored in its credential store — the app never saves your password."),
         };
 
         Content = new StackPanel

@@ -38,10 +38,28 @@ public sealed partial class TemplatesPage : Page
     {
         ViewModel = App.Current.Services.GetRequiredService<TemplatesViewModel>();
         InitializeComponent();
+        Loaded += OnLoadedForLanguage;
+        Unloaded += OnUnloadedForLanguage;
 
         DataContext = ViewModel;
         _grouped.Source = ViewModel.Groups;
         TemplatesView.ItemsSource = _grouped.View;
+    }
+
+    private void OnLoadedForLanguage(object sender, RoutedEventArgs e)
+    {
+        UiText.LanguageChanged -= OnLanguageChanged;
+        UiText.LanguageChanged += OnLanguageChanged;
+        OnLanguageChanged(this, EventArgs.Empty);
+    }
+
+    private void OnUnloadedForLanguage(object sender, RoutedEventArgs e) =>
+        UiText.LanguageChanged -= OnLanguageChanged;
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLanguage();
+        Bindings.Update();
     }
 
     /// <summary>Template catalog view model bound by the page.</summary>
@@ -119,7 +137,7 @@ public sealed partial class TemplatesPage : Page
             if (file is not null)
             {
                 await FileIO.WriteTextAsync(file, ViewModel.ExportToJson(template));
-                ViewModel.StatusMessage = $"Exported \"{template.Name}\" to {file.Name}.";
+                ViewModel.StatusMessage = UiText.Get("Workload_Text_Exported_0_to_1_4d3931", "Exported \"{0}\" to {1}.", template.Name, file.Name);
             }
         });
     }
@@ -137,7 +155,7 @@ public sealed partial class TemplatesPage : Page
             if (file is not null)
             {
                 await FileIO.WriteTextAsync(file, ViewModel.ExportAllUserToJson());
-                ViewModel.StatusMessage = $"Exported your custom templates to {file.Name}.";
+                ViewModel.StatusMessage = UiText.Get("Workload_Text_Exported_your_custom_templates_to_0_d8175b", "Exported your custom templates to {0}.", file.Name);
             }
         });
     }
@@ -173,7 +191,7 @@ public sealed partial class TemplatesPage : Page
             SuggestedFileName = suggestedName,
         };
         picker.FileTypeChoices.Add(
-            "WSL template", new List<string> { TemplatePortability.FileExtension });
+            UiText.Get("Workload_Text_WSL_template_a8eeed", "WSL template"), new List<string> { TemplatePortability.FileExtension });
         WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
         return await picker.PickSaveFileAsync();
     }

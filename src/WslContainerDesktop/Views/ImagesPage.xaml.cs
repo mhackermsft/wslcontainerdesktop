@@ -23,6 +23,7 @@ using Windows.Storage.Pickers;
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views;
 
@@ -43,6 +44,8 @@ public sealed partial class ImagesPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        UiText.LanguageChanged += OnUiLanguageChanged;
+        ViewModel.RefreshLocalizedText();
         await ViewModel.RefreshAsync();
     }
 
@@ -139,7 +142,7 @@ public sealed partial class ImagesPage : Page
 
         if (profiles.Count == 0)
         {
-            submenu.Items.Add(new MenuFlyoutItem { Text = "No saved profiles", IsEnabled = false });
+            submenu.Items.Add(new MenuFlyoutItem { Text = UiText.Get("Resource_Text_5e8760f506fb", "No saved profiles"), IsEnabled = false });
             return;
         }
 
@@ -215,9 +218,9 @@ public sealed partial class ImagesPage : Page
         var picker = new FileSavePicker
         {
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-            SuggestedFileName = images.Count == 1 ? SafeFileName(images[0].Reference) : "images",
+            SuggestedFileName = images.Count == 1 ? SafeFileName(images[0].Reference) : UiText.Get("Resource_Text_19f49d852660", "images"),
         };
-        picker.FileTypeChoices.Add("Tar archive", [".tar"]);
+        picker.FileTypeChoices.Add(UiText.Get("Resource_Text_517cef447ed8", "Tar archive"), [".tar"]);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
         return (await picker.PickSaveFileAsync())?.Path;
     }
@@ -242,9 +245,20 @@ public sealed partial class ImagesPage : Page
         var invalid = System.IO.Path.GetInvalidFileNameChars();
         var chars = value.Select(ch => invalid.Contains(ch) || ch is ':' or '/' or '\\' ? '-' : ch).ToArray();
         var name = new string(chars).Trim('-', ' ');
-        return string.IsNullOrWhiteSpace(name) ? "image" : name;
+        return string.IsNullOrWhiteSpace(name) ? UiText.Get("Resource_Text_0e7629279488", "image") : name;
     }
 
     private static nint GetMainWindowHandle() =>
         Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        UiText.LanguageChanged -= OnUiLanguageChanged;
+        base.OnNavigatedFrom(e);
+    }
+
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLocalizedText();
+        Bindings.Update();
+    }
 }

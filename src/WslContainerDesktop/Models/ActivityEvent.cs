@@ -16,6 +16,8 @@
 
 using System.Text.Json.Serialization;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Models;
 
 /// <summary>High-level grouping used by the activity feed for filtering and iconography.</summary>
@@ -81,7 +83,7 @@ public sealed class ActivityEvent
     /// Returns the event title. List controls use this as each row's screen-reader name;
     /// without it Narrator announces the .NET type name instead.
     /// </summary>
-    public override string ToString() => Title;
+    public override string ToString() => DisplayTitle;
 
     /// <summary>Gets or sets the id.</summary>
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
@@ -100,6 +102,14 @@ public sealed class ActivityEvent
 
     /// <summary>Optional secondary line, e.g. a short id or an error message.</summary>
     public string? Detail { get; init; }
+
+    /// <summary>Localized display projection; the persisted event evidence remains unchanged.</summary>
+    [JsonIgnore]
+    public string DisplayTitle => UiText.Translate(Title);
+
+    /// <summary>Known app-owned messages are localized; unknown external diagnostic lines are preserved.</summary>
+    [JsonIgnore]
+    public string? DisplayDetail => Detail is null ? null : UiText.TranslateLines(Detail);
 
     /// <summary>Gets or sets the source event key.</summary>
     public string? SourceEventKey { get; init; }
@@ -150,17 +160,17 @@ public sealed class ActivityEvent
     [JsonIgnore]
     public string CategoryLabel => Category switch
     {
-        ActivityCategory.Engine => "Engine",
-        ActivityCategory.Container => "Container",
-        ActivityCategory.Image => "Image",
-        ActivityCategory.Network => "Network",
-        ActivityCategory.Assistant => "AI assistant",
-        _ => "Event",
+        ActivityCategory.Engine => UiText.Get("Common_Text0237", "Engine"),
+        ActivityCategory.Container => UiText.Get("Common_Text0238", "Container"),
+        ActivityCategory.Image => UiText.Get("Common_Text0240", "Image"),
+        ActivityCategory.Network => UiText.Get("Common_Text0239", "Network"),
+        ActivityCategory.Assistant => UiText.Get("Common_Text0428", "AI assistant"),
+        _ => UiText.Get("Common_Text0429", "Event"),
     };
 
     /// <summary>Absolute local date and time shown on the row (e.g. "Jul 15, 2026 2:00:21 PM").</summary>
     [JsonIgnore]
-    public string TimestampLabel => Timestamp.ToLocalTime().ToString("MMM d, yyyy h:mm:ss tt");
+    public string TimestampLabel => Timestamp.ToLocalTime().ToString("G", System.Globalization.CultureInfo.CurrentUICulture);
 
     /// <summary>
     /// Where an event with <paramref name="timestamp"/> belongs in a newest-first list: after every

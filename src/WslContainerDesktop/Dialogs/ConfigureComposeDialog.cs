@@ -18,6 +18,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -42,9 +44,9 @@ public sealed class ConfigureComposeDialog : ContentDialog
     /// <param name="yaml">The yaml value supplied by the caller.</param>
     public ConfigureComposeDialog(string templateName, string projectName, string yaml)
     {
-        Title = $"Configure {templateName}";
-        PrimaryButtonText = "Save & launch";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Configure_0_76d41c", "Configure {0}", templateName);
+        PrimaryButtonText = UiText.Get("Workload_Text_Save_launch_77d7c3", "Save & launch");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         // Widen the dialog so the editor and hint aren't clipped on the right (the default
@@ -54,13 +56,13 @@ public sealed class ConfigureComposeDialog : ContentDialog
 
         _nameBox = new TextBox
         {
-            Header = "Project name",
+            Header = UiText.Get("Workload_Text_Project_name_254981", "Project name"),
             Text = projectName ?? string.Empty,
         };
 
         _yamlBox = new TextBox
         {
-            Header = "Compose YAML",
+            Header = UiText.Get("Workload_Text_Compose_YAML_bed00b", "Compose YAML"),
             // AcceptsReturn MUST be set before Text: a single-line TextBox (the default) truncates
             // its Text at the first line break, so setting Text first would drop everything after
             // line one. Line endings are normalized to \r\n because a WinUI TextBox only breaks on
@@ -82,9 +84,7 @@ public sealed class ConfigureComposeDialog : ContentDialog
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Text = "Edit ports, images, environment, or credentials as needed. Saving stores these "
-                 + "changes so the template's Launch button reuses them, then imports and brings the "
-                 + "project up.",
+            Text = UiText.Get("Workload_Text_Edit_ports_images_environment_or_credentials_4d6b62", "Edit ports, images, environment, or credentials as needed. Saving stores these changes so the template's Launch button reuses them, then imports and brings the project up."),
         };
 
         Content = new StackPanel

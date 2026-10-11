@@ -112,11 +112,11 @@ public sealed class NotificationService : INotificationService
 
         if (success)
         {
-            Show("Image pulled", $"Finished pulling {reference}.", "images");
+            Show(UiText.Get("Common_Text0249", "Image pulled"), UiText.Get("Common_Text0250", "Finished pulling {0}.", reference), "images");
         }
         else
         {
-            Show("Pull failed", $"Could not pull {reference}.{FormatError(error)}", "images");
+            Show(UiText.Get("Common_Text0103", "Pull failed"), UiText.Get("Common_Text0251", "Could not pull {0}.{1}", reference, FormatError(error)), "images");
         }
     }
 
@@ -130,11 +130,11 @@ public sealed class NotificationService : INotificationService
 
         if (success)
         {
-            Show("Build complete", $"Finished building {tag}.", "images");
+            Show(UiText.Get("Common_Text0252", "Build complete"), UiText.Get("Common_Text0253", "Finished building {0}.", tag), "images");
         }
         else
         {
-            Show("Build failed", $"Could not build {tag}.{FormatError(error)}", "images");
+            Show(UiText.Get("Common_Text0254", "Build failed"), UiText.Get("Common_Text0255", "Could not build {0}.{1}", tag, FormatError(error)), "images");
         }
     }
 
@@ -147,10 +147,10 @@ public sealed class NotificationService : INotificationService
         }
 
         Show(
-            "Container stopped",
-            $"\"{containerName}\" is no longer running.",
+            UiText.Get("Common_Text0256", "Container stopped"),
+            UiText.Get("Common_Text0257", "\"{0}\" is no longer running.", containerName),
             "containers",
-            new AppNotificationButton("View logs")
+            new AppNotificationButton(UiText.Get("Common_Text0258", "View logs"))
                 .AddArgument(ActionKey, "logs")
                 .AddArgument(IdKey, containerId)
                 .AddArgument(PageKey, "containers"));
@@ -164,7 +164,7 @@ public sealed class NotificationService : INotificationService
             return;
         }
 
-        Show("Engine unavailable", "The WSL container engine became unreachable.", "dashboard");
+        Show(UiText.Get("Common_Text0259", "Engine unavailable"), UiText.Get("Common_Text0260", "The WSL container engine became unreachable."), "dashboard");
     }
 
     /// <summary>Shows a toast when engine connectivity recovers.</summary>
@@ -175,7 +175,7 @@ public sealed class NotificationService : INotificationService
             return;
         }
 
-        Show("Engine recovered", "The WSL container engine is reachable again.", "dashboard");
+        Show(UiText.Get("Common_Text0261", "Engine recovered"), UiText.Get("Common_Text0262", "The WSL container engine is reachable again."), "dashboard");
     }
 
     /// <summary>Shows an update toast with either an install or release-notes action.</summary>
@@ -187,12 +187,12 @@ public sealed class NotificationService : INotificationService
         }
 
         Show(
-            "Update available",
+            UiText.Get("Common_Text0263", "Update available"),
             canInstall
-                ? $"WSL Container Desktop {version} is ready to install. The app closes, updates and reopens."
-                : $"WSL Container Desktop {version} is available on GitHub.",
+                ? UiText.Get("Common_Text0264", "WSL Container Desktop {0} is ready to install. The app closes, updates and reopens.", version)
+                : UiText.Get("Common_Text0265", "WSL Container Desktop {0} is available on GitHub.", version),
             page: null,
-            new AppNotificationButton(canInstall ? "Update now" : "View release")
+            new AppNotificationButton(canInstall ? UiText.Get("Common_Text0266", "Update now") : UiText.Get("Common_Text0267", "View release"))
                 .AddArgument(ActionKey, canInstall ? UpdateAction : ReleaseNotesAction));
     }
 
@@ -214,8 +214,8 @@ public sealed class NotificationService : INotificationService
         try
         {
             var builder = new AppNotificationBuilder()
-                .AddText(title)
-                .AddText(body);
+                .AddText(UiText.Translate(title))
+                .AddText(UiText.Translate(body));
 
             // Without a page, clicking the toast body only brings the app forward.
             if (page is not null)

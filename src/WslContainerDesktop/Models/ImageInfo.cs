@@ -17,6 +17,7 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Models;
 
@@ -104,7 +105,7 @@ public sealed partial class ImageInfo : ObservableObject
 
     /// <summary>Why this image is still here, for a row that would otherwise only say "&lt;none&gt;".</summary>
     [JsonIgnore]
-    public string UsedByCaption => IsInUse ? $"In use by {UsedBy}" : string.Empty;
+    public string UsedByCaption => IsInUse ? UiText.Get("Resource_Text_ed7c33b27513", "In use by {0}", UsedBy) : string.Empty;
 
     /// <summary>Live result of the upstream update check for this image's tag (not persisted).</summary>
     [JsonIgnore]
@@ -126,11 +127,11 @@ public sealed partial class ImageInfo : ObservableObject
     [JsonIgnore]
     public string UpdateTooltip => UpdateState switch
     {
-        ImageUpdateState.UpdateAvailable => "A newer version of this tag is available from its registry. Click Update to pull it; containers already running from the old version keep using it until you recreate them.",
-        ImageUpdateState.UpToDate => "Up to date with the registry.",
-        ImageUpdateState.Checking => "Checking for updates…",
-        ImageUpdateState.CheckFailed => "Couldn't check for updates (private registry or network error).",
-        _ => "Update status unknown.",
+        ImageUpdateState.UpdateAvailable => UiText.Get("Resource_Text_bbc90b86ba92", "A newer version of this tag is available from its registry. Click Update to pull it; containers already running from the old version keep using it until you recreate them."),
+        ImageUpdateState.UpToDate => UiText.Get("Resource_Text_2f1b853115c5", "Up to date with the registry."),
+        ImageUpdateState.Checking => UiText.Get("Resource_Text_2817459eb07e", "Checking for updates…"),
+        ImageUpdateState.CheckFailed => UiText.Get("Resource_Text_00a302fb4bec", "Couldn't check for updates (private registry or network error)."),
+        _ => UiText.Get("Resource_Text_b52ef0d49360", "Update status unknown."),
     };
 
     /// <summary>Gets the image digest shortened for table display.</summary>
@@ -214,4 +215,10 @@ public sealed partial class ImageInfo : ObservableObject
         char.IsAsciiDigit(value[2]) &&
         char.IsAsciiDigit(value[3]) &&
         char.IsAsciiDigit(value[4]);
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+    }
 }

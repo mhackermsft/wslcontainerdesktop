@@ -21,6 +21,7 @@ using Microsoft.UI.Xaml.Navigation;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views;
 
@@ -40,12 +41,15 @@ public sealed partial class VolumesPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        UiText.LanguageChanged += OnUiLanguageChanged;
+        ViewModel.RefreshLocalizedText();
         UiSafe.Run(() => ViewModel.RefreshAsync());
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         ViewModel.CancelRefresh();
+        UiText.LanguageChanged -= OnUiLanguageChanged;
         base.OnNavigatedFrom(e);
     }
 
@@ -85,5 +89,10 @@ public sealed partial class VolumesPage : Page
     private void BulkCancel_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.IsSelectionMode = false;
+    }
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLocalizedText();
+        Bindings.Update();
     }
 }

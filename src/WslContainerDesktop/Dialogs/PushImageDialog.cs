@@ -20,6 +20,8 @@ using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Views.Controls;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -62,14 +64,14 @@ public sealed class PushImageDialog : ContentDialog
         _localReference = localReference;
         _checkSignIn = checkSignIn;
 
-        Title = "Push image";
-        PrimaryButtonText = "Push";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Push_image_7d7dad", "Push image");
+        PrimaryButtonText = UiText.Get("Workload_Text_Push_731ce7", "Push");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         _registryBox = new ComboBox
         {
-            Header = "Push to",
+            Header = UiText.Get("Workload_Text_Push_to_a503aa", "Push to"),
             MinWidth = 440,
         };
         foreach (var r in registries)
@@ -86,7 +88,7 @@ public sealed class PushImageDialog : ContentDialog
         _signInStatus = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
         _openRegistries = new HyperlinkButton
         {
-            Content = "Go to Registries to sign in",
+            Content = UiText.Get("Workload_Text_Go_to_Registries_to_sign_in_06b3b9", "Go to Registries to sign in"),
             Padding = new Thickness(0),
             Visibility = Visibility.Collapsed,
         };
@@ -98,8 +100,8 @@ public sealed class PushImageDialog : ContentDialog
 
         _nameBox = new TextBox
         {
-            Header = "Name in the registry",
-            PlaceholderText = "e.g. team/myapp:1.0",
+            Header = UiText.Get("Workload_Text_Name_in_the_registry_c5e56f", "Name in the registry"),
+            PlaceholderText = UiText.Get("Workload_Text_e_g_team_myapp_1_0_201728", "e.g. team/myapp:1.0"),
         };
         _nameBox.TextChanged += (_, _) => OnNameChanged();
 
@@ -113,7 +115,7 @@ public sealed class PushImageDialog : ContentDialog
         _allTagsBox = new CheckBox
         {
             Content = InfoTip.Labeled(
-                new TextBlock { Text = "All tags", VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = UiText.Get("Workload_Text_All_tags_7c39c1", "All tags"), VerticalAlignment = VerticalAlignment.Center },
                 InfoTip.Create(FlagHelp.PushAllTags)),
         };
         _allTagsBox.Checked += (_, _) => UpdatePreview();
@@ -207,7 +209,7 @@ public sealed class PushImageDialog : ContentDialog
         IsPrimaryButtonEnabled = false;
         _openRegistries.Visibility = Visibility.Collapsed;
         _signInStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
-        _signInStatus.Text = $"Checking your sign-in to {registry.Name}…";
+        _signInStatus.Text = UiText.Get("Workload_Text_Checking_your_sign_in_to_0_5577aa", "Checking your sign-in to {0}…", registry.Name);
 
         (RegistryLoginState State, string? User) result;
         try
@@ -230,8 +232,8 @@ public sealed class PushImageDialog : ContentDialog
             case RegistryLoginState.LoggedIn:
                 _signInStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorSuccessBrush"];
                 _signInStatus.Text = string.IsNullOrWhiteSpace(result.User)
-                    ? $"✓ Signed in to {registry.Name}."
-                    : $"✓ Signed in to {registry.Name} as {result.User}.";
+                    ? UiText.Get("Workload_Text_Signed_in_to_0_dc397c", "✓ Signed in to {0}.", registry.Name)
+                    : UiText.Get("Workload_Text_Signed_in_to_0_as_1_43bf73", "✓ Signed in to {0} as {1}.", registry.Name, result.User);
                 IsPrimaryButtonEnabled = true;
                 if (registry.IsDefault && !string.IsNullOrWhiteSpace(result.User) && _dockerHubUser != result.User)
                 {
@@ -244,18 +246,18 @@ public sealed class PushImageDialog : ContentDialog
             case RegistryLoginState.LoggedOut:
             case RegistryLoginState.Anonymous:
                 _signInStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCautionBrush"];
-                _signInStatus.Text = $"You're not signed in to {registry.Name}. Pushing needs an account there: sign in on the Registries page, then push again.";
+                _signInStatus.Text = UiText.Get("Workload_Text_You_re_not_signed_in_to_8756be", "You're not signed in to {0}. Pushing needs an account there: sign in on the Registries page, then push again.", registry.Name);
                 _openRegistries.Visibility = Visibility.Visible;
                 break;
 
             case RegistryLoginState.Unreachable:
                 _signInStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCautionBrush"];
-                _signInStatus.Text = $"Couldn't reach {registry.Name} to check your sign-in. You can still try the push.";
+                _signInStatus.Text = UiText.Get("Workload_Text_Couldn_t_reach_0_to_check_a88a1d", "Couldn't reach {0} to check your sign-in. You can still try the push.", registry.Name);
                 IsPrimaryButtonEnabled = true;
                 break;
 
             default:
-                _signInStatus.Text = $"Couldn't confirm your sign-in to {registry.Name}. You can still try the push.";
+                _signInStatus.Text = UiText.Get("Workload_Text_Couldn_t_confirm_your_sign_in_1c8432", "Couldn't confirm your sign-in to {0}. You can still try the push.", registry.Name);
                 IsPrimaryButtonEnabled = true;
                 break;
         }
@@ -270,14 +272,14 @@ public sealed class PushImageDialog : ContentDialog
         }
         else if (SelectedRegistry.IsDefault && !name.Contains('/'))
         {
-            _preview.Text = "Docker Hub names start with your Docker Hub username, for example yourname/" + name + ".";
+            _preview.Text = UiText.Get("Workload_Text_Docker_Hub_names_start_with_your_18221c", "Docker Hub names start with your Docker Hub username, for example yourname/") + name + ".";
         }
         else
         {
             var target = PushDestination.Display(name, SelectedRegistry);
             _preview.Text = _allTagsBox.IsChecked == true
-                ? $"Uploads every tag of {PushDestination.StripTag(target)}. Your image on this PC is not changed."
-                : $"Uploads it as {target}. Your image on this PC is not changed.";
+                ? UiText.Get("Workload_Text_Uploads_every_tag_of_0_Your_1b265e", "Uploads every tag of {0}. Your image on this PC is not changed.", PushDestination.StripTag(target))
+                : UiText.Get("Workload_Text_Uploads_it_as_0_Your_image_7c6d7a", "Uploads it as {0}. Your image on this PC is not changed.", target);
         }
 
         if (_error is not null)

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Collections.ObjectModel;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
@@ -41,9 +42,16 @@ public sealed class ContainerGroup : ObservableCollection<ContainerRowViewModel>
     /// <summary>Header text shown for the group.</summary>
     public string Title { get; }
 
+    /// <summary>Localized header without changing the stable project identity.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DisplayTitle => IsProject ? Title : UiText.Get("Resource_Text_1d10323c27ec", "Standalone");
+
+    internal void RefreshLocalizedText() =>
+        OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(DisplayTitle)));
+
     /// <summary>True when the group represents a compose project (vs. standalone containers).</summary>
     public bool IsProject { get; }
 
     /// <summary>Returns the header text so screen readers announce the group name, not the type.</summary>
-    public override string ToString() => Title;
+    public override string ToString() => DisplayTitle;
 }

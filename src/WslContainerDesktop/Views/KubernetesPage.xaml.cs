@@ -22,6 +22,8 @@ using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Views;
 
 /// <summary>Page that manages the single-node k3s cluster and browses Kubernetes resources inside WSL.</summary>
@@ -33,6 +35,24 @@ public sealed partial class KubernetesPage : Page
         ViewModel = App.Current.Services.GetRequiredService<KubernetesViewModel>();
         InitializeComponent();
         ViewModel.OperationLogUpdated += OnOperationLogUpdated;
+        Loaded += OnLoadedForLanguage;
+        Unloaded += OnUnloadedForLanguage;
+    }
+
+    private void OnLoadedForLanguage(object sender, RoutedEventArgs e)
+    {
+        UiText.LanguageChanged -= OnLanguageChanged;
+        UiText.LanguageChanged += OnLanguageChanged;
+        OnLanguageChanged(this, EventArgs.Empty);
+    }
+
+    private void OnUnloadedForLanguage(object sender, RoutedEventArgs e) =>
+        UiText.LanguageChanged -= OnLanguageChanged;
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLanguage();
+        Bindings.Update();
     }
 
     /// <summary>Kubernetes cluster view model bound by the page or control.</summary>

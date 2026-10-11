@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Helpers;
 
 /// <summary>Formatting helpers shared by view models and converters.</summary>
@@ -50,34 +52,44 @@ public static class FormatHelpers
 
         if (span.TotalSeconds < 60)
         {
-            return "just now";
+            return UiText.Get("Resource_Text_a7f8e7cc0d43", "just now");
         }
 
         if (span.TotalMinutes < 60)
         {
             var m = (int)span.TotalMinutes;
-            return $"{m} minute{(m == 1 ? "" : "s")} ago";
+            return m == 1
+            ? UiText.Get("Resource_Text_dcd75e915e17", "{0} minute ago", m)
+            : UiText.Get("Resource_Text_41904cc8b86a", "{0} minutes ago", m);
         }
 
         if (span.TotalHours < 24)
         {
             var h = (int)span.TotalHours;
-            return $"{h} hour{(h == 1 ? "" : "s")} ago";
+            return h == 1
+            ? UiText.Get("Resource_Text_cc4eac830ba9", "{0} hour ago", h)
+            : UiText.Get("Resource_Text_cee33896303a", "{0} hours ago", h);
         }
 
         if (span.TotalDays < 30)
         {
             var d = (int)span.TotalDays;
-            return $"{d} day{(d == 1 ? "" : "s")} ago";
+            return d == 1
+            ? UiText.Get("Resource_Text_7a0320794cdb", "{0} day ago", d)
+            : UiText.Get("Resource_Text_9344533c4118", "{0} days ago", d);
         }
 
         if (span.TotalDays < 365)
         {
             var mo = (int)(span.TotalDays / 30);
-            return $"{mo} month{(mo == 1 ? "" : "s")} ago";
+            return mo == 1
+            ? UiText.Get("Resource_Text_6d6cc85f99eb", "{0} month ago", mo)
+            : UiText.Get("Resource_Text_3c784acc314d", "{0} months ago", mo);
         }
 
         var y = (int)(span.TotalDays / 365);
-        return $"{y} year{(y == 1 ? "" : "s")} ago";
+        return y == 1
+            ? UiText.Get("Resource_Text_5dfeef082bb5", "{0} year ago", y)
+            : UiText.Get("Resource_Text_9a3274443563", "{0} years ago", y);
     }
 }

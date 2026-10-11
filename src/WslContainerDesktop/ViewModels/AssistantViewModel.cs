@@ -40,18 +40,18 @@ public partial class AssistantViewModel : ObservableObject
     private const int MaxTimelineEntries = 100;
     private const int MaxEntryCharacters = 8192;
 
-    private const string GreetingText =
-        "I can manage WSL containers, images, volumes, networks, compose templates, and scoped k3s actions through approved tools only. What would you like to do?";
+    private static string GreetingText =>
+        UiText.Get("Common_Text0192", "I can manage WSL containers, images, volumes, networks, compose templates, and scoped k3s actions through approved tools only. What would you like to do?");
 
     /// <summary>Transcript rows displayed by the Assistant page.</summary>
     public ObservableCollection<AssistantTimelineEntry> Messages { get; } = new()
     {
-        new(0, null, null, "Assistant", GreetingText),
+        new(0, null, null, UiText.Get("Common_Text0193", "Assistant"), GreetingText),
     };
 
     /// <summary>Generated status text that explains what the current assistant turn is doing.</summary>
     [ObservableProperty]
-    private string _statusText = "Ready";
+    private string _statusText = UiText.Get("Common_Text0194", "Ready");
 
     /// <summary>Generated flag set after the user requests cancellation of the active turn.</summary>
     [ObservableProperty]
@@ -141,6 +141,7 @@ public partial class AssistantViewModel : ObservableObject
         _settings = settings;
         _availability = availability;
         _logger = logger;
+        UiText.LanguageChanged += (_, _) => _dispatcher.TryEnqueue(RefreshLocalizedText);
         RefreshProviderLabel();
         assistant.ApprovalChanged += (_, approval) =>
         {
@@ -188,21 +189,21 @@ public partial class AssistantViewModel : ObservableObject
             AiProviderKind.AzureOpenAi => Format("Azure OpenAI", _settings.AiAzureOpenAiDeployment),
             AiProviderKind.OpenAi => Format("OpenAI", _settings.AiOpenAiModel),
             AiProviderKind.FoundryLocal => Format("Foundry Local", _settings.AiFoundryLocalModel),
-            _ => "No AI provider configured",
+            _ => UiText.Get("Common_Text0195", "No AI provider configured"),
         };
         IsProviderAvailable = _settings.AiFeaturesEnabled
             && _settings.AiProvider != AiProviderKind.None
             && _availability.CanUseTools;
 
         ProviderStatusDetail = !_settings.AiFeaturesEnabled
-            ? "AI features are turned off.\n\nTurn them on in Settings > AI."
+            ? UiText.Get("Common_Text0196", "AI features are turned off.\n\nTurn them on in Settings > AI.")
             : _settings.AiProvider == AiProviderKind.None
-            ? "No AI provider is configured.\n\nChoose one in Settings > AI."
+            ? UiText.Get("Common_Text0197", "No AI provider is configured.\n\nChoose one in Settings > AI.")
             : _availability.Observation is not { } observation
-            ? "The provider has not been checked yet.\n\nUse Test capabilities in Settings > AI diagnostics."
+            ? UiText.Get("Common_Text0198", "The provider has not been checked yet.\n\nUse Test capabilities in Settings > AI diagnostics.")
             : observation.CanUseTools
-            ? "Tool support observed. Every action still passes through the approval gate."
-            : observation.Blocker + "\n\n" + observation.NextStep;
+            ? UiText.Get("Common_Text0199", "Tool support observed. Every action still passes through the approval gate.")
+            : UiText.Translate(observation.Blocker) + "\n\n" + UiText.Translate(observation.NextStep);
 
         static string Format(string provider, string? model) =>
             string.IsNullOrWhiteSpace(model) ? provider : $"{provider} · {AiTextSanitizer.Sanitize(model.Trim(), 160)}";
@@ -245,7 +246,7 @@ public partial class AssistantViewModel : ObservableObject
     private void Cancel()
     {
         IsCancellationRequested = true;
-        StatusText = "Cancellation requested. Waiting for the outcome; completed actions are not rolled back.";
+        StatusText = UiText.Get("Common_Text0200", "Cancellation requested. Waiting for the outcome; completed actions are not rolled back.");
         _sendCts?.Cancel();
     }
 
@@ -277,7 +278,7 @@ public partial class AssistantViewModel : ObservableObject
     {
         var generation = _turnSeq;
         PendingApproval = null;
-        StatusText = isApproved ? "Approval sent. Waiting for tool execution." : "Rejection sent. Waiting for the assistant.";
+        StatusText = isApproved ? UiText.Get("Common_Text0201", "Approval sent. Waiting for tool execution.") : UiText.Get("Common_Text0202", "Rejection sent. Waiting for the assistant.");
         try
         {
             if (isApproved)
@@ -303,13 +304,13 @@ public partial class AssistantViewModel : ObservableObject
         _sendCts = null;
         _assistant.Reset();
         Messages.Clear();
-        Messages.Add(new(0, null, null, "Assistant", GreetingText));
+        Messages.Add(new(0, null, null, UiText.Get("Common_Text0193", "Assistant"), GreetingText));
         PendingApproval = null;
         Draft = string.Empty;
         Feedback = AiFeedback.None;
         IsCancellationRequested = false;
         HasOmittedActivity = false;
-        StatusText = "New chat. Any previously completed actions have not been rolled back.";
+        StatusText = UiText.Get("Common_Text0203", "New chat. Any previously completed actions have not been rolled back.");
     }
 
     /// <summary>Clears the assistant feedback banner.</summary>
@@ -330,7 +331,7 @@ public partial class AssistantViewModel : ObservableObject
         Clipboard.SetContent(package);
     }
 
-    private AiErrorContext AssistantContext() => AiErrorContext.For(_settings.AiProvider, "Assistant chat");
+    private AiErrorContext AssistantContext() => AiErrorContext.For(_settings.AiProvider, UiText.Get("Common_Text0204", "Assistant chat"));
 
     private void DispatchTurn(int generation, Action update) =>
         AssistantTurnDispatch.Queue(generation, () => _turnSeq, () => IsBusy,
@@ -346,7 +347,7 @@ public partial class AssistantViewModel : ObservableObject
         IsBusy = true;
         IsCancellationRequested = false;
         PendingApproval = null;
-        StatusText = "Preparing assistant request…";
+        StatusText = UiText.Get("Common_Text0205", "Preparing assistant request…");
         Feedback = AiFeedback.None;
         AddEntry(new(generation, null, null, "You", AiTextSanitizer.Sanitize(text, MaxEntryCharacters)));
         var cts = new CancellationTokenSource();
@@ -381,10 +382,10 @@ public partial class AssistantViewModel : ObservableObject
                 }
 
                 if (errors.Count > 0)
-                    Feedback = AiFeedback.Error("Assistant error", string.Join("\n", errors));
-                StatusText = errors.Count > 0 ? "Assistant turn failed." : IsCancellationRequested
-                    ? "Turn finished after cancellation was requested. Review recorded outcomes; no actions were rolled back."
-                    : "Turn complete. Model narration is not proof of execution; review recorded tool outcomes.";
+                    Feedback = AiFeedback.Error(UiText.Get("Common_Text0206", "Assistant error"), string.Join("\n", errors));
+                StatusText = errors.Count > 0 ? UiText.Get("Common_Text0207", "Assistant turn failed.") : IsCancellationRequested
+                    ? UiText.Get("Common_Text0208", "Turn finished after cancellation was requested. Review recorded outcomes; no actions were rolled back.")
+                    : UiText.Get("Common_Text0209", "Turn complete. Model narration is not proof of execution; review recorded tool outcomes.");
             });
         }
         catch (OperationCanceledException ex)
@@ -393,8 +394,8 @@ public partial class AssistantViewModel : ObservableObject
             {
                 Feedback = AiErrorClassifier.Classify(ex, AssistantContext(), ct);
                 StatusText = ct.IsCancellationRequested
-                    ? "Turn cancelled. Completed actions are not rolled back; inspect partial or unknown outcomes before retrying."
-                    : "Turn interrupted or timed out. Completed actions are not rolled back; inspect recorded outcomes before retrying.";
+                    ? UiText.Get("Common_Text0210", "Turn cancelled. Completed actions are not rolled back; inspect partial or unknown outcomes before retrying.")
+                    : UiText.Get("Common_Text0211", "Turn interrupted or timed out. Completed actions are not rolled back; inspect recorded outcomes before retrying.");
             });
         }
         catch (Exception ex)
@@ -403,7 +404,7 @@ public partial class AssistantViewModel : ObservableObject
             DispatchTurn(generation, () =>
             {
                 Feedback = AiErrorClassifier.Classify(ex, AssistantContext(), ct);
-                StatusText = "Turn failed. Completed actions are not rolled back; inspect recorded outcomes before retrying.";
+                StatusText = UiText.Get("Common_Text0212", "Turn failed. Completed actions are not rolled back; inspect recorded outcomes before retrying.");
             });
         }
         finally
@@ -429,9 +430,9 @@ public partial class AssistantViewModel : ObservableObject
     /// claim the tool finished in those cases.
     /// </summary>
     private static string ToolResultLabel(string? text) =>
-        text?.StartsWith("Not run", StringComparison.Ordinal) == true ? "Tool was not run — show why"
-        : text?.StartsWith("Invocation failed", StringComparison.Ordinal) == true ? "Tool failed — show details"
-        : "Tool finished — show what it returned";
+        text?.StartsWith("Not run", StringComparison.Ordinal) == true ? UiText.Get("Common_Text0214", "Tool was not run — show why")
+        : text?.StartsWith("Invocation failed", StringComparison.Ordinal) == true ? UiText.Get("Common_Text0216", "Tool failed — show details")
+        : UiText.Get("Common_Text0217", "Tool finished — show what it returned");
 
     private void ApplyProgress(int generation, AiChatProgress progress)
     {
@@ -439,9 +440,9 @@ public partial class AssistantViewModel : ObservableObject
         {
             StatusText = progress.Kind switch
             {
-                AiChatProgressKind.Loading => "Loading provider and checking capabilities…",
-                AiChatProgressKind.Generating => "Generating a response. Waiting for provider-supplied text…",
-                AiChatProgressKind.TextDelta => "Receiving model narration. Tool outcomes are recorded separately.",
+                AiChatProgressKind.Loading => UiText.Get("Common_Text0218", "Loading provider and checking capabilities…"),
+                AiChatProgressKind.Generating => UiText.Get("Common_Text0219", "Generating a response. Waiting for provider-supplied text…"),
+                AiChatProgressKind.TextDelta => UiText.Get("Common_Text0220", "Receiving model narration. Tool outcomes are recorded separately."),
                 _ => AiTextSanitizer.Sanitize(progress.Text, 1024),
             };
         }
@@ -458,9 +459,9 @@ public partial class AssistantViewModel : ObservableObject
         {
             var label = progress.Kind switch
             {
-                AiChatProgressKind.ToolRequested => "Checking a tool request",
-                AiChatProgressKind.AwaitingApproval => "Waiting for your approval",
-                AiChatProgressKind.ExecutingTool => "Running a tool…",
+                AiChatProgressKind.ToolRequested => UiText.Get("Common_Text0221", "Checking a tool request"),
+                AiChatProgressKind.AwaitingApproval => UiText.Get("Common_Text0222", "Waiting for your approval"),
+                AiChatProgressKind.ExecutingTool => UiText.Get("Common_Text0223", "Running a tool…"),
                 // Collapsed rows are read at a glance, so lead with the outcome rather than a
                 // category the reader has to open the row to interpret.
                 _ => ToolResultLabel(progress.Text),
@@ -490,7 +491,7 @@ public partial class AssistantViewModel : ObservableObject
             return;
         var narration = append && previous is not null ? previous.Text + text : text;
         var entry = new AssistantTimelineEntry(generation, AiChatProgressKind.TextDelta, null,
-            "Assistant · model narration", AiTextSanitizer.Sanitize(narration, MaxEntryCharacters));
+            UiText.Get("Common_Text0224", "Assistant · model narration"), AiTextSanitizer.Sanitize(narration, MaxEntryCharacters));
         if (previous is not null)
             Messages[Messages.IndexOf(previous)] = entry;
         else if (!string.IsNullOrWhiteSpace(text))
@@ -499,11 +500,50 @@ public partial class AssistantViewModel : ObservableObject
 
     private void AddEntry(AssistantTimelineEntry entry)
     {
+        entry = entry with { Label = UiText.Translate(entry.Label) };
         while (Messages.Count >= MaxTimelineEntries)
         {
             Messages.RemoveAt(0);
             HasOmittedActivity = true;
         }
         Messages.Add(entry);
+    }
+
+    /// <summary>Refreshes app-owned labels without changing narration, the draft, or pending work.</summary>
+    private void RefreshLocalizedText()
+    {
+        StatusText = UiText.Translate(StatusText);
+        RefreshProviderLabel();
+        Feedback = LocalizedFeedback(Feedback);
+        for (var i = 0; i < Messages.Count; i++)
+        {
+            var entry = Messages[i];
+            var text = entry.Generation == 0 && entry.Kind is null
+                ? UiText.Translate(entry.Text) : entry.Text;
+            var label = UiText.Translate(entry.Label);
+            if (text != entry.Text || label != entry.Label)
+                Messages[i] = entry with { Label = label, Text = text };
+        }
+    }
+
+    private static AiFeedback LocalizedFeedback(AiFeedback value) => new()
+    {
+        Severity = value.Severity,
+        Title = UiText.Translate(value.Title),
+        Message = UiText.TranslateLines(value.Message),
+        TechnicalDetails = value.TechnicalDetails,
+    };
+
+    partial void OnFeedbackChanged(AiFeedback value)
+    {
+        var translated = LocalizedFeedback(value);
+        if (translated.Title != value.Title || translated.Message != value.Message)
+            Feedback = translated;
+    }
+
+    partial void OnStatusTextChanged(string value)
+    {
+        var translated = UiText.Translate(value);
+        if (translated != value) StatusText = translated;
     }
 }

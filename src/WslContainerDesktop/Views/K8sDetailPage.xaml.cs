@@ -21,6 +21,8 @@ using Microsoft.UI.Xaml.Navigation;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Views;
 
 /// <summary>Detail page for one Kubernetes resource, showing summary, YAML, describe output, and logs when available.</summary>
@@ -32,6 +34,24 @@ public sealed partial class K8sDetailPage : Page
         ViewModel = App.Current.Services.GetRequiredService<K8sDetailViewModel>();
         InitializeComponent();
         ViewModel.Deleted += OnDeleted;
+        Loaded += OnLoadedForLanguage;
+        Unloaded += OnUnloadedForLanguage;
+    }
+
+    private void OnLoadedForLanguage(object sender, RoutedEventArgs e)
+    {
+        UiText.LanguageChanged -= OnLanguageChanged;
+        UiText.LanguageChanged += OnLanguageChanged;
+        OnLanguageChanged(this, EventArgs.Empty);
+    }
+
+    private void OnUnloadedForLanguage(object sender, RoutedEventArgs e) =>
+        UiText.LanguageChanged -= OnLanguageChanged;
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLanguage();
+        Bindings.Update();
     }
 
     /// <summary>Kubernetes resource detail view model bound by the page.</summary>

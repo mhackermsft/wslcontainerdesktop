@@ -19,6 +19,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views;
 
@@ -38,6 +39,8 @@ public sealed partial class EndpointsPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        UiText.LanguageChanged += OnUiLanguageChanged;
+        ViewModel.RefreshLocalizedText();
         ViewModel.RefreshCommand.Execute(null);
     }
 
@@ -58,5 +61,16 @@ public sealed partial class EndpointsPage : Page
         {
             ViewModel.CopyCommand.Execute(row);
         }
+    }
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        UiText.LanguageChanged -= OnUiLanguageChanged;
+        base.OnNavigatedFrom(e);
+    }
+
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLocalizedText();
+        Bindings.Update();
     }
 }

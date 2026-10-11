@@ -51,10 +51,10 @@ public sealed class ComposeServicesDialog : ContentDialog
     /// <summary>Gets the operation label.</summary>
     public string OperationLabel => Operation switch
     {
-        ComposeLifecycleOperation.Restart => "Restart",
-        ComposeLifecycleOperation.Stop => "Stop",
-        ComposeLifecycleOperation.Down => "Remove containers",
-        _ => "Apply (up)",
+        ComposeLifecycleOperation.Restart => UiText.Get("Workload_Text_Restart_6b983a", "Restart"),
+        ComposeLifecycleOperation.Stop => UiText.Get("Workload_Text_Stop_cae7d5", "Stop"),
+        ComposeLifecycleOperation.Down => UiText.Get("Workload_Text_Remove_containers_f0e82a", "Remove containers"),
+        _ => UiText.Get("Workload_Text_Apply_up_e6346a", "Apply (up)"),
     };
 
     /// <summary>Gets the request.</summary>
@@ -74,8 +74,8 @@ public sealed class ComposeServicesDialog : ContentDialog
     public ComposeServicesDialog(ComposeProject project)
     {
         _project = project;
-        Title = $"Manage services: {project.Name}";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Manage_services_0_cdca2c", "Manage services: {0}", project.Name);
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Close;
         Resources["ContentDialogMaxWidth"] = 560.0;
         AutomationProperties.SetAutomationId(this, "ComposeServicesDialog");
@@ -87,12 +87,12 @@ public sealed class ComposeServicesDialog : ContentDialog
             MaxHeight = 240,
         };
         AutomationProperties.SetAutomationId(_services, "ComposeServiceTargets");
-        AutomationProperties.SetName(_services, "Services to manage");
+        AutomationProperties.SetName(_services, UiText.Get("Workload_Text_Services_to_manage_4e428f", "Services to manage"));
 
         _operation = new ComboBox
         {
-            Header = "Operation",
-            ItemsSource = new[] { "Apply (up)", "Restart", "Stop", "Remove containers" },
+            Header = UiText.Get("Workload_Text_Operation_0f044f", "Operation"),
+            ItemsSource = new[] { UiText.Get("Workload_Text_Apply_up_e6346a", "Apply (up)"), UiText.Get("Workload_Text_Restart_6b983a", "Restart"), UiText.Get("Workload_Text_Stop_cae7d5", "Stop"), UiText.Get("Workload_Text_Remove_containers_f0e82a", "Remove containers") },
             SelectedIndex = 0,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
@@ -101,13 +101,13 @@ public sealed class ComposeServicesDialog : ContentDialog
         _rebuild = new CheckBox
         {
             Content = InfoTip.Labeled(
-                new TextBlock { Text = "Rebuild images when applying", VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = UiText.Get("Workload_Text_Rebuild_images_when_applying_6434fd", "Rebuild images when applying"), VerticalAlignment = VerticalAlignment.Center },
                 InfoTip.Create(FlagHelp.ComposeRebuild)),
             IsChecked = false,
         };
         AutomationProperties.SetAutomationId(_rebuild, "ComposeServiceRebuild");
         _replicas = new StackPanel { Spacing = 8 };
-        _saveReplicas = new CheckBox { Content = "Save these replica counts for future applies", IsChecked = true };
+        _saveReplicas = new CheckBox { Content = UiText.Get("Workload_Text_Save_these_replica_counts_for_future_f66fa8", "Save these replica counts for future applies"), IsChecked = true };
         AutomationProperties.SetAutomationId(_saveReplicas, "ComposeSaveReplicaOverrides");
         _description = new TextBlock { TextWrapping = TextWrapping.Wrap };
         AutomationProperties.SetAutomationId(_description, "ComposeServiceScope");
@@ -115,7 +115,7 @@ public sealed class ComposeServicesDialog : ContentDialog
         {
             IsClosable = false,
             Severity = InfoBarSeverity.Error,
-            Message = "Select at least one service before continuing.",
+            Message = UiText.Get("Workload_Text_Select_at_least_one_service_before_f4ea1a", "Select at least one service before continuing."),
         };
         AutomationProperties.SetAutomationId(_validation, "ComposeServiceValidation");
 
@@ -124,7 +124,7 @@ public sealed class ComposeServicesDialog : ContentDialog
             Spacing = 12,
             Children =
             {
-                new TextBlock { Text = "Select one or more services.", TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = UiText.Get("Workload_Text_Select_one_or_more_services_15d5fd", "Select one or more services."), TextWrapping = TextWrapping.Wrap },
                 _services,
                 _operation,
                 _description,
@@ -155,21 +155,13 @@ public sealed class ComposeServicesDialog : ContentDialog
         _description.Text = Operation switch
         {
             ComposeLifecycleOperation.Restart =>
-                "Stop and start only existing selected containers, plus dependents with restart: true. " +
-                "Does not create or recreate containers, build images, or apply configuration changes.",
+                UiText.Get("Workload_Text_Stop_and_start_only_existing_selected_3b48b2", "Stop and start only existing selected containers, plus dependents with restart: true. Does not create or recreate containers, build images, or apply configuration changes."),
             ComposeLifecycleOperation.Stop =>
-                "Stop only the selected services. Containers, shared networks, and volumes are preserved. " +
-                "Other services are not stopped and may lose access to these services.",
+                UiText.Get("Workload_Text_Stop_only_the_selected_services_Containers_f80159", "Stop only the selected services. Containers, shared networks, and volumes are preserved. Other services are not stopped and may lose access to these services."),
             ComposeLifecycleOperation.Down =>
-                "Stop and remove only the selected services' containers. Shared networks, volumes, and the " +
-                "project definition are preserved. Other services are not removed and may lose access to these services.",
+                UiText.Get("Workload_Text_Stop_and_remove_only_the_selected_e2c247", "Stop and remove only the selected services' containers. Shared networks, volumes, and the project definition are preserved. Other services are not removed and may lose access to these services."),
             _ =>
-                "Apply configuration to the selected services and their required dependency closure. " +
-                "Unchanged running containers are kept; stopped containers are started and changed containers " +
-                "may be recreated. Replicas are local instances, not a Swarm deployment. Zero removes all selected " +
-                "instances. Named volumes and bind mounts are shared; anonymous volumes belong to each instance " +
-                "and are preserved on recreation. Scaling down does not delete volumes. " +
-                $"A local operation plans at most {ComposeReconciliationPlanner.MaximumPlanInstances} total instances.",
+                UiText.Get("Workload_Text_Apply_configuration_to_the_selected_services_c06fac", "Apply configuration to the selected services and their required dependency closure. Unchanged running containers are kept; stopped containers are started and changed containers may be recreated. Replicas are local instances, not a Swarm deployment. Zero removes all selected instances. Named volumes and bind mounts are shared; anonymous volumes belong to each instance and are preserved on recreation. Scaling down does not delete volumes. A local operation plans at most {0} total instances.", ComposeReconciliationPlanner.MaximumPlanInstances),
         };
     }
 
@@ -189,7 +181,7 @@ public sealed class ComposeServicesDialog : ContentDialog
             var service = _project.Services.Single(s => s.Name == name);
             var input = new NumberBox
             {
-                Header = $"{name} — desired replicas",
+                Header = UiText.Get("Workload_Text_0_desired_replicas_95c372", "{0} — desired replicas", name),
                 Minimum = 0,
                 Maximum = int.MaxValue,
                 SmallChange = 1,
@@ -198,7 +190,7 @@ public sealed class ComposeServicesDialog : ContentDialog
                 SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
             };
             AutomationProperties.SetAutomationId(input, $"ComposeReplicas_{name}");
-            AutomationProperties.SetName(input, $"Desired replicas for {name}");
+            AutomationProperties.SetName(input, UiText.Get("Workload_Text_Desired_replicas_for_0_306ce6", "Desired replicas for {0}", name));
             _replicaInputs.Add(name, input);
             _replicas.Children.Add(input);
         }
@@ -213,7 +205,7 @@ public sealed class ComposeServicesDialog : ContentDialog
         if (_services.SelectedItems.Count == 0)
         {
             args.Cancel = true;
-            _validation.Message = "Select at least one service before continuing.";
+            _validation.Message = UiText.Get("Workload_Text_Select_at_least_one_service_before_f4ea1a", "Select at least one service before continuing.");
             _validation.IsOpen = true;
             _services.Focus(FocusState.Programmatic);
         }
@@ -221,7 +213,7 @@ public sealed class ComposeServicesDialog : ContentDialog
             !double.IsFinite(input.Value) || input.Value < 0 || input.Value > int.MaxValue || Math.Truncate(input.Value) != input.Value))
         {
             args.Cancel = true;
-            _validation.Message = "Every replica count must be a nonnegative whole number.";
+            _validation.Message = UiText.Get("Workload_Text_Every_replica_count_must_be_a_b03ed1", "Every replica count must be a nonnegative whole number.");
             _validation.IsOpen = true;
         }
     }

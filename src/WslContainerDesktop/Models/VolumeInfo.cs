@@ -16,11 +16,12 @@
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Models;
 
 /// <summary>A volume row as returned by `wslc volume list --format json`.</summary>
-public sealed class VolumeInfo
+public sealed class VolumeInfo : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
     /// <summary>
     /// Returns the volume name. List controls use this as each row's screen-reader name;
@@ -65,8 +66,8 @@ public sealed class VolumeInfo
     /// <summary>Gets the usage description.</summary>
     [JsonIgnore]
     public string UsageDescription =>
-        $"{UsedByDisplay}\n\nInspect users include stopped containers. Estimated users are based on creation time only. " +
-        "Unknown or partial usage is not proof that a volume is unused. The engine determines removal eligibility.";
+        UiText.Get("Resource_Text_a6418012e17d", "{0}\n\nInspect users include stopped containers. Estimated users are based on creation time only. ", UsedByDisplay) +
+        UiText.Get("Resource_Text_178b6d858ce7", "Unknown or partial usage is not proof that a volume is unused. The engine determines removal eligibility.");
 
     /// <summary>
     /// Short 12-char id for anonymous volumes (whose name is a hash); the real name
@@ -78,7 +79,7 @@ public sealed class VolumeInfo
 
     /// <summary>Gets the type label.</summary>
     [JsonIgnore]
-    public string TypeLabel => IsAnonymous ? "Anonymous" : "Named";
+    public string TypeLabel => IsAnonymous ? UiText.Get("Resource_Text_9bed5104004c", "Anonymous") : UiText.Get("Resource_Text_e51845cb1141", "Named");
 
     /// <summary>Incomplete snapshots never imply that a volume is unused.</summary>
     [JsonIgnore]
@@ -88,15 +89,15 @@ public sealed class VolumeInfo
         {
             if (UsageState == VolumeUsageState.Estimated)
             {
-                return $"{UsedBy} (estimated; usage unknown)";
+                return UiText.Get("Resource_Text_f71509aebfe8", "{0} (estimated; usage unknown)", UsedBy);
             }
 
             if (ContainerUsers.Count > 0)
             {
-                return UsageState == VolumeUsageState.Partial ? $"{UsedBy} (other users unknown)" : UsedBy;
+                return UsageState == VolumeUsageState.Partial ? UiText.Get("Resource_Text_f9b108d77fc3", "{0} (other users unknown)", UsedBy) : UsedBy;
             }
 
-            return UsageState == VolumeUsageState.Unused ? "Unused (inspect snapshot)" : "Unknown";
+            return UsageState == VolumeUsageState.Unused ? UiText.Get("Resource_Text_a31fed794752", "Unused (inspect snapshot)") : UiText.Get("Resource_Text_bc7819b34ff8", "Unknown");
         }
     }
 
@@ -135,4 +136,6 @@ public sealed class VolumeInfo
             // Leave defaults on parse failure.
         }
     }
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText() => OnPropertyChanged(string.Empty);
 }

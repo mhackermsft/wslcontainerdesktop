@@ -17,6 +17,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views.Controls;
 
@@ -28,8 +29,13 @@ public sealed partial class RequirementGateView : UserControl
     {
         ViewModel = App.Current.Services.GetRequiredService<RequirementGateViewModel>();
         InitializeComponent();
+        Loaded += (_, _) => UiText.LanguageChanged += OnLanguageChanged;
+        Unloaded += (_, _) => UiText.LanguageChanged -= OnLanguageChanged;
     }
 
     /// <summary>Requirement status view model bound by the gate control.</summary>
     public RequirementGateViewModel ViewModel { get; }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) =>
+        DispatcherQueue.TryEnqueue(() => Bindings.Update());
 }

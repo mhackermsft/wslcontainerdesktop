@@ -29,6 +29,14 @@ namespace WslContainerDesktop.ViewModels;
 /// </summary>
 public partial class RegistriesViewModel : ObservableObject
 {
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string StatusMessageDisplay => UiText.Translate(StatusMessage);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string PolicyInfoMessageDisplay => UiText.Translate(PolicyInfoMessage);
+
     private readonly IWslcService _wslc;
     private readonly IAzureCliService _azure;
     private readonly ISettingsService _settings;
@@ -43,6 +51,7 @@ public partial class RegistriesViewModel : ObservableObject
 
     /// <summary>Bindable state for status message used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusMessageDisplay))]
     private string _statusMessage = "Manage the registries available when running or pulling images.";
 
     /// <summary>Whether policy info visible for view binding.</summary>
@@ -51,6 +60,7 @@ public partial class RegistriesViewModel : ObservableObject
 
     /// <summary>Bindable state for policy info message used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PolicyInfoMessageDisplay))]
     private string _policyInfoMessage = string.Empty;
 
     /// <summary>Value for registries shown or edited by the view.</summary>
@@ -176,8 +186,8 @@ public partial class RegistriesViewModel : ObservableObject
         if (_settings.Registries.Any(r =>
                 string.Equals(r.Host, entry.Host, StringComparison.OrdinalIgnoreCase)))
         {
-            await _dialogs.ShowMessageAsync("Already added",
-                $"A registry with host \"{entry.Host}\" already exists.");
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_2683787a3644", "Already added"),
+                UiText.Get("Resource_Text_215d03e9ca3f", "A registry with host \"{0}\" already exists.", entry.Host));
             return;
         }
 
@@ -308,7 +318,7 @@ public partial class RegistriesViewModel : ObservableObject
             }
             else
             {
-                await _dialogs.ShowMessageAsync("Login failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_c00f6627f603", "Login failed"), result.ErrorText);
                 StatusMessage = $"Login to {registry.Name} failed.";
                 registry.LoginState = Models.RegistryLoginState.LoggedOut;
             }
@@ -345,7 +355,7 @@ public partial class RegistriesViewModel : ObservableObject
             }
             else
             {
-                await _dialogs.ShowMessageAsync("Logout failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_d2313d7e8a46", "Logout failed"), result.ErrorText);
                 StatusMessage = $"Logout of {registry.Name} failed.";
             }
         }
@@ -365,9 +375,9 @@ public partial class RegistriesViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove registry",
-            $"Remove \"{registry.Name}\" ({registry.Host})? This also logs out of it.",
-            "Remove");
+            UiText.Get("Resource_Text_a5d663720ca0", "Remove registry"),
+            UiText.Get("Resource_Text_5641e0c6613e", "Remove \"{0}\" ({1})? This also logs out of it.", registry.Name, registry.Host),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -387,5 +397,12 @@ public partial class RegistriesViewModel : ObservableObject
         _settings.Save();
         Registries.Remove(registry);
         StatusMessage = $"Removed {registry.Name}.";
+    }
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (var item in Registries) item.RefreshLocalizedText();
     }
 }

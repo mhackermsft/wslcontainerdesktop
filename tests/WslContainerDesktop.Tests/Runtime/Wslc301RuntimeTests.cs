@@ -773,6 +773,7 @@ public sealed class Wslc301RuntimeTests
         public bool StartMinimized { get; set; }
         public bool RestartRunningContainersOnLaunch { get; set; }
         public string Theme { get; set; } = "Default";
+        public string Language { get; set; } = "";
         public bool NotificationsEnabled { get; set; }
         public bool NotifyImageEvents { get; set; }
         public bool NotifyContainerEvents { get; set; }

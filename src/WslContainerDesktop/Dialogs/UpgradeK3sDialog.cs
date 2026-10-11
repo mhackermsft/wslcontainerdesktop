@@ -17,6 +17,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -37,9 +39,9 @@ public sealed class UpgradeK3sDialog : ContentDialog
     /// <param name="latestVersion">The latest version value supplied by the caller.</param>
     public UpgradeK3sDialog(string currentVersion, string? latestVersion)
     {
-        Title = "Upgrade Kubernetes (k3s)";
-        PrimaryButtonText = "Upgrade";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Upgrade_Kubernetes_k3s_18fbae", "Upgrade Kubernetes (k3s)");
+        PrimaryButtonText = UiText.Get("Workload_Text_Upgrade_7ec026", "Upgrade");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         var latestKnown = !string.IsNullOrWhiteSpace(latestVersion);
@@ -49,7 +51,7 @@ public sealed class UpgradeK3sDialog : ContentDialog
         var current = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Text = $"Installed version: {currentVersion}",
+            Text = UiText.Get("Workload_Text_Installed_version_0_15ee25", "Installed version: {0}", currentVersion),
         };
 
         var latestText = new TextBlock
@@ -58,27 +60,27 @@ public sealed class UpgradeK3sDialog : ContentDialog
             TextWrapping = TextWrapping.Wrap,
             Text = latestKnown
                 ? (upToDate
-                    ? $"Latest stable: {latestVersion} — you're up to date. Re-running will reinstall the same version."
-                    : $"Latest stable: {latestVersion} — an upgrade is available.")
-                : "Latest stable: could not be determined (no network?). You can still pin a specific version.",
+                    ? UiText.Get("Workload_Text_Latest_stable_0_you_re_up_5dbd92", "Latest stable: {0} — you're up to date. Re-running will reinstall the same version.", latestVersion)
+                    : UiText.Get("Workload_Text_Latest_stable_0_an_upgrade_is_b786cd", "Latest stable: {0} — an upgrade is available.", latestVersion))
+                : UiText.Get("Workload_Text_Latest_stable_could_not_be_determined_2b934d", "Latest stable: could not be determined (no network?). You can still pin a specific version."),
         };
 
         _latestRadio = new RadioButton
         {
             GroupName = "k3sUpgrade",
             IsChecked = true,
-            Content = latestKnown ? $"Latest stable ({latestVersion})" : "Latest stable",
+            Content = latestKnown ? UiText.Get("Workload_Text_Latest_stable_0_19df99", "Latest stable ({0})", latestVersion) : UiText.Get("Workload_Text_Latest_stable_ad00d5", "Latest stable"),
         };
 
         _specificRadio = new RadioButton
         {
             GroupName = "k3sUpgrade",
-            Content = "Specific version",
+            Content = UiText.Get("Workload_Text_Specific_version_c36f2c", "Specific version"),
         };
 
         _versionBox = new TextBox
         {
-            PlaceholderText = "e.g. v1.36.2+k3s1",
+            PlaceholderText = UiText.Get("Workload_Text_e_g_v1_36_2_k3s1_f05394", "e.g. v1.36.2+k3s1"),
             IsEnabled = false,
             Margin = new Thickness(28, 0, 0, 0),
             MinWidth = 260,
@@ -97,7 +99,7 @@ public sealed class UpgradeK3sDialog : ContentDialog
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Text = "The upgrade re-runs the k3s install script in place. Your cluster data and workloads are preserved; the service restarts briefly.",
+            Text = UiText.Get("Workload_Text_The_upgrade_re_runs_the_k3s_f22876", "The upgrade re-runs the k3s install script in place. Your cluster data and workloads are preserved; the service restarts briefly."),
         };
 
         Content = new StackPanel

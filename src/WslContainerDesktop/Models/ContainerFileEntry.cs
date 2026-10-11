@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Models;
 
 /// <summary>Model object that stores container file entry information used by services, view models, or dialogs.</summary>
-public sealed class ContainerFileEntry
+public sealed class ContainerFileEntry : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
 {
     /// <summary>
     /// Returns the file or folder name. List controls use this as each row's screen-reader name;
@@ -83,6 +85,10 @@ public sealed class ContainerFileEntry
     }
 
     private string? _typeDisplay;
+
+    /// <summary>Localized file type shown by the UI without changing serialized file metadata.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string LocalizedTypeDisplay => UiText.Translate(TypeDisplay);
 
     /// <summary>Gets the owner display.</summary>
     public string OwnerDisplay => string.IsNullOrWhiteSpace(Group) || string.Equals(Owner, Group, StringComparison.Ordinal)
@@ -171,4 +177,6 @@ public sealed class ContainerFileEntry
             ? $"{bytes} {suffixes[suffixIndex]}"
             : $"{value:0.#} {suffixes[suffixIndex]}";
     }
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText() => OnPropertyChanged(string.Empty);
 }

@@ -20,6 +20,8 @@ using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Views.Controls;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>WinUI 3 content dialog that collects or confirms connect network input before a view model calls the underlying service.</summary>
@@ -35,18 +37,18 @@ public sealed class ConnectNetworkDialog : ContentDialog
     /// <param name="alreadyConnected">The already connected value supplied by the caller.</param>
     public ConnectNetworkDialog(IEnumerable<NetworkInfo> networks, IEnumerable<string> alreadyConnected)
     {
-        Title = "Connect to network";
-        PrimaryButtonText = "Connect";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Connect_to_network_13927e", "Connect to network");
+        PrimaryButtonText = UiText.Get("Workload_Text_Connect_1a2303", "Connect");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         var connected = alreadyConnected.ToHashSet(StringComparer.Ordinal);
         _networkBox = new ComboBox
         {
-            Header = "Network",
+            Header = UiText.Get("Workload_Text_Network_1744b9", "Network"),
             IsEditable = true,
             MinWidth = 420,
-            PlaceholderText = "Select a network…",
+            PlaceholderText = UiText.Get("Workload_Text_Select_a_network_4257f6", "Select a network…"),
         };
         foreach (var name in networks.Select(n => n.Name).Where(n => !string.IsNullOrWhiteSpace(n))
                      .Distinct(StringComparer.Ordinal).Where(n => !connected.Contains(n)))
@@ -61,12 +63,12 @@ public sealed class ConnectNetworkDialog : ContentDialog
 
         _aliasesBox = new TextBox
         {
-            Header = InfoTip.Header("Aliases (optional, comma or line separated)", FlagHelp.NetworkAliases),
+            Header = InfoTip.Header(UiText.Get("Workload_Text_Aliases_optional_comma_or_line_separated_73fe58", "Aliases (optional, comma or line separated)"), FlagHelp.NetworkAliases),
             PlaceholderText = "web, api",
             AcceptsReturn = true,
             MinHeight = 64,
         };
-        _ipv4Box = new TextBox { Header = "IPv4 address (optional)", PlaceholderText = "172.28.0.10" };
+        _ipv4Box = new TextBox { Header = UiText.Get("Workload_Text_IPv4_address_optional_540519", "IPv4 address (optional)"), PlaceholderText = "172.28.0.10" };
         _errorText = new TextBlock
         {
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
@@ -92,7 +94,7 @@ public sealed class ConnectNetworkDialog : ContentDialog
 
         if (string.IsNullOrWhiteSpace(network))
         {
-            Fail(args, "Select or enter a network name.");
+            Fail(args, UiText.Get("Workload_Text_Select_or_enter_a_network_name_6b4aae", "Select or enter a network name."));
             return;
         }
 
@@ -101,7 +103,7 @@ public sealed class ConnectNetworkDialog : ContentDialog
             (!System.Net.IPAddress.TryParse(ipv4, out var address) ||
              address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork))
         {
-            Fail(args, "IPv4 address must be a valid IPv4 literal.");
+            Fail(args, UiText.Get("Workload_Text_IPv4_address_must_be_a_valid_6ae20f", "IPv4 address must be a valid IPv4 literal."));
             return;
         }
 

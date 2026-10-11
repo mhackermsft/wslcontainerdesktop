@@ -41,6 +41,13 @@ public partial class ComposeProjectRow : ObservableObject
         ManageServicesCommand = manageServicesCommand;
     }
 
+    /// <summary>Notifies localized row labels without changing persisted values or output.</summary>
+    public void RefreshLanguage()
+    {
+        StatusText = UiText.Translate(StatusText);
+        OnPropertyChanged(nameof(ServicesSummary));
+    }
+
     /// <summary>Persisted Compose project definition backing this row.</summary>
     public ComposeProject Project { get; }
 
@@ -61,7 +68,7 @@ public partial class ComposeProjectRow : ObservableObject
 
     /// <summary>Generated status text such as running, partial, or not running.</summary>
     [ObservableProperty]
-    private string _statusText = "Not running";
+    private string _statusText = UiText.Get("Workload_Text_Not_running_9e3856", "Not running");
 
     /// <summary>Human-readable service and replica summary for the row.</summary>
     public string ServicesSummary
@@ -69,7 +76,7 @@ public partial class ComposeProjectRow : ObservableObject
         get
         {
             var names = Project.Services.Select(s => $"{s.Name} × {ComposeReconciliationPlanner.DesiredReplicas(Project, s, new())}").ToList();
-            return names.Count == 0 ? "No services" : string.Join(", ", names);
+            return names.Count == 0 ? UiText.Get("Workload_Text_No_services_76de88", "No services") : string.Join(", ", names);
         }
     }
 }
@@ -93,7 +100,7 @@ public partial class ComposeViewModel : ObservableObject
 
     /// <summary>Status text displayed above the Compose project list.</summary>
     [ObservableProperty]
-    private string _statusMessage = "Ready";
+    private string _statusMessage = UiText.Get("Workload_Text_Ready_5fa7aa", "Ready");
 
     /// <summary>Currently selected Compose project row.</summary>
     [ObservableProperty]
@@ -101,6 +108,13 @@ public partial class ComposeViewModel : ObservableObject
 
     /// <summary>Compose projects displayed by the page.</summary>
     public ObservableCollection<ComposeProjectRow> Projects { get; } = new();
+
+    /// <summary>Refreshes app-owned display text for the current language.</summary>
+    public void RefreshLanguage()
+    {
+        StatusMessage = UiText.Translate(StatusMessage);
+        foreach (var row in Projects) row.RefreshLanguage();
+    }
 
     /// <summary>Creates the Compose page model with persistence, supervisor, <c>wslc</c>, and dialog collaborators.</summary>
     public ComposeViewModel(
@@ -120,7 +134,7 @@ public partial class ComposeViewModel : ObservableObject
     public async Task RefreshAsync()
     {
         BeginBusyOperation();
-        StatusMessage = "Loading compose projects…";
+        StatusMessage = UiText.Get("Workload_Text_Loading_compose_projects_33a0b7", "Loading compose projects…");
         try
         {
             IReadOnlyList<ContainerInfo>? containers = null;
@@ -139,19 +153,19 @@ public partial class ComposeViewModel : ObservableObject
             foreach (var project in projects)
             {
                 var row = new ComposeProjectRow(project, ManageServicesCommand);
-                if (containers is null) row.StatusText = "Status unavailable";
+                if (containers is null) row.StatusText = UiText.Get("Workload_Text_Status_unavailable_7eb5af", "Status unavailable");
                 else UpdateStatus(row, containers);
                 Projects.Add(row);
             }
 
             StatusMessage = Projects.Count == 0
-                ? "No compose projects. Import one to get started."
-                : $"{Projects.Count} project{(Projects.Count == 1 ? "" : "s")}";
+                ? UiText.Get("Workload_Text_No_compose_projects_Import_one_to_5185a1", "No compose projects. Import one to get started.")
+                : UiText.Get("Workload_Text_0_project_s_53276f", "{0} project(s)", Projects.Count);
             if (inventoryError is not null)
-                StatusMessage += $" - Container status unavailable: {inventoryError}";
+                StatusMessage += UiText.Get("Workload_Text_Container_status_unavailable_0_f892d1", " - Container status unavailable: {0}", inventoryError);
             if (_supervisor.ReconciliationWarnings.Count > 0)
             {
-                StatusMessage += " - Network attention: " + string.Join("; ", _supervisor.ReconciliationWarnings);
+                StatusMessage += UiText.Get("Workload_Text_Network_attention_f45fdf", " - Network attention: ") + string.Join("; ", _supervisor.ReconciliationWarnings.Select(UiText.TranslateLines));
             }
         }
         finally
@@ -166,10 +180,10 @@ public partial class ComposeViewModel : ObservableObject
 
         row.RunningCount = running;
         row.StatusText = running == 0
-            ? row.DesiredInstanceCount == 0 ? "Scaled to zero" : $"Not running (0/{row.DesiredInstanceCount} instances)"
+            ? row.DesiredInstanceCount == 0 ? UiText.Get("Workload_Text_Scaled_to_zero_edb205", "Scaled to zero") : UiText.Get("Workload_Text_Not_running_0_0_instances_e67878", "Not running (0/{0} instances)", row.DesiredInstanceCount)
             : running == row.DesiredInstanceCount
-                ? $"Running ({running}/{row.DesiredInstanceCount} instances)"
-                : $"Partial ({running}/{row.DesiredInstanceCount} instances)";
+                ? UiText.Get("Workload_Text_Running_0_1_instances_684b8f", "Running ({0}/{1} instances)", running, row.DesiredInstanceCount)
+                : UiText.Get("Workload_Text_Partial_0_1_instances_ce3931", "Partial ({0}/{1} instances)", running, row.DesiredInstanceCount);
     }
 
     /// <summary>Prompts for Compose YAML and imports it through the shared import flow.</summary>
@@ -208,7 +222,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Import failed", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Import_failed_0a26f4", "Import failed"), ex.Message);
             return;
         }
 
@@ -220,8 +234,8 @@ public partial class ComposeViewModel : ObservableObject
         if (project.Services.Count == 0)
         {
             await _dialogs.ShowMessageAsync(
-                "Nothing to import",
-                "No services with an image were found in the compose file.");
+                UiText.Get("Workload_Text_Nothing_to_import_c4497f", "Nothing to import"),
+                UiText.Get("Workload_Text_No_services_with_an_image_were_ffb50a", "No services with an image were found in the compose file."));
             return;
         }
 
@@ -230,19 +244,19 @@ public partial class ComposeViewModel : ObservableObject
         if (project.Warnings.Count > 0)
         {
             const int maxShown = 12;
-            var shown = project.Warnings.Take(maxShown).Select(new ComposePreviewProjection(project).Redact);
+            var shown = project.Warnings.Take(maxShown).Select(new ComposePreviewProjection(project).Redact).Select(UiText.TranslateLines);
             var more = project.Warnings.Count - maxShown;
             var body = string.Join("\n", shown.Select(w => "• " + w));
             if (more > 0)
             {
-                body += $"\n• …and {more} more.";
+                body += UiText.Get("Workload_Text_and_0_more_a38682", "\n• …and {0} more.", more);
             }
 
             var proceed = await _dialogs.ShowConfirmAsync(
-                "Compose compatibility notes",
-                "Review these unsupported or engine-dependent settings before importing:\n\n" +
-                body + "\n\nImport the project anyway?",
-                "Import anyway");
+                UiText.Get("Workload_Text_Compose_compatibility_notes_7d8a36", "Compose compatibility notes"),
+                UiText.Get("Workload_Text_Review_these_unsupported_or_engine_dependent_dfe63d", "Review these unsupported or engine-dependent settings before importing:\n\n") +
+                body + UiText.Get("Workload_Text_Import_the_project_anyway_83f426", "\n\nImport the project anyway?"),
+                UiText.Get("Workload_Text_Import_anyway_e06eac", "Import anyway"));
             if (!proceed)
             {
                 return;
@@ -250,7 +264,7 @@ public partial class ComposeViewModel : ObservableObject
         }
 
         // Let the user name the project (defaults to the compose 'name:' or "compose").
-        var nameDialog = new SimpleInputDialog("Name this project", "Project name", project.Name)
+        var nameDialog = new SimpleInputDialog(UiText.Get("Workload_Text_Name_this_project_8a5ddc", "Name this project"), UiText.Get("Workload_Text_Project_name_254981", "Project name"), project.Name)
         {
             Value = project.Name,
         };
@@ -264,17 +278,16 @@ public partial class ComposeViewModel : ObservableObject
 
         var importChoice = await _dialogs.ShowDialogAsync(new ContentDialog
         {
-            Title = "Import Compose project",
+            Title = UiText.Get("Workload_Text_Import_Compose_project_d389da", "Import Compose project"),
             Content = new TextBlock
             {
                 Text = new ComposePreviewProjection(project).Redact(
-                    $"\"{project.Name}\" has {project.Services.Count} service(s). Review compatibility before applying, or save an import without starting it.\n\n" +
-                    "App-owned restart and health supervision require this app to remain open."),
+                    UiText.Get("Workload_Text_0_has_1_service_s_Review_6f59f1", "\"{0}\" has {1} service(s). Review compatibility before applying, or save an import without starting it.\n\nApp-owned restart and health supervision require this app to remain open.", project.Name, project.Services.Count)),
                 TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap,
             },
-            PrimaryButtonText = "Review and apply",
-            SecondaryButtonText = "Import only",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = UiText.Get("Workload_Text_Review_and_apply_4954f1", "Review and apply"),
+            SecondaryButtonText = UiText.Get("Workload_Text_Import_only_c9bd79", "Import only"),
+            CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel"),
             DefaultButton = ContentDialogButton.Close,
         });
         if (importChoice == ContentDialogResult.Primary)
@@ -286,7 +299,7 @@ public partial class ComposeViewModel : ObservableObject
             // Explicit import-only choice, not a side effect of cancelling deployment review.
             _store.Save(project);
             await RefreshAsync();
-            StatusMessage = $"Imported project \"{new ComposePreviewProjection(project).Redact(project.Name)}\"";
+            StatusMessage = UiText.Get("Workload_Text_Imported_project_0_1dff8a", "Imported project \"{0}\"", new ComposePreviewProjection(project).Redact(project.Name));
         }
     }
 
@@ -306,7 +319,7 @@ public partial class ComposeViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Launch failed", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Launch_failed_1755d5", "Launch failed"), ex.Message);
             return false;
         }
 
@@ -318,8 +331,8 @@ public partial class ComposeViewModel : ObservableObject
         if (project.Services.Count == 0)
         {
             await _dialogs.ShowMessageAsync(
-                "Nothing to launch",
-                "No services with an image were found in the compose file.");
+                UiText.Get("Workload_Text_Nothing_to_launch_e88455", "Nothing to launch"),
+                UiText.Get("Workload_Text_No_services_with_an_image_were_ffb50a", "No services with an image were found in the compose file."));
             return false;
         }
 
@@ -404,7 +417,7 @@ public partial class ComposeViewModel : ObservableObject
             // targeted UI fall through to that meaning, even if dialog validation changes.
             if (request.Services.Count == 0)
             {
-                await _dialogs.ShowMessageAsync("Select services", "Select at least one service. No operation was performed.");
+                await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Select_services_aeef2c", "Select services"), UiText.Get("Workload_Text_Select_at_least_one_service_No_2358e8", "Select at least one service. No operation was performed."));
                 return;
             }
 
@@ -420,19 +433,19 @@ public partial class ComposeViewModel : ObservableObject
             var result = outcome.ToUpResult();
             await RefreshAsync();
             StatusMessage = result.AllSucceeded
-                ? $"{dialog.OperationLabel} completed for \"{row.Name}\""
-                : $"{dialog.OperationLabel} for \"{row.Name}\" — some services failed";
+                ? UiText.Get("Workload_Text_0_completed_for_1_b46404", "{0} completed for \"{1}\"", dialog.OperationLabel, row.Name)
+                : UiText.Get("Workload_Text_0_for_1_some_services_failed_553312", "{0} for \"{1}\" — some services failed", dialog.OperationLabel, row.Name);
             if (request.Operation is ComposeLifecycleOperation.Up or ComposeLifecycleOperation.Restart)
             {
-                StatusMessage += $" — {result.Started} instance(s) started";
+                StatusMessage += UiText.Get("Workload_Text_0_instance_s_started_83484d", " — {0} instance(s) started", result.Started);
             }
 
             await ShowServiceOutcomesAsync($"{dialog.OperationLabel}: {row.Name}", result, row.Project);
         }
         catch (Exception ex)
         {
-            StatusMessage = "Service operation failed";
-            await _dialogs.ShowMessageAsync("Service operation failed", ex.Message);
+            StatusMessage = UiText.Get("Workload_Text_Service_operation_failed_d4aeef", "Service operation failed");
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Service_operation_failed_d4aeef", "Service operation failed"), ex.Message);
         }
         finally
         {
@@ -455,45 +468,42 @@ public partial class ComposeViewModel : ObservableObject
 
         var safe = new ComposePreviewProjection(project);
         return _dialogs.ShowMessageAsync(safe.Redact(title), result.Services.Count == 0
-            ? "No service actions were performed."
+            ? UiText.Get("Workload_Text_No_service_actions_were_performed_c99eee", "No service actions were performed.")
             : string.Join("\n", result.Services.Select(service =>
             {
                 // The planner's reason explains why an action was chosen; it is only worth showing
                 // when that action did not succeed.
                 var reason = service.Success ? null : result.Plan?.Services.FirstOrDefault(entry =>
                     string.Equals(entry.InstanceKey, service.InstanceKey, StringComparison.Ordinal))?.Reason;
-                return safe.Redact($"• {service.InstanceKey}: {service.Action}{(service.Success ? "" : " (failed)")} — {service.Detail}" +
-                    (string.IsNullOrWhiteSpace(reason) || reason == service.Detail ? "" : $"\n  Reason: {reason}") +
-                    (string.IsNullOrWhiteSpace(service.Warning) ? "" : $"\n  Warning: {service.Warning}"));
+                return safe.Redact($"• {service.InstanceKey}: {UiText.Translate(service.Action.ToString())}{(service.Success ? "" : UiText.Get("Workload_Final_c695ffc1a0", " (failed)"))} — {UiText.TranslateLines(service.Detail)}" +
+                    (string.IsNullOrWhiteSpace(reason) || reason == service.Detail ? "" : UiText.Get("Workload_Text_Reason_0_2fa689", "\n  Reason: {0}", UiText.TranslateLines(reason))) +
+                    (string.IsNullOrWhiteSpace(service.Warning) ? "" : UiText.Get("Workload_Text_Warning_0_bebde3", "\n  Warning: {0}", UiText.TranslateLines(service.Warning))));
             })));
     }
 
     private async Task<bool> BringUpAsync(ComposeProject project)
     {
         BeginBusyOperation();
-        StatusMessage = $"Bringing up \"{project.Name}\"…";
+        StatusMessage = UiText.Get("Workload_Text_Bringing_up_0_fc2ceb", "Bringing up \"{0}\"…", project.Name);
         try
         {
             var result = await _supervisor.UpAsync(project);
             await RefreshAsync();
             if (result.AllSucceeded)
             {
-                StatusMessage = $"\"{project.Name}\" applied — {result.Started} instance(s) started";
+                StatusMessage = UiText.Get("Workload_Text_0_applied_1_instance_s_started_b61588", "\"{0}\" applied — {1} instance(s) started", project.Name, result.Started);
             }
             else
             {
                 var failed = result.Services.Where(s => !s.Success).ToList();
-                StatusMessage = $"\"{project.Name}\" apply incomplete — {result.Started} instance(s) started";
+                StatusMessage = UiText.Get("Workload_Text_0_apply_incomplete_1_instance_s_c1d8d4", "\"{0}\" apply incomplete — {1} instance(s) started", project.Name, result.Started);
 
                 if (failed.Any(f => ComposeProjectSupervisor.IsMountLimitFailure(f.Detail)))
                 {
                     var restart = await _dialogs.ShowConfirmAsync(
-                        "wslc mount limit reached",
-                        $"Some services couldn't mount their configs/secrets because wslc hit its "
-                            + "session bind-mount limit (15 distinct host paths). Restart the WSL "
-                            + "session to release the slots, then bring the project up again. "
-                            + "Restarting stops all running containers. Restart now?",
-                        "Restart WSL session");
+                        UiText.Get("Workload_Text_wslc_mount_limit_reached_c1cb82", "wslc mount limit reached"),
+                        UiText.Get("Workload_Text_Some_services_couldn_t_mount_their_679633", "Some services couldn't mount their configs/secrets because wslc hit its session bind-mount limit (15 distinct host paths). Restart the WSL session to release the slots, then bring the project up again. Restarting stops all running containers. Restart now?"),
+                        UiText.Get("Workload_Text_Restart_WSL_session_574951", "Restart WSL session"));
                     if (restart)
                     {
                         await RestartSessionCoreAsync();
@@ -503,13 +513,13 @@ public partial class ComposeViewModel : ObservableObject
 
             }
 
-            await ShowServiceOutcomesAsync($"Apply: {project.Name}", result, project);
+            await ShowServiceOutcomesAsync(UiText.Get("Workload_Text_Apply_0_9d7f20", "Apply: {0}", project.Name), result, project);
             return result.AllSucceeded;
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Bring up failed", new ComposePreviewProjection(project).Redact(ex.Message));
-            StatusMessage = "Error";
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Bring_up_failed_1f4ce8", "Bring up failed"), new ComposePreviewProjection(project).Redact(ex.Message));
+            StatusMessage = UiText.Get("Workload_Text_Error_54a0e8", "Error");
             return false;
         }
         finally
@@ -529,26 +539,26 @@ public partial class ComposeViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Bring project down",
-            $"Stop and remove all containers for \"{row.Name}\"? The project definition is kept.",
-            "Bring down");
+            UiText.Get("Workload_Text_Bring_project_down_1ebeb2", "Bring project down"),
+            UiText.Get("Workload_Text_Stop_and_remove_all_containers_for_e1a7c1", "Stop and remove all containers for \"{0}\"? The project definition is kept.", row.Name),
+            UiText.Get("Workload_Text_Bring_down_151b4b", "Bring down"));
         if (!ok)
         {
             return;
         }
 
         BeginBusyOperation();
-        StatusMessage = $"Bringing down \"{row.Name}\"…";
+        StatusMessage = UiText.Get("Workload_Text_Bringing_down_0_952aea", "Bringing down \"{0}\"…", row.Name);
         try
         {
             await _supervisor.DownAsync(row.Name);
             await RefreshAsync();
-            StatusMessage = $"\"{row.Name}\" is down";
+            StatusMessage = UiText.Get("Workload_Text_0_is_down_5a240a", "\"{0}\" is down", row.Name);
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Bring down failed", ex.Message);
-            StatusMessage = "Error";
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Bring_down_failed_da796d", "Bring down failed"), ex.Message);
+            StatusMessage = UiText.Get("Workload_Text_Error_54a0e8", "Error");
         }
         finally
         {
@@ -567,18 +577,16 @@ public partial class ComposeViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Restart project",
-            $"Stop and start the existing containers for \"{row.Name}\" in dependency order?\n\n" +
-            "Restart does not create or recreate containers, build images, or apply configuration changes. " +
-            "Use Up (Apply) to apply changes.",
-            "Restart");
+            UiText.Get("Workload_Text_Restart_project_101a59", "Restart project"),
+            UiText.Get("Workload_Text_Stop_and_start_the_existing_containers_536030", "Stop and start the existing containers for \"{0}\" in dependency order?\n\nRestart does not create or recreate containers, build images, or apply configuration changes. Use Up (Apply) to apply changes.", row.Name),
+            UiText.Get("Workload_Text_Restart_6b983a", "Restart"));
         if (!ok)
         {
             return;
         }
 
         BeginBusyOperation();
-        StatusMessage = $"Restarting \"{row.Name}\"…";
+        StatusMessage = UiText.Get("Workload_Text_Restarting_0_aba7d5", "Restarting \"{0}\"…", row.Name);
         try
         {
             var result = await _supervisor.OperateAsync(row.Name, new ComposeOperationRequest
@@ -588,19 +596,19 @@ public partial class ComposeViewModel : ObservableObject
             await RefreshAsync();
             if (result.AllSucceeded)
             {
-                StatusMessage = $"\"{row.Name}\" restarted — {result.Started} instance(s) started";
+                StatusMessage = UiText.Get("Workload_Text_0_restarted_1_instance_s_started_d1b2df", "\"{0}\" restarted — {1} instance(s) started", row.Name, result.Started);
             }
             else
             {
-                StatusMessage = $"\"{row.Name}\" restart incomplete — {result.Started} instance(s) started";
+                StatusMessage = UiText.Get("Workload_Text_0_restart_incomplete_1_instance_s_5a55f5", "\"{0}\" restart incomplete — {1} instance(s) started", row.Name, result.Started);
             }
 
-            await ShowServiceOutcomesAsync($"Restart: {row.Name}", result, row.Project);
+            await ShowServiceOutcomesAsync(UiText.Get("Workload_Text_Restart_0_950992", "Restart: {0}", row.Name), result, row.Project);
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Restart failed", ex.Message);
-            StatusMessage = "Error";
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Restart_failed_b8864c", "Restart failed"), ex.Message);
+            StatusMessage = UiText.Get("Workload_Text_Error_54a0e8", "Error");
         }
         finally
         {
@@ -619,9 +627,9 @@ public partial class ComposeViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove project",
-            $"Remove the project definition for \"{row.Name}\"? This also brings it down (stops and removes its containers) and deletes the volumes it created. External volumes are preserved.",
-            "Remove");
+            UiText.Get("Workload_Text_Remove_project_704e73", "Remove project"),
+            UiText.Get("Workload_Text_Remove_the_project_definition_for_0_158ca8", "Remove the project definition for \"{0}\"? This also brings it down (stops and removes its containers) and deletes the volumes it created. External volumes are preserved.", row.Name),
+            UiText.Get("Workload_Text_Remove_c3812f", "Remove"));
         if (!ok)
         {
             return;
@@ -634,11 +642,11 @@ public partial class ComposeViewModel : ObservableObject
             _store.Delete(row.Name);
             _supervisor.CleanStaging(row.Name);
             await RefreshAsync();
-            StatusMessage = $"Removed \"{row.Name}\"";
+            StatusMessage = UiText.Get("Workload_Text_Removed_0_7285c3", "Removed \"{0}\"", row.Name);
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Remove failed", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Final_7a91db72b7", "Remove failed"), ex.Message);
         }
         finally
         {
@@ -660,11 +668,9 @@ public partial class ComposeViewModel : ObservableObject
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Restart WSL session",
-            "This releases wslc's leaked bind-mount slots (needed when config/secret mounts start "
-                + "failing after ~15 distinct mounts). It also STOPS ALL running containers. "
-                + "Continue?",
-            "Restart");
+            UiText.Get("Workload_Text_Restart_WSL_session_574951", "Restart WSL session"),
+            UiText.Get("Workload_Text_This_releases_wslc_s_leaked_bind_ddc612", "This releases wslc's leaked bind-mount slots (needed when config/secret mounts start failing after ~15 distinct mounts). It also STOPS ALL running containers. Continue?"),
+            UiText.Get("Workload_Text_Restart_6b983a", "Restart"));
         if (!ok)
         {
             return;
@@ -676,25 +682,25 @@ public partial class ComposeViewModel : ObservableObject
     private async Task RestartSessionCoreAsync()
     {
         BeginBusyOperation();
-        StatusMessage = "Restarting WSL session…";
+        StatusMessage = UiText.Get("Workload_Text_Restarting_WSL_session_ab25ce", "Restarting WSL session…");
         try
         {
             var result = await _wslc.RestartSessionAsync();
             await RefreshAsync();
             StatusMessage = result.Success
-                ? "WSL session restarted — mount slots released. Bring your projects up again."
-                : "Restart failed";
+                ? UiText.Get("Workload_Text_WSL_session_restarted_mount_slots_released_c52c57", "WSL session restarted — mount slots released. Bring your projects up again.")
+                : UiText.Get("Workload_Text_Restart_failed_b8864c", "Restart failed");
             if (!result.Success)
             {
                 await _dialogs.ShowMessageAsync(
-                    "Restart failed",
+                    UiText.Get("Workload_Text_Restart_failed_b8864c", "Restart failed"),
                     string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError);
             }
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Restart failed", ex.Message);
-            StatusMessage = "Error";
+            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Restart_failed_b8864c", "Restart failed"), ex.Message);
+            StatusMessage = UiText.Get("Workload_Text_Error_54a0e8", "Error");
         }
         finally
         {

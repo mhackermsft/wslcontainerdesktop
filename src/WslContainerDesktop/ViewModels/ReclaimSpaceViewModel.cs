@@ -32,6 +32,14 @@ namespace WslContainerDesktop.ViewModels;
 /// <summary>View model for the Reclaim Space page, summarizing images, stopped containers, and volumes that may free disk space.</summary>
 public partial class ReclaimSpaceViewModel : ObservableObject
 {
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string StatusMessageDisplay => UiText.Translate(StatusMessage);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string StorageLocationDisplay => UiText.Translate(StorageLocation);
+
     /// <summary>How many of the largest images to surface in the "largest images" list.</summary>
     private const int TopImageCount = 5;
 
@@ -49,6 +57,7 @@ public partial class ReclaimSpaceViewModel : ObservableObject
 
     /// <summary>Status text shown at the top of the Reclaim Space page.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusMessageDisplay))]
     private string _statusMessage = "Ready";
 
     // ---- Images ----
@@ -115,6 +124,7 @@ public partial class ReclaimSpaceViewModel : ObservableObject
 
     /// <summary>Effective WSL container storage path read from the settings file.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StorageLocationDisplay))]
     private string _storageLocation = "Unknown";
 
     /// <summary>The largest images by on-disk size (top <see cref="TopImageCount"/>).</summary>
@@ -243,7 +253,7 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Failed to calculate disk usage", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_272b9b240c75", "Failed to calculate disk usage"), ex.Message);
             StatusMessage = "Error";
         }
         finally
@@ -258,14 +268,14 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     {
         if (DanglingImageCount == 0)
         {
-            await _dialogs.ShowMessageAsync("Remove dangling images", "There are no dangling images to remove.");
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_6257dda9c3b7", "Remove dangling images"), UiText.Get("Resource_Text_fb107b55608b", "There are no dangling images to remove."));
             return;
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove dangling images",
-            $"Remove {Count(DanglingImageCount, "dangling image")}, reclaiming up to {ImagesReclaimableSize}?",
-            "Remove");
+            UiText.Get("Resource_Text_6257dda9c3b7", "Remove dangling images"),
+            UiText.Get("Resource_Text_bb93366308e4", "Remove {0}, reclaiming up to {1}?", Count(DanglingImageCount, "dangling image"), ImagesReclaimableSize),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -277,12 +287,12 @@ public partial class ReclaimSpaceViewModel : ObservableObject
             var result = await _wslc.PruneImagesAsync();
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Prune failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_4133934aa616", "Prune failed"), result.ErrorText);
                 return;
             }
 
             var freed = Math.Max(0, before - await SumImageBytesAsync());
-            await _dialogs.ShowMessageAsync("Images pruned", $"Reclaimed {FormatHelpers.HumanSize(freed)}.");
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_e8b433d94d09", "Images pruned"), UiText.Get("Resource_Text_447d795e6433", "Reclaimed {0}.", FormatHelpers.HumanSize(freed)));
         });
     }
 
@@ -292,14 +302,14 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     {
         if (StoppedContainerCount == 0)
         {
-            await _dialogs.ShowMessageAsync("Remove stopped containers", "There are no stopped containers to remove.");
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_5affb4df88db", "Remove stopped containers"), UiText.Get("Resource_Text_0cb1ba8ea3a2", "There are no stopped containers to remove."));
             return;
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove stopped containers",
-            $"Remove all stopped containers ({StoppedContainerCount} candidate{(StoppedContainerCount == 1 ? "" : "s")}), reclaiming about {StoppedContainersReclaimableSize} from writable layers?",
-            "Remove");
+            UiText.Get("Resource_Text_5affb4df88db", "Remove stopped containers"),
+            UiText.Get("Resource_Text_df08e49b2d70", "Remove all stopped containers ({0} candidate(s)), reclaiming about {1} from writable layers?", StoppedContainerCount, StoppedContainersReclaimableSize),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -312,15 +322,15 @@ public partial class ReclaimSpaceViewModel : ObservableObject
             var result = await _wslc.PruneContainersAsync();
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Prune failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_4133934aa616", "Prune failed"), result.ErrorText);
                 return;
             }
 
             var after = await _wslc.ListContainersAsync(all: true, includeSize: true);
             var removed = Math.Max(0, before.Count - after.Count);
             var afterBytes = after.Where(c => c.State != ContainerState.Running).Sum(c => c.SizeRwBytes ?? 0);
-            await _dialogs.ShowMessageAsync("Containers pruned",
-                $"Removed {Count(removed, "container")}, reclaiming about {FormatHelpers.HumanSize(Math.Max(0, beforeBytes - afterBytes))}.");
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_7b1133fe472d", "Containers pruned"),
+                UiText.Get("Resource_Text_c1b7111021d0", "Removed {0}, reclaiming about {1}.", Count(removed, "container"), FormatHelpers.HumanSize(Math.Max(0, beforeBytes - afterBytes))));
         });
     }
 
@@ -329,11 +339,11 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     private async Task PruneVolumesAsync()
     {
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove unused volumes",
-            "Remove all unused volumes? Any data they hold will be lost.\n\n" +
-            "Usage is a snapshot, including stopped containers when metadata is available. " +
-            "Unknown usage is not proof of eligibility; the engine determines which volumes can be pruned.",
-            "Remove");
+            UiText.Get("Resource_Text_1b82a339cce8", "Remove unused volumes"),
+            UiText.Get("Resource_Text_7a4d99920018", "Remove all unused volumes? Any data they hold will be lost.\n\n") +
+            UiText.Get("Resource_Text_fbee6d8e80d2", "Usage is a snapshot, including stopped containers when metadata is available. ") +
+            UiText.Get("Resource_Text_2eccf3bfe77f", "Unknown usage is not proof of eligibility; the engine determines which volumes can be pruned."),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -345,12 +355,12 @@ public partial class ReclaimSpaceViewModel : ObservableObject
             var result = await _wslc.PruneVolumesAsync();
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Prune failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_4133934aa616", "Prune failed"), result.ErrorText);
                 return;
             }
 
             var removed = Math.Max(0, before - (await _wslc.ListVolumesAsync()).Count);
-            await _dialogs.ShowMessageAsync("Volumes pruned", $"Removed {Count(removed, "volume")}.");
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_1bdc17c5e2f9", "Volumes pruned"), UiText.Get("Resource_Text_5e34cda5a434", "Removed {0}.", Count(removed, "volume")));
         });
     }
 
@@ -359,10 +369,10 @@ public partial class ReclaimSpaceViewModel : ObservableObject
     private async Task PruneAllAsync()
     {
         var ok = await _dialogs.ShowConfirmAsync(
-            "Reclaim space",
-            "Remove all dangling images, stopped containers, and unused volumes?\n\n" +
-            "Data in the affected volumes will be lost.",
-            "Reclaim");
+            UiText.Get("Resource_Text_4f75bf557ab2", "Reclaim space"),
+            UiText.Get("Resource_Text_51f0128d112d", "Remove all dangling images, stopped containers, and unused volumes?\n\n") +
+            UiText.Get("Resource_Text_1a709936ef89", "Data in the affected volumes will be lost."),
+            UiText.Get("Resource_Text_6600d6e1e67c", "Reclaim"));
         if (!ok)
         {
             return;
@@ -382,9 +392,9 @@ public partial class ReclaimSpaceViewModel : ObservableObject
             var imageResult = await _wslc.PruneImagesAsync();
 
             var errors = new List<string>();
-            AppendError(errors, "containers", containerResult);
-            AppendError(errors, "volumes", volumeResult);
-            AppendError(errors, "images", imageResult);
+            AppendError(errors, UiText.Get("Resource_Text_642b5cd982d4", "containers"), containerResult);
+            AppendError(errors, UiText.Get("Resource_Text_e44dfa6f6650", "volumes"), volumeResult);
+            AppendError(errors, UiText.Get("Resource_Text_19f49d852660", "images"), imageResult);
 
             var freedBytes = Math.Max(0, imageBytesBefore - await SumImageBytesAsync());
             var containersAfter = await _wslc.ListContainersAsync(all: true, includeSize: true);
@@ -393,14 +403,14 @@ public partial class ReclaimSpaceViewModel : ObservableObject
             var volumesRemoved = Math.Max(0, volumesBefore - (await _wslc.ListVolumesAsync()).Count);
 
             var summary =
-                $"Reclaimed {FormatHelpers.HumanSize(freedBytes)} from images.\n" +
-                $"Removed {Count(containersRemoved, "container")} (about {FormatHelpers.HumanSize(containerFreedBytes)} writable layer data) and {Count(volumesRemoved, "volume")}.";
+                UiText.Get("Resource_Text_2e0629ec10b6", "Reclaimed {0} from images.\n", FormatHelpers.HumanSize(freedBytes)) +
+                UiText.Get("Resource_Text_2789780f8eaa", "Removed {0} (about {1} writable layer data) and {2}.", Count(containersRemoved, "container"), FormatHelpers.HumanSize(containerFreedBytes), Count(volumesRemoved, "volume"));
             if (errors.Count > 0)
             {
-                summary += "\n\nSome steps reported errors:\n" + string.Join("\n", errors);
+                summary += UiText.Get("Resource_Text_21208bca20bf", "\n\nSome steps reported errors:\n") + string.Join("\n", errors);
             }
 
-            await _dialogs.ShowMessageAsync("Reclaim complete", summary);
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_4b16ccc50cc2", "Reclaim complete"), summary);
         });
     }
 
@@ -415,8 +425,8 @@ public partial class ReclaimSpaceViewModel : ObservableObject
             var completed = await ContainerInventoryOperation.RunAsync(action, async error =>
             {
                 StatusMessage = "Prune failed";
-                await _dialogs.ShowMessageAsync("Prune failed",
-                    $"Reclaim could not complete. Refresh the inventory before retrying; some cleanup may already have completed.\n\n{error.Message}");
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_4133934aa616", "Prune failed"),
+                    UiText.Get("Resource_Text_890767d3faf6", "Reclaim could not complete. Refresh the inventory before retrying; some cleanup may already have completed.\n\n{0}", error.Message));
             });
             if (!completed)
             {
@@ -439,6 +449,26 @@ public partial class ReclaimSpaceViewModel : ObservableObject
         }
     }
 
-    private static string Count(int value, string noun) =>
-        $"{value} {noun}{(value == 1 ? "" : "s")}";
+    private static string Count(int value, string noun) => noun switch
+    {
+        "image" => value == 1
+            ? UiText.Get("Resource_Text_6d483483caef", "{0} image", value)
+            : UiText.Get("Resource_Text_540058a14492", "{0} images", value),
+        "container" => value == 1
+            ? UiText.Get("Resource_Text_4554f5b256b4", "{0} container", value)
+            : UiText.Get("Resource_Text_d89984bc3e37", "{0} containers", value),
+        "volume" => value == 1
+            ? UiText.Get("Resource_Text_7e34d9a960e3", "{0} volume", value)
+            : UiText.Get("Resource_Text_765e0ff4d3a2", "{0} volumes", value),
+        _ => $"{value} {noun}",
+    };
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (var item in LargestImages) item.RefreshLocalizedText();
+        foreach (var item in DanglingImages) item.RefreshLocalizedText();
+        foreach (var item in UnusedVolumes) item.RefreshLocalizedText();
+    }
 }

@@ -60,9 +60,9 @@ public sealed class AddAcrDialog : ContentDialog
     {
         _az = az;
 
-        Title = "Add Azure Container Registry";
-        PrimaryButtonText = "Add";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Add_Azure_Container_Registry_d0b1c7", "Add Azure Container Registry");
+        PrimaryButtonText = UiText.Get("Workload_Text_Add_9fd728", "Add");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
         IsPrimaryButtonEnabled = false;
 
@@ -71,21 +71,21 @@ public sealed class AddAcrDialog : ContentDialog
 
         _installLink = new HyperlinkButton
         {
-            Content = "Install the Azure CLI",
+            Content = UiText.Get("Workload_Text_Install_the_Azure_CLI_ea3717", "Install the Azure CLI"),
             NavigateUri = new Uri(InstallUrl),
             Visibility = Visibility.Collapsed,
         };
 
         _signInButton = new Button
         {
-            Content = "Sign in to Azure",
+            Content = UiText.Get("Workload_Text_Sign_in_to_Azure_111dcf", "Sign in to Azure"),
             Visibility = Visibility.Collapsed,
         };
         _signInButton.Click += OnSignInClicked;
 
         _subscriptionBox = new ComboBox
         {
-            Header = "Subscription",
+            Header = UiText.Get("Workload_Text_Subscription_4999c6", "Subscription"),
             MinWidth = 420,
             Visibility = Visibility.Collapsed,
         };
@@ -93,7 +93,7 @@ public sealed class AddAcrDialog : ContentDialog
 
         _registryBox = new ComboBox
         {
-            Header = "Container registry",
+            Header = UiText.Get("Workload_Text_Container_registry_a1673a", "Container registry"),
             MinWidth = 420,
             Visibility = Visibility.Collapsed,
         };
@@ -134,12 +134,11 @@ public sealed class AddAcrDialog : ContentDialog
 
     private async Task InitializeAsync()
     {
-        SetBusy("Checking for the Azure CLI…");
+        SetBusy(UiText.Get("Workload_Text_Checking_for_the_Azure_CLI_244c64", "Checking for the Azure CLI…"));
 
         if (!await _az.IsAvailableAsync())
         {
-            SetIdle("The Azure CLI (az) is not installed or not on your PATH. Install it, then reopen this dialog. " +
-                    "You can still add a registry manually with the \"Add registry\" button.");
+            SetIdle(UiText.Get("Workload_Text_The_Azure_CLI_az_is_not_6ae5e4", "The Azure CLI (az) is not installed or not on your PATH. Install it, then reopen this dialog. You can still add a registry manually with the \"Add registry\" button."));
             _installLink.Visibility = Visibility.Visible;
             return;
         }
@@ -147,7 +146,7 @@ public sealed class AddAcrDialog : ContentDialog
         var user = await _az.GetSignedInUserAsync();
         if (string.IsNullOrWhiteSpace(user))
         {
-            SetIdle("You're not signed in to Azure.");
+            SetIdle(UiText.Get("Workload_Text_You_re_not_signed_in_to_3581f2", "You're not signed in to Azure."));
             _signInButton.Visibility = Visibility.Visible;
             return;
         }
@@ -158,12 +157,12 @@ public sealed class AddAcrDialog : ContentDialog
     private async void OnSignInClicked(object sender, RoutedEventArgs e)
     {
         _signInButton.Visibility = Visibility.Collapsed;
-        SetBusy("A browser will open for Azure sign-in…");
+        SetBusy(UiText.Get("Workload_Text_A_browser_will_open_for_Azure_2f9f14", "A browser will open for Azure sign-in…"));
 
         var result = await _az.LoginAsync();
         if (!result.Success)
         {
-            SetIdle("Azure sign-in did not complete. Try again.");
+            SetIdle(UiText.Get("Workload_Text_Azure_sign_in_did_not_complete_76688f", "Azure sign-in did not complete. Try again."));
             _signInButton.Visibility = Visibility.Visible;
             return;
         }
@@ -171,7 +170,7 @@ public sealed class AddAcrDialog : ContentDialog
         var user = await _az.GetSignedInUserAsync();
         if (string.IsNullOrWhiteSpace(user))
         {
-            SetIdle("Signed in, but could not read the account. Try again.");
+            SetIdle(UiText.Get("Workload_Text_Signed_in_but_could_not_read_303e96", "Signed in, but could not read the account. Try again."));
             _signInButton.Visibility = Visibility.Visible;
             return;
         }
@@ -181,12 +180,12 @@ public sealed class AddAcrDialog : ContentDialog
 
     private async Task LoadSubscriptionsAsync(string user)
     {
-        SetBusy($"Signed in as {user}. Loading subscriptions…");
+        SetBusy(UiText.Get("Workload_Text_Signed_in_as_0_Loading_subscriptions_0b62b2", "Signed in as {0}. Loading subscriptions…", user));
 
         _subscriptions = await _az.ListSubscriptionsAsync();
         if (_subscriptions.Count == 0)
         {
-            SetIdle($"Signed in as {user}, but no subscriptions were found.");
+            SetIdle(UiText.Get("Workload_Text_Signed_in_as_0_but_no_1ab02d", "Signed in as {0}, but no subscriptions were found.", user));
             return;
         }
 
@@ -196,7 +195,7 @@ public sealed class AddAcrDialog : ContentDialog
             _subscriptionBox.Items.Add(s.Name);
         }
 
-        SetIdle($"Signed in as {user}. Choose a subscription and registry.");
+        SetIdle(UiText.Get("Workload_Text_Signed_in_as_0_Choose_a_6391e5", "Signed in as {0}. Choose a subscription and registry.", user));
         _subscriptionBox.Visibility = Visibility.Visible;
         _subscriptionBox.SelectedIndex = 0; // triggers registry load
     }
@@ -214,12 +213,12 @@ public sealed class AddAcrDialog : ContentDialog
         _authNote.Visibility = Visibility.Collapsed;
         IsPrimaryButtonEnabled = false;
 
-        SetBusy("Loading container registries…");
+        SetBusy(UiText.Get("Workload_Text_Loading_container_registries_92b291", "Loading container registries…"));
         _registries = await _az.ListRegistriesAsync(_subscriptions[idx].Id);
 
         if (_registries.Count == 0)
         {
-            SetIdle("No container registries were found in this subscription.");
+            SetIdle(UiText.Get("Workload_Text_No_container_registries_were_found_in_c14e91", "No container registries were found in this subscription."));
             return;
         }
 
@@ -228,7 +227,7 @@ public sealed class AddAcrDialog : ContentDialog
             _registryBox.Items.Add($"{r.Name} ({r.LoginServer})");
         }
 
-        SetIdle("Choose a container registry to add.");
+        SetIdle(UiText.Get("Workload_Text_Choose_a_container_registry_to_add_01c399", "Choose a container registry to add."));
         _registryBox.Visibility = Visibility.Visible;
         _registryBox.SelectedIndex = 0;
     }
@@ -242,8 +241,7 @@ public sealed class AddAcrDialog : ContentDialog
             return;
         }
 
-        _authNote.Text = "You'll be added using your Azure sign-in — a short-lived token is fetched " +
-                         "automatically, so no registry username or password is needed.";
+        _authNote.Text = UiText.Get("Workload_Text_You_ll_be_added_using_your_49ca44", "You'll be added using your Azure sign-in — a short-lived token is fetched automatically, so no registry username or password is needed.");
         _authNote.Visibility = Visibility.Visible;
         IsPrimaryButtonEnabled = true;
     }
@@ -262,14 +260,14 @@ public sealed class AddAcrDialog : ContentDialog
         var deferral = args.GetDeferral();
         try
         {
-            SetBusy("Getting an access token from Azure…");
+            SetBusy(UiText.Get("Workload_Text_Getting_an_access_token_from_Azure_59ed81", "Getting an access token from Azure…"));
             IsPrimaryButtonEnabled = false;
 
             var registry = _registries[regIdx];
             var token = await _az.GetAcrTokenAsync(registry.Name, _subscriptions[subIdx].Id);
             if (token is null)
             {
-                SetIdle("Could not get an access token for this registry. You may lack pull access, or the token expired.");
+                SetIdle(UiText.Get("Workload_Text_Could_not_get_an_access_token_401d09", "Could not get an access token for this registry. You may lack pull access, or the token expired."));
                 IsPrimaryButtonEnabled = true;
                 args.Cancel = true;
                 return;

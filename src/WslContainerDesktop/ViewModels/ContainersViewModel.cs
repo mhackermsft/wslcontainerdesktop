@@ -32,6 +32,26 @@ namespace WslContainerDesktop.ViewModels;
 /// <remarks>It listens to the shared <see cref="StatusMonitor"/> for live inventory, calls <c>wslc</c> through services, and keeps bound collections stable so selection and grouping do not flicker during polling.</remarks>
 public partial class ContainersViewModel : ObservableObject, IDisposable
 {
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string StatusMessageDisplay => UiText.Translate(StatusMessage);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string FilesStatusMessageDisplay => UiText.Translate(FilesStatusMessage);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string FilesUnavailableReasonDisplay => UiText.Translate(FilesUnavailableReason);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ChangesStatusMessageDisplay => UiText.Translate(ChangesStatusMessage);
+
+    /// <summary>Text projected for the active UI language.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string AiConfidenceDisplay => UiText.Translate(AiConfidence);
+
     private const int MaxInlinePreviewBytes = 65_536;
     private readonly IWslcService _wslc;
     private readonly ContainerVolumeInspector _volumeInspector;
@@ -58,6 +78,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>Status text displayed above the container list.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusMessageDisplay))]
     private string _statusMessage = "Ready";
 
     /// <summary>Generated filter flag: true shows stopped containers as well as running ones.</summary>
@@ -75,7 +96,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private int _selectedCount;
 
     /// <summary>Header text for the bulk-action bar, e.g. "3 selected".</summary>
-    public string SelectionSummary => $"{SelectedCount} selected";
+    public string SelectionSummary => UiText.Get("Resource_Text_e5084bffcc17", "{0} selected", SelectedCount);
 
     /// <summary>Generated selected row; changing it refreshes detail tabs and log streaming.</summary>
     [ObservableProperty]
@@ -122,6 +143,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>Status or error text for the Files tab.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FilesStatusMessageDisplay))]
     private string _filesStatusMessage = "Open the Files tab to browse the container filesystem.";
 
     /// <summary>Generated busy flag for file-list and copy operations.</summary>
@@ -146,6 +168,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>Why the file list is unavailable, shown in the empty-state panel (the footer keeps later status).</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FilesUnavailableReasonDisplay))]
     private string _filesUnavailableReason = string.Empty;
 
     // Downloading a symbolic link almost always means "the file it points to"; copying the bare link
@@ -171,6 +194,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>Status or error text for the Changes tab.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ChangesStatusMessageDisplay))]
     private string _changesStatusMessage = "Open the Changes tab to compare the container against its image.";
 
     /// <summary>Generated busy flag for evidence collection or AI diagnosis requests.</summary>
@@ -207,6 +231,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>AI-generated confidence label.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AiConfidenceDisplay))]
     private string _aiConfidence = string.Empty;
 
     /// <summary>Generated flag indicating that diagnosis results are available.</summary>
@@ -387,7 +412,6 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         _logStreamer.Start(value.Id, timestamps: LogTimestamps);
         _ = LoadDetailsAsync(value.Id);
     }
-
 
     partial void OnLogTimestampsChanged(bool value) => RestartSelectedLogStream();
 
@@ -697,7 +721,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var dialog = new Dialogs.SimpleInputDialog("Rename", "New name", entry.Name)
+        var dialog = new Dialogs.SimpleInputDialog(UiText.Get("Resource_Text_d3f4cb898fbe", "Rename"), UiText.Get("Resource_Text_9e627c7b1aec", "New name"), entry.Name)
         {
             Value = entry.Name,
         };
@@ -729,7 +753,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var dialog = new Dialogs.SimpleInputDialog("New folder", "Folder name", "new-folder");
+        var dialog = new Dialogs.SimpleInputDialog(UiText.Get("Resource_Text_a711999b72aa", "New folder"), UiText.Get("Resource_Text_b2ce023b4255", "Folder name"), "new-folder");
         var dialogResult = await _dialogs.ShowDialogAsync(dialog);
         if (dialogResult != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
         {
@@ -800,8 +824,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
             if (failed.Count > 0)
             {
-                await _dialogs.ShowMessageAsync("Upload incomplete",
-                    $"The following items could not be copied:\n{string.Join('\n', failed)}");
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_146781e43eff", "Upload incomplete"),
+                    UiText.Get("Resource_Text_f64e32064699", "The following items could not be copied:\n{0}", string.Join('\n', failed)));
             }
         }
         finally
@@ -838,8 +862,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         var dialog = new Dialogs.SimpleInputDialog(
-            "Download by path",
-            "Full path of a file or folder inside the container",
+            UiText.Get("Resource_Text_124ff13ed4b4", "Download by path"),
+            UiText.Get("Resource_Text_526dc383e386", "Full path of a file or folder inside the container"),
             "/var/log/app.log")
         {
             Value = SelectedFile?.Path ?? FilesCurrentPath,
@@ -861,11 +885,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var kind = SelectedFile.IsDirectory ? "folder" : "file";
+        var kind = SelectedFile.IsDirectory ? UiText.Get("Resource_Text_afffdd08d81d", "folder") : UiText.Get("Resource_Text_971c419dd609", "file");
         var ok = await _dialogs.ShowConfirmAsync(
-            "Delete from container",
-            $"Delete {kind} \"{SelectedFile.Name}\" from {Selected.Name}? This cannot be undone.",
-            "Delete");
+            UiText.Get("Resource_Text_291562a2b23c", "Delete from container"),
+            UiText.Get("Resource_Text_26bcd52e50cf", "Delete {0} \"{1}\" from {2}? This cannot be undone.", kind, SelectedFile.Name, Selected.Name),
+            UiText.Get("Resource_Text_f6fdbe48dc54", "Delete"));
         if (!ok)
         {
             return;
@@ -1681,7 +1705,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Failed to load networks", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_fce244da09aa", "Failed to load networks"), ex.Message);
             return;
         }
 
@@ -1713,9 +1737,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         if (DetailNetworks.Count <= 1)
         {
             var ok = await _dialogs.ShowConfirmAsync(
-                "Disconnect last network",
-                $"Disconnect \"{Selected.Name}\" from its only network \"{network.Network}\"? The container will have no network attachments.",
-                "Disconnect");
+                UiText.Get("Resource_Text_d8fcde886f51", "Disconnect last network"),
+                UiText.Get("Resource_Text_4d11e46048eb", "Disconnect \"{0}\" from its only network \"{1}\"? The container will have no network attachments.", Selected.Name, network.Network),
+                UiText.Get("Resource_Text_ed28e0686e12", "Disconnect"));
             if (!ok)
             {
                 return;
@@ -1754,9 +1778,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove container",
-            $"Remove container \"{row.Name}\" ({row.ShortId})? This cannot be undone.",
-            "Remove");
+            UiText.Get("Resource_Text_15404127f80d", "Remove container"),
+            UiText.Get("Resource_Text_b89fa9b868b3", "Remove container \"{0}\" ({1})? This cannot be undone.", row.Name, row.ShortId),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -1772,22 +1796,22 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             var deletable = impact.Anonymous.Concat(impact.OrphanedNamed).ToArray();
             var lines = deletable.Select(v => $"• {Shorten(v.Name)} → {v.Destination}");
             var kept = impact.SharedNamed.Count > 0
-                ? "\n\nKept (still used by other containers): " +
+                ? UiText.Get("Resource_Text_7f43dc519669", "\n\nKept (still used by other containers): ") +
                   string.Join(", ", impact.SharedNamed.Select(v => $"{v.Name} [{string.Join(", ", v.OtherContainers)}]"))
                 : string.Empty;
             var caution = impact.SharedAnonymous.Count > 0
-                ? "\n\n⚠ Some of these are mounted by other containers and would lose data too."
+                ? UiText.Get("Resource_Text_06cf19039cfe", "\n\n⚠ Some of these are mounted by other containers and would lose data too.")
                 : string.Empty;
             var partial = impact.IsComplete
                 ? string.Empty
-                : "\n\nNote: volume usage could not be fully determined, so this list may be incomplete.";
+                : UiText.Get("Resource_Text_281eabe4676a", "\n\nNote: volume usage could not be fully determined, so this list may be incomplete.");
             if (await _dialogs.ShowConfirmAsync(
-                    "Also delete this container's volumes?",
-                    $"Removing \"{row.Name}\" leaves this storage behind. Its data would be permanently deleted:\n\n" +
+                    UiText.Get("Resource_Text_d73c0bb0fa10", "Also delete this container's volumes?"),
+                    UiText.Get("Resource_Text_8c3c6433325f", "Removing \"{0}\" leaves this storage behind. Its data would be permanently deleted:\n\n", row.Name) +
                     string.Join('\n', lines) + kept + caution + partial +
-                    "\n\nIf you are unsure, keep them — you can delete volumes later from the Volumes page.",
-                    primaryText: "Delete these volumes",
-                    closeText: "Keep volumes"))
+                    UiText.Get("Resource_Text_7e892fbf5dd3", "\n\nIf you are unsure, keep them — you can delete volumes later from the Volumes page."),
+                    primaryText: UiText.Get("Resource_Text_3121cab8f91c", "Delete these volumes"),
+                    closeText: UiText.Get("Resource_Text_f82ef289fb04", "Keep volumes")))
             {
                 removeAnonymous = impact.Anonymous.Count > 0;
                 namedToDelete = impact.OrphanedNamed.ToArray();
@@ -1816,14 +1840,14 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             }
             if (failed.Count > 0)
             {
-                await _dialogs.ShowMessageAsync("Some volumes were kept",
-                    $"The container was removed, but these volumes could not be deleted: {string.Join(", ", failed)}. " +
-                    "You can retry from the Volumes page.");
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_606d1a1317c3", "Some volumes were kept"),
+                    UiText.Get("Resource_Text_a7652bb6962c", "The container was removed, but these volumes could not be deleted: {0}. ", string.Join(", ", failed)) +
+                    UiText.Get("Resource_Text_a28caef66f74", "You can retry from the Volumes page."));
             }
         }
 
         static string Shorten(string name) =>
-            name.Length == 64 ? name[..12] + "… (unnamed)" : name;
+            name.Length == 64 ? name[..12] + UiText.Get("Resource_Text_c05fe6c2ab87", "… (unnamed)") : name;
 
         // If we removed the currently-selected container, notify the detail page to navigate back.
         if (Selected?.Id == row.Id)
@@ -1867,7 +1891,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        await RunBulkAsync($"Starting {items.Count} container(s)…", items, r => _wslc.StartContainerAsync(r.Id));
+        await RunBulkAsync(UiText.Get("Resource_Text_259af9c750d4", "Starting {0} container(s)…", items.Count), items, r => _wslc.StartContainerAsync(r.Id));
     }
 
     /// <summary>Stops every selected running container (suppressing exit toasts/restarts), then exits selection mode.</summary>
@@ -1887,7 +1911,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             _restartWatchdog.SuppressRestart(r.Name);
         }
 
-        await RunBulkAsync($"Stopping {items.Count} container(s)…", items, r => _wslc.StopContainerAsync(r.Id));
+        await RunBulkAsync(UiText.Get("Resource_Text_558c85c42670", "Stopping {0} container(s)…", items.Count), items, r => _wslc.StopContainerAsync(r.Id));
     }
 
     /// <summary>Removes every selected container after one confirmation, then exits selection mode.</summary>
@@ -1901,9 +1925,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Remove containers",
-            $"Remove {items.Count} container(s)? This cannot be undone.\n\n{BulkNames(items.Select(r => r.Name))}",
-            "Remove");
+            UiText.Get("Resource_Text_18ff715ccce4", "Remove containers"),
+            UiText.Get("Resource_Text_eb8b73e789bb", "Remove {0} container(s)? This cannot be undone.\n\n{1}", items.Count, BulkNames(items.Select(r => r.Name))),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
@@ -1915,7 +1939,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             _monitor.SuppressExitNotification(r.Id);
         }
 
-        await RunBulkAsync($"Removing {items.Count} container(s)…", items, r => _wslc.RemoveContainerAsync(r.Id), showConfirm: false);
+        await RunBulkAsync(UiText.Get("Resource_Text_5e90eeae3d81", "Removing {0} container(s)…", items.Count), items, r => _wslc.RemoveContainerAsync(r.Id), showConfirm: false);
         await InvalidateAiCapabilitiesAsync();
 
         if (removingSelected)
@@ -1958,8 +1982,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         if (failures.Count > 0)
         {
             await _dialogs.ShowMessageAsync(
-                "Some containers failed",
-                $"{failures.Count} of {items.Count} operations failed:\n\n{BulkNames(failures)}");
+                UiText.Get("Resource_Text_c0f95512437f", "Some containers failed"),
+                UiText.Get("Resource_Text_3a167b296e0d", "{0} of {1} operations failed:\n\n{2}", failures.Count, items.Count, BulkNames(failures)));
         }
     }
 
@@ -2004,7 +2028,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         var list = names.ToList();
         const int max = 12;
         var shown = string.Join("\n", list.Take(max).Select(n => "• " + n));
-        return list.Count > max ? $"{shown}\n… and {list.Count - max} more" : shown;
+        return list.Count > max ? UiText.Get("Resource_Text_5b44479e9557", "{0}\n… and {1} more", shown, list.Count - max) : shown;
     }
 
     /// <summary>Shows a one-time log snapshot for the selected container.</summary>
@@ -2022,9 +2046,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         {
             var result = await _wslc.GetLogsAsync(row.Id);
             var text = string.IsNullOrWhiteSpace(result.StandardOutput)
-                ? (string.IsNullOrWhiteSpace(result.StandardError) ? "(no output)" : result.StandardError)
+                ? (string.IsNullOrWhiteSpace(result.StandardError) ? UiText.Get("Resource_Text_800c9b197e97", "(no output)") : result.StandardError)
                 : result.StandardOutput;
-            await _dialogs.ShowMessageAsync($"Logs · {row.Name}", text);
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_361423979de2", "Logs · {0}", row.Name), text);
             StatusMessage = "Ready";
         }
         finally
@@ -2056,10 +2080,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         var ok = await _dialogs.ShowConfirmAsync(
-            "Attach to container",
-            "Attach opens an interactive terminal connected to the container's main process. " +
-            "The wslc help does not document a detach key sequence; pressing Ctrl+C may stop the container's main process.",
-            "Attach");
+            UiText.Get("Resource_Text_e2dfda5ec309", "Attach to container"),
+            UiText.Get("Resource_Text_770d22e09b5d", "Attach opens an interactive terminal connected to the container's main process. ") +
+            UiText.Get("Resource_Text_666f53f2d084", "The wslc help does not document a detach key sequence; pressing Ctrl+C may stop the container's main process."),
+            UiText.Get("Resource_Text_1afff0157ce3", "Attach"));
         if (!ok)
         {
             return;
@@ -2144,7 +2168,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         try
         {
             var result = await _wslc.InspectContainerAsync(row.Id);
-            await _dialogs.ShowMessageAsync($"Inspect · {row.Name}",
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_f306c4f01fc3", "Inspect · {0}", row.Name),
                 result.Success ? result.StandardOutput : result.ErrorText);
         }
         finally
@@ -2173,8 +2197,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             var containerResult = await _wslc.InspectContainerAsync(row.Id);
             if (!containerResult.Success || string.IsNullOrWhiteSpace(containerResult.StandardOutput))
             {
-                await _dialogs.ShowMessageAsync("Save as run profile",
-                    $"Couldn't inspect {row.Name}: {containerResult.ErrorText}");
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_d2078b7339a5", "Save as run profile"),
+                    UiText.Get("Resource_Text_93c23d7b9d3d", "Couldn't inspect {0}: {1}", row.Name, containerResult.ErrorText));
                 return;
             }
 
@@ -2199,8 +2223,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             var options = ContainerConfigImporter.FromInspect(containerResult.StandardOutput, out var warnings, imageJson);
             if (options is null)
             {
-                await _dialogs.ShowMessageAsync("Save as run profile",
-                    $"Couldn't read a usable configuration from {row.Name}.");
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_d2078b7339a5", "Save as run profile"),
+                    UiText.Get("Resource_Text_dfb7ec51e410", "Couldn't read a usable configuration from {0}.", row.Name));
                 return;
             }
 
@@ -2373,12 +2397,12 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         if (AiSuggestedCommands.Count > 0)
         {
-            parts.Add("Commands:\n" + string.Join('\n', AiSuggestedCommands));
+            parts.Add(UiText.Get("Resource_Text_d2865cc8490e", "Commands:\n") + string.Join('\n', AiSuggestedCommands));
         }
 
         if (AiSuggestedFileEdits.Count > 0)
         {
-            parts.Add("File edits:\n" + string.Join('\n', AiSuggestedFileEdits));
+            parts.Add(UiText.Get("Resource_Text_c97652eb6016", "File edits:\n") + string.Join('\n', AiSuggestedFileEdits));
         }
 
         var package = new DataPackage();
@@ -2392,9 +2416,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private async Task PruneAsync()
     {
         var ok = await _dialogs.ShowConfirmAsync(
-            "Prune containers",
-            "Remove all stopped containers?",
-            "Prune");
+            UiText.Get("Resource_Text_658d1f8b6e57", "Prune containers"),
+            UiText.Get("Resource_Text_0a855f042e1d", "Remove all stopped containers?"),
+            UiText.Get("Resource_Text_2f24ebaee0aa", "Prune"));
         if (!ok)
         {
             return;
@@ -2412,7 +2436,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             var result = await action();
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync("Operation failed", result.ErrorText);
+                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"), result.ErrorText);
                 StatusMessage = "Operation failed";
             }
             else
@@ -2422,7 +2446,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync("Operation failed", ex.Message);
+            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"), ex.Message);
             StatusMessage = "Operation failed";
         }
         finally
@@ -2430,5 +2454,14 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             IsBusy = false;
             _monitor.RequestRefresh();
         }
+    }
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
+        foreach (var item in Containers) item.RefreshLocalizedText();
+        foreach (var item in Groups) item.RefreshLocalizedText();
+        foreach (var item in DetailFiles) item.RefreshLocalizedText();
     }
 }

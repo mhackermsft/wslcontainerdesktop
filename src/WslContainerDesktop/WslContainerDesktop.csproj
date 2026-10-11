@@ -41,6 +41,8 @@
 
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
+    <EmbeddedResource Include="Strings\en-US\Resources.resw" LogicalName="UiText.en-US.resw" />
+    <EmbeddedResource Include="Strings\zh-Hans\Resources.resw" LogicalName="UiText.zh-Hans.resw" />
   </ItemGroup>
 
   <!--

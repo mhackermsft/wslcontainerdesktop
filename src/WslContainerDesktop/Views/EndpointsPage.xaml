@@ -3,6 +3,7 @@
     x:Class="WslContainerDesktop.Views.EndpointsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -22,11 +23,11 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Spacing="2">
-            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="Endpoints" />
+            <TextBlock x:Uid="Resource_Endpoints_001" i18n:Localization.Uid="Resource_Endpoints_001" Style="{ThemeResource TitleTextBlockStyle}" />
             <TextBlock
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
-                Text="{x:Bind ViewModel.InventorySummary, Mode=OneWay}"
+                Text="{x:Bind ViewModel.InventorySummaryDisplay, Mode=OneWay}"
                 TextWrapping="Wrap" />
         </StackPanel>
 
@@ -37,12 +38,12 @@
             <Button Command="{x:Bind ViewModel.RefreshCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE72C;" />
-                    <TextBlock Text="Refresh" />
+                    <TextBlock x:Uid="Resource_Endpoints_002" i18n:Localization.Uid="Resource_Endpoints_002" />
                 </StackPanel>
             </Button>
         </StackPanel>
 
-        <!--  Table: column header (wide only) + list  -->
+        <!-- Table: column header (wide only) + list  -->
         <Grid Grid.Row="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -83,15 +84,14 @@
                         <ColumnDefinition Width="1.4*" MinWidth="160" />
                         <ColumnDefinition Width="92" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="CONTAINER" />
-                    <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="HOST PORT" />
-                    <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="CONTAINER PORT" />
-                    <TextBlock Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" Text="ADDRESS" />
-                    <TextBlock
+                    <TextBlock x:Uid="Resource_Endpoints_003" i18n:Localization.Uid="Resource_Endpoints_003" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
+                    <TextBlock x:Uid="Resource_Endpoints_004" i18n:Localization.Uid="Resource_Endpoints_004" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
+                    <TextBlock x:Uid="Resource_Endpoints_005" i18n:Localization.Uid="Resource_Endpoints_005" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
+                    <TextBlock x:Uid="Resource_Endpoints_006" i18n:Localization.Uid="Resource_Endpoints_006" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
+                    <TextBlock x:Uid="Resource_Endpoints_007" i18n:Localization.Uid="Resource_Endpoints_007"
                         Grid.Column="4"
                         HorizontalAlignment="Right"
-                        Style="{ThemeResource CaptionTextBlockStyle}"
-                        Text="ACTIONS" />
+                        Style="{ThemeResource CaptionTextBlockStyle}" />
                 </Grid>
             </Border>
 
@@ -177,15 +177,14 @@
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                             Text="{x:Bind PortDisplay}" />
 
-                                        <HyperlinkButton
+                                        <HyperlinkButton x:Uid="Resource_Endpoints_008" i18n:Localization.Uid="Resource_Endpoints_008"
                                             Grid.Column="3"
                                             Margin="-4,0,0,0"
                                             VerticalAlignment="Center"
-                                            AutomationProperties.Name="Open in browser"
+
                                             Click="Open_Click"
                                             Content="{x:Bind HostAddress}"
-                                            IsEnabled="{x:Bind IsHttp}"
-                                            ToolTipService.ToolTip="Open in browser" />
+                                            IsEnabled="{x:Bind IsHttp}" />
 
                                         <StackPanel
                                             Grid.Column="4"
@@ -193,25 +192,23 @@
                                             VerticalAlignment="Center"
                                             Orientation="Horizontal"
                                             Spacing="4">
-                                            <Button
+                                            <Button x:Uid="Resource_Endpoints_009" i18n:Localization.Uid="Resource_Endpoints_009"
                                                 Padding="7,5"
-                                                AutomationProperties.Name="Open in browser"
+
                                                 Click="Open_Click"
-                                                IsEnabled="{x:Bind IsHttp}"
-                                                ToolTipService.ToolTip="Open in browser">
+                                                IsEnabled="{x:Bind IsHttp}">
                                                 <FontIcon FontSize="14" Glyph="&#xE774;" />
                                             </Button>
-                                            <Button
+                                            <Button x:Uid="Resource_Endpoints_010" i18n:Localization.Uid="Resource_Endpoints_010"
                                                 Padding="7,5"
-                                                AutomationProperties.Name="Copy address"
-                                                Click="Copy_Click"
-                                                ToolTipService.ToolTip="Copy address">
+
+                                                Click="Copy_Click">
                                                 <FontIcon FontSize="14" Glyph="&#xE8C8;" />
                                             </Button>
                                         </StackPanel>
                                     </Grid>
 
-                                    <!--  Narrow: stacked card layout  -->
+                                    <!-- Narrow: stacked card layout  -->
                                     <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE7F4;" />
@@ -228,19 +225,19 @@
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
-                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="HOST PORT" />
+                                            <TextBlock x:Uid="Resource_Endpoints_011" i18n:Localization.Uid="Resource_Endpoints_011" Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                             <TextBlock Grid.Row="0" Grid.Column="1" FontFamily="Consolas" FontSize="13" Text="{x:Bind HostPort}" />
-                                            <TextBlock Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="CONTAINER" />
+                                            <TextBlock x:Uid="Resource_Endpoints_012" i18n:Localization.Uid="Resource_Endpoints_012" Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                             <TextBlock Grid.Row="1" Grid.Column="1" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind PortDisplay}" />
-                                            <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="ADDRESS" />
-                                            <HyperlinkButton Grid.Row="2" Grid.Column="1" Margin="-4,0,0,0" Click="Open_Click" Content="{x:Bind HostAddress}" IsEnabled="{x:Bind IsHttp}" AutomationProperties.Name="Open in browser" ToolTipService.ToolTip="Open in browser" />
+                                            <TextBlock x:Uid="Resource_Endpoints_013" i18n:Localization.Uid="Resource_Endpoints_013" Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
+                                            <HyperlinkButton x:Uid="Resource_Endpoints_014" i18n:Localization.Uid="Resource_Endpoints_014" Grid.Row="2" Grid.Column="1" Margin="-4,0,0,0" Click="Open_Click" Content="{x:Bind HostAddress}" IsEnabled="{x:Bind IsHttp}" />
                                         </Grid>
 
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <Button Padding="7,5" Click="Open_Click" IsEnabled="{x:Bind IsHttp}" AutomationProperties.Name="Open in browser" ToolTipService.ToolTip="Open in browser">
+                                            <Button x:Uid="Resource_Endpoints_015" i18n:Localization.Uid="Resource_Endpoints_015" Padding="7,5" Click="Open_Click" IsEnabled="{x:Bind IsHttp}" >
                                                 <FontIcon FontSize="14" Glyph="&#xE774;" />
                                             </Button>
-                                            <Button Padding="7,5" Click="Copy_Click" AutomationProperties.Name="Copy address" ToolTipService.ToolTip="Copy address">
+                                            <Button x:Uid="Resource_Endpoints_016" i18n:Localization.Uid="Resource_Endpoints_016" Padding="7,5" Click="Copy_Click" >
                                                 <FontIcon FontSize="14" Glyph="&#xE8C8;" />
                                             </Button>
                                         </StackPanel>
@@ -264,7 +261,7 @@
                         <TextBlock
                             HorizontalAlignment="Center"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="{x:Bind ViewModel.EmptyMessage, Mode=OneWay}"
+                            Text="{x:Bind ViewModel.EmptyMessageDisplay, Mode=OneWay}"
                             TextWrapping="Wrap" />
                     </StackPanel>
                 </Grid>

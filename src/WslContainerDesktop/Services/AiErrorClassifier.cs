@@ -77,42 +77,42 @@ public static class AiErrorClassifier
 
             case JsonException:
                 return AiFeedback.Error(
-                    "Unexpected response",
-                    $"{context.ProviderDisplayName} did not return a response in the expected OpenAI, Azure OpenAI, or Ollama shape.",
+                    UiText.Get("Common_Text0440", "Unexpected response"),
+                    UiText.Get("Common_Text0441", "{0} did not return a response in the expected OpenAI, Azure OpenAI, or Ollama shape.", context.ProviderDisplayName),
                     BuildTechnicalDetails(ex, context, null, null));
 
             // Checked before InvalidOperationException, which it derives from: the assistant chose
             // an argument shape the tool does not accept, so there is nothing for the user to fix.
             case AssistantArgumentException:
                 return AiFeedback.Warning(
-                    "The assistant sent an invalid request",
-                    AiTextSanitizer.Sanitize(ex.Message) +
-                    " Nothing was run. Ask it to try again; it is told which fields the tool accepts.");
+                    UiText.Get("Common_Text0442", "The assistant sent an invalid request"),
+                    UiText.TranslateLines(AiTextSanitizer.Sanitize(ex.Message)) +
+                    UiText.Get("Common_Text0443", " Nothing was run. Ask it to try again; it is told which fields the tool accepts."));
 
             // Also before InvalidOperationException. The limit is a safety stop doing its job, not
             // a configuration fault; the usual cause is the model retrying a call that keeps
             // failing the same way.
             case AssistantIterationLimitException:
                 return AiFeedback.Warning(
-                    "The assistant did not finish",
-                    AiTextSanitizer.Sanitize(ex.Message) +
-                    " Any tool calls it already completed still happened and were recorded; review " +
-                    "them before retrying, and try narrowing the request into a single step.");
+                    UiText.Get("Common_Text0444", "The assistant did not finish"),
+                    UiText.TranslateLines(AiTextSanitizer.Sanitize(ex.Message)) +
+                    UiText.Get("Common_Text0445", " Any tool calls it already completed still happened and were recorded; review ") +
+                    UiText.Get("Common_Text0446", "them before retrying, and try narrowing the request into a single step."));
 
             case InvalidOperationException:
-                return AiFeedback.Warning("Configuration needed", AiTextSanitizer.Sanitize(ex.Message));
+                return AiFeedback.Warning(UiText.Get("Common_Text0447", "Configuration needed"), UiText.TranslateLines(AiTextSanitizer.Sanitize(ex.Message)));
 
             default:
                 return AiFeedback.Error(
-                    $"{context.Operation} failed",
-                    "An unexpected error occurred.",
+                    UiText.Get("Common_Text0448", "{0} failed", context.Operation),
+                    UiText.Get("Common_Text0449", "An unexpected error occurred."),
                     BuildTechnicalDetails(ex, context, null, null));
         }
     }
 
     /// <summary>Feedback for an operation the user explicitly canceled (e.g. clicked Stop).</summary>
     public static AiFeedback Canceled(AiErrorContext context) =>
-        AiFeedback.Informational($"{context.Operation} canceled", "Canceled.");
+        AiFeedback.Informational(UiText.Get("Common_Text0450", "{0} canceled", UiText.Translate(context.Operation)), UiText.Get("Common_Canceled", "Canceled."));
 
     private static AiFeedback ClassifyCancellation(AiErrorContext context, CancellationToken ct)
     {
@@ -124,8 +124,8 @@ public static class AiErrorClassifier
         // The exception's own token was canceled (an internal timeout), not the caller's — the
         // request took too long rather than being canceled by the user.
         return AiFeedback.Warning(
-            $"{context.Operation} timed out",
-            "The request took too long to complete. Check that the endpoint is reachable, then try again.");
+            UiText.Get("Common_Text0451", "{0} timed out", context.Operation),
+            UiText.Get("Common_Text0452", "The request took too long to complete. Check that the endpoint is reachable, then try again."));
     }
 
     private static AiFeedback ClassifyProviderException(AiProviderException ex, AiErrorContext context)
@@ -139,63 +139,63 @@ public static class AiErrorClassifier
 
         return ex.Kind switch
         {
-            AiFailureKind.Configuration => AiFeedback.Warning("Configuration needed", ex.Message, details),
+            AiFailureKind.Configuration => AiFeedback.Warning(UiText.Get("Common_Text0447", "Configuration needed"), UiText.TranslateLines(ex.Message), details),
             AiFailureKind.Authentication => AuthenticationFeedback(effective, ex.StatusCode, details),
-            AiFailureKind.NotFound => AiFeedback.Error("Endpoint not found", NotFoundMessage(effective), details),
+            AiFailureKind.NotFound => AiFeedback.Error(UiText.Get("Common_Text0453", "Endpoint not found"), NotFoundMessage(effective), details),
             AiFailureKind.RateLimited => AiFeedback.Warning(
-                "Rate limited",
-                $"{effective.ProviderDisplayName} is throttling requests. Wait a moment, check your plan or quota, or try again later.",
+                UiText.Get("Common_Text0454", "Rate limited"),
+                UiText.Get("Common_Text0455", "{0} is throttling requests. Wait a moment, check your plan or quota, or try again later.", effective.ProviderDisplayName),
                 details),
             AiFailureKind.ServerError => AiFeedback.Error(
-                "Provider server error",
-                $"{effective.ProviderDisplayName} reported a server-side error. Try again shortly.",
+                UiText.Get("Common_Text0456", "Provider server error"),
+                UiText.Get("Common_Text0457", "{0} reported a server-side error. Try again shortly.", effective.ProviderDisplayName),
                 details),
-            _ => AiFeedback.Error($"{effective.Operation} failed", ex.Message, details),
+            _ => AiFeedback.Error(UiText.Get("Common_Text0448", "{0} failed", UiText.Translate(effective.Operation)), UiText.TranslateLines(ex.Message), details),
         };
     }
 
     private static AiFeedback AuthenticationFeedback(AiErrorContext context, int? statusCode, string details)
     {
-        var title = statusCode == 403 ? "Authentication failed" : "Authentication required";
+        var title = statusCode == 403 ? UiText.Get("Common_Text0458", "Authentication failed") : UiText.Get("Common_Text0459", "Authentication required");
         var message = context.Provider switch
         {
             AiProviderKind.GitHubCopilot =>
-                "Sign in to the GitHub Copilot CLI (`copilot login`) and confirm your account has Copilot entitlement, then try again.",
-            AiProviderKind.AzureOpenAi => "Save a valid Azure OpenAI API key in Settings, then try again.",
+                UiText.Get("Common_Text0460", "Sign in to the GitHub Copilot CLI (`copilot login`) and confirm your account has Copilot entitlement, then try again."),
+            AiProviderKind.AzureOpenAi => UiText.Get("Common_Text0461", "Save a valid Azure OpenAI API key in Settings, then try again."),
             AiProviderKind.OpenAi =>
-                "Save a valid API key in Settings — hosted endpoints such as api.openai.com require one — then try again.",
+                UiText.Get("Common_Text0462", "Save a valid API key in Settings — hosted endpoints such as api.openai.com require one — then try again."),
             AiProviderKind.Ollama =>
-                "Ollama does not use an API key. If this endpoint sits behind a proxy that requires authentication, adjust the proxy or point at a direct Ollama endpoint.",
-            _ => "Check the saved credential for the selected provider in Settings.",
+                UiText.Get("Common_Text0463", "Ollama does not use an API key. If this endpoint sits behind a proxy that requires authentication, adjust the proxy or point at a direct Ollama endpoint."),
+            _ => UiText.Get("Common_Text0464", "Check the saved credential for the selected provider in Settings."),
         };
         return AiFeedback.Error(title, message, details);
     }
 
     private static string NotFoundMessage(AiErrorContext context) => context.Provider switch
     {
-        AiProviderKind.OpenAi => "The endpoint did not recognize this route. Check the base URL and version path (for example /v1).",
-        AiProviderKind.AzureOpenAi => "Check the Azure OpenAI endpoint and deployment name in Settings — the deployment may not exist or may be misspelled.",
-        AiProviderKind.Ollama => "Check the Ollama base URL in Settings.",
-        AiProviderKind.GitHubCopilot => "The requested model was not found. Choose an available model in Settings.",
-        _ => "Check the endpoint configured in Settings.",
+        AiProviderKind.OpenAi => UiText.Get("Common_Text0465", "The endpoint did not recognize this route. Check the base URL and version path (for example /v1)."),
+        AiProviderKind.AzureOpenAi => UiText.Get("Common_Text0466", "Check the Azure OpenAI endpoint and deployment name in Settings — the deployment may not exist or may be misspelled."),
+        AiProviderKind.Ollama => UiText.Get("Common_Text0467", "Check the Ollama base URL in Settings."),
+        AiProviderKind.GitHubCopilot => UiText.Get("Common_Text0468", "The requested model was not found. Choose an available model in Settings."),
+        _ => UiText.Get("Common_Text0469", "Check the endpoint configured in Settings."),
     };
 
     private static AiFeedback ClassifyHttpRequestException(HttpRequestException ex, AiErrorContext context)
     {
         var statusCode = ex.StatusCode is { } sc ? (int)sc : (int?)null;
         var details = BuildTechnicalDetails(ex, context, statusCode, null);
-        var endpointText = string.IsNullOrWhiteSpace(context.Endpoint) ? "the configured endpoint" : context.Endpoint;
+        var endpointText = string.IsNullOrWhiteSpace(context.Endpoint) ? UiText.Get("Common_Text0470", "the configured endpoint") : context.Endpoint;
         var (title, message) = ex.HttpRequestError switch
         {
             HttpRequestError.NameResolutionError =>
-                ("Endpoint not found", $"Could not resolve the hostname for {endpointText}. Check the base URL."),
+                (UiText.Get("Common_Text0453", "Endpoint not found"), UiText.Get("Common_Text0471", "Could not resolve the hostname for {0}. Check the base URL.", endpointText)),
             HttpRequestError.ConnectionError =>
-                ("Connection failed", $"Could not connect to {endpointText}. Make sure the server is running and reachable."),
+                (UiText.Get("Common_Text0054", "Connection failed"), UiText.Get("Common_Text0472", "Could not connect to {0}. Make sure the server is running and reachable.", endpointText)),
             HttpRequestError.SecureConnectionError =>
-                ("Connection not secure", "TLS/certificate validation failed. Check the endpoint's certificate, or use http instead of https for a local server."),
+                (UiText.Get("Common_Text0473", "Connection not secure"), UiText.Get("Common_Text0474", "TLS/certificate validation failed. Check the endpoint's certificate, or use http instead of https for a local server.")),
             HttpRequestError.ResponseEnded or HttpRequestError.InvalidResponse =>
-                ("Connection dropped", "The connection closed before a valid response was received. Try again."),
-            _ => ("Connection failed", $"Could not reach {endpointText}. Check the endpoint and that the server is running."),
+                (UiText.Get("Common_Text0475", "Connection dropped"), UiText.Get("Common_Text0476", "The connection closed before a valid response was received. Try again.")),
+            _ => (UiText.Get("Common_Text0054", "Connection failed"), UiText.Get("Common_Text0477", "Could not reach {0}. Check the endpoint and that the server is running.", endpointText)),
         };
 
         return AiFeedback.Error(title, message, details);
@@ -205,31 +205,31 @@ public static class AiErrorClassifier
     {
         var lines = new List<string>
         {
-            $"Provider: {context.ProviderDisplayName}",
-            $"Operation: {context.Operation}",
+            UiText.Get("Common_Text0478", "Provider: {0}", context.ProviderDisplayName),
+            UiText.Get("Common_Text0479", "Operation: {0}", context.Operation),
         };
 
         if (!string.IsNullOrWhiteSpace(context.Endpoint))
         {
-            lines.Add($"Endpoint: {context.Endpoint}");
+            lines.Add(UiText.Get("Common_Text0480", "Endpoint: {0}", context.Endpoint));
         }
 
         if (!string.IsNullOrWhiteSpace(context.ModelOrDeployment))
         {
-            lines.Add($"Model/Deployment: {context.ModelOrDeployment}");
+            lines.Add(UiText.Get("Common_Text0481", "Model/Deployment: {0}", context.ModelOrDeployment));
         }
 
         if (statusCode is { } code)
         {
-            lines.Add($"HTTP status: {code}");
+            lines.Add(UiText.Get("Common_Text0482", "HTTP status: {0}", code));
         }
 
         if (!string.IsNullOrWhiteSpace(responseDetail))
         {
-            lines.Add($"Response: {responseDetail}");
+            lines.Add(UiText.Get("Common_Text0483", "Response: {0}", responseDetail));
         }
 
-        lines.Add($"Exception: {ex.GetType().Name}: {AiTextSanitizer.Sanitize(ex.Message, 400)}");
+        lines.Add(UiText.Get("Common_Text0484", "Exception: {0}: {1}", ex.GetType().Name, AiTextSanitizer.Sanitize(ex.Message, 400)));
         return AiTextSanitizer.Sanitize(string.Join(Environment.NewLine, lines));
     }
 }

@@ -22,6 +22,7 @@ using Microsoft.UI.Xaml.Navigation;
 using Windows.Storage.Pickers;
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Views;
 
@@ -57,6 +58,8 @@ public sealed partial class ContainersPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        UiText.LanguageChanged += OnUiLanguageChanged;
+        ViewModel.RefreshLocalizedText();
         _ = ViewModel.RefreshSizesAsync();
     }
 
@@ -171,7 +174,7 @@ public sealed partial class ContainersPage : Page
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
             SuggestedFileName = row.Name + "-filesystem",
         };
-        picker.FileTypeChoices.Add("Tar archive", [".tar"]);
+        picker.FileTypeChoices.Add(UiText.Get("Resource_Text_517cef447ed8", "Tar archive"), [".tar"]);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, GetMainWindowHandle());
         if (await picker.PickSaveFileAsync() is { } file)
         {
@@ -197,4 +200,15 @@ public sealed partial class ContainersPage : Page
 
     private static nint GetMainWindowHandle() =>
         Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        UiText.LanguageChanged -= OnUiLanguageChanged;
+        base.OnNavigatedFrom(e);
+    }
+
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshLocalizedText();
+        Bindings.Update();
+    }
 }

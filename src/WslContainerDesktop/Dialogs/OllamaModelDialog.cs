@@ -32,15 +32,15 @@ public sealed class OllamaModelDialog : ContentDialog
     /// <summary>Creates a new &lt;c&gt;OllamaModelDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public OllamaModelDialog()
     {
-        Title = "Choose a model";
-        PrimaryButtonText = "Download model";
-        SecondaryButtonText = "Skip for now";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Choose_a_model_78a7ab", "Choose a model");
+        PrimaryButtonText = UiText.Get("Workload_Text_Download_model_9979be", "Download model");
+        SecondaryButtonText = UiText.Get("Workload_Text_Skip_for_now_b58eb5", "Skip for now");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         _model = new ComboBox
         {
-            Header = "Model",
+            Header = UiText.Get("Workload_Text_Model_5e2c61", "Model"),
             IsEditable = true,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             MinWidth = 320,
@@ -70,9 +70,7 @@ public sealed class OllamaModelDialog : ContentDialog
             {
                 new TextBlock
                 {
-                    Text = $"Open WebUI needs a model to chat with. {OpenWebUiPlanner.RecommendedModel} is a good "
-                        + "starting point — small and quick to download. You can type any Ollama model name instead, "
-                        + "or add more later from the web UI.",
+                    Text = UiText.Get("Workload_Text_Open_WebUI_needs_a_model_to_121755", "Open WebUI needs a model to chat with. {0} is a good starting point — small and quick to download. You can type any Ollama model name instead, or add more later from the web UI.", OpenWebUiPlanner.RecommendedModel),
                     TextWrapping = TextWrapping.Wrap,
                 },
                 _model,
@@ -89,7 +87,7 @@ public sealed class OllamaModelDialog : ContentDialog
 
             // Keep the dialog open rather than failing later inside the container.
             args.Cancel = true;
-            _error.Text = "Enter a model name like llama3.2:3b or qwen2.5:7b.";
+            _error.Text = UiText.Get("Workload_Text_Enter_a_model_name_like_llama3_283218", "Enter a model name like llama3.2:3b or qwen2.5:7b.");
             _error.Visibility = Visibility.Visible;
         };
     }

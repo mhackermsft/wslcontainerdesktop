@@ -17,6 +17,8 @@
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Models;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Dialogs;
 
 /// <summary>
@@ -49,9 +51,9 @@ public sealed class HealthCheckDialog : ContentDialog
         _containerName = containerName;
         _existing = existing;
 
-        Title = $"Health check · {containerName}";
-        PrimaryButtonText = "Save";
-        CloseButtonText = "Cancel";
+        Title = UiText.Get("Workload_Text_Health_check_0_5d0e6d", "Health check · {0}", containerName);
+        PrimaryButtonText = UiText.Get("Workload_Text_Save_1509f5", "Save");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
         DefaultButton = ContentDialogButton.Primary;
 
         Resources["ContentDialogMaxWidth"] = 640.0;
@@ -59,32 +61,32 @@ public sealed class HealthCheckDialog : ContentDialog
 
         _enabled = new ToggleSwitch
         {
-            Header = "Enable health monitoring",
+            Header = UiText.Get("Workload_Text_Enable_health_monitoring_817f4e", "Enable health monitoring"),
             IsOn = existing?.Enabled ?? true,
         };
 
         _kindBox = new ComboBox
         {
-            Header = "Probe type",
+            Header = UiText.Get("Workload_Text_Probe_type_0ee53b", "Probe type"),
             MinWidth = 460,
-            Items = { "Command (wslc exec, exit 0 = healthy)", "TCP port (host-side connect)" },
+            Items = { UiText.Get("Workload_Text_Command_wslc_exec_exit_0_healthy_02b96a", "Command (wslc exec, exit 0 = healthy)"), UiText.Get("Workload_Text_TCP_port_host_side_connect_51de6b", "TCP port (host-side connect)") },
         };
         _kindBox.SelectedIndex = existing?.Kind == HealthProbeKind.Tcp ? 1 : 0;
 
         _commandBox = new TextBox
         {
-            Header = "Command run inside the container",
-            PlaceholderText = "e.g. curl -fsS http://localhost:8080/health",
+            Header = UiText.Get("Workload_Text_Command_run_inside_the_container_2e8017", "Command run inside the container"),
+            PlaceholderText = UiText.Get("Workload_Text_e_g_curl_fsS_http_localhost_bd1c87", "e.g. curl -fsS http://localhost:8080/health"),
             Text = existing?.Command ?? string.Empty,
         };
         _commandPanel = new StackPanel { Spacing = 4, Children = { _commandBox } };
 
         _portBox = new ComboBox
         {
-            Header = "Host port to connect to",
+            Header = UiText.Get("Workload_Text_Host_port_to_connect_to_3a2955", "Host port to connect to"),
             IsEditable = true,
             MinWidth = 460,
-            PlaceholderText = "e.g. 8080",
+            PlaceholderText = UiText.Get("Workload_Text_e_g_8080_452a03", "e.g. 8080"),
         };
         foreach (var port in hostPorts)
         {
@@ -104,7 +106,7 @@ public sealed class HealthCheckDialog : ContentDialog
 
         _intervalBox = new NumberBox
         {
-            Header = "Check interval (seconds)",
+            Header = UiText.Get("Workload_Text_Check_interval_seconds_c75f0b", "Check interval (seconds)"),
             Minimum = HealthCheckConfig.MinIntervalSeconds,
             Maximum = HealthCheckConfig.MaxIntervalSeconds,
             SmallChange = 5,
@@ -115,7 +117,7 @@ public sealed class HealthCheckDialog : ContentDialog
 
         _restartsBox = new NumberBox
         {
-            Header = "Auto-restarts before alerting (0 = alert only)",
+            Header = UiText.Get("Workload_Text_Auto_restarts_before_alerting_0_alert_171ebb", "Auto-restarts before alerting (0 = alert only)"),
             Minimum = 0,
             Maximum = HealthCheckConfig.MaxRestartLimit,
             SmallChange = 1,

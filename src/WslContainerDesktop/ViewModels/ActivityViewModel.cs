@@ -34,10 +34,11 @@ public partial class ActivityViewModel : ObservableObject
     private readonly IWslcService _wslc;
     private readonly IEngineEventStream _stream;
     private bool _seeded;
+    private bool _refreshingLanguage;
 
     /// <summary>Bindable state for selected filter used by the view.</summary>
     [ObservableProperty]
-    private string _selectedFilter = "All";
+    private string _selectedFilter = UiText.Get("Common_Text0236", "All");
 
     /// <summary>Bindable state for search text used by the view.</summary>
     [ObservableProperty]
@@ -53,10 +54,10 @@ public partial class ActivityViewModel : ObservableObject
 
     /// <summary>Bindable state for status message used by the view.</summary>
     [ObservableProperty]
-    private string _statusMessage = "Ready";
+    private string _statusMessage = UiText.Get("Common_Text0194", "Ready");
 
     /// <summary>Category filter chips shown above the timeline.</summary>
-    public IReadOnlyList<string> Filters { get; } = new[] { "All", "Engine", "Container", "Network", "Image" };
+    public ObservableCollection<string> Filters { get; } = new() { UiText.Get("Common_Text0236", "All"), UiText.Get("Common_Text0237", "Engine"), UiText.Get("Common_Text0238", "Container"), UiText.Get("Common_Text0239", "Network"), UiText.Get("Common_Text0240", "Image") };
 
     /// <summary>The events matching the current filter, most-recent-first.</summary>
     public ObservableCollection<ActivityEvent> Events { get; } = new();
@@ -71,13 +72,17 @@ public partial class ActivityViewModel : ObservableObject
         _wslc = wslc;
         _stream = stream;
         _isConnected = stream.IsConnected;
+        UiText.LanguageChanged += (_, _) => RefreshLocalizedText();
         _log.Events.CollectionChanged += OnLogChanged;
         _stream.ConnectionChanged += OnConnectionChanged;
         Rebuild();
     }
 
     /// <summary>Handles selected filter changed changes and updates related view-model state.</summary>
-    partial void OnSelectedFilterChanged(string value) => Rebuild();
+    partial void OnSelectedFilterChanged(string value)
+    {
+        if (!_refreshingLanguage) Rebuild();
+    }
     /// <summary>Handles search text changed changes and updates related view-model state.</summary>
     partial void OnSearchTextChanged(string value) => Rebuild();
     /// <summary>Handles is paused changed changes and updates related view-model state.</summary>
@@ -85,11 +90,11 @@ public partial class ActivityViewModel : ObservableObject
     {
         if (value)
         {
-            StatusMessage = "Paused";
+            StatusMessage = UiText.Get("Common_Text0241", "Paused");
             return;
         }
 
-        StatusMessage = IsConnected ? "Connected to live engine events" : "Event stream disconnected; polling still continues";
+        StatusMessage = IsConnected ? UiText.Get("Common_Text0242", "Connected to live engine events") : UiText.Get("Common_Text0243", "Event stream disconnected; polling still continues");
         Rebuild();
     }
 
@@ -108,7 +113,7 @@ public partial class ActivityViewModel : ObservableObject
         IsConnected = connected;
         if (!IsPaused)
         {
-            StatusMessage = connected ? "Connected to live engine events" : "Event stream disconnected; polling still continues";
+            StatusMessage = connected ? UiText.Get("Common_Text0242", "Connected to live engine events") : UiText.Get("Common_Text0243", "Event stream disconnected; polling still continues");
         }
     }
 
@@ -123,7 +128,7 @@ public partial class ActivityViewModel : ObservableObject
         }
 
         _seeded = true;
-        StatusMessage = "Loading recent engine events…";
+        StatusMessage = UiText.Get("Common_Text0244", "Loading recent engine events…");
         try
         {
             var until = DateTimeOffset.UtcNow;
@@ -133,11 +138,11 @@ public partial class ActivityViewModel : ObservableObject
                 _log.RecordEngineEvent(evt);
             }
 
-            StatusMessage = _stream.IsConnected ? "Connected to live engine events" : "Recent events loaded; live stream disconnected";
+            StatusMessage = _stream.IsConnected ? UiText.Get("Common_Text0242", "Connected to live engine events") : UiText.Get("Common_Text0245", "Recent events loaded; live stream disconnected");
         }
         catch (Exception ex)
         {
-            StatusMessage = "Recent engine events unavailable: " + ex.Message;
+            StatusMessage = UiText.Get("Common_Text0246", "Recent engine events unavailable: ") + ex.Message;
         }
 
         Rebuild();
@@ -162,12 +167,12 @@ public partial class ActivityViewModel : ObservableObject
     /// <summary>Helper for the matches workflow in this view model.</summary>
     private bool Matches(ActivityEvent evt)
     {
-        var categoryMatches = SelectedFilter switch
+        var categoryMatches = Filters.IndexOf(SelectedFilter) switch
         {
-            "Engine" => evt.Category == ActivityCategory.Engine,
-            "Container" => evt.Category == ActivityCategory.Container,
-            "Network" => evt.Category == ActivityCategory.Network,
-            "Image" => evt.Category == ActivityCategory.Image,
+            1 => evt.Category == ActivityCategory.Engine,
+            2 => evt.Category == ActivityCategory.Container,
+            3 => evt.Category == ActivityCategory.Network,
+            4 => evt.Category == ActivityCategory.Image,
             _ => true,
         };
         return categoryMatches && MatchesSearch(evt);
@@ -182,8 +187,8 @@ public partial class ActivityViewModel : ObservableObject
         }
 
         var needle = SearchText.Trim();
-        return Contains(evt.Title, needle) ||
-            Contains(evt.Detail, needle) ||
+        return Contains(evt.Title, needle) || Contains(evt.DisplayTitle, needle) ||
+            Contains(evt.Detail, needle) || Contains(evt.DisplayDetail, needle) ||
             Contains(evt.ActorId, needle) ||
             Contains(evt.ContainerId, needle) ||
             evt.Attributes.Any(kvp => Contains(kvp.Key, needle) || Contains(kvp.Value, needle));
@@ -192,4 +197,32 @@ public partial class ActivityViewModel : ObservableObject
     /// <summary>Helper for the contains workflow in this view model.</summary>
     private static bool Contains(string? value, string needle) =>
         value?.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
+
+    /// <summary>Preserves the selected category and paused state when labels change.</summary>
+    private void RefreshLocalizedText()
+    {
+        var index = Math.Max(0, Filters.IndexOf(SelectedFilter));
+        var translated = new[] { UiText.Get("Common_Text0236", "All"), UiText.Get("Common_Text0237", "Engine"),
+            UiText.Get("Common_Text0238", "Container"), UiText.Get("Common_Text0239", "Network"), UiText.Get("Common_Text0240", "Image") };
+        _refreshingLanguage = true;
+        try
+        {
+            for (var i = 0; i < translated.Length; i++)
+                Filters[i] = translated[i];
+            SelectedFilter = Filters[index];
+        }
+        finally
+        {
+            _refreshingLanguage = false;
+        }
+        StatusMessage = UiText.Translate(StatusMessage);
+        if (!IsPaused)
+            Rebuild();
+        else
+        {
+            var visible = Events.ToArray();
+            Events.Clear();
+            foreach (var entry in visible) Events.Add(entry);
+        }
+    }
 }

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.ViewModels;
 
@@ -27,7 +28,7 @@ public partial class AssistantToolPermission : ObservableObject
     public AssistantToolPermission(string name, string displayName, bool autoApprove, Action<string, bool> onChanged)
     {
         Name = name;
-        DisplayName = displayName;
+        DisplayName = UiText.Translate(displayName);
         _autoApprove = autoApprove;
         _onChanged = onChanged;
     }
@@ -36,7 +37,14 @@ public partial class AssistantToolPermission : ObservableObject
     public string Name { get; }
 
     /// <summary>Human-readable label shown in the settings page.</summary>
-    public string DisplayName { get; }
+    public string DisplayName { get; private set; }
+
+    /// <summary>Updates the label without changing the stored tool identifier or permission.</summary>
+    public void RefreshLocalizedText()
+    {
+        DisplayName = UiText.Translate(DisplayName);
+        OnPropertyChanged(nameof(DisplayName));
+    }
 
     /// <summary>True when this action destroys state the app cannot restore.</summary>
     public bool IsDestructive { get; init; }
@@ -60,10 +68,19 @@ public partial class AssistantToolPermission : ObservableObject
 }
 
 /// <summary>A named group of <see cref="AssistantToolPermission"/> toggles.</summary>
-public sealed class AssistantToolPermissionGroup
+public sealed class AssistantToolPermissionGroup : ObservableObject
 {
     /// <summary>Section heading shown above a related group of tools.</summary>
-    public required string Header { get; init; }
+    public required string Header { get; set; }
+
+    /// <summary>Refreshes display labels while keeping the existing permission objects.</summary>
+    public void RefreshLocalizedText()
+    {
+        Header = UiText.Translate(Header);
+        OnPropertyChanged(nameof(Header));
+        foreach (var tool in Tools)
+            tool.RefreshLocalizedText();
+    }
 
     /// <summary>The permission rows displayed under <see cref="Header"/>.</summary>
     public required IReadOnlyList<AssistantToolPermission> Tools { get; init; }

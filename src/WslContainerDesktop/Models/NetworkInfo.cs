@@ -16,6 +16,7 @@
 
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using WslContainerDesktop.Services;
 
 namespace WslContainerDesktop.Models;
 
@@ -121,13 +122,13 @@ public sealed class NetworkInfo : ObservableObject
 
     /// <summary>Text for the "Used by" column: the attached containers, "Not in use", or "Unknown".</summary>
     [JsonIgnore]
-    public string UsedByDisplay => UsagePending ? "Checking…" : ContainerUsers.Count > 0
-        ? string.Join(", ", ContainerUsers) + (UsageComplete ? string.Empty : " (others unknown)")
-        : UsageComplete ? "Not in use" : "Unknown";
+    public string UsedByDisplay => UsagePending ? UiText.Get("Resource_Text_820d6004b037", "Checking…") : ContainerUsers.Count > 0
+        ? string.Join(", ", ContainerUsers) + (UsageComplete ? string.Empty : UiText.Get("Resource_Text_5fd2e5751c47", " (others unknown)"))
+        : UsageComplete ? UiText.Get("Resource_Text_99ce9af38e30", "Not in use") : UiText.Get("Resource_Text_bc7819b34ff8", "Unknown");
 
     /// <summary>Tooltip for the "Used by" column, explaining where the list comes from.</summary>
     [JsonIgnore]
-    public string UsedByTooltip => $"{UsedByDisplay}\n\nIncludes stopped containers, which rejoin this network when they start.";
+    public string UsedByTooltip => UiText.Get("Resource_Text_c090d6cb9136", "{0}\n\nIncludes stopped containers, which rejoin this network when they start.", UsedByDisplay);
 
     /// <summary>Creates a synthesized default bridge entry when the engine omits it from a successful list.</summary>
     public static NetworkInfo DefaultBridge() => new()
@@ -147,11 +148,17 @@ public sealed class NetworkInfo : ObservableObject
         {
             if (string.IsNullOrEmpty(Id))
             {
-                return IsBuiltIn ? "default" : string.Empty;
+                return IsBuiltIn ? UiText.Get("Resource_Text_7505d64a54e0", "default") : string.Empty;
             }
 
             var id = Id.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? Id[7..] : Id;
             return id.Length > 12 ? id[..12] : id;
         }
+    }
+
+    /// <summary>Refreshes display projections after a UI language change.</summary>
+    internal void RefreshLocalizedText()
+    {
+        OnPropertyChanged(string.Empty);
     }
 }

@@ -16,6 +16,8 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Models;
 
 /// <summary>Whether a template launches a single container or imports a multi-service compose stack.</summary>
@@ -51,7 +53,7 @@ public sealed partial class StackTemplate : ObservableObject
     /// Returns the template name. List controls use this as each row's screen-reader name;
     /// without it Narrator announces the .NET type name instead.
     /// </summary>
-    public override string ToString() => Name;
+    public override string ToString() => DisplayName;
 
     /// <summary>Gets or sets the id.</summary>
     public required string Id { get; set; }
@@ -83,6 +85,22 @@ public sealed partial class StackTemplate : ObservableObject
     /// <summary>Optional note surfaced to the user (e.g. default credentials) before launching.</summary>
     public string? Note { get; set; }
 
+    /// <summary>Built-in labels are localized; user-authored text remains unchanged.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DisplayName => Source == TemplateSource.BuiltIn ? UiText.Translate(Name) : Name;
+
+    /// <summary>Localized built-in category without changing its persisted identity.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DisplayCategory => Source == TemplateSource.BuiltIn ? UiText.Translate(Category) : Category;
+
+    /// <summary>Localized built-in description, preserving descriptions written by the user.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DisplayDescription => Source == TemplateSource.BuiltIn ? UiText.Translate(Description) : Description;
+
+    /// <summary>Localized built-in notes; credentials, commands and user notes stay intact.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? DisplayNote => Source == TemplateSource.BuiltIn && Note is not null ? UiText.Translate(Note) : Note;
+
     /// <summary>
     /// Where this template came from. Built-ins are code-baked (hide-only); User/Imported templates
     /// live in <c>user-templates.json</c> and can be edited, duplicated, and deleted. Mutable so the
@@ -98,14 +116,14 @@ public sealed partial class StackTemplate : ObservableObject
     [System.Text.Json.Serialization.JsonIgnore]
     public string SourceLabel => Source switch
     {
-        TemplateSource.User => "Custom",
-        TemplateSource.Imported => "Imported",
-        _ => "Built-in",
+        TemplateSource.User => UiText.Get("Common_Text0423", "Custom"),
+        TemplateSource.Imported => UiText.Get("Common_Text0424", "Imported"),
+        _ => UiText.Get("Common_Text0425", "Built-in"),
     };
 
     /// <summary>Human-readable badge summarizing the template kind, shown on the card.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public string KindLabel => Kind == StackTemplateKind.Compose ? "Compose stack" : "Container";
+    public string KindLabel => Kind == StackTemplateKind.Compose ? UiText.Get("Common_Text0426", "Compose stack") : UiText.Get("Common_Text0238", "Container");
 
     /// <summary>
     /// True while this template is being launched, so the card can show a spinner and disable its
@@ -154,7 +172,7 @@ public sealed partial class StackTemplate : ObservableObject
 
     /// <summary>Badge text; empty for the ordinary single-deployment case.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public string DeploymentSummary => DeploymentCount > 1 ? $"{DeploymentCount} deployments" : string.Empty;
+    public string DeploymentSummary => DeploymentCount > 1 ? UiText.Get("Common_Text0427", "{0} deployments", DeploymentCount) : string.Empty;
 
     /// <summary>
     /// True when the user has hidden this template from the gallery. Recomputed from the visibility
@@ -181,4 +199,16 @@ public sealed partial class StackTemplate : ObservableObject
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool CanLaunch => !IsBusyCard;
+
+    /// <summary>Updates display labels while preserving template data and deployment state.</summary>
+    public void RefreshLanguage()
+    {
+        OnPropertyChanged(nameof(DisplayName));
+        OnPropertyChanged(nameof(DisplayCategory));
+        OnPropertyChanged(nameof(DisplayDescription));
+        OnPropertyChanged(nameof(DisplayNote));
+        OnPropertyChanged(nameof(KindLabel));
+        OnPropertyChanged(nameof(SourceLabel));
+        OnPropertyChanged(nameof(DeploymentSummary));
+    }
 }
