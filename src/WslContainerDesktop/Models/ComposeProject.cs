@@ -161,8 +161,8 @@ public sealed class ComposeVolume
 }
 
 /// <summary>
-/// A top-level <c>secret</c> or <c>config</c> definition. Only file-backed sources are supported;
-/// the supervisor bind-mounts <see cref="File"/> read-only into referencing services.
+/// A top-level <c>secret</c> or <c>config</c> definition, staged and bound read-only.
+/// Configs may supply inline text instead of a source file.
 /// </summary>
 public sealed class ComposeSecret
 {
@@ -171,6 +171,10 @@ public sealed class ComposeSecret
 
     /// <summary>Absolute host path to the source file (resolved against the compose folder on import).</summary>
     public string? File { get; set; }
+
+    /// <summary>Resolved inline config text. Null means absent; an empty string is a valid config.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Content { get; set; }
 
     /// <summary>When true the secret/config is external (unmanaged); the app cannot materialize it.</summary>
     public bool External { get; set; }
@@ -294,7 +298,7 @@ public sealed class ComposeProject
     /// <summary>Top-level file-backed secrets, bind-mounted into referencing services.</summary>
     public List<ComposeSecret> Secrets { get; set; } = new();
 
-    /// <summary>Top-level file-backed configs, bind-mounted into referencing services.</summary>
+    /// <summary>Top-level file-backed or inline configs, bind-mounted into referencing services.</summary>
     public List<ComposeSecret> Configs { get; set; } = new();
 
     /// <summary>The deterministic container name the supervisor assigns to a service (<c>project_service</c>).</summary>

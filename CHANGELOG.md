@@ -12,6 +12,13 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+### Added
+
+- **Compose imports inline `configs.content`**, including multiline JSON such as pgAdmin's
+  `servers.json`, and mounts it read-only at the service's requested path. Saved projects
+  retain resolved content locally in plaintext; reviewed updates replace only affected
+  containers, and config payloads are withheld from compatibility previews and assistant results.
+
 ### Fixed
 
 - **Compose recognizes local paths as bind mounts when long-form mounts omit `type`.**

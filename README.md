@@ -538,13 +538,40 @@ This makes it ideal for **local development and testing** of multi-container app
 A large subset of the Compose spec is honored on **up**:
 
 - **Services** — `image`, `build` (context/dockerfile/args/target/labels/pull), `container_name`, `command`, `entrypoint`, `user`, `working_dir`, `hostname`, `labels`.
-- **Networking & storage** — `ports` (short and long form), `volumes` (short form as `-v`, long form as native `--mount`), top-level `networks:` / `volumes:` creation (including network `driver_opts`, `internal`, and `labels`), service DNS aliases, `secrets:` / `configs:` (file-backed, best-effort), `extra_hosts` (best-effort), `tmpfs`, `dns*`. Multi-network services are created, connected to every required network, then started; per-network aliases and static IPv4 settings are retained (one IPAM subnet configuration).
+- **Networking & storage** — `ports` (short and long form), `volumes` (short form as `-v`, long form as native `--mount`), top-level `networks:` / `volumes:` creation (including network `driver_opts`, `internal`, and `labels`), service DNS aliases, file-backed `secrets:` / `configs:` and inline `configs.content` (best-effort read-only mounts), `extra_hosts` (best-effort), `tmpfs`, `dns*`. Multi-network services are created, connected to every required network, then started; per-network aliases and static IPv4 settings are retained (one IPAM subnet configuration).
 - **Config** — `environment`, `env_file`, nested Compose interpolation (default/required/alternative operators, unset versus empty and `$$`), YAML quoting/anchors/aliases/`<<` merge keys, folded/literal block scalars and chomping, sibling override merging with `!reset` / `!override`, and strict local `include:` / `extends:` graphs within the subset below.
 - **Resources** — `deploy.resources.limits.{cpus,memory}`, `cpus`, `mem_limit`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period` (passed to the engine as `--stop-timeout`, rounded up to whole seconds).
 - **GPU** — `deploy.resources.reservations.devices` entries requesting the `gpu` capability map to all-GPU passthrough. A narrower `count` or `device_ids` still passes all GPUs and warns, because per-device selection isn't available.
 - **Lifecycle** — `depends_on` (including `condition: service_healthy` / `service_completed_successfully`), `healthcheck`, `restart:` (`no`/`always`/`on-failure`/`unless-stopped`), `profiles:`, and project `up` / `down` / `restart` with re-adoption on relaunch.
 
 Some of these are **best-effort** — e.g. `secrets`/`configs` are bind-mounted rather than stored in an engine secret store, `extra_hosts` is applied via `exec` after start, and `restart` backoff timing is not byte-for-byte identical to Docker.
+
+**Inline configs** can keep small application configuration in the Compose file:
+
+```yaml
+services:
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    # Supply pgAdmin's required initialization environment separately.
+    configs:
+      - source: pgadmin_servers.json
+        target: /pgadmin4/servers.json
+configs:
+  pgadmin_servers.json:
+    content: |
+      {"Servers": {"1": {"Name": "Local", "Group": "Servers", "Host": "postgres", "Port": 5432}}}
+```
+
+The [Docker `configs.content` syntax](https://docs.docker.com/reference/compose-file/configs/)
+uses the existing YAML/interpolation rules, including `$$` for a literal dollar sign.
+Empty content is valid; `file` and `content` cannot be combined. Saved projects retain
+resolved inline text in **local plaintext JSON** and staged files, including interpolated
+credentials. Configs are not encrypted secret storage, and payloads are withheld from
+app-generated compatibility previews and assistant results. Apply edited/reimported config
+content through a reviewed **Up** to replace affected containers; **Restart** does not apply
+pending edits. Environment-backed sources, external config-store lookup, and custom
+`uid`/`gid`/`mode` remain unsupported. Read-only mounting does not guarantee Docker's exact
+POSIX ownership/permission defaults.
 
 ### Configuration semantics
 

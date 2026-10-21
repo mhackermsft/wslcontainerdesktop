@@ -16,6 +16,7 @@
 
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 using Xunit;
@@ -587,6 +588,283 @@ public sealed class ComposeReviewSupervisorTests
         Assert.Contains(review.Preview.Settings, row => row.Disposition == ComposeSettingDisposition.Blocked &&
             row.Explanation.Contains("conflicting published"));
         Assert.Empty(fixture.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task InlineConfigStagingIsApprovedReadOnlyAndDoesNotModifyExistingMounts()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "inline-stage-" + Guid.NewGuid().ToString("N"));
+        var fixture = new Fixture(persisted: ComposeInlineConfigTests.InlineProject("original\n"), stagingRoot: root);
+        try
+        {
+            var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+            Assert.True(review.Preview.CanApply);
+            Assert.False(Directory.Exists(root));
+            Assert.DoesNotContain("original", JsonSerializer.Serialize(review));
+            Assert.True((await fixture.Supervisor.ApplyReviewedAsync(review, true)).AllSucceeded);
+            var name = fixture.Project.Name + "_web";
+            var original = InlineMountSource(fixture.Engine.Containers[name].Volumes.Single());
+            Assert.Equal(System.Text.Encoding.UTF8.GetBytes("original\n"), File.ReadAllBytes(original));
+            Assert.StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, original);
+
+            fixture.Engine.Mutations.Clear();
+            Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+            Assert.Empty(fixture.Engine.Mutations);
+            Assert.Equal(original, InlineMountSource(fixture.Engine.Containers[name].Volumes.Single()));
+
+            fixture.Project.Configs[0].Content = "changed \u2603";
+            var changed = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+            Assert.True(changed.Preview.CanApply);
+            Assert.Contains("Recreate", Row(changed, "instances").EffectiveValue);
+            Assert.Equal("original\n", File.ReadAllText(original));
+            Assert.True((await fixture.Supervisor.ApplyReviewedAsync(changed, true)).AllSucceeded);
+            var replacement = InlineMountSource(fixture.Engine.Containers[name].Volumes.Single());
+            Assert.NotEqual(original, replacement);
+            Assert.Equal(System.Text.Encoding.UTF8.GetBytes("changed \u2603"), File.ReadAllBytes(replacement));
+            Assert.Equal("original\n", File.ReadAllText(original));
+            Assert.Equal("changed \u2603", fixture.SavedProject!.Configs[0].Content);
+
+            fixture.Project.Configs[0].Content = "pending";
+            fixture.Engine.Mutations.Clear();
+            var restart = await fixture.Supervisor.PrepareReviewAsync(fixture.Project,
+                new() { Operation = ComposeLifecycleOperation.Restart });
+            Assert.True((await fixture.Supervisor.ApplyReviewedAsync(restart, true)).AllSucceeded);
+            Assert.DoesNotContain(fixture.Engine.Mutations, m => m.StartsWith("create:") || m.StartsWith("run:"));
+            Assert.Equal("changed \u2603", File.ReadAllText(replacement));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public async Task InlineConfigEditsAfterReviewAreStaleWithoutStagingOrDisclosure()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "inline-stale-" + Guid.NewGuid().ToString("N"));
+        var fixture = new Fixture(persisted: ComposeInlineConfigTests.InlineProject("private-inline-original"), stagingRoot: root);
+        var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+        fixture.Project.Configs[0].Content = "private-inline-edit";
+        var result = await fixture.Supervisor.ApplyReviewedAsync(review, true);
+        Assert.Equal(ComposeReviewOutcomeKind.Stale, result.Kind);
+        Assert.Empty(fixture.Engine.Mutations);
+        Assert.False(Directory.Exists(root));
+        Assert.DoesNotContain("private-inline", JsonSerializer.Serialize(result));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InlineConfigFailedPreparationOrCancellationPreservesOldContainer(bool cancel)
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "inline-failure-" + Guid.NewGuid().ToString("N"));
+        var logger = new ReviewLogger();
+        var fixture = new Fixture(persisted: ComposeInlineConfigTests.InlineProject("private-original"), logger: logger, stagingRoot: root);
+        try
+        {
+            Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+            var name = fixture.Project.Name + "_web";
+            var original = InlineMountSource(fixture.Engine.Containers[name].Volumes.Single());
+            fixture.Project.Configs[0].Content = "private-replacement";
+            var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+            fixture.Engine.Mutations.Clear();
+            using var cancellation = new CancellationTokenSource();
+            var probes = new List<string>();
+            fixture.Engine.VerifyBindMount = source =>
+            {
+                probes.Add(source);
+                Assert.Equal("private-original", File.ReadAllText(original));
+                if (cancel) cancellation.Cancel();
+                return cancel ? BindMountProbeResult.MountsAsFile : BindMountProbeResult.MountsAsDirectory;
+            };
+            var outcome = await fixture.Supervisor.ApplyReviewedAsync(review, true, ct: cancellation.Token);
+            Assert.False(outcome.AllSucceeded);
+            Assert.Empty(fixture.Engine.Mutations);
+            Assert.Equal("private-original", File.ReadAllText(original));
+            Assert.NotEmpty(probes);
+            Assert.Equal(probes.Count, probes.Distinct().Count());
+            Assert.DoesNotContain("private-replacement", JsonSerializer.Serialize(outcome));
+            Assert.DoesNotContain("private-replacement", string.Join("\n", logger.Messages));
+            Assert.All(logger.Exceptions, Assert.Null);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public async Task InlineStagingSeparatesCollidingNamesAndOnlyMountsGrantedConfigs()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "inline-names-" + Guid.NewGuid().ToString("N"));
+        var inputDirectory = root + "-input";
+        var project = ComposeInlineConfigTests.InlineProject("first");
+        project.Configs[0].Name = "../name";
+        project.Services[0].Configs[0].Source = "../name";
+        project.Configs.Add(new() { Name = "..?name", Content = "second" });
+        project.Services[0].Configs.Add(new() { Source = "..?name", Target = "/other" });
+        project.Services[0].Configs.Add(new() { Source = "../name", Target = "/again" });
+        var fileName = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("../name")));
+        project.Configs.Add(new() { Name = fileName, File = Path.Combine(inputDirectory, "content") });
+        project.Services[0].Configs.Add(new() { Source = fileName, Target = "/binary" });
+        project.Configs.Add(new() { Name = "ungranted", Content = "not-mounted" });
+        var fixture = new Fixture(persisted: project, stagingRoot: root);
+        try
+        {
+            Directory.CreateDirectory(inputDirectory);
+            byte[] binary = [0xff, 0x00, 0x80, 0x0d, 0x0a];
+            File.WriteAllBytes(Path.Combine(inputDirectory, "content"), binary);
+            Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+            var sources = fixture.Engine.Containers[project.Name + "_web"].Volumes.Select(InlineMountSource).ToArray();
+            Assert.Equal(4, sources.Length);
+            Assert.Equal(3, sources.Distinct().Count());
+            Assert.Equal(new[] { "first", "first", "second" }, sources.Take(3).Select(File.ReadAllText).Order().ToArray());
+            Assert.Equal(binary, File.ReadAllBytes(sources[3]));
+            Assert.All(sources, path => Assert.StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, path));
+            fixture.Supervisor.CleanStaging(project.Name);
+            Assert.All(sources, path => Assert.False(File.Exists(path)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+            if (Directory.Exists(inputDirectory)) Directory.Delete(inputDirectory, true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartupInlineValidationIsScopedToUntrackedInstancesAndCurrentSnapshot(bool legacy)
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "inline-startup-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var project = ComposeInlineConfigTests.InlineProject("applied-content");
+            project.Services[0].Replicas = 2;
+            project.Services[0].Restart = RestartPolicyKind.Always;
+            var fixture = new Fixture(persisted: project, stagingRoot: root);
+            Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+            var saved = fixture.SavedProject!;
+            saved.Configs[0].File = "invalid-pending-source";
+            if (legacy) saved.AppliedServices.Clear();
+            var relaunched = new Fixture(engine: fixture.Engine, persisted: saved, stagingRoot: root);
+            fixture.Engine.Mutations.Clear();
+
+            await relaunched.Supervisor.ReconcileAsync();
+            if (legacy)
+            {
+                Assert.Equal(2, relaunched.Supervisor.ReconciliationWarnings.Count);
+                Assert.Empty(relaunched.RestartPolicies);
+            }
+            else
+            {
+                Assert.Empty(relaunched.Supervisor.ReconciliationWarnings);
+                Assert.Equal(2, relaunched.RestartPolicies.Count);
+            }
+
+            relaunched.Project.Configs[0].File = null;
+            await relaunched.Supervisor.ReconcileAsync();
+            Assert.Empty(relaunched.Supervisor.ReconciliationWarnings);
+            Assert.Equal(2, relaunched.RestartPolicies.Count);
+            Assert.Empty(fixture.Engine.Mutations);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("snowman \u2603\r\n")]
+    public async Task SeparateInlineAndFileWritersPreserveExactBytes(string content)
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "inline-writers-" + Guid.NewGuid().ToString("N"));
+        var input = root + "-input";
+        try
+        {
+            Directory.CreateDirectory(input);
+            byte[] binary = [0xff, 0x00, 0x80, 0x0d, 0x0a];
+            var source = Path.Combine(input, "token.bin");
+            File.WriteAllBytes(source, binary);
+            var project = ComposeInlineConfigTests.InlineProject(content);
+            project.Secrets.Add(new() { Name = "token", File = source });
+            project.Services[0].Secrets.Add(new() { Source = "token", Target = "/run/secrets/token" });
+            var fixture = new Fixture(persisted: project, stagingRoot: root + Path.DirectorySeparatorChar);
+            Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+            var mounts = fixture.Engine.Containers[project.ContainerNameFor("web")].Volumes;
+            var inline = InlineMountSource(Assert.Single(mounts, mount => mount.EndsWith(":/settings:ro", StringComparison.Ordinal)));
+            var file = InlineMountSource(Assert.Single(mounts, mount => mount.EndsWith(":/run/secrets/token:ro", StringComparison.Ordinal)));
+            Assert.StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, inline);
+            Assert.StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, file);
+            Assert.Equal(System.Text.Encoding.UTF8.GetBytes(content), File.ReadAllBytes(inline));
+            Assert.Equal(binary, File.ReadAllBytes(file));
+            Assert.Equal(2, Directory.GetFiles(root, "*", SearchOption.AllDirectories).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+            if (Directory.Exists(input)) Directory.Delete(input, true);
+        }
+    }
+
+    [Theory]
+    [InlineData(ComposeLifecycleOperation.Stop)]
+    [InlineData(ComposeLifecycleOperation.Down)]
+    [InlineData(ComposeLifecycleOperation.Restart)]
+    public async Task InvalidSavedInlineSourceDoesNotBlockAppliedContainerOperations(ComposeLifecycleOperation operation)
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "inline-lifecycle-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var directory = Path.Combine(root, "store");
+            var staging = Path.Combine(root, "staging");
+            var store = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance, directory);
+            var fixture = new Fixture(persisted: ComposeInlineConfigTests.InlineProject("applied-content"),
+                stagingRoot: staging, storeOverride: store);
+            Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+            var saved = store.Get(fixture.Project.Name)!;
+            var original = Assert.Single(Directory.GetFiles(staging, "content", SearchOption.AllDirectories));
+            var containerId = Assert.Single(saved.AppliedServices).Value.ContainerId;
+            saved.Configs[0].Content = "invalid-pending-content";
+            saved.Configs[0].File = "conflicting-source";
+            File.WriteAllText(Path.Combine(directory, "compose-projects.json"), JsonSerializer.Serialize(new[] { saved }));
+
+            var reloadedStore = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance, directory);
+            var loaded = reloadedStore.Get(saved.Name)!;
+            var reloaded = new Fixture(engine: fixture.Engine, persisted: loaded, stagingRoot: staging,
+                storeOverride: reloadedStore);
+            fixture.Engine.Mutations.Clear();
+            var blockedUp = await reloaded.Supervisor.PrepareReviewAsync(loaded);
+            Assert.False(blockedUp.Preview.CanApply);
+            Assert.Equal(ComposeReviewOutcomeKind.Blocked,
+                (await reloaded.Supervisor.ApplyReviewedAsync(blockedUp, true)).Kind);
+            Assert.Empty(fixture.Engine.Mutations);
+
+            var review = await reloaded.Supervisor.PrepareReviewAsync(loaded, new() { Operation = operation });
+            Assert.True(review.Preview.CanApply);
+            var result = await reloaded.Supervisor.ApplyReviewedAsync(review, true);
+            Assert.True(result.AllSucceeded, JsonSerializer.Serialize(result));
+            Assert.NotEmpty(fixture.Engine.Mutations);
+            Assert.DoesNotContain(fixture.Engine.Mutations, mutation =>
+                mutation.StartsWith("create:", StringComparison.Ordinal) || mutation.StartsWith("run:", StringComparison.Ordinal));
+            Assert.Equal("applied-content", File.ReadAllText(original));
+            Assert.Single(Directory.GetFiles(staging, "content", SearchOption.AllDirectories));
+
+            var persisted = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance, directory).Get(saved.Name)!;
+            Assert.Equal("invalid-pending-content", persisted.Configs[0].Content);
+            Assert.Equal("conflicting-source", persisted.Configs[0].File);
+            if (operation == ComposeLifecycleOperation.Down)
+            {
+                Assert.Empty(persisted.AppliedServices);
+                Assert.Empty(fixture.Engine.Containers);
+            }
+            else
+            {
+                var applied = Assert.Single(persisted.AppliedServices).Value;
+                Assert.Equal(operation == ComposeLifecycleOperation.Stop, applied.ManuallyStopped);
+                Assert.Equal(containerId, applied.ContainerId);
+                Assert.Single(fixture.Engine.Containers);
+            }
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static string InlineMountSource(string mount)
+    {
+        Assert.EndsWith(":ro", mount);
+        return mount[..mount.LastIndexOf(":/", StringComparison.Ordinal)];
     }
 
     private static ComposeCompatibilitySetting Row(ComposeReviewToken review, string setting) =>

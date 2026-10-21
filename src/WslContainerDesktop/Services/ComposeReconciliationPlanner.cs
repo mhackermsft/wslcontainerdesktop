@@ -247,6 +247,11 @@ public static class ComposeReconciliationPlanner
     {
         var result = new List<ComposeServicePlan>();
         var selected = SelectServices(project, request);
+        var validatedProject = new Lazy<ComposeProject>(() =>
+        {
+            ComposeConfigContent.Validate(project);
+            return project;
+        });
         foreach (var service in ExpandInstances(project, request, selected, inventory))
         {
             var name = ContainerName(project, service);
@@ -277,7 +282,7 @@ public static class ComposeReconciliationPlanner
             var fingerprint = string.Empty;
             if (request.Operation == ComposeLifecycleOperation.Up && !excess)
             {
-                try { fingerprint = Fingerprint(project, service); }
+                try { fingerprint = FingerprintValidated(validatedProject.Value, service); }
                 catch (InvalidOperationException)
                 {
                     result.Add(new(service, name, fingerprint, ComposeServiceChange.Incompatible,
@@ -458,6 +463,13 @@ public static class ComposeReconciliationPlanner
     /// </summary>
     public static string Fingerprint(ComposeProject project, ComposeService service)
     {
+        ComposeConfigContent.Validate(project);
+        return FingerprintValidated(project, service);
+    }
+
+    /// <summary>Hashes a service within a snapshot whose project-wide inline sources have already been validated.</summary>
+    internal static string FingerprintValidated(ComposeProject project, ComposeService service)
+    {
         var o = service.Options;
         var attachments = o.GetNetworkAttachments();
         var networkNames = attachments.Select(a => a.Network).ToHashSet(StringComparer.Ordinal);
@@ -595,7 +607,15 @@ public static class ComposeReconciliationPlanner
             .Select(m =>
             {
                 var definitions = sources.Where(s => s.Name == m.Source).ToList();
-                if (definitions.Count != 1 || definitions[0].External || string.IsNullOrWhiteSpace(definitions[0].File))
+                if (definitions.Count != 1 || definitions[0].External)
+                    throw new InvalidOperationException("A Compose file-backed resource is unavailable.");
+                if (definitions[0].Content is { } content)
+                    return (object)new
+                    {
+                        m.Source, m.Target, SourceKind = "inline",
+                        ContentHash = Convert.ToHexString(SHA256.HashData(ComposeConfigContent.GetBytes(content))).ToLowerInvariant(),
+                    };
+                if (string.IsNullOrWhiteSpace(definitions[0].File))
                     throw new InvalidOperationException("A Compose file-backed resource is unavailable.");
                 var path = definitions[0].File!;
                 var identity = FileIdentity(path);

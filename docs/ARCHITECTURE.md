@@ -831,6 +831,23 @@ before the real container runs; on failure it re-stages at a fresh unique path (
 per-path negative cache) and retries, and only surfaces a "restart the WSL session" recovery prompt
 if every attempt still fails.
 
+Inline `configs.content` uses the same read-only staging/verification pipeline. The imported
+text is already interpolated; `ComposeConfigContent` validates source exclusivity and the
+8,000,000-character aggregate inline limit for imported and saved definitions, and encodes
+strict UTF-8 without a BOM or extra newline. Empty text differs from an absent source. Source
+validation belongs to import and execution planning, not persistence: invalid pending definitions
+must not prevent Stop, Down or Restart from checkpointing the already-applied configuration.
+Whole-project inline validation is scoped to each plan/startup snapshot rather than repeated
+for every replica or mount retry; standalone fingerprint calls still validate their input.
+File and inline writers share staging-path allocation and containment checks but keep binary
+copy and create-new inline-file behavior separate.
+Resource names are hashed in a separate inline staging namespace, and fresh per-preparation paths keep existing containers'
+files unchanged during replacement preflight. Reconciliation hashes the exact effective bytes;
+existing file-backed hashes retain their prior representation. Saved project JSON contains the
+resolved text in plaintext; previews/results project grant metadata, never payloads. Arbitrary
+inline values are not global redaction tokens because they can also match public settings.
+This is not an engine config/secret store or a guarantee of Docker POSIX ownership/mode parity.
+
 Import is **file-based** (the user picks the `docker-compose.yml` from disk) rather than paste-based,
 so the importer knows the file's folder: it seeds `${VAR}` interpolation defaults from a sibling
 `.env` file and resolves relative `env_file`, `build.context`, and `secrets`/`configs` `file:` paths
@@ -877,6 +894,7 @@ issue #82 layer updates the parser and its assertions; no supervisor or capabili
 | Top-level `networks:` / `volumes:` **creation** (driver, `driver_opts`, labels; network `internal`; `external` skipped) | **Supported** — created on up via `wslc network/volume create`; network IPAM subnet/gateway/ip_range map to native flags, networks are removed on down |
 | `networks` / `network_mode` per service, service-name DNS aliases | **Supported** — multi-network services always use native create/connect/start; aliases and static IPv4 attach through native endpoint flags. Special host/none/container/service modes remain distinct. |
 | `secrets:` / `configs:` (file-backed) | **Supported (best-effort runtime)** — required source files validated for readability at import (binary allowed), then staged and bound read-only (`/run/secrets/<name>` or config target); references must be declared. No in-engine secret store |
+| `configs.content` (inline text) | **Supported by importer and staging** — YAML-resolved/interpolated text, including empty content, saved in local plaintext JSON and staged as UTF-8 without BOM. Explicit grants and custom/default targets use the existing read-only mount path. File/content conflicts reject; changed content participates in reviewed replacement. No environment-backed source, external config-store lookup, inline secret source, or custom ownership/mode support |
 | `tmpfs`, `ulimits`, `shm_size`, `stop_signal`, `stop_grace_period`, `dns`/`dns_search`/`dns_opt` | **Supported** — mapped to matching `wslc run/create` flags; `stop_grace_period` becomes create-time `--stop-timeout` and lifecycle `stop`/`restart -t` where applicable |
 | `profiles:` | **Supported** — services with a profile start only when one of their profiles is in the project's active set (from `COMPOSE_PROFILES` in the environment / `.env`); unprofiled services always start |
 | `extends:` (same-file and local cross-file `file:`/`service:`) | **Supported subset** — missing references/cycles reject; inherited paths belong to source files using the calling interpolation environment. Inheritance-specific sequence deduplication and target replacement differ from overrides; external top-level resources are not imported |
@@ -986,7 +1004,11 @@ WSL 3.0.1+ `wslc.exe`: native restart, `--stop-timeout`, `--mount`, network crea
 disconnect, the `wslc events` stream (including reconnect without gaps or duplicates), native
 copy on stopped containers, save/load and export/import, listing parity (`--digests`, `--all`,
 `--size`, `system info`), log flags, the Compose importer→create path, settings-file editing on a
-temporary copy, and the requirement service. It uses only the local `nginx:alpine` image, names
+temporary copy, and the requirement service. Inline Compose configs are checked through the
+real supervisor for exact UTF-8 bytes, read-only mounts, unchanged reuse, content-driven
+replacement, persistence and restart behavior. General container checks use the preloaded
+`nginx:alpine` image; the inline-config check uses preloaded
+`mcr.microsoft.com/dotnet/sdk:10.0` (no pull). The suite names
 every resource `wslcd-rt-<random>-*`, removes only what it created, and never pulls, pushes or
 touches the real `settings.yaml`. It is skipped unless its own consent variable is set:
 

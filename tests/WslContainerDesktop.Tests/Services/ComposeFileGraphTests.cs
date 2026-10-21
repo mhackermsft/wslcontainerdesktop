@@ -993,7 +993,7 @@ public sealed class ComposeFileGraphTests
     [InlineData("services: {web: {image: fixture, env_file: [{path: child.env, required: maybe}]}}", "env_file")]
     [InlineData("services: {web: {image: fixture, env_file: [{path: child.env, format: raw}]}}", "env_file")]
     [InlineData("secrets: {token: {environment: synthetic-private-input}}", "secrets")]
-    [InlineData("configs: {settings: {content: synthetic-private-input}}", "configs")]
+    [InlineData("configs: {settings: {environment: synthetic-private-input}}", "configs")]
     public void UnsupportedGraphFormsRejectWithSafeKeyContext(string yaml, string key)
     {
         using var files = new Fixture();
@@ -1112,6 +1112,41 @@ public sealed class ComposeFileGraphTests
         });
         Assert.Equal(0, saves);
         Assert.Equal(snapshot, JsonSerializer.Serialize(Assert.Single(store.GetAll())));
+    }
+
+    [Fact]
+    public void InlineConfigsSurviveIncludesAndOrderedOverrides()
+    {
+        using var files = new Fixture();
+        files.Write(@"child\compose.yaml", """
+            services: {web: {image: fixture, configs: [settings]}}
+            configs: {settings: {content: 'included'}}
+            """);
+        var included = files.Parse("include: [child/compose.yaml]");
+        Assert.Equal("included", Assert.Single(included.Configs).Content);
+        Assert.Null(included.Configs[0].File);
+
+        files.Write("base.yaml", """
+            services: {web: {image: fixture, configs: [settings]}}
+            configs: {settings: {content: 'base'}}
+            """);
+        files.Write("override.yaml", "configs: {settings: {content: 'changed'}}");
+        var merged = ComposeImporter.ParseProjectFiles([files.PathOf("base.yaml"), files.PathOf("override.yaml")]);
+        Assert.Equal("changed", Assert.Single(merged.Configs).Content);
+
+        files.WriteBytes("settings.bin", [0xff, 0x00]);
+        files.Write("override.yaml", "configs: {settings: {file: ./settings.bin}}");
+        Assert.Throws<ComposeConfigurationException>(() =>
+            ComposeImporter.ParseProjectFiles([files.PathOf("base.yaml"), files.PathOf("override.yaml")]));
+
+        files.Write("override.yaml", "configs: {settings: !override {file: ./settings.bin}}");
+        merged = ComposeImporter.ParseProjectFiles([files.PathOf("base.yaml"), files.PathOf("override.yaml")]);
+        Assert.Null(Assert.Single(merged.Configs).Content);
+        Assert.Equal(files.PathOf("settings.bin"), merged.Configs[0].File);
+
+        files.Write("override.yaml", "configs: {settings: {content: !reset null, file: ./settings.bin}}");
+        merged = ComposeImporter.ParseProjectFiles([files.PathOf("base.yaml"), files.PathOf("override.yaml")]);
+        Assert.Null(Assert.Single(merged.Configs).Content);
     }
 
     private static string Indent(string text, int spaces) =>

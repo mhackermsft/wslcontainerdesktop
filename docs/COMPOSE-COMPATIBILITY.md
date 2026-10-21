@@ -14,6 +14,11 @@ and expands replicas. Rows include instance actions/names, image work, profiles 
 mounts, published ports, networks/aliases/addresses, CPU/memory/shared-memory/GPU limits, process
 override presence, DNS/hostname, tmpfs/ulimits/stop settings, file-backed secrets/configs,
 health ownership and app restart supervision.
+Inline `configs.content` is delivered through the same read-only staged file mounts as
+file-backed configs. Its payload is never shown in review or assistant results. Resolved
+content is retained in plaintext project storage and staged files; it is not an encrypted
+secret store. Content edits enter configuration fingerprints and stale-review validation.
+Applying changed content requires reviewed Up/recreation; Restart keeps the mounted applied file.
 Selected resource declarations also show external ownership, driver, subnet/gateway/IP range,
 and counts of private driver options/labels. Existing resources are retained rather than
 silently recreated to apply creation-only options.

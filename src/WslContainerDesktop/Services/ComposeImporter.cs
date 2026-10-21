@@ -202,6 +202,8 @@ public static partial class ComposeImporter
         project.Volumes = ParseTopLevelVolumes(root.Child("volumes"));
         project.Secrets = ParseTopLevelSecrets(root.Child("secrets"), baseDirectory);
         project.Configs = ParseTopLevelSecrets(root.Child("configs"), baseDirectory);
+        try { ComposeConfigContent.Validate(project); }
+        catch (InvalidOperationException ex) { throw new ComposeConfigurationException(ex.Message); }
         CollectTopLevelWarnings(root, project.Warnings);
 
         return project;
@@ -809,8 +811,8 @@ public static partial class ComposeImporter
     }
 
     /// <summary>
-    /// Parses a top-level <c>secrets:</c> / <c>configs:</c> mapping. Only file-backed sources are
-    /// materializable; the source path resolves against <paramref name="baseDirectory"/>.
+    /// Parses file-backed resources and inline configs. File paths resolve against
+    /// <paramref name="baseDirectory"/>; inline text is already interpolated.
     /// </summary>
     private static List<ComposeSecret> ParseTopLevelSecrets(Node? node, string? baseDirectory)
     {
@@ -833,6 +835,7 @@ public static partial class ComposeImporter
             {
                 Name = name.Trim(),
                 File = string.IsNullOrWhiteSpace(file) ? null : ResolvePath(file, baseDirectory),
+                Content = cfg?.Scalar("content"),
                 External = IsExternal(cfg?.Child("external")),
             });
         }

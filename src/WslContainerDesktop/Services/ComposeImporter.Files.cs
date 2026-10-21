@@ -454,7 +454,7 @@ public static partial class ComposeImporter
         }
     }
 
-    /// <summary>Checks file-backed secrets and configs without retaining their contents.</summary>
+    /// <summary>Checks file-backed resources and inline config source shapes.</summary>
     private static void ValidateFileResources(MappingNode root)
     {
         foreach (var kind in new[] { "secrets", "configs" })
@@ -467,7 +467,7 @@ public static partial class ComposeImporter
                 if (value is not MappingNode resource)
                     throw FileError(value.Source, "unsupported resource; expected file or external mapping");
                 var context = resource.Source;
-                CheckKeys(resource, ["file", "external", "name"], context);
+                CheckKeys(resource, kind == "configs" ? ["file", "content", "external", "name"] : ["file", "external", "name"], context);
                 if (resource.Child("name") is { } resourceName)
                     _ = RequiredScalar(resourceName, context + ".name");
                 if (resource.Child("external") is MappingNode external)
@@ -478,6 +478,14 @@ public static partial class ComposeImporter
                 else if (resource.Child("external") is { } flag &&
                     (flag is not ScalarNode scalar || !bool.TryParse(scalar.Value, out _)))
                     throw FileError(context + ".external", "expected true or false");
+                if (resource.Child("content") is { } content)
+                {
+                    if (content is not ScalarNode || resource.Child("file") is not null ||
+                        IsExternal(resource.Child("external")))
+                        throw FileError(context, UiText.Get("Compose_ConfigSourceInvalid",
+                            "expected a text content source without file or external"));
+                    continue;
+                }
                 if (IsExternal(resource.Child("external")))
                 {
                     if (resource.Child("file") is not null)
