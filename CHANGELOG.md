@@ -12,6 +12,8 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-10-22
+
 ### Added
 
 - **Compose imports inline `configs.content`**, including multiline JSON such as pgAdmin's
@@ -645,7 +647,8 @@ rather than assuming one schema or flag set.
 Older versions (1.0.0 – 1.5.3) predate this changelog. Their tags remain in the repository, and
 their changes can be reviewed with `git log v1.5.2..v1.5.3` and similar.
 
-[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v2.3.0...main
+[Unreleased]: https://github.com/mhackermsft/wslcontainerdesktop/compare/v2.4.0...main
+[2.4.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v2.4.0
 [2.3.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v2.3.0
 [2.2.1]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v2.2.1
 [2.2.0]: https://github.com/mhackermsft/wslcontainerdesktop/releases/tag/v2.2.0
