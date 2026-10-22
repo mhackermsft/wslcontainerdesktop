@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
 using WslContainerDesktop.Models;
@@ -83,6 +84,76 @@ public sealed class ComposePreviewLocalizationTests : IDisposable
             ? "1 个服务（web） · 下载 1 个镜像（registry.invalid/image:latest） · 开放 8080:80."
             : "1 service (web) · downloads 1 image (registry.invalid/image:latest) · publishes 8080:80.", outcome);
         Assert.Equal(rawEvidence, JsonSerializer.Serialize(preview));
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("zh-Hans")]
+    public void InlineConfigValidationUsesTheSelectedCatalogWithoutExposingContent(string language)
+    {
+        ConfigureLanguage(language);
+        var catalog = language == "zh-Hans" ? _chinese : _english;
+        var project = ComposeInlineConfigTests.InlineProject("synthetic-private-inline");
+        project.Configs[0].File = "settings.json";
+
+        var invalid = Assert.Throws<InvalidOperationException>(() => ComposeConfigContent.Validate(project));
+        Assert.Equal(catalog["Compose_InlineConfigInvalid"], invalid.Message);
+        Assert.DoesNotContain(project.Configs[0].Content!, invalid.Message);
+
+        var source = Assert.Throws<ComposeConfigurationException>(() => ComposeImporter.ParseProject("""
+            services: {web: {image: fixture}}
+            configs: {settings: {content: [synthetic-private-inline]}}
+            """));
+        Assert.Contains(catalog["Compose_ConfigSourceInvalid"], source.Message);
+        Assert.DoesNotContain("synthetic-private-inline", source.Message);
+
+        project.Configs[0].File = null;
+        project.Configs[0].Content = new string('x', 8_000_001);
+        var limit = Assert.Throws<InvalidOperationException>(() => ComposeConfigContent.Validate(project));
+        Assert.Equal(string.Format(CultureInfo.InvariantCulture, catalog["Compose_InlineConfigLimit"], 8_000_000),
+            limit.Message);
+    }
+
+    [Fact]
+    public void InlineConfigLanguageSwitchPreservesContentFingerprintsAndExistingPreviewEvidence()
+    {
+        ConfigureLanguage("en-US");
+        const string content = "{\"Name\":\"本地数据库 ☃\",\"Host\":\"postgres\"}\r\n";
+        var project = ComposeImporter.ParseProject("""
+            services:
+              web:
+                image: fixture
+                configs:
+                  - source: settings
+                    target: /pgadmin4/servers.json
+            configs:
+              settings:
+                content: '${WCD_INLINE_VALUE}'
+            """, new Dictionary<string, string> { ["WCD_INLINE_VALUE"] = content });
+        var serializedProject = JsonSerializer.Serialize(project);
+        var fingerprint = ComposeReconciliationPlanner.Fingerprint(project, project.Services[0]);
+        var request = new ComposeOperationRequest();
+        var plan = ComposeReconciliationPlanner.Plan(project, request, [], new Dictionary<string, ContainerNetworkState>());
+        var preview = new ComposePreviewProjection(project).Create(project, request, plan);
+        var serializedPreview = JsonSerializer.Serialize(preview);
+        var model = new ComposePreviewViewModel(preview);
+
+        foreach (var language in new[] { "en-US", "zh-Hans", "en-US" })
+        {
+            ConfigureLanguage(language);
+
+            Assert.StartsWith(language == "zh-Hans" ? "检查 Compose " : "Review Compose ", model.Title);
+            Assert.Equal(language == "zh-Hans" ? "应用已检查的计划" : "Apply reviewed plan", model.ApplyLabel);
+            Assert.Same(preview.Settings, model.Settings);
+            Assert.Equal(preview.CanApply, model.CanApply);
+            Assert.Contains(model.Settings, row => row.Setting == "configs" &&
+                row.DisplayDetail.Contains("/pgadmin4/servers.json", StringComparison.Ordinal));
+            Assert.Equal(serializedProject, JsonSerializer.Serialize(project));
+            Assert.Equal(serializedPreview, JsonSerializer.Serialize(preview));
+            Assert.Equal(fingerprint, ComposeReconciliationPlanner.Fingerprint(project, project.Services[0]));
+            Assert.Equal(Encoding.UTF8.GetBytes(content), ComposeConfigContent.GetBytes(project.Configs[0].Content!));
+            Assert.DoesNotContain(content, serializedPreview);
+        }
     }
 
     private void ConfigureLanguage(string language)
