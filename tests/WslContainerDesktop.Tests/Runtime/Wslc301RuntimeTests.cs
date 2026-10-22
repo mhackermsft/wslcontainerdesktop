@@ -36,6 +36,69 @@ public sealed class Wslc301RuntimeTests
 {
     [WslcRuntimeFact]
     [Trait("Category", "WslcRuntime")]
+    public async Task InlineComposeConfigDeliversExactReadonlyBytesAndRecreatesWithoutChangingOldFiles()
+    {
+        await using var lease = new WslcRuntimeLease();
+        await lease.InitializeAsync(requireNginxImage: false);
+        var image = (await lease.Service.ListImagesAsync(lease.Ct, showAll: true))
+            .Single(i => i.Repository == "mcr.microsoft.com/dotnet/sdk" && i.Tag == "10.0");
+        var root = lease.CreateDirectory("inline-config", Path.GetTempPath());
+        var staging = Path.Combine(root, "staging");
+        var project = ComposeInlineConfigTests.InlineProject("first \u2603\r\n");
+        project.Name = lease.Name("inline-config");
+        project.Networks = [new() { Name = "bridge", External = true }];
+        var service = project.Services[0];
+        service.Options.Image = image.Reference;
+        service.Options.Command = "sleep 300";
+        service.Options.Detached = true;
+        service.Options.NeverPull = true;
+        service.Options.Network = "bridge";
+        var name = project.ContainerNameFor(service.Name);
+        lease.TrackContainer(name);
+        var store = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance, Path.Combine(root, "store"));
+        var supervisor = new ComposeProjectSupervisor(lease.Service, store, lease.Settings,
+            NullLogger<ComposeProjectSupervisor>.Instance, lease.Capabilities,
+            new HealthWatchdog(), new StatusMonitor(), new RestartSuppressionState(),
+            stagingRoot: staging);
+        async Task ApplyAsync(ComposeLifecycleOperation operation = ComposeLifecycleOperation.Up)
+        {
+            var review = await supervisor.PrepareReviewAsync(project, new() { Operation = operation }, lease.Ct);
+            Assert.True(review.Preview.CanApply);
+            var result = await supervisor.ApplyReviewedAsync(review, true, ct: lease.Ct);
+            Assert.True(result.AllSucceeded, JsonSerializer.Serialize(result));
+        }
+        async Task AssertBytesAsync(string content)
+        {
+            var read = await lease.Service.ExecAsync(name, "base64 -w0 /settings", lease.Ct);
+            WslcRuntimeLease.Require(read, "read mounted inline config");
+            Assert.Equal(Convert.ToBase64String(Encoding.UTF8.GetBytes(content)), read.StandardOutput.Trim());
+        }
+        await ApplyAsync();
+        await AssertBytesAsync("first \u2603\r\n");
+        var original = Assert.Single(Directory.GetFiles(staging, "content", SearchOption.AllDirectories));
+        var write = await lease.Service.ExecAsync(name, "sh -c 'printf x >> /settings'", lease.Ct);
+        Assert.False(write.Success);
+        await AssertBytesAsync("first \u2603\r\n");
+        var id = (await lease.InspectContainerJsonAsync(name)).GetProperty("Id").GetString();
+
+        await ApplyAsync();
+        Assert.Equal(id, (await lease.InspectContainerJsonAsync(name)).GetProperty("Id").GetString());
+        project.Configs[0].Content = "second\n";
+        await ApplyAsync();
+        Assert.NotEqual(id, (await lease.InspectContainerJsonAsync(name)).GetProperty("Id").GetString());
+        await AssertBytesAsync("second\n");
+        Assert.Equal(Encoding.UTF8.GetBytes("first \u2603\r\n"), File.ReadAllBytes(original));
+        Assert.Equal("second\n", new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance,
+            Path.Combine(root, "store")).Get(project.Name)!.Configs[0].Content);
+
+        project.Configs[0].Content = "pending";
+        await ApplyAsync(ComposeLifecycleOperation.Restart);
+        await AssertBytesAsync("second\n");
+        await ApplyAsync(ComposeLifecycleOperation.Down);
+    }
+
+    [WslcRuntimeFact]
+    [Trait("Category", "WslcRuntime")]
     public async Task SdkCreatedSessionIsDiscoveredAndItsContainerIsVisibleOnlyWhenSelected()
     {
         await using var lease = new WslcRuntimeLease();
@@ -729,9 +792,9 @@ public sealed class Wslc301RuntimeTests
             set.Add(name);
         }
 
-        public string CreateDirectory(string purpose)
+        public string CreateDirectory(string purpose, string? parent = null)
         {
-            var root = Path.Combine(Environment.CurrentDirectory, "RuntimeArtifacts", Name(purpose));
+            var root = Path.Combine(parent ?? Environment.CurrentDirectory, "RuntimeArtifacts", Name(purpose));
             Directory.CreateDirectory(root);
             _directories.Add(root);
             return root;

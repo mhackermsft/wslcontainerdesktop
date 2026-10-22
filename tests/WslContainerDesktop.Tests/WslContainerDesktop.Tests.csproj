@@ -132,6 +132,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ComposePreviewViewModel.cs" Link="ViewModels\ComposePreviewViewModel.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.Review.cs" Link="Services\ComposeProjectSupervisor.Review.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeReconciliationPlanner.cs" Link="Services\ComposeReconciliationPlanner.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeConfigContent.cs" Link="Services\ComposeConfigContent.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerOptions.cs" Link="Models\RunContainerOptions.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerMount.cs" Link="Models\RunContainerMount.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ISettingsService.cs" Link="Services\ISettingsService.cs" />

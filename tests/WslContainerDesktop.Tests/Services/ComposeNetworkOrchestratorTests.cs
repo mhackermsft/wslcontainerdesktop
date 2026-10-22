@@ -260,6 +260,7 @@ public sealed class ComposeNetworkOrchestratorTests
         public Action<string>? AfterRun { get; set; }
         public Action<string>? AfterStop { get; set; }
         public Action? BeforeStart { get; init; }
+        public Func<string, BindMountProbeResult>? VerifyBindMount { get; set; }
         public bool LastStartWasExplicit { get; private set; }
         public long? LastRunMaximumStopVersion { get; private set; }
         public IWslcService Service { get; }
@@ -273,6 +274,8 @@ public sealed class ComposeNetworkOrchestratorTests
                 ct.ThrowIfCancellationRequested();
                 switch (method.Name)
                 {
+                    case nameof(IWslcService.VerifyBindMountAsync):
+                        return Task.FromResult(VerifyBindMount?.Invoke((string)args[0]!) ?? BindMountProbeResult.MountsAsFile);
                     case nameof(IWslcService.ListContainersAsync):
                         return ListAsync();
                     case nameof(IWslcService.ListImagesAsync):

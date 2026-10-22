@@ -9398,6 +9398,15 @@ License: {2} — {3}
   <data name="Root_Audit_Compose_Summary" xml:space="preserve">
     <value>{0} · {1} — {2}{3}</value>
   </data>
+  <data name="Compose_InlineConfigInvalid" xml:space="preserve">
+    <value>Compose 内联配置定义无效。</value>
+  </data>
+  <data name="Compose_InlineConfigLimit" xml:space="preserve">
+    <value>Compose 内联配置超出了 {0} 个字符的配置限制。</value>
+  </data>
+  <data name="Compose_ConfigSourceInvalid" xml:space="preserve">
+    <value>应提供文本 content 源，且不能同时指定 file 或 external</value>
+  </data>
   <data name="Root_Audit_Compose_Capability" xml:space="preserve">
     <value>（功能支持：{0}）</value>
   </data>

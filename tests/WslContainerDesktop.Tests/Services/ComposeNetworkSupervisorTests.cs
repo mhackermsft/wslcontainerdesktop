@@ -460,7 +460,8 @@ public sealed class ComposeNetworkSupervisorTests
 
         public Fixture(WslcCapabilitySupport support = WslcCapabilitySupport.Supported, Engine? engine = null,
             ComposeProject? persisted = null, TimeProvider? clock = null,
-            ILogger<ComposeProjectSupervisor>? logger = null, bool presenterAvailable = true)
+            ILogger<ComposeProjectSupervisor>? logger = null, bool presenterAvailable = true, string? stagingRoot = null,
+            IComposeProjectStore? storeOverride = null)
         {
             Engine = engine ?? new();
             if (persisted is not null)
@@ -480,7 +481,7 @@ public sealed class ComposeNetworkSupervisorTests
                     throw new InvalidOperationException(method.Name);
                 return ReadCapabilitiesAsync();
             });
-            var store = NetworkTestProxy.Create<IComposeProjectStore>((method, args) => method.Name switch
+            var store = storeOverride ?? NetworkTestProxy.Create<IComposeProjectStore>((method, args) => method.Name switch
             {
                 nameof(IComposeProjectStore.Save) => Save((ComposeProject)args[0]!),
                 nameof(IComposeProjectStore.Get) => ReadProject(),
@@ -506,7 +507,7 @@ public sealed class ComposeNetworkSupervisorTests
                     var review = (ComposeCompatibilityPreview)args[0]!;
                     Reviews.Add(review);
                     return ConfirmReviewAsync(review);
-                }) : null, clock);
+                }) : null, clock, stagingRoot: stagingRoot);
         }
 
         private object? Save(ComposeProject project)

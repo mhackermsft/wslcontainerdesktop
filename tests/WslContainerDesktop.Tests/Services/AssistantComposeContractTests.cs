@@ -518,6 +518,47 @@ public sealed class AssistantComposeContractTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InlineConfigsDeployThroughSharedApprovalWithoutExposingPayloads(bool template)
+    {
+        const string secret = "synthetic-inline-private-147";
+        const string yaml = """
+            services:
+              web:
+                image: fixture
+                configs:
+                  - source: settings
+                    target: /settings
+            configs:
+              settings:
+                content: |
+                  {"ordinary_key":"synthetic-inline-private-147"}
+            """;
+        var root = Path.Combine(AppContext.BaseDirectory, "inline-assistant-" + Guid.NewGuid().ToString("N"));
+        var fixture = new Fixture(presenterAvailable: false, stagingRoot: root);
+        try
+        {
+            var tools = Tools(fixture, Templates(yaml));
+            var resolved = await tools.ResolveAsync(Call(template, yaml), default);
+            Assert.True(resolved.RequiresExplicitApproval);
+            Assert.Null(resolved.BlockedResult);
+            Assert.DoesNotContain(secret, resolved.Summary);
+            Assert.DoesNotContain(secret, resolved.Details);
+            Assert.False(Directory.Exists(root));
+            Assert.Empty(fixture.Engine.Mutations);
+
+            var result = await resolved.ExecuteAsync(default);
+            AssertKind(result, "Applied");
+            Assert.DoesNotContain(secret, result);
+            Assert.DoesNotContain(secret, tools.ListComposeProjects());
+            Assert.Contains(secret, fixture.SavedProject!.Configs[0].Content);
+            Assert.Empty(fixture.Reviews);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     private static void AssertKind(string output, string kind)
     {
         using var doc = JsonDocument.Parse(output);

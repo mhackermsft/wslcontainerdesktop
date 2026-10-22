@@ -15,6 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Runtime.ExceptionServices;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
@@ -88,6 +90,7 @@ public sealed partial class ComposeProjectSupervisor
     private readonly IComposeReviewPresenter? _reviewPresenter;
     private readonly IWslPolicyService _policy;
     private readonly TimeProvider _reviewClock;
+    private readonly string? _stagingRoot;
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     /// <summary>Warnings from startup reconciliation, shown so users know what needs manual review.</summary>
     public IReadOnlyList<string> ReconciliationWarnings { get; private set; } = Array.Empty<string>();
@@ -107,8 +110,10 @@ public sealed partial class ComposeProjectSupervisor
         RestartSuppressionState? suppression = null,
         IComposeReviewPresenter? reviewPresenter = null,
         TimeProvider? reviewClock = null,
-        IWslPolicyService? policy = null)
+        IWslPolicyService? policy = null,
+        string? stagingRoot = null)
     {
+        _stagingRoot = stagingRoot;
         _wslc = wslc;
         _store = store;
         _settings = settings;
@@ -598,8 +603,14 @@ public sealed partial class ComposeProjectSupervisor
             }
 
             var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
-            foreach (var project in projects)
+            foreach (var storedProject in projects)
             {
+                var project = SnapshotProject(storedProject);
+                var validatedProject = new Lazy<ComposeProject>(() =>
+                {
+                    ComposeConfigContent.Validate(project);
+                    return project;
+                });
                 var ready = new List<ComposeService>();
                 var appliedProject = ExistingProject(project);
                 var services = ComposeReconciliationPlanner.ExpandInstances(appliedProject,
@@ -654,7 +665,7 @@ public sealed partial class ComposeProjectSupervisor
                             throw new InvalidOperationException("An untracked owned instance exceeds the desired replica count; apply explicitly to reconcile it.");
                         }
                         if (applied is null && state.Labels.TryGetValue(ComposeProject.ConfigHashLabel, out var fingerprint) &&
-                            fingerprint != ComposeReconciliationPlanner.Fingerprint(project, service))
+                            fingerprint != ComposeReconciliationPlanner.FingerprintValidated(validatedProject.Value, service))
                             throw new InvalidOperationException("Existing configuration differs from the desired project; apply it explicitly.");
 
                         var options = service.Options.Clone();
@@ -1056,7 +1067,7 @@ public sealed partial class ComposeProjectSupervisor
 
         PrepareNetworkOptions(project, service, options, includeFirstContainerAlias: true);
 
-        // Bind-mount file-backed secrets/configs read-only (wslc has no secret store).
+        // Bind-mount staged secrets/configs read-only (wslc has no secret store).
         foreach (var mount in service.Secrets)
         {
             AddFileMount(options, project, project.Secrets, mount, "secret", stagingNonce);
@@ -1200,7 +1211,7 @@ public sealed partial class ComposeProjectSupervisor
     /// the app writes identical to the path <c>wslc</c> reads.</item>
     /// </list>
     /// </summary>
-    private static string StagingRoot => Path.Combine(StagingBase.Value, "compose-stage");
+    private string StagingRoot => _stagingRoot ?? Path.Combine(StagingBase.Value, "compose-stage");
 
     private static readonly Lazy<string> StagingBase = new(() =>
     {
@@ -1219,7 +1230,7 @@ public sealed partial class ComposeProjectSupervisor
         }
     });
 
-    /// <summary>Resolves a secret/config reference to its source file and adds a read-only bind mount.</summary>
+    /// <summary>Stages a file-backed resource or inline config and adds a read-only bind mount.</summary>
     private void AddFileMount(
         RunContainerOptions options,
         ComposeProject project,
@@ -1230,65 +1241,101 @@ public sealed partial class ComposeProjectSupervisor
     {
         var def = definitions.FirstOrDefault(d =>
             string.Equals(d.Name, reference.Source, StringComparison.Ordinal));
-        if (def is null || string.IsNullOrWhiteSpace(def.File) || string.IsNullOrWhiteSpace(reference.Target))
+        if (def is null || def.External || (def.Content is null && string.IsNullOrWhiteSpace(def.File)) ||
+            string.IsNullOrWhiteSpace(reference.Target))
         {
             throw new InvalidOperationException($"Compose {kind} reference cannot be materialized.");
         }
 
-        if (!File.Exists(def.File))
+        if (def.Content is null && !File.Exists(def.File))
         {
             throw new InvalidOperationException($"Compose {kind} source is missing.");
         }
 
-        var mountSource = MaterializeForMount(project, kind, def.Name, def.File, stagingNonce);
-        options.Volumes.Add($"{mountSource}:{reference.Target}:ro");
-    }
-
-    /// <summary>
-    /// Copies a config/secret source file into a per-project staging directory and returns the staged
-    /// path to bind. See <see cref="StagingRoot"/> for why in-place binds are avoided. When
-    /// <paramref name="stagingNonce"/> is set (a retry) or the stable staged path has been poisoned
-    /// (left as a directory by a prior raced run), a fresh unique subdirectory is used so wslc's
-    /// per-path 9P negative cache treats the source as new.
-    /// </summary>
-    private string MaterializeForMount(
-        ComposeProject project, string kind, string name, string source, string? stagingNonce)
-    {
+        string mountSource;
         try
         {
-            var baseDir = Path.Combine(StagingRoot, Sanitize(project.Name), kind, Sanitize(name));
-            var stablePath = Path.Combine(baseDir, Path.GetFileName(source));
-
-            string dir;
-            if (!string.IsNullOrEmpty(stagingNonce))
-            {
-                dir = Path.Combine(baseDir, stagingNonce);
-            }
-            else if (Directory.Exists(stablePath))
-            {
-                // Stable path was raced into a directory in a prior run; reusing it keeps failing.
-                dir = Path.Combine(baseDir, Guid.NewGuid().ToString("N")[..8]);
-            }
-            else
-            {
-                dir = baseDir;
-            }
-
-            Directory.CreateDirectory(dir);
-            var dest = Path.Combine(dir, Path.GetFileName(source));
-
-            // Do not delete an unexpected directory while preparing a file mount.
-            if (Directory.Exists(dest))
-                throw new IOException("The staged mount destination is a directory.");
-
-            File.Copy(source, dest, overwrite: true);
-            return dest;
+            mountSource = def.Content is { } text
+                ? MaterializeInlineConfig(project, def.Name, ComposeConfigContent.GetBytes(text), stagingNonce)
+                : MaterializeFileForMount(project, kind, def.Name, def.File!, stagingNonce);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to stage Compose file mount.");
             throw new InvalidOperationException($"Compose {kind} could not be staged; existing containers were preserved.");
         }
+        options.Volumes.Add($"{mountSource}:{reference.Target}:ro");
+    }
+
+    /// <summary>Copies a file-backed resource to its isolated mount destination, preserving binary bytes.</summary>
+    private string MaterializeFileForMount(
+        ComposeProject project, string kind, string name, string source, string? stagingNonce)
+    {
+        var dest = PrepareMountDestination(project, kind, Sanitize(name), Path.GetFileName(source), stagingNonce);
+        File.Copy(source, dest, overwrite: true);
+        return dest;
+    }
+
+    /// <summary>Creates an inline config file, reusing only identical bytes within the same preparation.</summary>
+    private string MaterializeInlineConfig(
+        ComposeProject project, string name, byte[] content, string? stagingNonce)
+    {
+        var resourceName = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(name)));
+        var dest = PrepareMountDestination(project, "inline-config", resourceName, "content", stagingNonce);
+        if (File.Exists(dest))
+        {
+            using var existing = File.OpenRead(dest);
+            if (existing.Length != content.Length ||
+                !SHA256.HashData(existing).AsSpan().SequenceEqual(SHA256.HashData(content)))
+                throw new IOException("The staged inline config differs from the approved content.");
+        }
+        else
+        {
+            using var file = new FileStream(dest, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            file.Write(content);
+        }
+        return dest;
+    }
+
+    /// <summary>
+    /// Allocates and checks a staged file destination. See <see cref="StagingRoot"/> for why
+    /// in-place binds are avoided. When <paramref name="stagingNonce"/> is set (preparation/retry)
+    /// or the stable staged path has been poisoned
+    /// (left as a directory by a prior raced run), a fresh unique subdirectory is used so wslc's
+    /// per-path 9P negative cache treats the source as new.
+    /// </summary>
+    private string PrepareMountDestination(
+        ComposeProject project, string kind, string resourceName, string fileName, string? stagingNonce)
+    {
+        var baseDir = Path.Combine(StagingRoot, Sanitize(project.Name), kind, resourceName);
+        var stablePath = Path.Combine(baseDir, fileName);
+
+        string dir;
+        if (!string.IsNullOrEmpty(stagingNonce))
+        {
+            dir = Path.Combine(baseDir, stagingNonce);
+        }
+        else if (Directory.Exists(stablePath))
+        {
+            // Stable path was raced into a directory in a prior run; reusing it keeps failing.
+            dir = Path.Combine(baseDir, Guid.NewGuid().ToString("N")[..8]);
+        }
+        else
+        {
+            dir = baseDir;
+        }
+
+        var dest = Path.GetFullPath(Path.Combine(dir, fileName));
+        var root = Path.GetFullPath(StagingRoot);
+        var prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+        if (!dest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            throw new IOException("The staged mount destination is outside the staging root.");
+        Directory.CreateDirectory(dir);
+
+        // Do not delete an unexpected directory while preparing a file mount.
+        if (Directory.Exists(dest))
+            throw new IOException("The staged mount destination is a directory.");
+        return dest;
     }
 
     /// <summary>Best-effort removal of a project's staged config/secret files. Call when a project

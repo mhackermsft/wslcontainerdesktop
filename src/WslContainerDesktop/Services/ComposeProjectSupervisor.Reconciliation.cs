@@ -436,7 +436,7 @@ public sealed partial class ComposeProjectSupervisor
             Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible, Reason = detail,
         } : p).ToArray()));
 
-    /// <summary>Materializes run options, labels and staged mounts for a planned create/recreate action.</summary>
+    /// <summary>Materializes run options, labels and staged mounts from a validated reviewed Up snapshot.</summary>
     private async Task<RunContainerOptions> PrepareRunAsync(ComposeProject project, ComposeServicePlan entry, CancellationToken ct)
     {
         if (entry.InstanceIndex < 1 || entry.InstanceIndex != ComposeReconciliationPlanner.InstanceIndex(entry.Service) ||
@@ -458,7 +458,7 @@ public sealed partial class ComposeProjectSupervisor
                 .Select(SourceOf).ToList();
             if (!await AnyStagedMountRacedAsync(sources, ct).ConfigureAwait(false))
             {
-                if (ComposeReconciliationPlanner.Fingerprint(project, entry.Service) != entry.Fingerprint)
+                if (ComposeReconciliationPlanner.FingerprintValidated(project, entry.Service) != entry.Fingerprint)
                     throw new InvalidOperationException($"Configuration inputs for '{entry.Service.Name}' changed during preflight; apply again.");
                 return options;
             }

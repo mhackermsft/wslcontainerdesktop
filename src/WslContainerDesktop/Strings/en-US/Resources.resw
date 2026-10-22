@@ -9398,6 +9398,15 @@ Model staging contacts the official Azure model registry and pinned Azure Blob c
   <data name="Root_Audit_Compose_Summary" xml:space="preserve">
     <value>{0} · {1} — {2}{3}</value>
   </data>
+  <data name="Compose_InlineConfigInvalid" xml:space="preserve">
+    <value>Inline Compose config definitions are invalid.</value>
+  </data>
+  <data name="Compose_InlineConfigLimit" xml:space="preserve">
+    <value>Inline Compose configs exceed the {0}-character configuration limit.</value>
+  </data>
+  <data name="Compose_ConfigSourceInvalid" xml:space="preserve">
+    <value>expected a text content source without file or external</value>
+  </data>
   <data name="Root_Audit_Compose_Capability" xml:space="preserve">
     <value> (capability: {0})</value>
   </data>

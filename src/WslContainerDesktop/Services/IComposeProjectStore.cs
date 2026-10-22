@@ -31,7 +31,10 @@ public interface IComposeProjectStore
     /// <summary>The project with the given name, or null if none exists (case-insensitive).</summary>
     ComposeProject? Get(string name);
 
-    /// <summary>Adds or replaces a project (matched by name, case-insensitive) and persists it.</summary>
+    /// <summary>
+    /// Adds or replaces a project (matched by name, case-insensitive) and persists it.
+    /// Import and execution validate sources; persistence also checkpoints applied state when pending definitions are invalid.
+    /// </summary>
     void Save(ComposeProject project);
 
     /// <summary>Removes the project with the given name (case-insensitive) and persists the change.</summary>
