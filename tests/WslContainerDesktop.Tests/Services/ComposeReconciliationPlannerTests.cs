@@ -61,6 +61,7 @@ public sealed class ComposeReconciliationPlannerTests
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 
+
     [Fact]
     public void InteropFingerprintMatchesSharedRuntimeGoldenVector()
     {
