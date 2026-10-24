@@ -45,7 +45,7 @@ public sealed class ComposeReconciliationPlannerTests
             },
         };
 
-        Assert.Equal("v2:27e45ce97dc82f4d4ea58617b2d36bef09a5aec21b7b9ec78acb602bc5b3b1cd",
+        Assert.Equal("v2:3d5ff74e37f92dcc5d3984c9ccbcc00d4dfc77313b3d0f11364225dccad1c7d7",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 
@@ -57,7 +57,7 @@ public sealed class ComposeReconciliationPlannerTests
         service.Options.Mounts.Add(new() { Type = "bind", Source = "C:/data", Target = "/data", ReadOnly = true,
             Options = ["propagation=rshared"] });
 
-        Assert.Equal("v2:41cdf6adba2e32a6d00cf4722b61b64959e174888fc32fbdd5eeffbdcdb9c5e2",
+        Assert.Equal("v2:ebb7d1a2f95905b0c7aa749362ae076272db9fe576a9b3917ec1f81a28f706ce",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 

@@ -539,6 +539,7 @@ public static class ComposeReconciliationPlanner
                     type = m.Type, source = m.Source, target = m.Target, read_only = m.ReadOnly,
                     options = m.Options.OrderBy(option => option, StringComparer.Ordinal).ToArray(),
                 }).ToArray();
+            configuration["network_mode"] = Trim(o.NetworkMode);
         }
         return configuration;
     }
