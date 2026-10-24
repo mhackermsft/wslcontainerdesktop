@@ -525,6 +525,7 @@ public static class ComposeReconciliationPlanner
         {
             configuration["stdin_open"] = o.Interactive;
             configuration["gpus_all"] = o.AllGpus;
+            configuration["tty"] = o.Terminal;
         }
         return configuration;
     }

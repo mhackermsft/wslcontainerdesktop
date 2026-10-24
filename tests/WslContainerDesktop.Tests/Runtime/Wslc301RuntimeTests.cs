@@ -200,6 +200,7 @@ public sealed class Wslc301RuntimeTests
               web:
                 image: hello-world:latest
                 stdin_open: true
+                tty: true
                 volumes:
                   - data:/data
             volumes:
@@ -234,6 +235,7 @@ public sealed class Wslc301RuntimeTests
             Assert.Equal("web", service.Name);
             Assert.Equal("hello-world:latest", service.Options.Image);
             Assert.True(service.Options.Interactive);
+            Assert.True(service.Options.Terminal);
             Assert.Equal(canonicalContainer.Name, project.ContainerNameFor(service.Name));
 
             var store = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance,

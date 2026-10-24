@@ -126,6 +126,14 @@ public sealed class ComposeSemanticsTests
         Assert.True(Assert.Single(project.Services).Options.Interactive);
     }
 
+    [Fact]
+    public void TtyMapsToTerminalRunOption()
+    {
+        var project = ComposeImporter.ParseProject("services: {web: {image: fixture, tty: true}}");
+
+        Assert.True(Assert.Single(project.Services).Options.Terminal);
+    }
+
     [Theory]
     [InlineData("stdin_open: false")]
     [InlineData("stdin_open: invalid")]

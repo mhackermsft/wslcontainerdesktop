@@ -39,10 +39,13 @@ public sealed class ComposeNetworkOptionsTests
     [Fact]
     public void InteractiveGpuRunIncludesBothEngineFlags()
     {
-        var args = new RunContainerOptions { Image = "fixture", Detached = true, Interactive = true, AllGpus = true }
+        var args = new RunContainerOptions
+        {
+            Image = "fixture", Detached = true, Interactive = true, Terminal = true, AllGpus = true,
+        }
             .ToArguments();
 
-        Assert.Equal(["run", "-d", "-i", "--gpus", "all", "fixture"], args);
+        Assert.Equal(["run", "-d", "-i", "-t", "--gpus", "all", "fixture"], args);
     }
 
     [Fact]
