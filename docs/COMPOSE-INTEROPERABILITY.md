@@ -109,3 +109,8 @@ be represented in both models, emitted to the WSLc engine by both frontends,
 covered by a shared golden vector, and exercised by the opt-in runtime
 interoperability tests. Until then, `v1` remains the published shared hash and
 each frontend may retain a richer private reconciliation fingerprint.
+
+When `v2` is enabled, it will be published in a new shared label alongside
+the existing `v1` label for one compatibility release. Consumers must prefer
+the newest version they understand; `v1` remains authoritative for older
+consumers until the coordinated retirement release.
