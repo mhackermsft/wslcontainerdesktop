@@ -41,10 +41,11 @@ public sealed class ComposeReconciliationPlannerTests
             Options = new()
             {
                 Image = "fixture", Interactive = true, AllGpus = true, Terminal = true, StopTimeoutSeconds = 90,
+                Health = new() { Test = ["CMD-SHELL", "true"], Interval = "30s", Timeout = "5s", StartPeriod = "10s", Retries = 3 },
             },
         };
 
-        Assert.Equal("v2:29bc9fe093d84d3296e3dc507e8be4c743e681deb48da476694e84555fcfbed4",
+        Assert.Equal("v2:a77054eda47a36a70a8d427936e96e84bbd6d285e9ac35836a1e0205a953f603",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 

@@ -527,6 +527,12 @@ public static class ComposeReconciliationPlanner
             configuration["gpus_all"] = o.AllGpus;
             configuration["tty"] = o.Terminal;
             configuration["stop_timeout"] = o.StopTimeoutSeconds;
+            var health = o.Health ?? service.Health?.DesiredHealth;
+            configuration["healthcheck"] = health is null ? null : new
+            {
+                test = health.Test, disabled = health.Disabled, interval = health.Interval,
+                timeout = health.Timeout, start_period = health.StartPeriod, retries = health.Retries,
+            };
         }
         return configuration;
     }
