@@ -498,6 +498,10 @@ public static class ComposeReconciliationPlanner
     public static string InteropFingerprintV2(ComposeService service) =>
         HashConfiguration(InteropConfiguration(service, includeV2Fields: true), "v2");
 
+    /// <summary>Experimental shared fingerprint including declarations for networks used by the service.</summary>
+    public static string InteropFingerprintV2(ComposeProject project, ComposeService service) =>
+        HashConfiguration(InteropConfiguration(project, service), "v2");
+
     private static SortedDictionary<string, object?> InteropConfiguration(ComposeService service, bool includeV2Fields)
     {
         var o = service.Options;
@@ -533,6 +537,7 @@ public static class ComposeReconciliationPlanner
                 test = health.Test, disabled = health.Disabled, interval = health.Interval,
                 timeout = health.Timeout, start_period = health.StartPeriod, retries = health.Retries,
             };
+            configuration["network_declarations"] = Array.Empty<object>();
             configuration["structured_mounts"] = o.Mounts.OrderBy(m => m.Target, StringComparer.Ordinal)
                 .ThenBy(m => m.Source, StringComparer.Ordinal).Select(m => new
                 {
@@ -541,6 +546,19 @@ public static class ComposeReconciliationPlanner
                 }).ToArray();
             configuration["network_mode"] = Trim(o.NetworkMode);
         }
+        return configuration;
+    }
+
+    private static SortedDictionary<string, object?> InteropConfiguration(ComposeProject project, ComposeService service)
+    {
+        var configuration = InteropConfiguration(service, includeV2Fields: true);
+        var used = service.Options.GetNetworkAttachments().Select(attachment => attachment.Network)
+            .ToHashSet(StringComparer.Ordinal);
+        configuration["network_declarations"] = project.Networks.Where(network => used.Contains(network.Name))
+            .OrderBy(network => network.Name, StringComparer.Ordinal).Select(network => new SortedDictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["name"] = network.Name, ["external"] = network.External, ["internal"] = network.Internal,
+            }).ToArray();
         return configuration;
     }
 

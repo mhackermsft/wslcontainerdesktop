@@ -45,7 +45,7 @@ public sealed class ComposeReconciliationPlannerTests
             },
         };
 
-        Assert.Equal("v2:3d5ff74e37f92dcc5d3984c9ccbcc00d4dfc77313b3d0f11364225dccad1c7d7",
+        Assert.Equal("v2:dbc84495391fb2014455e5d8e9d2b93b8330651287f3e090ded6c3e2c0bf2d9a",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 
@@ -57,8 +57,20 @@ public sealed class ComposeReconciliationPlannerTests
         service.Options.Mounts.Add(new() { Type = "bind", Source = "C:/data", Target = "/data", ReadOnly = true,
             Options = ["propagation=rshared"] });
 
-        Assert.Equal("v2:ebb7d1a2f95905b0c7aa749362ae076272db9fe576a9b3917ec1f81a28f706ce",
+        Assert.Equal("v2:58d0a450839c3c050054c80491d0747ecfeeb4895eeaf973169778958652312b",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
+    }
+
+    [Fact]
+    public void ExperimentalInteropFingerprintV2MatchesInternalNetworkDeclarationVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
+        service.Options.NetworkAttachments.Add(new() { Network = "demo_private" });
+        var project = new ComposeProject { Name = "demo", Services = [service], Networks =
+            [new() { Key = "private", Name = "demo_private", Internal = true }] };
+
+        Assert.Equal("v2:e9b3fceeb3118a866d0e7140bdc25a3bbe7f04d75fbbd13c03d69becd718922a",
+            ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
     }
 
 
