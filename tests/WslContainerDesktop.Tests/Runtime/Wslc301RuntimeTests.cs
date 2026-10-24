@@ -185,6 +185,52 @@ public sealed class Wslc301RuntimeTests
 
     [WslcRuntimeFact]
     [Trait("Category", "WslcRuntime")]
+    public async Task ExternalComposeCliProjectIsDiscoveredReimportedAndHasCanonicalContainerName()
+    {
+        await using var lease = new WslcRuntimeLease();
+        await lease.InitializeAsync(requireNginxImage: false);
+        var root = lease.CreateDirectory("compose-cli-discovery", Path.GetTempPath());
+        var composeFile = Path.Combine(root, "compose.yaml");
+        var projectName = lease.Name("compose-cli");
+        var canonicalContainerName = projectName + "-web-1";
+        await File.WriteAllTextAsync(composeFile, """
+            services:
+              web:
+                image: hello-world:latest
+            """, new UTF8Encoding(false), lease.Ct);
+
+        var arguments = new[] { "-p", projectName, "-f", composeFile };
+        try
+        {
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
+                "Compose CLI up");
+
+            var containers = await lease.Service.ListContainersAsync(all: true, ct: lease.Ct);
+            var canonicalContainer = Assert.Single(containers, container => container.Name == canonicalContainerName);
+            lease.TrackContainer(canonicalContainer.Name);
+            var discovered = await ComposeProjectDiscovery.DiscoverAsync(containers,
+                (id, ct) => lease.Service.InspectContainerAsync(id, ct), lease.Ct);
+
+            var project = Assert.Single(discovered, candidate => candidate.Name == projectName);
+            Assert.False(project.IsExternallyManaged);
+            Assert.Equal(Path.GetFullPath(composeFile), Assert.Single(project.ComposeFiles));
+            var service = Assert.Single(project.Services);
+            Assert.Equal("web", service.Name);
+            Assert.Equal("hello-world:latest", service.Options.Image);
+            Assert.Equal(canonicalContainer.Name, project.ContainerNameFor(service.Name));
+        }
+        finally
+        {
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["down"]), lease.Ct),
+                "Compose CLI down");
+            await SpinUntilAsync(async () => !(await lease.Service.ListContainersAsync(all: true, ct: lease.Ct))
+                .Any(container => container.Name == canonicalContainerName), lease.Ct);
+            lease.UntrackContainer(canonicalContainerName);
+        }
+    }
+
+    [WslcRuntimeFact]
+    [Trait("Category", "WslcRuntime")]
     public async Task NativeRestartRestartsRunningStartsStoppedAndAcceptsSignalTimeout()
     {
         await using var lease = new WslcRuntimeLease();
