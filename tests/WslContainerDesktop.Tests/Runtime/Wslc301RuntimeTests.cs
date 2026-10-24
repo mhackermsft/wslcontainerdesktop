@@ -201,6 +201,7 @@ public sealed class Wslc301RuntimeTests
                 image: hello-world:latest
                 stdin_open: true
                 tty: true
+                stop_grace_period: 2s
                 volumes:
                   - data:/data
             volumes:
@@ -236,6 +237,7 @@ public sealed class Wslc301RuntimeTests
             Assert.Equal("hello-world:latest", service.Options.Image);
             Assert.True(service.Options.Interactive);
             Assert.True(service.Options.Terminal);
+            Assert.Equal(2, service.Options.StopTimeoutSeconds);
             Assert.Equal(canonicalContainer.Name, project.ContainerNameFor(service.Name));
 
             var store = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance,

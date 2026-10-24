@@ -38,10 +38,13 @@ public sealed class ComposeReconciliationPlannerTests
         var service = new ComposeService
         {
             Name = "web",
-            Options = new() { Image = "fixture", Interactive = true, AllGpus = true, Terminal = true },
+            Options = new()
+            {
+                Image = "fixture", Interactive = true, AllGpus = true, Terminal = true, StopTimeoutSeconds = 90,
+            },
         };
 
-        Assert.Equal("v2:1713f84f958f7a90e4822349cafbd0660036003a97dcf44d868e8f258ae841c0",
+        Assert.Equal("v2:29bc9fe093d84d3296e3dc507e8be4c743e681deb48da476694e84555fcfbed4",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 

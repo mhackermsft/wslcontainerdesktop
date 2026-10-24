@@ -526,6 +526,7 @@ public static class ComposeReconciliationPlanner
             configuration["stdin_open"] = o.Interactive;
             configuration["gpus_all"] = o.AllGpus;
             configuration["tty"] = o.Terminal;
+            configuration["stop_timeout"] = o.StopTimeoutSeconds;
         }
         return configuration;
     }
