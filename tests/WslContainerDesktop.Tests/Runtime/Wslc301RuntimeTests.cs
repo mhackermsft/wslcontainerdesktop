@@ -331,6 +331,50 @@ public sealed class Wslc301RuntimeTests
 
     [WslcRuntimeFact]
     [Trait("Category", "WslcRuntime")]
+    public async Task ExternalComposeCliInternalNetworkIsReimportedAndReused()
+    {
+        await using var lease = new WslcRuntimeLease();
+        await lease.InitializeAsync(requireNginxImage: false);
+        var root = lease.CreateDirectory("compose-cli-internal-network", Path.GetTempPath());
+        var composeFile = Path.Combine(root, "compose.yaml");
+        var projectName = lease.Name("wslc-internal-network");
+        var containerName = projectName + "-web-1";
+        var networkName = projectName + "_private";
+        await File.WriteAllTextAsync(composeFile, """
+            services:
+              web:
+                image: hello-world:latest
+                networks: [private]
+            networks:
+              private:
+                internal: true
+            """, new UTF8Encoding(false), lease.Ct);
+        var arguments = new[] { "-p", projectName, "-f", composeFile };
+        lease.TrackContainer(containerName);
+        lease.TrackNetwork(networkName);
+        try
+        {
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
+                "Compose CLI up internal network");
+            Assert.True((await lease.InspectNetworkJsonAsync(networkName)).GetProperty("Internal").GetBoolean());
+            var containers = await lease.Service.ListContainersAsync(all: true, ct: lease.Ct);
+            var id = Assert.Single(containers, c => c.Name == containerName).Id;
+            var project = Assert.Single(await ComposeProjectDiscovery.DiscoverAsync(containers,
+                (candidate, ct) => lease.Service.InspectContainerAsync(candidate, ct), lease.Ct), p => p.Name == projectName);
+            Assert.True(Assert.Single(project.Networks).Internal);
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
+                "Compose CLI reuse internal network");
+            Assert.Equal(id, Assert.Single(await lease.Service.ListContainersAsync(all: true, ct: lease.Ct), c => c.Name == containerName).Id);
+        }
+        finally
+        {
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["down"]), lease.Ct), "Compose CLI down");
+            lease.UntrackContainer(containerName);
+        }
+    }
+
+    [WslcRuntimeFact]
+    [Trait("Category", "WslcRuntime")]
     public async Task AppCreatedComposeProjectIsReusedByExternalCli()
     {
         await using var lease = new WslcRuntimeLease();
