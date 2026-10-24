@@ -218,6 +218,32 @@ public sealed class Wslc301RuntimeTests
             Assert.Equal("web", service.Name);
             Assert.Equal("hello-world:latest", service.Options.Image);
             Assert.Equal(canonicalContainer.Name, project.ContainerNameFor(service.Name));
+
+            var store = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance,
+                Path.Combine(root, "store"));
+            var reviewPresenter = NetworkTestProxy.Create<IComposeReviewPresenter>((method, args) =>
+            {
+                Assert.Equal(nameof(IComposeReviewPresenter.ConfirmAsync), method.Name);
+                Assert.True(((ComposeCompatibilityPreview)args[0]!).CanApply);
+                return Task.FromResult(true);
+            });
+            var supervisor = new ComposeProjectSupervisor(lease.Service, store, lease.Settings,
+                NullLogger<ComposeProjectSupervisor>.Instance, lease.Capabilities,
+                new HealthWatchdog(), new StatusMonitor(), new RestartSuppressionState(),
+                reviewPresenter: reviewPresenter);
+            var up = await supervisor.UpAsync(project, lease.Ct);
+            Assert.True(up.AllSucceeded, JsonSerializer.Serialize(up));
+
+            var reimportedContainer = Assert.Single(await lease.Service.ListContainersAsync(all: true, ct: lease.Ct),
+                container => container.Name == canonicalContainerName);
+            var containerId = reimportedContainer.Id;
+            Assert.False(string.IsNullOrWhiteSpace(containerId));
+
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
+                "Compose CLI reconcile up");
+            var reconciledContainer = Assert.Single(await lease.Service.ListContainersAsync(all: true, ct: lease.Ct),
+                container => container.Name == canonicalContainerName);
+            Assert.Equal(containerId, reconciledContainer.Id);
         }
         finally
         {
