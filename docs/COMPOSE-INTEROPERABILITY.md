@@ -94,10 +94,9 @@ unknown version is not trusted as equal; it requires a safe recreation.
 
 ## Fingerprint v2 roadmap
 
-`v2` remains experimental and is not published in container labels. Although
-both frontends share golden vectors for its supported fields, runtime
-reimport/reapply still exposes a non-canonical project-level projection. It
-must not participate in lifecycle decisions until that mismatch is resolved.
+`com.wslc-compose.config-hash-v2` is published alongside the stable `v1`
+label. Consumers that understand it prefer `v2`; otherwise they compare `v1`.
+Unknown versions are never assumed equal.
 
 Its intended supported subset includes health checks, GPU all, stdin/TTY, stop
 timeouts, typed mounts, network mode, build details, file-backed secrets and
@@ -115,6 +114,5 @@ build context paths (not portable across machines)
 ```
 
 Each candidate field requires matching models, application, golden vectors and
-runtime interoperability. `v1` remains the only published shared hash. Once
-the project-level canonicalization mismatch is fixed, `v2` can be published in
-a new label alongside `v1` for one compatibility release.
+runtime interoperability. `v1` remains available for older consumers during
+the compatibility window.

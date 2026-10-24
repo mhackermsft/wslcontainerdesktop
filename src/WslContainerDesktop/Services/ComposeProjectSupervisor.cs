@@ -671,7 +671,12 @@ public sealed partial class ComposeProjectSupervisor
                             RemoveRestartPolicies(untracked);
                             throw new InvalidOperationException("An untracked owned instance exceeds the desired replica count; apply explicitly to reconcile it.");
                         }
-                        if (applied is null && ComposeProject.TryGetLabel(state.Labels, ComposeProject.ConfigHashLabel,
+                        if (applied is null && state.Labels.TryGetValue(ComposeProject.ConfigHashV2Label, out var v2Fingerprint))
+                        {
+                            if (v2Fingerprint != ComposeReconciliationPlanner.InteropFingerprintV2(validatedProject.Value, service))
+                                throw new InvalidOperationException("Existing configuration differs from the desired project; apply it explicitly.");
+                        }
+                        else if (applied is null && ComposeProject.TryGetLabel(state.Labels, ComposeProject.ConfigHashLabel,
                             ComposeProject.LegacyConfigHashLabel, out var fingerprint) &&
                             fingerprint != ComposeReconciliationPlanner.FingerprintValidated(validatedProject.Value, service))
                             throw new InvalidOperationException("Existing configuration differs from the desired project; apply it explicitly.");

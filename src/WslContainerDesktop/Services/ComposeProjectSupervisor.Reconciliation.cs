@@ -450,6 +450,8 @@ public sealed partial class ComposeProjectSupervisor
             options.Labels[ComposeProject.InstanceLabel] = entry.InstanceIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
             options.Image = entry.ImageId ?? throw new InvalidOperationException("Image identity is unavailable after preflight.");
             options.Labels[ComposeProject.ConfigHashLabel] = ComposeReconciliationPlanner.InteropFingerprint(entry.Service);
+            if (ComposeReconciliationPlanner.CanPublishInteropFingerprintV2(project, entry.Service))
+                options.Labels[ComposeProject.ConfigHashV2Label] = ComposeReconciliationPlanner.InteropFingerprintV2(project, entry.Service);
             options.Labels[ComposeProject.InternalConfigHashLabel] = entry.Fingerprint;
             if (entry.ImageId is not null) options.Labels[ComposeProject.ImageIdLabel] = entry.ImageId;
             if (entry.ContainerId is not null)

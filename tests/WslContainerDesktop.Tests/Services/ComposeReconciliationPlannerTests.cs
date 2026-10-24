@@ -45,7 +45,7 @@ public sealed class ComposeReconciliationPlannerTests
             },
         };
 
-        Assert.Equal("v2:123fb5441a9ada030206473b8a9e57dd3c4b9427bca4fd14c430b8cc4492716d",
+        Assert.Equal("v2:7761dc3ba3aec83fa3b3e25cad2dab47fd4dc3356f16d936db7e445f6acbbd29",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 
@@ -57,7 +57,7 @@ public sealed class ComposeReconciliationPlannerTests
         service.Options.Mounts.Add(new() { Type = "bind", Source = "C:/data", Target = "/data", ReadOnly = true,
             Options = ["propagation=rshared"] });
 
-        Assert.Equal("v2:3dc3d429cd0e51eccfd91d70ee45840b88b481155b88784ebc98eec552d8292b",
+        Assert.Equal("v2:4aed1aa484bbbd21d5b9dd0bb844b5cd4b38cc8d61167714ad7a2b443f5df6a6",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 
@@ -69,7 +69,7 @@ public sealed class ComposeReconciliationPlannerTests
         var project = new ComposeProject { Name = "demo", Services = [service], Networks =
             [new() { Key = "private", Name = "demo_private", Internal = true }] };
 
-        Assert.Equal("v2:c54eebce7360092c4d64852a8262529f0aa5bf92e9814e66b6073fe5e9def56c",
+        Assert.Equal("v2:c3f312f032f286e3d0e3b9206d517d7554619ae1a7d7a319ffcae9005fd71295",
             ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
     }
 
@@ -82,7 +82,7 @@ public sealed class ComposeReconciliationPlannerTests
             [new() { Key = "data", Name = "demo_data", Driver = "guest", DriverOpts = ["size=1G"],
                 Labels = new(StringComparer.Ordinal) { ["purpose"] = "cache" } }] };
 
-        Assert.Equal("v2:389dcfdf519e92cc3071481594d2bbc643e93b85c604a613c79c6671cf9fef0e",
+        Assert.Equal("v2:ea8b1dc7e8795f36d6114622ecd7dee6129c864d9c469f23a06c55b35b201a2d",
             ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
     }
 
@@ -94,7 +94,7 @@ public sealed class ComposeReconciliationPlannerTests
             Context = ".", Dockerfile = "Dockerfile.custom", Args = ["B=2", "A=1"], Target = "release", Pull = true, NoCache = true,
         } };
 
-        Assert.Equal("v2:eb176b4aaa65ee944a63a807012cfc69b6c39d87f52b6804ff3b61577dd7aa6d",
+        Assert.Equal("v2:164d845a98d8c8ab7bde344740746eece3ae176962411708b951be1497a0b0a9",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 
@@ -110,7 +110,7 @@ public sealed class ComposeReconciliationPlannerTests
             var project = new ComposeProject { Name = "demo", Services = [service],
                 Secrets = [new() { Name = "token", File = file }] };
 
-            Assert.Equal("v2:71e36565975d00b453c1d223e478cc7442832cbf9e434943ef6f2dd92c77e051",
+        Assert.Equal("v2:fc35d18446cec55bb53d049552b93c0976d76391234c74a8b89e1cdbbc602e3e",
                 ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
         }
         finally { File.Delete(file); }
@@ -133,7 +133,7 @@ public sealed class ComposeReconciliationPlannerTests
             Networks = [new() { Key = "default", Name = "demo_default" }],
             Volumes = [new() { Key = "data", Name = "demo_data" }] };
 
-        Assert.Equal("v2:677651300cb178b243dd16e70793045ff72882070e3787b3fd0fed6a6dd14441",
+        Assert.Equal("v2:ee644000bdc9046eb83e2a95fde804a94ea4436fbd9d042654a6570ddf3d6247",
             ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
     }
 

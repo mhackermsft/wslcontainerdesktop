@@ -232,6 +232,10 @@ public sealed class Wslc301RuntimeTests
             var containers = await lease.Service.ListContainersAsync(all: true, ct: lease.Ct);
             var canonicalContainer = Assert.Single(containers, container => container.Name == canonicalContainerName);
             lease.TrackContainer(canonicalContainer.Name);
+            var labels = (await lease.InspectContainerJsonAsync(canonicalContainerName)).GetProperty("Config").GetProperty("Labels");
+            Assert.StartsWith("v1:", labels.GetProperty(ComposeProject.ConfigHashLabel).GetString());
+            Assert.StartsWith("v2:", labels.GetProperty(ComposeProject.ConfigHashV2Label).GetString());
+            var sourceV2 = labels.GetProperty(ComposeProject.ConfigHashV2Label).GetString();
             var discovered = await ComposeProjectDiscovery.DiscoverAsync(containers,
                 (id, ct) => lease.Service.InspectContainerAsync(id, ct), lease.Ct);
 
@@ -251,7 +255,6 @@ public sealed class Wslc301RuntimeTests
             Assert.Equal("10s", health.StartPeriod);
             Assert.Equal(3, health.Retries);
             Assert.Equal(canonicalContainer.Name, project.ContainerNameFor(service.Name));
-
             var store = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance,
                 Path.Combine(root, "store"));
             var reviewPresenter = NetworkTestProxy.Create<IComposeReviewPresenter>((method, args) =>
@@ -271,6 +274,9 @@ public sealed class Wslc301RuntimeTests
                 container => container.Name == canonicalContainerName);
             var containerId = reimportedContainer.Id;
             Assert.False(string.IsNullOrWhiteSpace(containerId));
+            var reimportedV2 = (await lease.InspectContainerJsonAsync(canonicalContainerName))
+                .GetProperty("Config").GetProperty("Labels").GetProperty(ComposeProject.ConfigHashV2Label).GetString();
+            Assert.Equal(sourceV2, reimportedV2);
 
             WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
                 "Compose CLI reconcile up");

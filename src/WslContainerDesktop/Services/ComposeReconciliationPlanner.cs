@@ -502,6 +502,10 @@ public static class ComposeReconciliationPlanner
     public static string InteropFingerprintV2(ComposeProject project, ComposeService service) =>
         HashConfiguration(InteropConfiguration(project, service), "v2");
 
+    /// <summary>True when every file resource used by this service has a portable v2 identity.</summary>
+    public static bool CanPublishInteropFingerprintV2(ComposeProject project, ComposeService service) =>
+        CanPublishFileMounts(service.Secrets, project.Secrets) && CanPublishFileMounts(service.Configs, project.Configs);
+
     private static SortedDictionary<string, object?> InteropConfiguration(ComposeService service, bool includeV2Fields)
     {
         var o = service.Options;
@@ -547,12 +551,6 @@ public static class ComposeReconciliationPlanner
             };
             configuration["secrets"] = Array.Empty<object>();
             configuration["configs"] = Array.Empty<object>();
-            configuration["structured_mounts"] = o.Mounts.OrderBy(m => m.Target, StringComparer.Ordinal)
-                .ThenBy(m => m.Source, StringComparer.Ordinal).Select(m => new
-                {
-                    type = m.Type, source = m.Source, target = m.Target, read_only = m.ReadOnly,
-                    options = m.Options.OrderBy(option => option, StringComparer.Ordinal).ToArray(),
-                }).ToArray();
             configuration["network_mode"] = Trim(o.NetworkMode);
         }
         return configuration;
@@ -599,6 +597,9 @@ public static class ComposeReconciliationPlanner
                 }
             }).ToArray();
 
+    private static bool CanPublishFileMounts(IReadOnlyList<ComposeFileMount> mounts, IReadOnlyList<ComposeSecret> sources) =>
+        mounts.All(m => sources.SingleOrDefault(s => s.Name == m.Source) is { External: false, Content: null, File: not null });
+
     /// <summary>Hashes a service within a snapshot whose project-wide inline sources have already been validated.</summary>
     internal static string FingerprintValidated(ComposeProject project, ComposeService service)
     {
@@ -621,6 +622,7 @@ public static class ComposeReconciliationPlanner
             Ports = Set(o.PortMappings), Environment = Pairs(o.EnvironmentVariables), Mounts = Set(o.Volumes),
             Labels = o.Labels.Where(p => p.Key != ComposeProject.ProjectLabel &&
                 p.Key != ComposeProject.ServiceLabel && p.Key != ComposeProject.ConfigHashLabel &&
+                p.Key != ComposeProject.ConfigHashV2Label &&
                 p.Key != ComposeProject.ImageIdLabel && p.Key != ComposeProject.InstanceLabel &&
                 p.Key is not ("com.wsldesktop.apply-operation" or "com.wsldesktop.network-operation"))
                 .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
