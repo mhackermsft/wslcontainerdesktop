@@ -539,6 +539,14 @@ public static class ComposeReconciliationPlanner
             };
             configuration["network_declarations"] = Array.Empty<object>();
             configuration["volume_declarations"] = Array.Empty<object>();
+            configuration["build_details"] = service.Build is null ? null : new SortedDictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["dockerfile"] = string.IsNullOrWhiteSpace(service.Build.Dockerfile) ? "Dockerfile" : service.Build.Dockerfile,
+                ["args"] = Pairs(service.Build.Args), ["target"] = Trim(service.Build.Target),
+                ["pull"] = service.Build.Pull, ["no_cache"] = service.Build.NoCache,
+            };
+            configuration["secrets"] = Array.Empty<object>();
+            configuration["configs"] = Array.Empty<object>();
             configuration["structured_mounts"] = o.Mounts.OrderBy(m => m.Target, StringComparer.Ordinal)
                 .ThenBy(m => m.Source, StringComparer.Ordinal).Select(m => new
                 {
@@ -567,8 +575,29 @@ public static class ComposeReconciliationPlanner
                 ["name"] = volume.Name, ["external"] = volume.External, ["driver"] = Trim(volume.Driver) ?? string.Empty,
                 ["driver_opts"] = Pairs(volume.DriverOpts), ["labels"] = volume.Labels,
             }).ToArray();
+        configuration["secrets"] = InteropFileMounts(service.Secrets, project.Secrets);
+        configuration["configs"] = InteropFileMounts(service.Configs, project.Configs);
         return configuration;
     }
+
+    private static object[] InteropFileMounts(IReadOnlyList<ComposeFileMount> mounts, IReadOnlyList<ComposeSecret> sources) =>
+        mounts.OrderBy(m => m.Target, StringComparer.Ordinal).ThenBy(m => m.Source, StringComparer.Ordinal)
+            .Select(m =>
+            {
+                var source = sources.SingleOrDefault(s => s.Name == m.Source);
+                if (source is null || source.External || string.IsNullOrWhiteSpace(source.File))
+                    throw new InvalidOperationException("A Compose file-backed resource is unavailable.");
+                try
+                {
+                    using var file = File.OpenRead(source.File);
+                    return (object)new { source = m.Source, target = m.Target,
+                        sha256 = Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant() };
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                {
+                    throw new InvalidOperationException("A Compose file-backed resource is unreadable.");
+                }
+            }).ToArray();
 
     /// <summary>Hashes a service within a snapshot whose project-wide inline sources have already been validated.</summary>
     internal static string FingerprintValidated(ComposeProject project, ComposeService service)

@@ -423,6 +423,59 @@ public sealed class Wslc301RuntimeTests
 
     [WslcRuntimeFact]
     [Trait("Category", "WslcRuntime")]
+    public async Task ExternalComposeCliFileResourcesAreReimportedAndReused()
+    {
+        await using var lease = new WslcRuntimeLease();
+        await lease.InitializeAsync(requireNginxImage: false);
+        var root = lease.CreateDirectory("compose-cli-file-resources", Path.GetTempPath());
+        var composeFile = Path.Combine(root, "compose.yaml");
+        var secretFile = Path.Combine(root, "secret.txt");
+        var configFile = Path.Combine(root, "config.txt");
+        var projectName = lease.Name("wslc-file-resources");
+        var containerName = projectName + "-web-1";
+        await File.WriteAllTextAsync(secretFile, "secret", new UTF8Encoding(false), lease.Ct);
+        await File.WriteAllTextAsync(configFile, "config", new UTF8Encoding(false), lease.Ct);
+        await File.WriteAllTextAsync(composeFile, """
+            services:
+              web:
+                image: hello-world:latest
+                secrets: [token]
+                configs:
+                  - source: app-config
+                    target: /etc/app.conf
+            secrets:
+              token:
+                file: ./secret.txt
+            configs:
+              app-config:
+                file: ./config.txt
+            """, new UTF8Encoding(false), lease.Ct);
+        var arguments = new[] { "-p", projectName, "-f", composeFile };
+        lease.TrackContainer(containerName);
+        try
+        {
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
+                "Compose CLI up file resources");
+            var containers = await lease.Service.ListContainersAsync(all: true, ct: lease.Ct);
+            var id = Assert.Single(containers, c => c.Name == containerName).Id;
+            var project = Assert.Single(await ComposeProjectDiscovery.DiscoverAsync(containers,
+                (candidate, ct) => lease.Service.InspectContainerAsync(candidate, ct), lease.Ct), p => p.Name == projectName);
+            var service = Assert.Single(project.Services);
+            Assert.Equal("/run/secrets/token", Assert.Single(service.Secrets).Target);
+            Assert.Equal("/etc/app.conf", Assert.Single(service.Configs).Target);
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
+                "Compose CLI reuse file resources");
+            Assert.Equal(id, Assert.Single(await lease.Service.ListContainersAsync(all: true, ct: lease.Ct), c => c.Name == containerName).Id);
+        }
+        finally
+        {
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["down"]), lease.Ct), "Compose CLI down");
+            lease.UntrackContainer(containerName);
+        }
+    }
+
+    [WslcRuntimeFact]
+    [Trait("Category", "WslcRuntime")]
     public async Task AppCreatedComposeProjectIsReusedByExternalCli()
     {
         await using var lease = new WslcRuntimeLease();
