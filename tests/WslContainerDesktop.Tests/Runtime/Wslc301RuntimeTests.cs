@@ -375,6 +375,54 @@ public sealed class Wslc301RuntimeTests
 
     [WslcRuntimeFact]
     [Trait("Category", "WslcRuntime")]
+    public async Task ExternalComposeCliVolumeDeclarationIsReimportedAndReused()
+    {
+        await using var lease = new WslcRuntimeLease();
+        await lease.InitializeAsync(requireNginxImage: false);
+        var root = lease.CreateDirectory("compose-cli-volume-declaration", Path.GetTempPath());
+        var composeFile = Path.Combine(root, "compose.yaml");
+        var projectName = lease.Name("wslc-volume-declaration");
+        var containerName = projectName + "-web-1";
+        var volumeName = projectName + "_data";
+        await File.WriteAllTextAsync(composeFile, """
+            services:
+              web:
+                image: hello-world:latest
+                volumes: [data:/data]
+            volumes:
+              data:
+                labels:
+                  purpose: cache
+            """, new UTF8Encoding(false), lease.Ct);
+        var arguments = new[] { "-p", projectName, "-f", composeFile };
+        lease.TrackContainer(containerName);
+        lease.TrackVolume(volumeName);
+        try
+        {
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
+                "Compose CLI up volume declaration");
+            var labels = (await lease.InspectVolumeJsonAsync(volumeName)).GetProperty("Labels");
+            Assert.Equal("cache", labels.GetProperty("purpose").GetString());
+            var containers = await lease.Service.ListContainersAsync(all: true, ct: lease.Ct);
+            var id = Assert.Single(containers, c => c.Name == containerName).Id;
+            var project = Assert.Single(await ComposeProjectDiscovery.DiscoverAsync(containers,
+                (candidate, ct) => lease.Service.InspectContainerAsync(candidate, ct), lease.Ct), p => p.Name == projectName);
+            var volume = Assert.Single(project.Volumes);
+            Assert.Equal(volumeName, volume.Name);
+            Assert.Equal("cache", volume.Labels["purpose"]);
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
+                "Compose CLI reuse volume declaration");
+            Assert.Equal(id, Assert.Single(await lease.Service.ListContainersAsync(all: true, ct: lease.Ct), c => c.Name == containerName).Id);
+        }
+        finally
+        {
+            WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["down"]), lease.Ct), "Compose CLI down");
+            lease.UntrackContainer(containerName);
+        }
+    }
+
+    [WslcRuntimeFact]
+    [Trait("Category", "WslcRuntime")]
     public async Task AppCreatedComposeProjectIsReusedByExternalCli()
     {
         await using var lease = new WslcRuntimeLease();

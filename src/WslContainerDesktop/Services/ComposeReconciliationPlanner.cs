@@ -538,6 +538,7 @@ public static class ComposeReconciliationPlanner
                 timeout = health.Timeout, start_period = health.StartPeriod, retries = health.Retries,
             };
             configuration["network_declarations"] = Array.Empty<object>();
+            configuration["volume_declarations"] = Array.Empty<object>();
             configuration["structured_mounts"] = o.Mounts.OrderBy(m => m.Target, StringComparer.Ordinal)
                 .ThenBy(m => m.Source, StringComparer.Ordinal).Select(m => new
                 {
@@ -558,6 +559,13 @@ public static class ComposeReconciliationPlanner
             .OrderBy(network => network.Name, StringComparer.Ordinal).Select(network => new SortedDictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["name"] = network.Name, ["external"] = network.External, ["internal"] = network.Internal,
+            }).ToArray();
+        var volumeNames = service.Options.Volumes.Select(volume => volume.Split(':')[0]).ToHashSet(StringComparer.Ordinal);
+        configuration["volume_declarations"] = project.Volumes.Where(volume => volumeNames.Contains(volume.Name))
+            .OrderBy(volume => volume.Name, StringComparer.Ordinal).Select(volume => new SortedDictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["name"] = volume.Name, ["external"] = volume.External, ["driver"] = Trim(volume.Driver) ?? string.Empty,
+                ["driver_opts"] = Pairs(volume.DriverOpts), ["labels"] = volume.Labels,
             }).ToArray();
         return configuration;
     }

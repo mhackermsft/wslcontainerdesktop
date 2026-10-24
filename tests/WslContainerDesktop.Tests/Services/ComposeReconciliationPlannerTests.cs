@@ -45,7 +45,7 @@ public sealed class ComposeReconciliationPlannerTests
             },
         };
 
-        Assert.Equal("v2:dbc84495391fb2014455e5d8e9d2b93b8330651287f3e090ded6c3e2c0bf2d9a",
+        Assert.Equal("v2:6287686f2d48447385fa3ce9160874ff9509b936ff7cfc86107cc777f36e6175",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 
@@ -57,7 +57,7 @@ public sealed class ComposeReconciliationPlannerTests
         service.Options.Mounts.Add(new() { Type = "bind", Source = "C:/data", Target = "/data", ReadOnly = true,
             Options = ["propagation=rshared"] });
 
-        Assert.Equal("v2:58d0a450839c3c050054c80491d0747ecfeeb4895eeaf973169778958652312b",
+        Assert.Equal("v2:7b595d0e1585177529ab77d709a96d50ddc1a7929491d9ef7af8ae8c1072b692",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 
@@ -69,7 +69,20 @@ public sealed class ComposeReconciliationPlannerTests
         var project = new ComposeProject { Name = "demo", Services = [service], Networks =
             [new() { Key = "private", Name = "demo_private", Internal = true }] };
 
-        Assert.Equal("v2:e9b3fceeb3118a866d0e7140bdc25a3bbe7f04d75fbbd13c03d69becd718922a",
+        Assert.Equal("v2:b428020c7fecdd5a0c42f52aed18f8e901519e3779c4d1ffa791fe026e3fee01",
+            ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
+    }
+
+    [Fact]
+    public void ExperimentalInteropFingerprintV2MatchesVolumeDeclarationVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
+        service.Options.Volumes.Add("demo_data:/data");
+        var project = new ComposeProject { Name = "demo", Services = [service], Volumes =
+            [new() { Key = "data", Name = "demo_data", Driver = "guest", DriverOpts = ["size=1G"],
+                Labels = new(StringComparer.Ordinal) { ["purpose"] = "cache" } }] };
+
+        Assert.Equal("v2:b2dbf21a9131a1d5158d0f2e77900627e8c95e1fecbe79c8d5f373dc2c864dae",
             ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
     }
 
