@@ -91,3 +91,21 @@ sorting them.
 The hash excludes project paths, resolved container names, resource metadata,
 runtime-generated labels, lifecycle bookkeeping, and image IDs. A hash from an
 unknown version is not trusted as equal; it requires a safe recreation.
+
+## Fingerprint v2 roadmap
+
+`v1` is the stable interoperable subset. A future `v2` will replace it only
+after both frontends can parse, apply, and test every additional field below:
+
+```text
+healthcheck, extra_hosts, gpus, stdin_open, tty, restart
+network_mode, per-network IPv4 address, internal networks
+typed mounts, stop_timeout, detailed build inputs
+secrets, configs, network declarations, volume declarations
+```
+
+Fields must not enter `v2` merely because one frontend can hash them. Each must
+be represented in both models, emitted to the WSLc engine by both frontends,
+covered by a shared golden vector, and exercised by the opt-in runtime
+interoperability tests. Until then, `v1` remains the published shared hash and
+each frontend may retain a richer private reconciliation fingerprint.

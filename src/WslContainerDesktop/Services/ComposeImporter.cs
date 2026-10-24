@@ -213,7 +213,7 @@ public static partial class ComposeImporter
     private static readonly HashSet<string> SupportedServiceKeys = new(StringComparer.Ordinal)
     {
         "image", "container_name", "command", "entrypoint", "user", "working_dir", "hostname",
-        "ports", "volumes", "environment", "labels", "env_file", "build", "pull_policy", "restart",
+        "ports", "volumes", "environment", "labels", "env_file", "build", "pull_policy", "restart", "stdin_open",
         "depends_on", "profiles", "stop_grace_period", "secrets", "configs", "healthcheck",
         "extra_hosts", "networks", "network_mode", "tmpfs", "dns", "dns_search", "dns_opt", "ulimits",
         "shm_size", "stop_signal", "domainname", "cpus", "mem_limit", "deploy", "extends", "scale",
@@ -431,6 +431,7 @@ public static partial class ComposeImporter
             Volumes = volumeEntries.Volumes,
             Mounts = volumeEntries.Mounts,
             EnvironmentVariables = CollectKeyValues(svc.Child("environment")),
+            Interactive = ParseServiceBoolean(svc.Child("stdin_open"), false, "stdin_open"),
         };
 
         options.Labels = CollectLabels(svc.Child("labels"));
@@ -1317,6 +1318,13 @@ public static partial class ComposeImporter
         null => fallback,
         ScalarNode scalar when bool.TryParse(scalar.Value, out _) => bool.Parse(scalar.Value),
         _ => throw new ComposeConfigurationException("Compose depends_on required and restart must be boolean values."),
+    };
+
+    private static bool ParseServiceBoolean(Node? value, bool fallback, string field) => value switch
+    {
+        null => fallback,
+        ScalarNode scalar when bool.TryParse(scalar.Value, out var parsed) => parsed,
+        _ => throw new ComposeConfigurationException($"Compose {field} must be a boolean value."),
     };
 
     private static ComposeImagePolicy ParsePullPolicy(string? value) => value?.Trim() switch

@@ -33,6 +33,19 @@ public sealed class ComposeReconciliationPlannerTests
     }
 
     [Fact]
+    public void ExperimentalInteropFingerprintV2MatchesSharedGoldenVector()
+    {
+        var service = new ComposeService
+        {
+            Name = "web",
+            Options = new() { Image = "fixture", Interactive = true, AllGpus = true },
+        };
+
+        Assert.Equal("v2:87232db67c3f7ea028a4b58df19a58f8ead8fa3d7665fa1089891ce371820fdf",
+            ComposeReconciliationPlanner.InteropFingerprintV2(service));
+    }
+
+    [Fact]
     public void InteropFingerprintMatchesSharedRuntimeGoldenVector()
     {
         var service = new ComposeService

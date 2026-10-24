@@ -488,7 +488,17 @@ public static class ComposeReconciliationPlanner
     }
 
     /// <summary>Fingerprint published in the shared compose label namespace.</summary>
-    public static string InteropFingerprint(ComposeService service)
+    public static string InteropFingerprint(ComposeService service) =>
+        HashConfiguration(InteropConfiguration(service, includeV2Fields: false));
+
+    /// <summary>
+    /// Experimental shared fingerprint. It is intentionally not published until both Compose
+    /// implementations apply every field represented here.
+    /// </summary>
+    public static string InteropFingerprintV2(ComposeService service) =>
+        HashConfiguration(InteropConfiguration(service, includeV2Fields: true), "v2");
+
+    private static SortedDictionary<string, object?> InteropConfiguration(ComposeService service, bool includeV2Fields)
     {
         var o = service.Options;
         var configuration = new SortedDictionary<string, object?>(StringComparer.Ordinal)
@@ -511,7 +521,12 @@ public static class ComposeReconciliationPlanner
             ["mem_limit"] = Trim(o.MemoryLimit) ?? string.Empty, ["cpus"] = Trim(o.CpuLimit) ?? string.Empty,
             ["shm_size"] = Trim(o.ShmSize) ?? string.Empty, ["stop_signal"] = Trim(o.StopSignal) ?? string.Empty,
         };
-        return HashConfiguration(configuration);
+        if (includeV2Fields)
+        {
+            configuration["stdin_open"] = o.Interactive;
+            configuration["gpus_all"] = o.AllGpus;
+        }
+        return configuration;
     }
 
     /// <summary>Hashes a service within a snapshot whose project-wide inline sources have already been validated.</summary>
@@ -585,12 +600,12 @@ public static class ComposeReconciliationPlanner
         Args = Pairs(build.Args), Target = Trim(build.Target), build.Labels, build.NoCache, build.Pull,
     };
 
-    private static string HashConfiguration(object? configuration)
+    private static string HashConfiguration(object? configuration, string version = "v1")
     {
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer))
             WriteCanonical(writer, JsonSerializer.SerializeToElement(configuration));
-        return "v1:" + Convert.ToHexString(SHA256.HashData(buffer.ToArray())).ToLowerInvariant();
+        return version + ":" + Convert.ToHexString(SHA256.HashData(buffer.ToArray())).ToLowerInvariant();
     }
 
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
