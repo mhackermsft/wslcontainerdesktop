@@ -533,6 +533,12 @@ public static class ComposeReconciliationPlanner
                 test = health.Test, disabled = health.Disabled, interval = health.Interval,
                 timeout = health.Timeout, start_period = health.StartPeriod, retries = health.Retries,
             };
+            configuration["structured_mounts"] = o.Mounts.OrderBy(m => m.Target, StringComparer.Ordinal)
+                .ThenBy(m => m.Source, StringComparer.Ordinal).Select(m => new
+                {
+                    type = m.Type, source = m.Source, target = m.Target, read_only = m.ReadOnly,
+                    options = m.Options.OrderBy(option => option, StringComparer.Ordinal).ToArray(),
+                }).ToArray();
         }
         return configuration;
     }

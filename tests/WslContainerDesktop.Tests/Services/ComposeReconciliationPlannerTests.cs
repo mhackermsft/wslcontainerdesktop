@@ -45,7 +45,19 @@ public sealed class ComposeReconciliationPlannerTests
             },
         };
 
-        Assert.Equal("v2:a77054eda47a36a70a8d427936e96e84bbd6d285e9ac35836a1e0205a953f603",
+        Assert.Equal("v2:27e45ce97dc82f4d4ea58617b2d36bef09a5aec21b7b9ec78acb602bc5b3b1cd",
+            ComposeReconciliationPlanner.InteropFingerprintV2(service));
+    }
+
+    [Fact]
+    public void ExperimentalInteropFingerprintV2MatchesStructuredMountVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
+        service.Options.Volumes.Add("C:/data:/data:ro");
+        service.Options.Mounts.Add(new() { Type = "bind", Source = "C:/data", Target = "/data", ReadOnly = true,
+            Options = ["propagation=rshared"] });
+
+        Assert.Equal("v2:41cdf6adba2e32a6d00cf4722b61b64959e174888fc32fbdd5eeffbdcdb9c5e2",
             ComposeReconciliationPlanner.InteropFingerprintV2(service));
     }
 
