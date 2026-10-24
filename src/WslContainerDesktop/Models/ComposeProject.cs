@@ -460,7 +460,7 @@ public sealed class ComposeProject
 
         if (!Networks.Any(n => string.Equals(n.Name, defaultName, StringComparison.Ordinal)))
         {
-            Networks.Add(new ComposeNetwork { Name = defaultName });
+            Networks.Add(new ComposeNetwork { Key = defaultName, Name = defaultName });
         }
 
         foreach (var service in attach)
