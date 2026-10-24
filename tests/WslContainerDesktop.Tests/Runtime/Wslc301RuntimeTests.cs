@@ -202,6 +202,12 @@ public sealed class Wslc301RuntimeTests
                 stdin_open: true
                 tty: true
                 stop_grace_period: 2s
+                healthcheck:
+                  test: [CMD-SHELL, "true"]
+                  interval: 30s
+                  timeout: 5s
+                  start_period: 10s
+                  retries: 3
                 volumes:
                   - data:/data
             volumes:
@@ -238,6 +244,12 @@ public sealed class Wslc301RuntimeTests
             Assert.True(service.Options.Interactive);
             Assert.True(service.Options.Terminal);
             Assert.Equal(2, service.Options.StopTimeoutSeconds);
+            var health = Assert.IsType<NativeHealthOptions>(service.Health?.DesiredHealth);
+            Assert.Equal(["CMD-SHELL", "true"], health.Test);
+            Assert.Equal("30s", health.Interval);
+            Assert.Equal("5s", health.Timeout);
+            Assert.Equal("10s", health.StartPeriod);
+            Assert.Equal(3, health.Retries);
             Assert.Equal(canonicalContainer.Name, project.ContainerNameFor(service.Name));
 
             var store = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance,
