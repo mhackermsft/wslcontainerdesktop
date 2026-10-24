@@ -86,13 +86,13 @@ public sealed class ComposeScalingSupervisorTests
         var up = await UpAsync(fixture);
         Assert.Equal(["web", "web#2", "web#3"], up.Services.Select(s => s.InstanceKey));
         Assert.Equal(ComposeServiceAction.Keep, up.Services[0].Action);
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m is "stop:demo_web" or "remove:demo_web");
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m is "stop:demo-web-1" or "remove:demo-web-1");
         Assert.Equal(original.Fingerprint, fixture.SavedProject!.AppliedServices["web"].Fingerprint);
         Assert.Equal(original.ContainerId, fixture.SavedProject.AppliedServices["web"].ContainerId);
         Assert.Equal(3, fixture.RestartPolicies.Count);
         foreach (var pair in fixture.Engine.Containers)
         {
-            var index = pair.Key == "demo_web" ? 1 : int.Parse(pair.Key[^1..]);
+            var index = int.Parse(pair.Key[(pair.Key.LastIndexOf('-') + 1)..]);
             Assert.Equal("demo", pair.Value.Labels[ComposeProject.ProjectLabel]);
             Assert.Equal("web", pair.Value.Labels[ComposeProject.ServiceLabel]);
             Assert.Equal(index.ToString(), pair.Value.Labels[ComposeProject.InstanceLabel]);
@@ -106,10 +106,10 @@ public sealed class ComposeScalingSupervisorTests
         fixture.Engine.Mutations.Clear();
         fixture.Project.Services[0].Replicas = 1;
         await UpAsync(fixture);
-        Assert.Equal("demo_web", Assert.Single(fixture.Engine.Containers).Key);
+        Assert.Equal("demo-web-1", Assert.Single(fixture.Engine.Containers).Key);
         Assert.Equal("web", Assert.Single(fixture.SavedProject!.AppliedServices).Key);
-        Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m is "stop:demo_web" or "remove:demo_web");
+        Assert.Equal("demo-web-1", Assert.Single(fixture.RestartPolicies).ContainerName);
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m is "stop:demo-web-1" or "remove:demo-web-1");
         Assert.DoesNotContain(fixture.Engine.Mutations, m => m.StartsWith("volume-remove:") || m.StartsWith("network-remove:"));
     }
 
@@ -117,6 +117,7 @@ public sealed class ComposeScalingSupervisorTests
     public async Task LegacyFirstInstanceIsNotRecreatedToRetrofitUniqueAliasesOrOrdinalLabel()
     {
         var fixture = Replicas(1);
+        fixture.Engine.Add(Options("demo_web"), allEndpoints: true);
         await UpAsync(fixture);
         fixture.Engine.Containers["demo_web"].Labels.Remove(ComposeProject.InstanceLabel);
         fixture.Engine.Endpoints["demo_web"].ForEach(endpoint => endpoint.Aliases.Remove("demo_web"));
@@ -127,10 +128,10 @@ public sealed class ComposeScalingSupervisorTests
 
         Assert.DoesNotContain(fixture.Engine.Mutations, m => m is "stop:demo_web" or "remove:demo_web" or "create:demo_web");
         Assert.All(fixture.Engine.Endpoints["demo_web"], endpoint => Assert.DoesNotContain("demo_web", endpoint.Aliases));
-        Assert.All(fixture.Engine.Endpoints["demo_web_2"], endpoint =>
+        Assert.All(fixture.Engine.Endpoints["demo-web-2"], endpoint =>
         {
             Assert.Contains("web", endpoint.Aliases);
-            Assert.Contains("demo_web_2", endpoint.Aliases);
+            Assert.Contains("demo-web-2", endpoint.Aliases);
         });
     }
 
@@ -175,13 +176,13 @@ public sealed class ComposeScalingSupervisorTests
 
         await UpAsync(fixture);
 
-        Assert.Equal("1", fixture.Engine.Containers["demo_web"].Labels[ComposeProject.InstanceLabel]);
-        Assert.Equal("2", fixture.Engine.Containers["demo_web_2"].Labels[ComposeProject.InstanceLabel]);
+        Assert.Equal("1", fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.InstanceLabel]);
+        Assert.Equal("2", fixture.Engine.Containers["demo-web-2"].Labels[ComposeProject.InstanceLabel]);
         Assert.All(fixture.SavedProject!.AppliedServices.Values,
             saved => Assert.False(saved.Service.Options.Labels.ContainsKey(ComposeProject.InstanceLabel)));
         Assert.Equal(2, fixture.SavedProject.AppliedServices["web#2"].InstanceIndex);
         fixture.Project.Services[0].Replicas = 0;
-        fixture.Engine.Containers["demo_web_2"].Labels[ComposeProject.InstanceLabel] = "1";
+        fixture.Engine.Containers["demo-web-2"].Labels[ComposeProject.InstanceLabel] = "1";
         fixture.Engine.Mutations.Clear();
 
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
@@ -206,7 +207,7 @@ public sealed class ComposeScalingSupervisorTests
         };
         await UpAsync(fixture, new() { Services = targets, Replicas = counts });
         Assert.Equal(2, fixture.Engine.Containers.Count);
-        Assert.False(fixture.Engine.Containers.ContainsKey("demo_dependent"));
+        Assert.False(fixture.Engine.Containers.ContainsKey("demo-dependent-1"));
     }
 
     [Fact]
@@ -231,7 +232,7 @@ public sealed class ComposeScalingSupervisorTests
         fixture.Engine.Mutations.Clear();
         fixture.Engine.ImageInventoryError = new IOException("Image inventory is irrelevant to removal.");
         await UpAsync(fixture, new() { Services = ["web"], Replicas = new Dictionary<string, int> { ["web"] = 0 } });
-        Assert.Equal("demo_dependent", Assert.Single(fixture.Engine.Containers).Key);
+        Assert.Equal("demo-dependent-1", Assert.Single(fixture.Engine.Containers).Key);
         Assert.Equal("dependent", Assert.Single(fixture.SavedProject!.AppliedServices).Key);
         Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("dependent"));
     }
@@ -250,7 +251,7 @@ public sealed class ComposeScalingSupervisorTests
         fixture.Project.Services[0].Replicas = 2;
         switch (conflict)
         {
-            case "name": fixture.Project.Services[0].Options.Name = "demo_web"; break;
+            case "name": fixture.Project.Services[0].Options.Name = "demo-web-1"; break;
             case "port": fixture.Project.Services[0].Options.PortMappings = ["8000:80"]; break;
             case "mode": fixture.Project.Services[0].Options.NetworkMode = "host"; break;
             default: fixture.Project.Services[0].Options.NetworkAttachments[0].Ipv4Address = "10.0.0.4"; break;
@@ -268,7 +269,7 @@ public sealed class ComposeScalingSupervisorTests
         var fixture = Replicas(2);
         await UpAsync(fixture);
         fixture.Engine.Mutations.Clear();
-        fixture.Engine.Containers["demo_web_2"].Labels[ComposeProject.InstanceLabel] = "3";
+        fixture.Engine.Containers["demo-web-2"].Labels[ComposeProject.InstanceLabel] = "3";
         fixture.Project.Services[0].Replicas = 1;
         Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
         Assert.Empty(fixture.Engine.Mutations);
@@ -303,7 +304,7 @@ public sealed class ComposeScalingSupervisorTests
     {
         var fixture = Replicas(2);
         await UpAsync(fixture);
-        fixture.Engine.Mounts["demo_web_2"] = null;
+        fixture.Engine.Mounts["demo-web-2"] = null;
         fixture.Project.Services[0].Options.Command = "updated";
         fixture.Engine.Mutations.Clear();
         Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
@@ -319,13 +320,13 @@ public sealed class ComposeScalingSupervisorTests
         AddDependent(fixture, DependencyCondition.ServiceCompletedSuccessfully);
         fixture.Engine.AfterStart = name =>
         {
-            if (!name.StartsWith("demo_web")) return;
+            if (!name.StartsWith("demo-web", StringComparison.Ordinal)) return;
             fixture.Engine.States[name] = ContainerState.Stopped;
-            fixture.Engine.ExitCodes[name] = name == "demo_web_2" ? secondExit : 0;
+            fixture.Engine.ExitCodes[name] = name == "demo-web-2" ? secondExit : 0;
         };
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
         Assert.Equal(expected, result.AllSucceeded);
-        Assert.Equal(expected, fixture.Engine.Containers.ContainsKey("demo_dependent"));
+        Assert.Equal(expected, fixture.Engine.Containers.ContainsKey("demo-dependent-1"));
         if (!expected) Assert.Equal(ComposeServiceAction.Blocked, result.Services.Last().Action);
     }
 
@@ -337,13 +338,13 @@ public sealed class ComposeScalingSupervisorTests
         AddDependent(fixture, DependencyCondition.ServiceCompletedSuccessfully);
         fixture.Engine.AfterStart = name =>
         {
-            if (name != "demo_web") return;
+            if (name != "demo-web-1") return;
             fixture.Engine.States[name] = ContainerState.Stopped;
             fixture.Engine.ExitCodes[name] = 0;
         };
         fixture.Monitor.RefreshRequested = () =>
         {
-            if (fixture.Engine.Containers.ContainsKey("demo_web_2"))
+            if (fixture.Engine.Containers.ContainsKey("demo-web-2"))
                 cts.CancelAfter(TimeSpan.FromMilliseconds(150));
         };
 
@@ -351,8 +352,8 @@ public sealed class ComposeScalingSupervisorTests
 
         Assert.True(result.IsCancelled);
         Assert.Equal(2, result.Started);
-        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web_2"]);
-        Assert.False(fixture.Engine.Containers.ContainsKey("demo_dependent"));
+        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo-web-2"]);
+        Assert.False(fixture.Engine.Containers.ContainsKey("demo-dependent-1"));
         Assert.Equal(2, fixture.SavedProject!.AppliedServices.Count);
     }
 
@@ -364,7 +365,7 @@ public sealed class ComposeScalingSupervisorTests
         AddDependent(fixture, DependencyCondition.ServiceHealthy);
         fixture.Monitor.RefreshRequested = () =>
         {
-            var names = fixture.Engine.Containers.Keys.Where(n => n.StartsWith("demo_web")).ToList();
+            var names = fixture.Engine.Containers.Keys.Where(n => n.StartsWith("demo-web", StringComparison.Ordinal)).ToList();
             fixture.Monitor.Latest = new(names.Select(n => new ContainerInfo
             {
                 Name = n, Id = n, StateValue = (int)ContainerState.Running,
@@ -377,7 +378,7 @@ public sealed class ComposeScalingSupervisorTests
         };
         await UpAsync(fixture);
         Assert.Equal(2, fixture.HealthChecks.Count);
-        Assert.Contains("run:demo_dependent", fixture.Engine.Mutations);
+        Assert.Contains("run:demo-dependent-1", fixture.Engine.Mutations);
     }
 
     [Fact]
@@ -389,7 +390,7 @@ public sealed class ComposeScalingSupervisorTests
         AddDependent(fixture, DependencyCondition.ServiceHealthy);
         fixture.Monitor.RefreshRequested = () =>
         {
-            var names = fixture.Engine.Containers.Keys.Where(n => n.StartsWith("demo_web")).ToList();
+            var names = fixture.Engine.Containers.Keys.Where(n => n.StartsWith("demo-web", StringComparison.Ordinal)).ToList();
             fixture.Monitor.Latest = new(names.Select(n => new ContainerInfo
             {
                 Name = n, Id = n, StateValue = (int)ContainerState.Running,
@@ -397,7 +398,7 @@ public sealed class ComposeScalingSupervisorTests
             fixture.Health.Latest = new(names.Select(n => new ContainerHealthSnapshot
             {
                 ContainerName = n, ContainerId = n,
-                State = n == "demo_web" ? ContainerHealthState.Healthy : ContainerHealthState.Down,
+                State = n == "demo-web-1" ? ContainerHealthState.Healthy : ContainerHealthState.Down,
                 ObservedAt = DateTimeOffset.UtcNow,
             }).ToArray());
             if (names.Count == 2) cts.CancelAfter(TimeSpan.FromMilliseconds(150));
@@ -405,7 +406,7 @@ public sealed class ComposeScalingSupervisorTests
         var result = await fixture.Supervisor.UpAsync(fixture.Project, cts.Token);
         Assert.True(result.IsCancelled);
         Assert.Equal(2, result.Started);
-        Assert.False(fixture.Engine.Containers.ContainsKey("demo_dependent"));
+        Assert.False(fixture.Engine.Containers.ContainsKey("demo-dependent-1"));
         Assert.Equal(2, fixture.SavedProject!.AppliedServices.Count);
     }
 
@@ -419,7 +420,7 @@ public sealed class ComposeScalingSupervisorTests
         fixture.Project.Services[0].Replicas = 3;
         fixture.Engine.Mutations.Clear();
         await UpAsync(fixture);
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("dependent") || m is "stop:demo_web" or "remove:demo_web");
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("dependent") || m is "stop:demo-web-1" or "remove:demo-web-1");
     }
 
     [Fact]
@@ -433,28 +434,28 @@ public sealed class ComposeScalingSupervisorTests
             DependencyCondition.ServiceCompletedSuccessfully;
         fixture.Engine.AfterStart = name =>
         {
-            if (!name.StartsWith("demo_web")) return;
+            if (!name.StartsWith("demo-web", StringComparison.Ordinal)) return;
             fixture.Engine.States[name] = ContainerState.Stopped;
-            fixture.Engine.ExitCodes[name] = name == "demo_web_2" ? 1 : 0;
+            fixture.Engine.ExitCodes[name] = name == "demo-web-2" ? 1 : 0;
         };
         fixture.Engine.Mutations.Clear();
         var result = await fixture.Supervisor.OperateAsync("demo", new() { Operation = ComposeLifecycleOperation.Restart });
         Assert.False(result.AllSucceeded);
         Assert.Equal(ComposeServiceAction.Blocked, result.Services.Single(s => s.Service == "dependent").Action);
-        Assert.DoesNotContain("stop:demo_dependent", fixture.Engine.Mutations);
+        Assert.DoesNotContain("stop:demo-dependent-1", fixture.Engine.Mutations);
     }
 
     [Fact]
     public async Task PartialCreationFailurePersistsSuccessfulInstancesAndBlocksDependent()
     {
-        var fixture = Replicas(3, engine: new Engine { FailRun = "demo_web_2" });
+        var fixture = Replicas(3, engine: new Engine { FailRun = "demo-web-2" });
         AddDependent(fixture);
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
         Assert.False(result.AllSucceeded);
         Assert.Equal(2, result.Started);
         Assert.Equal(["web", "web#3"], fixture.SavedProject!.AppliedServices.Keys);
         Assert.False(result.Services.Single(s => s.InstanceKey == "web#2").Success);
-        Assert.False(fixture.Engine.Containers.ContainsKey("demo_dependent"));
+        Assert.False(fixture.Engine.Containers.ContainsKey("demo-dependent-1"));
         Assert.Equal(2, fixture.RestartPolicies.Count);
     }
 
@@ -463,7 +464,7 @@ public sealed class ComposeScalingSupervisorTests
     {
         using var cts = new CancellationTokenSource();
         var fixture = Replicas(3);
-        fixture.Engine.AfterStart = name => { if (name == "demo_web_2") cts.Cancel(); };
+        fixture.Engine.AfterStart = name => { if (name == "demo-web-2") cts.Cancel(); };
         var result = await fixture.Supervisor.UpAsync(fixture.Project, cts.Token);
         Assert.True(result.IsCancelled);
         Assert.False(result.AllSucceeded);
@@ -479,15 +480,15 @@ public sealed class ComposeScalingSupervisorTests
     {
         var fixture = Replicas(2);
         await UpAsync(fixture);
-        fixture.Engine.FailRemove = "demo_web_2";
+        fixture.Engine.FailRemove = "demo-web-2";
         fixture.Project.Services[0].Replicas = 1;
         fixture.Engine.Mutations.Clear();
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
         Assert.False(result.AllSucceeded);
         Assert.True(fixture.SavedProject!.AppliedServices["web#2"].ManuallyStopped);
-        Assert.True(fixture.Suppression.IsSuppressed("demo_web_2"));
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m is "stop:demo_web" or "remove:demo_web");
-        Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
+        Assert.True(fixture.Suppression.IsSuppressed("demo-web-2"));
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m is "stop:demo-web-1" or "remove:demo-web-1");
+        Assert.Equal("demo-web-1", Assert.Single(fixture.RestartPolicies).ContainerName);
     }
 
     [Fact]
@@ -529,12 +530,12 @@ public sealed class ComposeScalingSupervisorTests
         fixture.Project.Services[0].Health = new() { Command = "old-health", MaxRestarts = 0 };
         await UpAsync(fixture);
         fixture.Project.Services[0].Replicas = 1;
-        fixture.Engine.Containers["demo_web_2"].Labels[ComposeProject.InstanceLabel] = "1";
+        fixture.Engine.Containers["demo-web-2"].Labels[ComposeProject.InstanceLabel] = "1";
         fixture.HealthChecks.Clear();
         fixture.RestartPolicies.Clear();
         await fixture.Supervisor.ReconcileAsync();
-        Assert.Equal(["demo_web", "demo_web_3"], fixture.HealthChecks.Select(h => h.ContainerName));
-        Assert.Equal(["demo_web", "demo_web_3"], fixture.RestartPolicies.Select(h => h.ContainerName));
+        Assert.Equal(["demo-web-1", "demo-web-3"], fixture.HealthChecks.Select(h => h.ContainerName));
+        Assert.Equal(["demo-web-1", "demo-web-3"], fixture.RestartPolicies.Select(h => h.ContainerName));
         Assert.Single(fixture.Supervisor.ReconciliationWarnings);
     }
 }

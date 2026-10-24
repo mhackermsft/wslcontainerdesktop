@@ -148,7 +148,7 @@ public sealed class AssistantCatalogAdapterTests(ITestOutputHelper output)
         await turn.WaitAsync(Deadline);
         Assert.Equal(mutate ? 1 : 0, approvalCount);
         if (mutate)
-            Assert.Equal(["stop:demo_web"], fixture.Compose.Engine.Mutations);
+            Assert.Equal(["stop:demo-web-1"], fixture.Compose.Engine.Mutations);
         else
         {
             Assert.Empty(fixture.Compose.Engine.Mutations);

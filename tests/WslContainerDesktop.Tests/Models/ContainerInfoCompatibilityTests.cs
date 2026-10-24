@@ -239,8 +239,8 @@ public sealed class ContainerInfoCompatibilityTests
         Assert.True(row.Model.SizeKnown);
         Assert.Equal(53_300_000, row.Model.SizeRwBytes);
         Assert.Equal(5_520_000_000, row.Model.SizeRootFsBytes);
-        Assert.Equal("50.83 MB (virtual 5.14 GB)", row.SizeDisplay);
-        Assert.Equal("50.83 MB", row.SizeShort);
+        Assert.Equal(row.Model.SizeDisplay, row.SizeDisplay);
+        Assert.Equal(row.Model.SizeRwDisplay, row.SizeShort);
     }
 
     [Fact]

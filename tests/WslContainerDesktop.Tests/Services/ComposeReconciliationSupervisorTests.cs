@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Services;
 using Xunit;
 using static WslContainerDesktop.Tests.Services.ComposeNetworkOrchestratorTests;
 using static WslContainerDesktop.Tests.Services.ComposeNetworkSupervisorTests;
@@ -35,7 +36,10 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Project.Services[0].Build = new() { Context = Directory.GetCurrentDirectory() };
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
         await UpSuccessfullyAsync(fixture);
-        var fingerprint = fixture.Engine.Containers["demo_web"].Labels[ComposeProject.ConfigHashLabel];
+        var interopFingerprint = fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ConfigHashLabel];
+        var internalFingerprint = fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.InternalConfigHashLabel];
+        Assert.Equal(ComposeReconciliationPlanner.InteropFingerprint(fixture.Project.Services[0]), interopFingerprint);
+        Assert.Equal(fixture.SavedProject!.AppliedServices["web"].Fingerprint, internalFingerprint);
         fixture.Engine.Mutations.Clear();
 
         var plan = await fixture.Supervisor.PlanAsync(fixture.Project);
@@ -44,10 +48,11 @@ public sealed class ComposeReconciliationSupervisorTests
         await UpSuccessfullyAsync(fixture);
 
         Assert.Empty(fixture.Engine.Mutations);
-        Assert.Equal(fingerprint, fixture.Engine.Containers["demo_web"].Labels[ComposeProject.ConfigHashLabel]);
-        Assert.Equal("sha256:fixture-v1", fixture.Engine.Containers["demo_web"].Labels[ComposeProject.ImageIdLabel]);
+        Assert.Equal(interopFingerprint, fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ConfigHashLabel]);
+        Assert.Equal(internalFingerprint, fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.InternalConfigHashLabel]);
+        Assert.Equal("sha256:fixture-v1", fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ImageIdLabel]);
         Assert.Single(fixture.RestartPolicies);
-        Assert.Equal(fingerprint, fixture.SavedProject!.AppliedServices["web"].Fingerprint);
+        Assert.Equal(internalFingerprint, fixture.SavedProject!.AppliedServices["web"].Fingerprint);
     }
 
     [Fact]
@@ -87,12 +92,12 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.Empty(fixture.Engine.Mutations);
         await UpSuccessfullyAsync(fixture);
 
-        Assert.Contains("stop:demo_web", fixture.Engine.Mutations);
-        Assert.Contains("remove:demo_web", fixture.Engine.Mutations);
-        Assert.Contains("create:demo_web", fixture.Engine.Mutations);
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo_worker", StringComparison.Ordinal));
+        Assert.Contains("stop:demo-web-1", fixture.Engine.Mutations);
+        Assert.Contains("remove:demo-web-1", fixture.Engine.Mutations);
+        Assert.Contains("create:demo-web-1", fixture.Engine.Mutations);
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo-worker-1", StringComparison.Ordinal));
         Assert.NotEqual(oldFingerprint, fixture.SavedProject!.AppliedServices["web"].Fingerprint);
-        Assert.Contains("MODE=new", fixture.Engine.Containers["demo_web"].EnvironmentVariables);
+        Assert.Contains("MODE=new", fixture.Engine.Containers["demo-web-1"].EnvironmentVariables);
     }
 
     [Fact]
@@ -108,9 +113,9 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.Contains("image", plan.Services[0].Reason, StringComparison.OrdinalIgnoreCase);
         await UpSuccessfullyAsync(fixture);
 
-        Assert.Contains("remove:demo_web", fixture.Engine.Mutations);
+        Assert.Contains("remove:demo-web-1", fixture.Engine.Mutations);
         Assert.DoesNotContain(fixture.Engine.Mutations, m => m.StartsWith("pull:", StringComparison.Ordinal));
-        Assert.Equal("sha256:updated", fixture.Engine.Containers["demo_web"].Labels[ComposeProject.ImageIdLabel]);
+        Assert.Equal("sha256:updated", fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ImageIdLabel]);
     }
 
     [Fact]
@@ -118,18 +123,18 @@ public sealed class ComposeReconciliationSupervisorTests
     {
         var fixture = new Fixture();
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.States["demo_web"] = ContainerState.Stopped;
-        fixture.Suppression.Suppress("demo_web");
+        fixture.Engine.States["demo-web-1"] = ContainerState.Stopped;
+        fixture.Suppression.Suppress("demo-web-1");
         fixture.Engine.Mutations.Clear();
 
         var plan = await fixture.Supervisor.PlanAsync(fixture.Project);
         Assert.Equal(ComposeServiceAction.Start, Assert.Single(plan.Services).Action);
         await UpSuccessfullyAsync(fixture);
 
-        Assert.Equal(["start:demo_web"], fixture.Engine.Mutations);
+        Assert.Equal(["start:demo-web-1"], fixture.Engine.Mutations);
         Assert.False(fixture.Engine.LastStartWasExplicit);
-        Assert.False(fixture.Suppression.IsSuppressed("demo_web"));
-        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);
+        Assert.False(fixture.Suppression.IsSuppressed("demo-web-1"));
+        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo-web-1"]);
     }
 
     [Fact]
@@ -144,7 +149,7 @@ public sealed class ComposeReconciliationSupervisorTests
             new ComposeOperationRequest { Services = ["worker"], ForceRecreate = true });
 
         Assert.True(result.AllSucceeded);
-        Assert.Equal(["stop:demo_worker", "remove:demo_worker", "run:demo_worker"], fixture.Engine.Mutations);
+        Assert.Equal(["stop:demo-worker-1", "remove:demo-worker-1", "run:demo-worker-1"], fixture.Engine.Mutations);
         Assert.Equal(ComposeServiceAction.Recreate, Assert.Single(result.Services).Action);
     }
 
@@ -166,10 +171,10 @@ public sealed class ComposeReconciliationSupervisorTests
             new() { Operation = ComposeLifecycleOperation.Restart, Services = ["web"] });
 
         Assert.True(result.AllSucceeded);
-        Assert.Equal(["stop:demo_web", "start:demo_web"], fixture.Engine.Mutations);
+        Assert.Equal(["stop:demo-web-1", "start:demo-web-1"], fixture.Engine.Mutations);
         Assert.DoesNotContain("images", fixture.Engine.Reads);
-        Assert.Null(fixture.Engine.Containers["demo_web"].Command);
-        Assert.Equal("sha256:fixture-v1", fixture.Engine.Containers["demo_web"].Image);
+        Assert.Null(fixture.Engine.Containers["demo-web-1"].Command);
+        Assert.Equal("sha256:fixture-v1", fixture.Engine.Containers["demo-web-1"].Image);
         Assert.Equal(appliedFingerprint, fixture.SavedProject!.AppliedServices["web"].Fingerprint);
         Assert.Equal(RestartPolicyKind.Always, Assert.Single(fixture.RestartPolicies).Policy);
     }
@@ -192,11 +197,11 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.True(result.AllSucceeded);
         Assert.Equal(operation == ComposeLifecycleOperation.Stop
-            ? ["stop:demo_worker"] : new[] { "stop:demo_worker", "remove:demo_worker" }, fixture.Engine.Mutations);
-        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);
-        Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
+            ? ["stop:demo-worker-1"] : new[] { "stop:demo-worker-1", "remove:demo-worker-1" }, fixture.Engine.Mutations);
+        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo-web-1"]);
+        Assert.Equal("demo-web-1", Assert.Single(fixture.RestartPolicies).ContainerName);
         Assert.True(fixture.Engine.Networks.ContainsKey("a"));
-        Assert.True(fixture.Suppression.IsSuppressed("demo_worker"));
+        Assert.True(fixture.Suppression.IsSuppressed("demo-worker-1"));
         if (operation == ComposeLifecycleOperation.Stop)
             Assert.True(fixture.SavedProject!.AppliedServices["worker"].ManuallyStopped);
         else
@@ -254,7 +259,7 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.Equal(success, result.AllSucceeded);
         Assert.Equal(success, result.Services.Single(s => s.Service == "consumer").Success);
-        Assert.Equal(success, fixture.Engine.Containers.ContainsKey("demo_consumer"));
+        Assert.Equal(success, fixture.Engine.Containers.ContainsKey("demo-consumer-1"));
     }
 
     [Fact]
@@ -265,13 +270,13 @@ public sealed class ComposeReconciliationSupervisorTests
         consumer.DependsOn = [new() { ServiceName = "web", Condition = DependencyCondition.ServiceCompletedSuccessfully }];
         fixture.Engine.AfterStart = name => fixture.Engine.States[name] = ContainerState.Stopped;
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.States["demo_consumer"] = ContainerState.Stopped;
+        fixture.Engine.States["demo-consumer-1"] = ContainerState.Stopped;
         fixture.Engine.Mutations.Clear();
 
         await UpSuccessfullyAsync(fixture);
 
-        Assert.Equal(["start:demo_consumer"], fixture.Engine.Mutations);
-        Assert.Equal(ContainerState.Stopped, fixture.Engine.States["demo_web"]);
+        Assert.Equal(["start:demo-consumer-1"], fixture.Engine.Mutations);
+        Assert.Equal(ContainerState.Stopped, fixture.Engine.States["demo-web-1"]);
     }
 
     [Fact]
@@ -288,7 +293,7 @@ public sealed class ComposeReconciliationSupervisorTests
     [Fact]
     public async Task OptionalFailedDependencyDoesNotBlockIndependentStartup()
     {
-        var fixture = new Fixture(engine: new Engine { FailRun = "demo_optional" });
+        var fixture = new Fixture(engine: new Engine { FailRun = "demo-optional-1" });
         var optional = AddService(fixture, "optional");
         fixture.Project.Services[0].DependsOn = [new() { ServiceName = optional.Name, Required = false }];
 
@@ -313,12 +318,12 @@ public sealed class ComposeReconciliationSupervisorTests
 
         await UpSuccessfullyAsync(fixture);
 
-        Assert.Contains("remove:demo_web", fixture.Engine.Mutations);
-        Assert.Equal(["stop:demo_restart_peer", "start:demo_restart_peer"],
-            fixture.Engine.Mutations.Where(m => m.Contains("demo_restart_peer")));
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo_keep_peer"));
-        Assert.True(fixture.Engine.Mutations.IndexOf("start:demo_web") <
-                    fixture.Engine.Mutations.IndexOf("stop:demo_restart_peer"));
+        Assert.Contains("remove:demo-web-1", fixture.Engine.Mutations);
+        Assert.Equal(["stop:demo-restart_peer-1", "start:demo-restart_peer-1"],
+            fixture.Engine.Mutations.Where(m => m.Contains("demo-restart_peer-1")));
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo-keep_peer-1"));
+        Assert.True(fixture.Engine.Mutations.IndexOf("start:demo-web-1") <
+                    fixture.Engine.Mutations.IndexOf("stop:demo-restart_peer-1"));
     }
 
     [Theory]
@@ -354,18 +359,18 @@ public sealed class ComposeReconciliationSupervisorTests
         if (providerFails)
         {
             Assert.Equal(ComposeServiceAction.Blocked, sidecarResult.Action);
-            Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo_sidecar"));
+            Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo-sidecar-1"));
             Assert.Equal(originalSidecarFingerprint, fixture.SavedProject!.AppliedServices["sidecar"].Fingerprint);
-            Assert.Equal("demo_sidecar", Assert.Single(fixture.RestartPolicies).ContainerName);
+            Assert.Equal("demo-sidecar-1", Assert.Single(fixture.RestartPolicies).ContainerName);
         }
         else
         {
             Assert.Equal(ComposeServiceAction.Recreate, sidecarResult.Action);
-            Assert.Equal(["stop:demo_sidecar", "remove:demo_sidecar", "run:demo_sidecar"],
-                fixture.Engine.Mutations.Where(m => m.Contains("demo_sidecar")));
-            Assert.True(fixture.Engine.Mutations.IndexOf("run:demo_db") <
-                        fixture.Engine.Mutations.IndexOf("stop:demo_sidecar"));
-            Assert.Equal("container:demo_db", fixture.Engine.Containers["demo_sidecar"].NetworkMode);
+            Assert.Equal(["stop:demo-sidecar-1", "remove:demo-sidecar-1", "run:demo-sidecar-1"],
+                fixture.Engine.Mutations.Where(m => m.Contains("demo-sidecar-1")));
+            Assert.True(fixture.Engine.Mutations.IndexOf("run:demo-db-1") <
+                        fixture.Engine.Mutations.IndexOf("stop:demo-sidecar-1"));
+            Assert.Equal("container:demo-db-1", fixture.Engine.Containers["demo-sidecar-1"].NetworkMode);
         }
     }
 
@@ -406,7 +411,7 @@ public sealed class ComposeReconciliationSupervisorTests
                 worker.Secrets = [new() { Source = "missing-secret", Target = "/run/secrets/missing" }];
                 break;
             case "ownership":
-                fixture.Engine.Containers["demo_worker"].Labels[ComposeProject.ProjectLabel] = "foreign";
+                fixture.Engine.Containers["demo-worker-1"].Labels[ComposeProject.ProjectLabel] = "foreign";
                 break;
         }
 
@@ -456,7 +461,7 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.True(result.AllSucceeded);
         Assert.Equal("build:fixture", fixture.Engine.Mutations[0]);
-        Assert.Contains("remove:demo_web", fixture.Engine.Mutations);
+        Assert.Contains("remove:demo-web-1", fixture.Engine.Mutations);
     }
 
     [Fact]
@@ -515,7 +520,7 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.Equal("build:fixture", fixture.Engine.Mutations[0]);
         Assert.DoesNotContain("pull:fixture", fixture.Engine.Mutations);
         Assert.Equal(["web", "provider"], result.Services.Select(s => s.Service));
-        Assert.True(fixture.Engine.Mutations.IndexOf("start:demo_web") < fixture.Engine.Mutations.IndexOf("run:demo_provider"));
+        Assert.True(fixture.Engine.Mutations.IndexOf("start:demo-web-1") < fixture.Engine.Mutations.IndexOf("run:demo-provider-1"));
         Assert.All(fixture.Engine.Containers.Values, c => Assert.Equal(fixture.Engine.NextImageId, c.Image));
     }
 
@@ -548,8 +553,8 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.Single(fixture.Engine.Mutations, m => m.StartsWith("pull:"));
         Assert.All(fixture.Engine.Containers.Values, c => Assert.Equal(fixture.Engine.NextImageId, c.Image));
         Assert.All(fixture.SavedProject!.AppliedServices.Values, a => Assert.Equal(fixture.Engine.NextImageId, a.ImageId));
-        Assert.Contains("remove:demo_web", fixture.Engine.Mutations);
-        Assert.Contains("remove:demo_worker", fixture.Engine.Mutations);
+        Assert.Contains("remove:demo-web-1", fixture.Engine.Mutations);
+        Assert.Contains("remove:demo-worker-1", fixture.Engine.Mutations);
     }
 
     [Theory]
@@ -562,18 +567,18 @@ public sealed class ComposeReconciliationSupervisorTests
             [new() { ServiceName = "web", Condition = DependencyCondition.ServiceCompletedSuccessfully }];
         fixture.Engine.AfterStart = name =>
         {
-            if (name == "demo_web")
+            if (name == "demo-web-1")
                 fixture.Engine.States[name] = ContainerState.Stopped;
         };
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.ExitCodes["demo_web"] = exitCode;
+        fixture.Engine.ExitCodes["demo-web-1"] = exitCode;
         fixture.Engine.Mutations.Clear();
 
         var result = await fixture.Supervisor.OperateAsync("demo", new() { Operation = ComposeLifecycleOperation.Restart });
 
         Assert.Equal(success, result.AllSucceeded);
         Assert.Equal(success, result.Services.Single(s => s.Service == "consumer").Success);
-        Assert.Equal(success, fixture.Engine.Mutations.Contains("stop:demo_consumer"));
+        Assert.Equal(success, fixture.Engine.Mutations.Contains("stop:demo-consumer-1"));
         Assert.DoesNotContain(fixture.Engine.Mutations, m => m.StartsWith("remove:") || m.StartsWith("run:") || m.StartsWith("create:"));
     }
 
@@ -592,7 +597,7 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Engine.Mutations.Clear();
         await UpSuccessfullyAsync(fixture);
         Assert.Equal("pull:fixture", fixture.Engine.Mutations[0]);
-        Assert.Contains("remove:demo_web", fixture.Engine.Mutations);
+        Assert.Contains("remove:demo-web-1", fixture.Engine.Mutations);
         Assert.Equal("sha256:fixture-v3", fixture.SavedProject!.AppliedServices["web"].ImageId);
     }
 
@@ -624,7 +629,7 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.False((await fixture.Supervisor.UpAsync(fixture.Project, new ComposeOperationRequest { Build = true })).AllSucceeded);
 
         Assert.Empty(fixture.Engine.Mutations);
-        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);
+        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo-web-1"]);
     }
 
     [Theory]
@@ -634,19 +639,19 @@ public sealed class ComposeReconciliationSupervisorTests
     {
         var fixture = new Fixture();
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.States["demo_web"] = state;
+        fixture.Engine.States["demo-web-1"] = state;
         fixture.Engine.Mutations.Clear();
         fixture.BeforeCapabilities = () =>
         {
-            fixture.Suppression.Suppress("demo_web");
+            fixture.Suppression.Suppress("demo-web-1");
             return Task.CompletedTask;
         };
 
         await UpSuccessfullyAsync(fixture);
 
-        Assert.True(fixture.Suppression.IsSuppressed("demo_web"));
+        Assert.True(fixture.Suppression.IsSuppressed("demo-web-1"));
         Assert.True(fixture.SavedProject!.AppliedServices["web"].ManuallyStopped);
-        Assert.DoesNotContain("remove:demo_web", fixture.Engine.Mutations);
+        Assert.DoesNotContain("remove:demo-web-1", fixture.Engine.Mutations);
         Assert.False(fixture.Engine.LastStartWasExplicit);
     }
 
@@ -655,11 +660,11 @@ public sealed class ComposeReconciliationSupervisorTests
     {
         var fixture = new Fixture();
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.States["demo_web"] = ContainerState.Stopped;
+        fixture.Engine.States["demo-web-1"] = ContainerState.Stopped;
         fixture.Engine.Mutations.Clear();
         fixture.BeforeCapabilities = () =>
         {
-            fixture.Engine.ContainerIds["demo_web"] = "externally-replaced-id";
+            fixture.Engine.ContainerIds["demo-web-1"] = "externally-replaced-id";
             return Task.CompletedTask;
         };
 
@@ -667,7 +672,7 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.False(result.AllSucceeded);
         Assert.Empty(fixture.Engine.Mutations);
-        Assert.Equal("demo_web", fixture.SavedProject!.AppliedServices["web"].ContainerId);
+        Assert.Equal("demo-web-1", fixture.SavedProject!.AppliedServices["web"].ContainerId);
     }
 
     [Fact]
@@ -684,7 +689,7 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.True(result.AllSucceeded);
         Assert.Equal(["web", "restart_peer"], result.Services.Select(s => s.Service));
-        Assert.Equal(["stop:demo_web", "start:demo_web", "stop:demo_restart_peer", "start:demo_restart_peer"],
+        Assert.Equal(["stop:demo-web-1", "start:demo-web-1", "stop:demo-restart_peer-1", "start:demo-restart_peer-1"],
             fixture.Engine.Mutations);
     }
 
@@ -698,26 +703,26 @@ public sealed class ComposeReconciliationSupervisorTests
         AddService(fixture, "worker");
         fixture.Project.Services.ForEach(s => s.Restart = RestartPolicyKind.Always);
         await UpSuccessfullyAsync(fixture);
-        var originalPolicy = fixture.RestartPolicies.Single(p => p.ContainerName == "demo_web");
-        var originalHealth = new HealthCheckConfig { ContainerName = "demo_web", Command = "original-probe" };
+        var originalPolicy = fixture.RestartPolicies.Single(p => p.ContainerName == "demo-web-1");
+        var originalHealth = new HealthCheckConfig { ContainerName = "demo-web-1", Command = "original-probe" };
         fixture.HealthChecks.Add(originalHealth);
         fixture.Engine.Mutations.Clear();
         fixture.Project.Services[0].Options.Command = "updated";
-        if (failure == "stop") fixture.Engine.FailStop = "demo_web";
-        if (failure == "remove") fixture.Engine.FailRemove = "demo_web";
-        if (failure == "start") fixture.Engine.FailStart = "demo_web";
+        if (failure == "stop") fixture.Engine.FailStop = "demo-web-1";
+        if (failure == "remove") fixture.Engine.FailRemove = "demo-web-1";
+        if (failure == "start") fixture.Engine.FailStart = "demo-web-1";
 
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
 
         Assert.False(result.AllSucceeded);
         Assert.True(result.Services.Single(s => s.Service == "worker").Success);
-        Assert.Contains(fixture.RestartPolicies, r => r.ContainerName == "demo_worker");
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo_worker"));
-        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_worker"]);
+        Assert.Contains(fixture.RestartPolicies, r => r.ContainerName == "demo-worker-1");
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo-worker-1"));
+        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo-worker-1"]);
         if (failure is "stop" or "remove")
         {
-            Assert.Same(originalPolicy, fixture.RestartPolicies.Single(p => p.ContainerName == "demo_web"));
-            Assert.Same(originalHealth, fixture.HealthChecks.Single(p => p.ContainerName == "demo_web"));
+            Assert.Same(originalPolicy, fixture.RestartPolicies.Single(p => p.ContainerName == "demo-web-1"));
+            Assert.Same(originalHealth, fixture.HealthChecks.Single(p => p.ContainerName == "demo-web-1"));
         }
     }
 
@@ -730,10 +735,10 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
         await UpSuccessfullyAsync(fixture);
         var restart = Assert.Single(fixture.RestartPolicies);
-        var health = new HealthCheckConfig { ContainerName = "demo_web", Command = "original-probe" };
+        var health = new HealthCheckConfig { ContainerName = "demo-web-1", Command = "original-probe" };
         fixture.HealthChecks.Add(health);
-        if (failStop) fixture.Engine.FailStop = "demo_web";
-        else fixture.Engine.FailStart = "demo_web";
+        if (failStop) fixture.Engine.FailStop = "demo-web-1";
+        else fixture.Engine.FailStart = "demo-web-1";
         fixture.Engine.Mutations.Clear();
 
         var result = await fixture.Supervisor.OperateAsync("demo",
@@ -742,7 +747,7 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.False(result.AllSucceeded);
         Assert.Same(restart, Assert.Single(fixture.RestartPolicies));
         Assert.Same(health, Assert.Single(fixture.HealthChecks));
-        Assert.DoesNotContain("remove:demo_web", fixture.Engine.Mutations);
+        Assert.DoesNotContain("remove:demo-web-1", fixture.Engine.Mutations);
     }
 
     [Fact]
@@ -756,10 +761,10 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.True((await fixture.Supervisor.UpAsync(fixture.Project, cts.Token)).IsCancelled);
 
-        Assert.Equal("demo_web", fixture.SavedProject!.AppliedServices["web"].ContainerId);
-        Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
-        Assert.True(fixture.Engine.Containers.ContainsKey("demo_web"));
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo_worker") || m.StartsWith("remove:"));
+        Assert.Equal("demo-web-1", fixture.SavedProject!.AppliedServices["web"].ContainerId);
+        Assert.Equal("demo-web-1", Assert.Single(fixture.RestartPolicies).ContainerName);
+        Assert.True(fixture.Engine.Containers.ContainsKey("demo-web-1"));
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo-worker-1") || m.StartsWith("remove:"));
     }
 
     [Fact]
@@ -778,11 +783,11 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.True((await fixture.Supervisor.UpAsync(fixture.Project, cts.Token)).IsCancelled);
 
-        Assert.Contains(fixture.RestartPolicies, p => p.ContainerName == "demo_web");
-        Assert.Contains(fixture.RestartPolicies, p => p.ContainerName == "demo_worker");
+        Assert.Contains(fixture.RestartPolicies, p => p.ContainerName == "demo-web-1");
+        Assert.Contains(fixture.RestartPolicies, p => p.ContainerName == "demo-worker-1");
         Assert.Equal("updated", fixture.SavedProject!.AppliedServices["web"].Service.Options.Command);
         Assert.Equal(workerFingerprint, fixture.SavedProject.AppliedServices["worker"].Fingerprint);
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo_worker"));
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo-worker-1"));
     }
 
     [Fact]
@@ -818,12 +823,12 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.True(result.AllSucceeded);
         fixture.Engine.Mutations.Clear();
         var relaunched = new Fixture(engine: fixture.Engine, persisted: fixture.SavedProject);
-        Assert.False(relaunched.Suppression.IsSuppressed("demo_web"));
+        Assert.False(relaunched.Suppression.IsSuppressed("demo-web-1"));
 
         await relaunched.Supervisor.ReconcileAsync();
 
         Assert.Empty(relaunched.RestartPolicies);
-        Assert.True(relaunched.Suppression.IsSuppressed("demo_web"));
+        Assert.True(relaunched.Suppression.IsSuppressed("demo-web-1"));
         Assert.True(relaunched.SavedProject!.AppliedServices["web"].ManuallyStopped);
         Assert.Empty(relaunched.Engine.Mutations);
     }
@@ -845,11 +850,11 @@ public sealed class ComposeReconciliationSupervisorTests
             new() { Operation = ComposeLifecycleOperation.Stop, Services = ["web"] })).AllSucceeded);
         Assert.True(fixture.SavedProject!.AppliedServices["web"].ManuallyStopped);
         if (fail)
-            fixture.Engine.FailStart = "demo_web";
+            fixture.Engine.FailStart = "demo-web-1";
         if (laterStop)
             fixture.BeforeCapabilities = () =>
             {
-                fixture.Suppression.Suppress("demo_web");
+                fixture.Suppression.Suppress("demo-web-1");
                 return Task.CompletedTask;
             };
 
@@ -859,7 +864,7 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.Equal(!fail, result.AllSucceeded);
         Assert.Equal(fail || laterStop, fixture.SavedProject!.AppliedServices["web"].ManuallyStopped);
-        Assert.Equal(fail || laterStop, fixture.Suppression.IsSuppressed("demo_web"));
+        Assert.Equal(fail || laterStop, fixture.Suppression.IsSuppressed("demo-web-1"));
     }
 
     [Theory]
@@ -872,7 +877,7 @@ public sealed class ComposeReconciliationSupervisorTests
         AddService(fixture, "worker");
         fixture.Project.Services.ForEach(s => s.Restart = RestartPolicyKind.Always);
         await UpSuccessfullyAsync(fixture);
-        var workerPolicy = fixture.RestartPolicies.Single(p => p.ContainerName == "demo_worker");
+        var workerPolicy = fixture.RestartPolicies.Single(p => p.ContainerName == "demo-worker-1");
         fixture.Engine.Mutations.Clear();
         if (cancelledAfterCommit)
             fixture.Engine.AfterStop = name =>
@@ -883,7 +888,7 @@ public sealed class ComposeReconciliationSupervisorTests
                 cts.Token.ThrowIfCancellationRequested();
             };
         else
-            fixture.Engine.FailStop = "demo_web";
+            fixture.Engine.FailStop = "demo-web-1";
         var request = new ComposeOperationRequest { Operation = ComposeLifecycleOperation.Stop, Services = ["web"] };
 
         if (cancelledAfterCommit)
@@ -892,13 +897,13 @@ public sealed class ComposeReconciliationSupervisorTests
             Assert.False((await fixture.Supervisor.OperateAsync("demo", request)).AllSucceeded);
 
         Assert.True(fixture.SavedProject!.AppliedServices["web"].ManuallyStopped);
-        Assert.True(fixture.Suppression.IsSuppressed("demo_web"));
+        Assert.True(fixture.Suppression.IsSuppressed("demo-web-1"));
         Assert.Same(workerPolicy, Assert.Single(fixture.RestartPolicies));
-        Assert.Equal(["stop:demo_web"], fixture.Engine.Mutations);
-        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_worker"]);
+        Assert.Equal(["stop:demo-web-1"], fixture.Engine.Mutations);
+        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo-worker-1"]);
         fixture.Engine.Mutations.Clear();
         await fixture.Supervisor.ReconcileAsync();
-        Assert.Equal("demo_worker", Assert.Single(fixture.RestartPolicies).ContainerName);
+        Assert.Equal("demo-worker-1", Assert.Single(fixture.RestartPolicies).ContainerName);
         Assert.Empty(fixture.Engine.Mutations);
     }
 
@@ -921,7 +926,7 @@ public sealed class ComposeReconciliationSupervisorTests
         await fixture.Supervisor.ReconcileAsync();
 
         Assert.Empty(fixture.Supervisor.ReconciliationWarnings);
-        Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
+        Assert.Equal("demo-web-1", Assert.Single(fixture.RestartPolicies).ContainerName);
         Assert.Empty(fixture.Engine.Mutations);
     }
 
@@ -932,9 +937,9 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
         await UpSuccessfullyAsync(fixture);
         var restart = Assert.Single(fixture.RestartPolicies);
-        var health = new HealthCheckConfig { ContainerName = "demo_web", Command = "retained-probe" };
+        var health = new HealthCheckConfig { ContainerName = "demo-web-1", Command = "retained-probe" };
         fixture.HealthChecks.Add(health);
-        fixture.Engine.InspectionErrors["demo_web"] = "WSLC_E_ACCESS_DENIED";
+        fixture.Engine.InspectionErrors["demo-web-1"] = "WSLC_E_ACCESS_DENIED";
         fixture.Engine.Mutations.Clear();
 
         await fixture.Supervisor.ReconcileAsync();
@@ -953,11 +958,11 @@ public sealed class ComposeReconciliationSupervisorTests
         var fixture = new Fixture();
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
         await UpSuccessfullyAsync(fixture);
-        fixture.HealthChecks.Add(new() { ContainerName = "demo_web", Command = "old-probe" });
+        fixture.HealthChecks.Add(new() { ContainerName = "demo-web-1", Command = "old-probe" });
         if (replaced)
-            fixture.Engine.ContainerIds["demo_web"] = "replaced-id";
+            fixture.Engine.ContainerIds["demo-web-1"] = "replaced-id";
         else
-            fixture.Engine.Containers["demo_web"].Labels[ComposeProject.ProjectLabel] = "foreign";
+            fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ProjectLabel] = "foreign";
         fixture.Engine.Mutations.Clear();
 
         await fixture.Supervisor.ReconcileAsync();
@@ -972,9 +977,9 @@ public sealed class ComposeReconciliationSupervisorTests
     public async Task LegacyOwnedContainerIsMigratedOnceThenRepeatedUpIsNonDisruptive()
     {
         var fixture = new Fixture();
-        fixture.Engine.Add(Options(), allEndpoints: true);
+        fixture.Engine.Add(Options("demo_web"), allEndpoints: true);
         await UpSuccessfullyAsync(fixture);
-        Assert.False(string.IsNullOrWhiteSpace(fixture.Engine.Containers["demo_web"].Labels[ComposeProject.ConfigHashLabel]));
+        Assert.False(string.IsNullOrWhiteSpace(fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ConfigHashLabel]));
         Assert.True(fixture.SavedProject!.AppliedServices.ContainsKey("web"));
         fixture.Engine.Mutations.Clear();
 
@@ -988,7 +993,7 @@ public sealed class ComposeReconciliationSupervisorTests
     {
         var fixture = new Fixture();
         fixture.Engine.Add(Options(), allEndpoints: true);
-        fixture.Engine.ContainerIds["demo_web"] = "verified-container-id";
+        fixture.Engine.ContainerIds["demo-web-1"] = "verified-container-id";
 
         var plan = await fixture.Supervisor.PlanAsync(fixture.Project,
             new() { Operation = ComposeLifecycleOperation.Restart });
@@ -1024,7 +1029,7 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Project.Services.ForEach(s => s.Restart = RestartPolicyKind.Always);
         await UpSuccessfullyAsync(fixture);
         fixture.Project.Services[0].Options.Command = "updated";
-        fixture.Engine.InspectionErrors["demo_worker"] = "fixture inspection unavailable";
+        fixture.Engine.InspectionErrors["demo-worker-1"] = "fixture inspection unavailable";
         fixture.Engine.Mutations.Clear();
         fixture.Engine.Reads.Clear();
 
@@ -1047,7 +1052,7 @@ public sealed class ComposeReconciliationSupervisorTests
     {
         var fixture = new Fixture();
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.Containers["demo_web"].Labels[ComposeProject.ProjectLabel] = "foreign";
+        fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ProjectLabel] = "foreign";
         fixture.Project.Services[0].Options.Command = "updated";
         fixture.Engine.Mutations.Clear();
 
@@ -1058,7 +1063,7 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.False(result.AllSucceeded);
         Assert.Empty(fixture.Engine.Mutations);
-        Assert.Equal("foreign", fixture.Engine.Containers["demo_web"].Labels[ComposeProject.ProjectLabel]);
+        Assert.Equal("foreign", fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ProjectLabel]);
     }
 
     [Fact]
@@ -1066,13 +1071,13 @@ public sealed class ComposeReconciliationSupervisorTests
     {
         var fixture = new Fixture();
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.Endpoints["demo_web"].Add(new() { Network = "externally-attached", Aliases = ["owner"] });
+        fixture.Engine.Endpoints["demo-web-1"].Add(new() { Network = "externally-attached", Aliases = ["owner"] });
         fixture.Engine.Mutations.Clear();
         await UpSuccessfullyAsync(fixture);
-        Assert.Equal(3, fixture.Engine.Endpoints["demo_web"].Count);
+        Assert.Equal(3, fixture.Engine.Endpoints["demo-web-1"].Count);
         Assert.Empty(fixture.Engine.Mutations);
-        Assert.Equal(["owner"], fixture.Engine.Endpoints["demo_web"].Single(n => n.Network == "externally-attached").Aliases);
-        fixture.Engine.Endpoints["demo_web"].Single(n => n.Network == "b").Aliases.Clear();
+        Assert.Equal(["owner"], fixture.Engine.Endpoints["demo-web-1"].Single(n => n.Network == "externally-attached").Aliases);
+        fixture.Engine.Endpoints["demo-web-1"].Single(n => n.Network == "b").Aliases.Clear();
 
         var plan = await fixture.Supervisor.PlanAsync(fixture.Project);
         Assert.Equal(ComposeServiceAction.Recreate, Assert.Single(plan.Services).Action);
@@ -1082,8 +1087,8 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.True(result.AllSucceeded);
         Assert.Equal(ComposeServiceAction.Recreate, Assert.Single(result.Services).Action);
-        Assert.Contains("remove:demo_web", fixture.Engine.Mutations);
-        Assert.Equal(["private", "web", "demo_web"], fixture.Engine.Endpoints["demo_web"].Single(n => n.Network == "b").Aliases);
+        Assert.Contains("remove:demo-web-1", fixture.Engine.Mutations);
+        Assert.Equal(["private", "web", "demo-web-1"], fixture.Engine.Endpoints["demo-web-1"].Single(n => n.Network == "b").Aliases);
     }
 
     [Fact]
@@ -1223,7 +1228,7 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
 
         Assert.Empty(fixture.Engine.Mutations);
-        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);
+        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo-web-1"]);
     }
 
     [Fact]
@@ -1258,7 +1263,7 @@ public sealed class ComposeReconciliationSupervisorTests
         var fixture = new Fixture();
         fixture.Project.Services[0].Options.Volumes = [originalReadOnly ? "/cache:ro" : "/cache"];
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.Mounts["demo_web"] =
+        fixture.Engine.Mounts["demo-web-1"] =
         [
             new { Type = "volume", Name = "opaque-anonymous-volume", Destination = "/cache", RW = !originalReadOnly, IsAnonymous = true },
         ];
@@ -1268,8 +1273,8 @@ public sealed class ComposeReconciliationSupervisorTests
 
         await UpSuccessfullyAsync(fixture);
 
-        Assert.Contains("opaque-anonymous-volume:/cache" + (desiredReadOnly ? ":ro" : ""), fixture.Engine.Containers["demo_web"].Volumes);
-        Assert.DoesNotContain("/cache", fixture.Engine.Containers["demo_web"].Volumes);
+        Assert.Contains("opaque-anonymous-volume:/cache" + (desiredReadOnly ? ":ro" : ""), fixture.Engine.Containers["demo-web-1"].Volumes);
+        Assert.DoesNotContain("/cache", fixture.Engine.Containers["demo-web-1"].Volumes);
         Assert.DoesNotContain(fixture.Engine.Mutations, m => m.StartsWith("volume-remove:", StringComparison.Ordinal));
     }
 
@@ -1280,7 +1285,7 @@ public sealed class ComposeReconciliationSupervisorTests
     {
         var fixture = new Fixture();
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.Mounts["demo_web"] =
+        fixture.Engine.Mounts["demo-web-1"] =
         [
             new { Type = "volume", Name = "image-anonymous-volume", Destination = "/image-data", ReadOnly = true, IsAnonymous = true },
         ];
@@ -1292,7 +1297,7 @@ public sealed class ComposeReconciliationSupervisorTests
         await UpSuccessfullyAsync(fixture);
 
         Assert.Equal(overridden ? "replacement:/image-data" : "image-anonymous-volume:/image-data:ro",
-            Assert.Single(fixture.Engine.Containers["demo_web"].Volumes));
+            Assert.Single(fixture.Engine.Containers["demo-web-1"].Volumes));
         Assert.DoesNotContain(fixture.Engine.Mutations, m => m.StartsWith("volume-remove:", StringComparison.Ordinal));
     }
 
@@ -1301,14 +1306,14 @@ public sealed class ComposeReconciliationSupervisorTests
     {
         var fixture = new Fixture();
         await UpSuccessfullyAsync(fixture);
-        fixture.Engine.Mounts["demo_web"] = null;
+        fixture.Engine.Mounts["demo-web-1"] = null;
         fixture.Project.Services[0].Options.Command = "updated";
         fixture.Engine.Mutations.Clear();
 
         Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
 
         Assert.Empty(fixture.Engine.Mutations);
-        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);
+        Assert.Equal(ContainerState.Running, fixture.Engine.States["demo-web-1"]);
     }
 
     [Fact]

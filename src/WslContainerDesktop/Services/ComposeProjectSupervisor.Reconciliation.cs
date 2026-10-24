@@ -449,7 +449,8 @@ public sealed partial class ComposeProjectSupervisor
             var options = CloneForRun(project, entry.Service, entry.ContainerName, Guid.NewGuid().ToString("N"));
             options.Labels[ComposeProject.InstanceLabel] = entry.InstanceIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
             options.Image = entry.ImageId ?? throw new InvalidOperationException("Image identity is unavailable after preflight.");
-            options.Labels[ComposeProject.ConfigHashLabel] = entry.Fingerprint;
+            options.Labels[ComposeProject.ConfigHashLabel] = ComposeReconciliationPlanner.InteropFingerprint(entry.Service);
+            options.Labels[ComposeProject.InternalConfigHashLabel] = entry.Fingerprint;
             if (entry.ImageId is not null) options.Labels[ComposeProject.ImageIdLabel] = entry.ImageId;
             if (entry.ContainerId is not null)
                 await PreserveAnonymousVolumesAsync(project, entry, options, ct).ConfigureAwait(false);
@@ -581,7 +582,8 @@ public sealed partial class ComposeProjectSupervisor
             if (entry.ContainerId is not null)
             {
                 var observed = await _networks.InspectAsync(entry.ContainerId, ct).ConfigureAwait(false);
-                observed.Labels.TryGetValue(ComposeProject.ImageIdLabel, out previousImageId);
+                ComposeProject.TryGetLabel(observed.Labels, ComposeProject.ImageIdLabel,
+                    ComposeProject.LegacyImageIdLabel, out previousImageId);
             }
             observedImages[entry.InstanceKey] = previousImageId;
             var changedImage = previousImageId is not null && image is not null && previousImageId != image.Id;
@@ -683,6 +685,9 @@ public sealed partial class ComposeProjectSupervisor
         return new()
         {
             Name = project.Name, Services = services,
+            WorkingDirectory = project.WorkingDirectory,
+            ComposeFiles = new List<string>(project.ComposeFiles),
+            EnvironmentFile = project.EnvironmentFile,
             Networks = project.Networks.Where(n => networks.Contains(n.Name)).ToList(),
             Volumes = project.Volumes.Where(v => services.Any(s => s.Options.Volumes.Any(m =>
                 m.StartsWith(v.Name + ":", StringComparison.Ordinal)))).ToList(),

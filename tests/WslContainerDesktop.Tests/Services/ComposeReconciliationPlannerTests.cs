@@ -25,6 +25,34 @@ namespace WslContainerDesktop.Tests.Services;
 public sealed class ComposeReconciliationPlannerTests
 {
     [Fact]
+    public void InteropFingerprintMatchesSharedGoldenVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
+        Assert.Equal("v1:27c3423594e0c47a78cad36d1076804c199b392fff0241819013bdde1a561e5f",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesSharedRuntimeGoldenVector()
+    {
+        var service = new ComposeService
+        {
+            Name = "web",
+            Options = new()
+            {
+                Image = "fixture", Command = "run server", Entrypoint = "entry", Hostname = "host",
+                User = "1000", WorkingDir = "/app", CpuLimit = "0.5", MemoryLimit = "256M",
+                EnvironmentVariables = ["B=2", "A=1"], PortMappings = ["8080:80"],
+                Volumes = ["data:/data:ro"], Dns = ["1.1.1.1"],
+                NetworkAttachments = [new() { Network = "front", Aliases = ["www"] }],
+                Labels = new(StringComparer.Ordinal) { ["b"] = "2", ["a"] = "1" },
+            },
+        };
+        Assert.Equal("v1:2e19c0922cf8afdd0d9d80beace8893e7c539ab3c6e423bf2b85f5fb556424f7",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
     public void EngineOwnedBuildPathsRetainCaseSensitiveIdentity()
     {
         Assert.NotEqual(
@@ -99,7 +127,7 @@ public sealed class ComposeReconciliationPlannerTests
             labels[ComposeProject.ProjectLabel] = project.Name;
             labels[ComposeProject.ServiceLabel] = service.Name;
         }
-        if (fingerprint is not null) labels[ComposeProject.ConfigHashLabel] = fingerprint;
+        if (fingerprint is not null) labels[ComposeProject.InternalConfigHashLabel] = fingerprint;
         return ContainerNetworkState.Parse(JsonSerializer.Serialize(new
         {
             Id = id, Config = new { Labels = labels },
@@ -256,7 +284,7 @@ public sealed class ComposeReconciliationPlannerTests
         Assert.Throws<InvalidOperationException>(() => Selected(Project(Service("a", "missing"))));
         Assert.Throws<InvalidOperationException>(() => Selected(Project(Service("a")), new() { Services = ["missing"] }));
         var collision = Service("b");
-        collision.Options.Name = " project_a ";
+        collision.Options.Name = " project-a-1 ";
         Assert.Throws<InvalidOperationException>(() => Selected(Project(Service("a"), collision)));
     }
 
@@ -536,7 +564,7 @@ public sealed class ComposeReconciliationPlannerTests
     public void UnknownInspectAndDuplicateInventoryAreBlocked()
     {
         var project = Project(Service("web"));
-        var container = new ContainerInfo { Name = "project_web", Id = "id", StateValue = 2 };
+        var container = new ContainerInfo { Name = "project-web-1", Id = "id", StateValue = 2 };
         Assert.False(ComposeReconciliationPlanner.Plan(project, new(), [container],
             new Dictionary<string, ContainerNetworkState>()).CanApply);
         Assert.False(ComposeReconciliationPlanner.Plan(project, new(), [container, container],
@@ -556,7 +584,7 @@ public sealed class ComposeReconciliationPlannerTests
         var shortId = fullId[..12];
         var hash = ComposeReconciliationPlanner.Fingerprint(project, service);
         var plan = ComposeReconciliationPlanner.Plan(project, new() { Operation = operation },
-            [new() { Name = "/project_web", Id = shortId, StateValue = 2 }],
+            [new() { Name = "/project-web-1", Id = shortId, StateValue = 2 }],
             new Dictionary<string, ContainerNetworkState> { [shortId] = Inspect(project, service, hash, fullId) });
         Assert.True(plan.CanApply);
         Assert.Equal(fullId, Assert.Single(plan.Services).ContainerId);
@@ -573,7 +601,7 @@ public sealed class ComposeReconciliationPlannerTests
         var fullId = "123456789abc".PadRight(64, 'd');
         var plan = ComposeReconciliationPlanner.Plan(project, new(),
             [
-                new() { Name = "project_web", Id = firstId, StateValue = 2 },
+                new() { Name = "project-web-1", Id = firstId, StateValue = 2 },
                 new() { Name = "unrelated", Id = otherId, StateValue = 2 },
             ],
             new Dictionary<string, ContainerNetworkState> { [firstId] = Inspect(project, service, null, fullId) });

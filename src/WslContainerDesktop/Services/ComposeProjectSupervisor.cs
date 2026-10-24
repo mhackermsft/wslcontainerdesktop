@@ -17,6 +17,7 @@
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
@@ -418,7 +419,10 @@ public sealed partial class ComposeProjectSupervisor
             var labels = new Dictionary<string, string>(network.Labels, StringComparer.Ordinal)
             {
                 [ComposeProject.ProjectLabel] = project.Name,
+                [ComposeProject.ManagedByLabel] = ComposeProject.ManagedByValue,
+                [ComposeProject.NetworkLabel] = string.IsNullOrWhiteSpace(network.Key) ? network.Name : network.Key,
             };
+            AddProjectMetadata(labels, project);
             var created = await _wslc.CreateNetworkAsync(network.Name, network.Driver, network.DriverOpts, labels,
                 network.Subnet, network.Gateway, network.IpRange, ct, network.Internal)
                 .ConfigureAwait(false);
@@ -449,7 +453,10 @@ public sealed partial class ComposeProjectSupervisor
             var labels = new Dictionary<string, string>(volume.Labels, StringComparer.Ordinal)
             {
                 [ComposeProject.ProjectLabel] = project.Name,
+                [ComposeProject.ManagedByLabel] = ComposeProject.ManagedByValue,
+                [ComposeProject.VolumeLabel] = string.IsNullOrWhiteSpace(volume.Key) ? volume.Name : volume.Key,
             };
+            AddProjectMetadata(labels, project);
             var created = await _wslc.CreateVolumeAsync(volume.Name, volume.Driver, volume.DriverOpts, labels, ct).ConfigureAwait(false);
             if (created.Success)
             {
@@ -664,7 +671,8 @@ public sealed partial class ComposeProjectSupervisor
                             RemoveRestartPolicies(untracked);
                             throw new InvalidOperationException("An untracked owned instance exceeds the desired replica count; apply explicitly to reconcile it.");
                         }
-                        if (applied is null && state.Labels.TryGetValue(ComposeProject.ConfigHashLabel, out var fingerprint) &&
+                        if (applied is null && ComposeProject.TryGetLabel(state.Labels, ComposeProject.ConfigHashLabel,
+                            ComposeProject.LegacyConfigHashLabel, out var fingerprint) &&
                             fingerprint != ComposeReconciliationPlanner.FingerprintValidated(validatedProject.Value, service))
                             throw new InvalidOperationException("Existing configuration differs from the desired project; apply it explicitly.");
 
@@ -1081,6 +1089,8 @@ public sealed partial class ComposeProjectSupervisor
         // Tag the container so the project can be re-adopted and torn down as a unit.
         options.Labels[ComposeProject.ProjectLabel] = project.Name;
         options.Labels[ComposeProject.ServiceLabel] = service.Name;
+        options.Labels[ComposeProject.ManagedByLabel] = ComposeProject.ManagedByValue;
+        AddProjectMetadata(options.Labels, project);
         // The sole issuer is PrepareRunAsync, after validating the plan's explicit ordinal.
         options.Labels.Remove(ComposeProject.InstanceLabel);
         return options;
@@ -1166,9 +1176,11 @@ public sealed partial class ComposeProjectSupervisor
                 root = root[0];
             }
 
-            return root.ValueKind == System.Text.Json.JsonValueKind.Object &&
-                root.TryGetProperty("Labels", out var labels) && labels.ValueKind == System.Text.Json.JsonValueKind.Object &&
-                labels.TryGetProperty(ComposeProject.ProjectLabel, out var owner) &&
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                !root.TryGetProperty("Labels", out var labels) || labels.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return false;
+            return (labels.TryGetProperty(ComposeProject.ProjectLabel, out var owner) ||
+                    labels.TryGetProperty(ComposeProject.LegacyProjectLabel, out owner)) &&
                 owner.ValueKind == System.Text.Json.JsonValueKind.String && owner.GetString() == project;
         }
         catch (System.Text.Json.JsonException)
@@ -1177,6 +1189,16 @@ public sealed partial class ComposeProjectSupervisor
             // than deleted or allowed to abort the rest of the teardown.
             return false;
         }
+    }
+
+    private static void AddProjectMetadata(Dictionary<string, string> labels, ComposeProject project)
+    {
+        if (!string.IsNullOrWhiteSpace(project.WorkingDirectory))
+            labels[ComposeProject.WorkingDirectoryLabel] = project.WorkingDirectory;
+        if (project.ComposeFiles.Count > 0)
+            labels[ComposeProject.ConfigFilesLabel] = JsonSerializer.Serialize(project.ComposeFiles);
+        if (!string.IsNullOrWhiteSpace(project.EnvironmentFile))
+            labels[ComposeProject.EnvironmentFileLabel] = project.EnvironmentFile;
     }
 
     /// <summary>

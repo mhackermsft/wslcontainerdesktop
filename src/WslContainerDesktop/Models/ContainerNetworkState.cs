@@ -39,7 +39,10 @@ public sealed class ContainerNetworkState
     /// <param name="service">The service value supplied by the caller.</param>
     /// <returns>The requested value for the caller.</returns>
     public bool IsOwnedBy(ComposeProject project, ComposeService service) =>
-        HasLabel(ComposeProject.ProjectLabel, project.Name) && HasLabel(ComposeProject.ServiceLabel, service.Name);
+        (HasLabel(ComposeProject.ProjectLabel, project.Name) ||
+         HasLabel(ComposeProject.LegacyProjectLabel, project.Name)) &&
+        (HasLabel(ComposeProject.ServiceLabel, service.Name) ||
+         HasLabel(ComposeProject.LegacyServiceLabel, service.Name));
 
     /// <summary>Performs the require compatible helper used by this model or dialog.</summary>
     /// <param name="desired">The desired value supplied by the caller.</param>

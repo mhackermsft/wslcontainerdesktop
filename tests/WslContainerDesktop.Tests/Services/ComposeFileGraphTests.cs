@@ -29,6 +29,15 @@ public sealed class ComposeFileGraphTests
     private const string PrivateInput = "synthetic-private-input";
 
     [Fact]
+    public void ProjectNameDefaultsToComposeDirectoryWhenNameIsAbsent()
+    {
+        using var files = new Fixture();
+        var project = files.Parse("services: {web: {image: fixture}}");
+
+        Assert.Equal(files.DirectoryName, project.Name);
+    }
+
+    [Fact]
     public void ReplicaDefaultsResolveThroughExtendsAndOverridesBeforeValidation()
     {
         using var files = new Fixture();
@@ -1162,6 +1171,7 @@ public sealed class ComposeFileGraphTests
         public Fixture() => Directory.CreateDirectory(_directory);
 
         public string PathOf(string relative) => Path.Combine(_directory, relative.Replace('\\', Path.DirectorySeparatorChar));
+        public string DirectoryName => Path.GetFileName(_directory);
 
         public void Write(string relative, string contents)
         {

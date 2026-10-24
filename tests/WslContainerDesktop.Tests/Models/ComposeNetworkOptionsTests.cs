@@ -351,7 +351,7 @@ public sealed class ComposeNetworkOptionsTests
             """;
         var state = ContainerNetworkState.Parse(json);
         Assert.Equal("172.28.0.2", state.Networks["a"].Ipv4Address);
-        Assert.True(state.HasLabel(ComposeProject.ProjectLabel, "demo"));
+        Assert.True(state.HasLabel(ComposeProject.LegacyProjectLabel, "demo"));
         Assert.Equal("a, b", ContainerDetails.Parse(json).NetworkMode);
         Assert.Contains("b: 172.29.0.2", ContainerDetails.Parse(json).IpAddress);
         Assert.Equal(["a", "b"], ContainerDetails.Parse(json).Networks.Select(n => n.Network));

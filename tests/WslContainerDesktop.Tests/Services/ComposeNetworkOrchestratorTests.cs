@@ -31,7 +31,7 @@ public sealed class ComposeNetworkOrchestratorTests
         return new("wslc.exe", "fixture", new Dictionary<WslcFeature, WslcCapability>());
     }
 
-    internal static RunContainerOptions Options(string name = "demo_web") => new()
+    internal static RunContainerOptions Options(string name = "demo-web-1") => new()
     {
         Name = name, Image = "fixture", Network = "a", Networks = ["a", "b"],
         NetworkAttachments =
@@ -47,10 +47,10 @@ public sealed class ComposeNetworkOrchestratorTests
     {
         var engine = new Engine();
         var id = await engine.Orchestrator.CreateAndStartAsync(Options(), default);
-        Assert.Equal("demo_web", id);
-        Assert.Equal(["create:demo_web", "connect:b", "start:demo_web"], engine.Mutations);
-        Assert.Equal(["private", "web"], engine.Endpoints["demo_web"][1].Aliases);
-        Assert.Equal("172.29.0.2", engine.Endpoints["demo_web"][1].Ipv4Address);
+        Assert.Equal("demo-web-1", id);
+        Assert.Equal(["create:demo-web-1", "connect:b", "start:demo-web-1"], engine.Mutations);
+        Assert.Equal(["private", "web"], engine.Endpoints["demo-web-1"][1].Aliases);
+        Assert.Equal("172.29.0.2", engine.Endpoints["demo-web-1"][1].Ipv4Address);
     }
 
     [Theory]
@@ -59,18 +59,18 @@ public sealed class ComposeNetworkOrchestratorTests
     public async Task ExplicitRecreateResumesOnlyTheStopThatPrecededIt(bool laterStop)
     {
         var suppression = new RestartSuppressionState();
-        suppression.Suppress("demo_web");
+        suppression.Suppress("demo-web-1");
         var engine = new Engine
         {
             BeforeStart = () =>
             {
                 if (laterStop)
-                    suppression.Suppress("demo_web");
+                    suppression.Suppress("demo-web-1");
             },
         };
         var orchestrator = new ComposeNetworkOrchestrator(engine.Service, NullLogger.Instance, suppression);
         await orchestrator.CreateAndStartAsync(Options(), default);
-        Assert.Equal(laterStop, suppression.IsSuppressed("demo_web"));
+        Assert.Equal(laterStop, suppression.IsSuppressed("demo-web-1"));
         Assert.False(engine.LastStartWasExplicit);
     }
 
@@ -78,11 +78,11 @@ public sealed class ComposeNetworkOrchestratorTests
     public async Task FailedNetworkRecreateDoesNotClearManualStop()
     {
         var suppression = new RestartSuppressionState();
-        suppression.Suppress("demo_web");
+        suppression.Suppress("demo-web-1");
         var engine = new Engine { FailNetwork = "b" };
         var orchestrator = new ComposeNetworkOrchestrator(engine.Service, NullLogger.Instance, suppression);
         await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.CreateAndStartAsync(Options(), default));
-        Assert.True(suppression.IsSuppressed("demo_web"));
+        Assert.True(suppression.IsSuppressed("demo-web-1"));
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class ComposeNetworkOrchestratorTests
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
             () => engine.Orchestrator.CreateAndStartAsync(Options(), default));
         Assert.Contains("'b'", error.Message);
-        Assert.Equal(["create:demo_web", "connect:b", "remove:demo_web"], engine.Mutations);
+        Assert.Equal(["create:demo-web-1", "connect:b", "remove:demo-web-1"], engine.Mutations);
         Assert.Empty(engine.Containers);
     }
 
@@ -103,7 +103,7 @@ public sealed class ComposeNetworkOrchestratorTests
         var engine = new Engine { CancelOnConnect = cts };
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => engine.Orchestrator.CreateAndStartAsync(Options(), cts.Token));
-        Assert.Contains("remove:demo_web", engine.Mutations);
+        Assert.Contains("remove:demo-web-1", engine.Mutations);
         Assert.Empty(engine.Containers);
     }
 
@@ -116,7 +116,7 @@ public sealed class ComposeNetworkOrchestratorTests
         engine.Add(unrelated);
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => engine.Orchestrator.CreateAndStartAsync(Options(), default));
-        Assert.Equal(["create:demo_web"], engine.Mutations);
+        Assert.Equal(["create:demo-web-1"], engine.Mutations);
         Assert.Single(engine.Containers);
     }
 
@@ -125,11 +125,11 @@ public sealed class ComposeNetworkOrchestratorTests
     {
         var engine = new Engine();
         engine.Add(Options(), allEndpoints: true);
-        engine.Endpoints["demo_web"].Add(new() { Network = "unrelated" });
-        await engine.Orchestrator.ReconcileAsync("demo_web", Options(), Capabilities(), default);
-        await engine.Orchestrator.ReconcileAsync("demo_web", Options(), Capabilities(), default);
+        engine.Endpoints["demo-web-1"].Add(new() { Network = "unrelated" });
+        await engine.Orchestrator.ReconcileAsync("demo-web-1", Options(), Capabilities(), default);
+        await engine.Orchestrator.ReconcileAsync("demo-web-1", Options(), Capabilities(), default);
         Assert.Empty(engine.Mutations);
-        Assert.Equal(3, engine.Endpoints["demo_web"].Count);
+        Assert.Equal(3, engine.Endpoints["demo-web-1"].Count);
     }
 
     [Fact]
@@ -140,11 +140,11 @@ public sealed class ComposeNetworkOrchestratorTests
         options.Networks.Add("c");
         engine.Add(options);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => engine.Orchestrator.ReconcileAsync("demo_web", options, Capabilities(), default));
+            () => engine.Orchestrator.ReconcileAsync("demo-web-1", options, Capabilities(), default));
         Assert.Contains("'c'", error.Message);
         Assert.Contains("cleanup ownership is unresolved", error.Message);
         Assert.Equal(["connect:b", "connect:c", "disconnect:b"], engine.Mutations);
-        Assert.Equal(["a", "c"], engine.Endpoints["demo_web"].Select(e => e.Network));
+        Assert.Equal(["a", "c"], engine.Endpoints["demo-web-1"].Select(e => e.Network));
     }
 
     [Fact]
@@ -155,9 +155,9 @@ public sealed class ComposeNetworkOrchestratorTests
         options.Networks.Add("c");
         engine.Add(options);
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => engine.Orchestrator.ReconcileAsync("demo_web", options, Capabilities(), default));
+            () => engine.Orchestrator.ReconcileAsync("demo-web-1", options, Capabilities(), default));
         Assert.Equal(["connect:b", "connect:c", "disconnect:b"], engine.Mutations);
-        Assert.Equal("a", Assert.Single(engine.Endpoints["demo_web"]).Network);
+        Assert.Equal("a", Assert.Single(engine.Endpoints["demo-web-1"]).Network);
     }
 
     [Theory]
@@ -181,13 +181,13 @@ public sealed class ComposeNetworkOrchestratorTests
 
         Exception error = cancel
             ? await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => engine.Orchestrator.ReconcileAsync("demo_web", options, Capabilities(), cts.Token))
+                () => engine.Orchestrator.ReconcileAsync("demo-web-1", options, Capabilities(), cts.Token))
             : await Assert.ThrowsAsync<InvalidOperationException>(
-                () => engine.Orchestrator.ReconcileAsync("demo_web", options, Capabilities(), cts.Token));
+                () => engine.Orchestrator.ReconcileAsync("demo-web-1", options, Capabilities(), cts.Token));
 
         Assert.Contains("cleanup ownership is unresolved", error.Message);
         Assert.Equal(["connect:b", "connect:c", "disconnect:b"], engine.Mutations);
-        Assert.Equal(["external-owner"], engine.Endpoints["demo_web"].Single(e => e.Network == "c").Aliases);
+        Assert.Equal(["external-owner"], engine.Endpoints["demo-web-1"].Single(e => e.Network == "c").Aliases);
     }
 
     [Fact]
@@ -195,9 +195,9 @@ public sealed class ComposeNetworkOrchestratorTests
     {
         var engine = new Engine();
         engine.Add(Options(), allEndpoints: true);
-        engine.Endpoints["demo_web"][1].Aliases.Clear();
+        engine.Endpoints["demo-web-1"][1].Aliases.Clear();
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => engine.Orchestrator.ReconcileAsync("demo_web", Options(), Capabilities(), default));
+            () => engine.Orchestrator.ReconcileAsync("demo-web-1", Options(), Capabilities(), default));
         Assert.Contains("'b'", error.Message);
         Assert.Empty(engine.Mutations);
     }

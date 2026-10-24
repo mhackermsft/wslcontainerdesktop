@@ -48,7 +48,9 @@ public static class ComposeReconciliationPlanner
     public static bool IsOwnedInstance(ContainerNetworkState state, ComposeProject project, ComposeService service) =>
         state.IsOwnedBy(project, service) &&
         (state.HasLabel(ComposeProject.InstanceLabel, InstanceIndex(service).ToString(System.Globalization.CultureInfo.InvariantCulture)) ||
-         InstanceIndex(service) == 1 && !state.Labels.ContainsKey(ComposeProject.InstanceLabel));
+         state.HasLabel(ComposeProject.LegacyInstanceLabel, InstanceIndex(service).ToString(System.Globalization.CultureInfo.InvariantCulture)) ||
+         InstanceIndex(service) == 1 && !state.Labels.ContainsKey(ComposeProject.InstanceLabel) &&
+         !state.Labels.ContainsKey(ComposeProject.LegacyInstanceLabel));
 
     /// <summary>Returns the expected container name for a service using its runtime instance index.</summary>
     public static string ContainerName(ComposeProject project, ComposeService service) =>
@@ -56,9 +58,8 @@ public static class ComposeReconciliationPlanner
 
     /// <summary>Returns the expected container name for a service replica index.</summary>
     public static string ContainerName(ComposeProject project, ComposeService service, int index) =>
-        index > 1 ? $"{project.ContainerNameFor(service.Name)}_{index}" :
         string.IsNullOrWhiteSpace(service.Options.Name)
-            ? project.ContainerNameFor(service.Name)
+            ? project.ContainerNameFor(service.Name, index)
             : service.Options.Name.Trim();
 
     /// <summary>Resolves the desired replica count from the request, saved overrides, or service default.</summary>
@@ -71,7 +72,20 @@ public static class ComposeReconciliationPlanner
     {
         var name = containerName.TrimStart('/');
         if (name == ContainerName(project, service, 1)) return 1;
-        var prefix = project.ContainerNameFor(service.Name) + "_";
+        // Earlier WSL Container Desktop releases used underscore names. Accept
+        // them only for display/discovery; labels still authorize mutations.
+        if (string.IsNullOrWhiteSpace(service.Options.Name))
+        {
+            var legacy = $"{project.Name}_{service.Name}";
+            if (name == legacy) return 1;
+            var legacyPrefix = legacy + "_";
+            if (name.StartsWith(legacyPrefix, StringComparison.Ordinal) &&
+                int.TryParse(name[legacyPrefix.Length..], System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var legacyIndex) && legacyIndex > 1 &&
+                name == legacyPrefix + legacyIndex.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                return legacyIndex;
+        }
+        var prefix = $"{project.Name}-{service.Name}-";
         return name.StartsWith(prefix, StringComparison.Ordinal) &&
             int.TryParse(name[prefix.Length..], System.Globalization.NumberStyles.None,
                 System.Globalization.CultureInfo.InvariantCulture, out var index) && index > 1 &&
@@ -320,7 +334,13 @@ public static class ComposeReconciliationPlanner
                 continue;
             }
 
-            inspected.Labels.TryGetValue(ComposeProject.ConfigHashLabel, out var appliedHash);
+            // Shared hash is intentionally not sufficient for the app's richer model.
+            // Containers created before the split carry the old internal hash in the
+            // shared label and are migrated on their next reconciliation.
+            inspected.Labels.TryGetValue(ComposeProject.InternalConfigHashLabel, out var appliedHash);
+            if (string.IsNullOrEmpty(appliedHash))
+                ComposeProject.TryGetLabel(inspected.Labels, ComposeProject.LegacyConfigHashLabel,
+                    ComposeProject.LegacyConfigHashLabel, out appliedHash);
             if (request.Operation != ComposeLifecycleOperation.Up || excess)
             {
                 var action = excess ? ComposeServiceAction.Remove : request.Operation switch
@@ -465,6 +485,33 @@ public static class ComposeReconciliationPlanner
     {
         ComposeConfigContent.Validate(project);
         return FingerprintValidated(project, service);
+    }
+
+    /// <summary>Fingerprint published in the shared compose label namespace.</summary>
+    public static string InteropFingerprint(ComposeService service)
+    {
+        var o = service.Options;
+        var configuration = new SortedDictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["service"] = service.Name, ["image"] = Trim(o.Image) ?? string.Empty,
+            ["build"] = service.Build is not null,
+            ["command"] = Tokens(o.Command) ?? Array.Empty<string>(),
+            ["entrypoint"] = Tokens(o.Entrypoint) ?? Array.Empty<string>(),
+            ["environment"] = Pairs(o.EnvironmentVariables), ["ports"] = Set(o.PortMappings),
+            ["mounts"] = Set(o.Volumes),
+            ["networks"] = o.GetNetworkAttachments().OrderBy(a => a.Network, StringComparer.Ordinal)
+                .Select(a => new { name = a.Network, aliases = Set(a.Aliases) }).ToArray(),
+            ["labels"] = o.Labels.Where(p => !p.Key.StartsWith("com.wslc-compose.", StringComparison.Ordinal) &&
+                !p.Key.StartsWith("com.wsldesktop.", StringComparison.Ordinal))
+                .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+            ["hostname"] = Trim(o.Hostname) ?? string.Empty, ["domainname"] = Trim(o.Domainname) ?? string.Empty,
+            ["user"] = Trim(o.User) ?? string.Empty, ["working_dir"] = Trim(o.WorkingDir) ?? string.Empty,
+            ["dns"] = Set(o.Dns), ["dns_search"] = Set(o.DnsSearch), ["dns_opt"] = Set(o.DnsOptions),
+            ["tmpfs"] = Set(o.Tmpfs), ["ulimits"] = Set(o.Ulimits),
+            ["mem_limit"] = Trim(o.MemoryLimit) ?? string.Empty, ["cpus"] = Trim(o.CpuLimit) ?? string.Empty,
+            ["shm_size"] = Trim(o.ShmSize) ?? string.Empty, ["stop_signal"] = Trim(o.StopSignal) ?? string.Empty,
+        };
+        return HashConfiguration(configuration);
     }
 
     /// <summary>Hashes a service within a snapshot whose project-wide inline sources have already been validated.</summary>

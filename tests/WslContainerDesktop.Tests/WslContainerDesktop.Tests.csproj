@@ -221,6 +221,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\DeploymentConflictResolver.cs" Link="Services\DeploymentConflictResolver.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeProjectStore.cs" Link="Services\IComposeProjectStore.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectStore.cs" Link="Services\ComposeProjectStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectDiscovery.cs" Link="Services\ComposeProjectDiscovery.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\AppUpdateRelease.cs" Link="Models\AppUpdateRelease.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\MsixIdentity.cs" Link="Models\MsixIdentity.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AppUpdateException.cs" Link="Services\AppUpdateException.cs" />

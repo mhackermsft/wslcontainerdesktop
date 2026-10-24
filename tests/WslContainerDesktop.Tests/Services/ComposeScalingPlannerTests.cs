@@ -38,16 +38,25 @@ public sealed class ComposeScalingPlannerTests
         var project = Project(int.MaxValue);
         var containers = new List<ContainerInfo>
         {
-            new() { Id = "one", Name = "/demo_web", StateValue = (int)ContainerState.Running },
-            new() { Id = "two", Name = "demo_web_2", StateValue = (int)ContainerState.Running },
-            new() { Id = "leading-zero", Name = "demo_web_02", StateValue = (int)ContainerState.Running },
-            new() { Id = "suffix", Name = "demo_web_backup", StateValue = (int)ContainerState.Running },
-            new() { Id = "stopped", Name = "demo_web_3", StateValue = (int)ContainerState.Stopped },
+            new() { Id = "one", Name = "/demo-web-1", StateValue = (int)ContainerState.Running },
+            new() { Id = "two", Name = "demo-web-2", StateValue = (int)ContainerState.Running },
+            new() { Id = "leading-zero", Name = "demo-web-02", StateValue = (int)ContainerState.Running },
+            new() { Id = "suffix", Name = "demo-web-backup", StateValue = (int)ContainerState.Running },
+            new() { Id = "stopped", Name = "demo-web-3", StateValue = (int)ContainerState.Stopped },
         };
         Assert.Equal(2, ComposeReconciliationPlanner.ObservedRunningCount(project, containers));
-        Assert.Null(ComposeReconciliationPlanner.ObservedInstanceIndex(project, project.Services[0], "demo_web_02"));
+        Assert.Null(ComposeReconciliationPlanner.ObservedInstanceIndex(project, project.Services[0], "demo-web-02"));
         Assert.Equal(int.MaxValue, ComposeReconciliationPlanner.ObservedInstanceIndex(
-            project, project.Services[0], "demo_web_2147483647"));
+            project, project.Services[0], "demo-web-2147483647"));
+    }
+
+    [Theory]
+    [InlineData("demo_web", 1)]
+    [InlineData("/demo_web_2", 2)]
+    public void HistoricalUnderscoreNamesRemainObservable(string name, int index)
+    {
+        var project = Project();
+        Assert.Equal(index, ComposeReconciliationPlanner.ObservedInstanceIndex(project, project.Services[0], name));
     }
 
     [Fact]
@@ -59,7 +68,7 @@ public sealed class ComposeScalingPlannerTests
         project.ReplicaOverrides["web"] = 3;
         Assert.Equal(3, Plan(project).Services.Count);
         var plan = Plan(project, new() { Replicas = new Dictionary<string, int> { ["web"] = 4 } });
-        Assert.Equal(["demo_web", "demo_web_2", "demo_web_3", "demo_web_4"], plan.Services.Select(p => p.ContainerName));
+        Assert.Equal(["demo-web-1", "demo-web-2", "demo-web-3", "demo-web-4"], plan.Services.Select(p => p.ContainerName));
         Assert.All(plan.Services, p => Assert.Equal(original, p.Fingerprint));
         Assert.All(plan.Services, p => Assert.Equal(4, p.DesiredReplicas));
         Assert.Equal(2, project.Services[0].Replicas);
@@ -78,11 +87,11 @@ public sealed class ComposeScalingPlannerTests
         var fingerprint = ComposeReconciliationPlanner.Fingerprint(project, project.Services[0]);
         project.Services[0].Options.Labels[ComposeProject.InstanceLabel] = importedIndex;
         Assert.Equal(1, ComposeReconciliationPlanner.InstanceIndex(project.Services[0]));
-        Assert.Equal("demo_web", ComposeReconciliationPlanner.ContainerName(project, project.Services[0]));
+        Assert.Equal("demo-web-1", ComposeReconciliationPlanner.ContainerName(project, project.Services[0]));
 
         var plan = Plan(project);
 
-        Assert.Equal(["demo_web", "demo_web_2"], plan.Services.Select(p => p.ContainerName));
+        Assert.Equal(["demo-web-1", "demo-web-2"], plan.Services.Select(p => p.ContainerName));
         Assert.All(plan.Services, p =>
         {
             Assert.False(p.Service.Options.Labels.ContainsKey(ComposeProject.InstanceLabel));
@@ -217,14 +226,14 @@ public sealed class ComposeScalingPlannerTests
     }
 
     [Fact]
-    public void GeneratedNamesCannotCollideWithAnotherSelectedService()
+    public void DockerComposeGeneratedNamesKeepServicesDistinct()
     {
         var project = Project(2);
         project.Services.Add(new() { Name = "web_2", Options = new() { Image = "fixture" } });
         var plan = Plan(project);
-        Assert.False(plan.CanApply);
-        Assert.All(plan.Services.Where(p => p.ContainerName == "demo_web_2"),
-            p => Assert.Equal(ComposeServiceAction.Blocked, p.Action));
+        Assert.True(plan.CanApply);
+        Assert.Equal(["demo-web-1", "demo-web-2", "demo-web_2-1"],
+            plan.Services.Select(p => p.ContainerName));
     }
 
     [Fact]
@@ -273,7 +282,7 @@ public sealed class ComposeScalingPlannerTests
             NetworkSettings = new { Networks = new Dictionary<string, object>() },
         }));
         var plan = ComposeReconciliationPlanner.Plan(project, new() { Services = ["web"] },
-            [new() { Id = "id", Name = "demo_web", StateValue = (int)ContainerState.Running }],
+            [new() { Id = "id", Name = "demo-web-1", StateValue = (int)ContainerState.Running }],
             new Dictionary<string, ContainerNetworkState> { ["id"] = state });
         Assert.False(plan.CanApply);
         Assert.All(plan.Services, p => Assert.Contains("namespace provider", p.Reason));

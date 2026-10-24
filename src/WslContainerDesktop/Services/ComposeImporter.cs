@@ -162,7 +162,7 @@ public static partial class ComposeImporter
 
         var project = new ComposeProject
         {
-            Name = SanitizeProjectName(root.Scalar("name")),
+            Name = SanitizeProjectName(root.Scalar("name") ?? Path.GetFileName(baseDirectory)),
             ActiveProfiles = ParseActiveProfiles(effectiveEnv),
             Warnings = interpolationWarnings.Distinct(StringComparer.Ordinal).ToList(),
         };
@@ -764,6 +764,7 @@ public static partial class ComposeImporter
             var subnet = ipam?.Items.OfType<MappingNode>().FirstOrDefault();
             result.Add(new ComposeNetwork
             {
+                Key = name.Trim(),
                 Name = name.Trim(),
                 ExplicitName = cfg?.Scalar("name")?.Trim(),
                 Subnet = subnet?.Scalar("subnet")?.Trim(),
@@ -799,6 +800,7 @@ public static partial class ComposeImporter
             var cfg = value as MappingNode;
             result.Add(new ComposeVolume
             {
+                Key = name.Trim(),
                 Name = name.Trim(),
                 Driver = cfg?.Scalar("driver")?.Trim(),
                 DriverOpts = CollectKeyValues(cfg?.Child("driver_opts")),

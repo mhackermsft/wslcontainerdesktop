@@ -227,35 +227,40 @@
                                     <Button x:Uid="Workload_ComposePage_010" i18n:Localization.Uid="Workload_ComposePage_010"
                                         AutomationProperties.AutomationId="ComposeManageServicesWide"
                                         HorizontalAlignment="Right"
-                                        Command="{x:Bind ManageServicesCommand}"
-                                        CommandParameter="{x:Bind}"
+                                         Command="{x:Bind ManageServicesCommand}"
+                                         CommandParameter="{x:Bind}"
+                                         IsEnabled="{x:Bind CanManage}"
                                          />
                                     <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
                                     <Button x:Uid="Workload_ComposePage_011" i18n:Localization.Uid="Workload_ComposePage_011"
                                         AutomationProperties.AutomationId="ComposeUpWide"
                                         Padding="7,5"
-                                        Click="UpButton_Click"
+                                         Click="UpButton_Click"
+                                         IsEnabled="{x:Bind CanManage}"
                                         >
                                         <FontIcon FontSize="14" Glyph="&#xE768;" />
                                     </Button>
                                     <Button x:Uid="Workload_ComposePage_012" i18n:Localization.Uid="Workload_ComposePage_012"
                                         AutomationProperties.AutomationId="ComposeRestartWide"
                                         Padding="7,5"
-                                        Click="RestartButton_Click"
+                                         Click="RestartButton_Click"
+                                         IsEnabled="{x:Bind CanManage}"
                                         >
                                         <FontIcon FontSize="14" Glyph="&#xE72C;" />
                                     </Button>
                                     <Button x:Uid="Workload_ComposePage_013" i18n:Localization.Uid="Workload_ComposePage_013"
                                         AutomationProperties.AutomationId="ComposeDownWide"
                                         Padding="7,5"
-                                        Click="DownButton_Click"
+                                         Click="DownButton_Click"
+                                         IsEnabled="{x:Bind CanManage}"
                                         >
                                         <FontIcon FontSize="14" Glyph="&#xE71A;" />
                                     </Button>
                                     <Button x:Uid="Workload_ComposePage_014" i18n:Localization.Uid="Workload_ComposePage_014"
                                         AutomationProperties.AutomationId="ComposeRemoveProjectWide"
                                         Padding="7,5"
-                                        Click="RemoveButton_Click"
+                                         Click="RemoveButton_Click"
+                                         IsEnabled="{x:Bind CanManage}"
                                         >
                                         <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                     </Button>
@@ -289,20 +294,21 @@
 
                                     <Button x:Uid="Workload_ComposePage_017" i18n:Localization.Uid="Workload_ComposePage_017"
                                         AutomationProperties.AutomationId="ComposeManageServicesNarrow"
-                                        Command="{x:Bind ManageServicesCommand}"
-                                        CommandParameter="{x:Bind}"
+                                         Command="{x:Bind ManageServicesCommand}"
+                                         CommandParameter="{x:Bind}"
+                                         IsEnabled="{x:Bind CanManage}"
                                          />
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Button x:Uid="Workload_ComposePage_018" i18n:Localization.Uid="Workload_ComposePage_018" AutomationProperties.AutomationId="ComposeUpNarrow" Padding="7,5"  Click="UpButton_Click" >
+                                        <Button x:Uid="Workload_ComposePage_018" i18n:Localization.Uid="Workload_ComposePage_018" AutomationProperties.AutomationId="ComposeUpNarrow" Padding="7,5"  Click="UpButton_Click" IsEnabled="{x:Bind CanManage}" >
                                             <FontIcon FontSize="14" Glyph="&#xE768;" />
                                         </Button>
-                                        <Button x:Uid="Workload_ComposePage_019" i18n:Localization.Uid="Workload_ComposePage_019" AutomationProperties.AutomationId="ComposeRestartNarrow" Padding="7,5"  Click="RestartButton_Click" >
+                                        <Button x:Uid="Workload_ComposePage_019" i18n:Localization.Uid="Workload_ComposePage_019" AutomationProperties.AutomationId="ComposeRestartNarrow" Padding="7,5"  Click="RestartButton_Click" IsEnabled="{x:Bind CanManage}" >
                                             <FontIcon FontSize="14" Glyph="&#xE72C;" />
                                         </Button>
-                                        <Button x:Uid="Workload_ComposePage_020" i18n:Localization.Uid="Workload_ComposePage_020" AutomationProperties.AutomationId="ComposeDownNarrow" Padding="7,5"  Click="DownButton_Click" >
+                                        <Button x:Uid="Workload_ComposePage_020" i18n:Localization.Uid="Workload_ComposePage_020" AutomationProperties.AutomationId="ComposeDownNarrow" Padding="7,5"  Click="DownButton_Click" IsEnabled="{x:Bind CanManage}" >
                                             <FontIcon FontSize="14" Glyph="&#xE71A;" />
                                         </Button>
-                                        <Button x:Uid="Workload_ComposePage_021" i18n:Localization.Uid="Workload_ComposePage_021" AutomationProperties.AutomationId="ComposeRemoveProjectNarrow" Padding="7,5"  Click="RemoveButton_Click" >
+                                        <Button x:Uid="Workload_ComposePage_021" i18n:Localization.Uid="Workload_ComposePage_021" AutomationProperties.AutomationId="ComposeRemoveProjectNarrow" Padding="7,5"  Click="RemoveButton_Click" IsEnabled="{x:Bind CanManage}" >
                                             <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                         </Button>
                                     </StackPanel>
