@@ -94,23 +94,27 @@ unknown version is not trusted as equal; it requires a safe recreation.
 
 ## Fingerprint v2 roadmap
 
-`v1` is the stable interoperable subset. A future `v2` will replace it only
-after both frontends can parse, apply, and test every additional field below:
+`v2` remains experimental and is not published in container labels. Although
+both frontends share golden vectors for its supported fields, runtime
+reimport/reapply still exposes a non-canonical project-level projection. It
+must not participate in lifecycle decisions until that mismatch is resolved.
+
+Its intended supported subset includes health checks, GPU all, stdin/TTY, stop
+timeouts, typed mounts, network mode, build details, file-backed secrets and
+configs, and declarations for used networks and named volumes. File resources
+contribute only source name, target, and SHA-256 content digest, never their
+content or local paths.
+
+`v2` deliberately excludes fields that cannot yet be applied equivalently:
 
 ```text
-healthcheck, extra_hosts, gpus, stdin_open, tty, restart
-network_mode, per-network IPv4 address, internal networks
-typed mounts, stop_timeout, detailed build inputs
-secrets, configs, network declarations, volume declarations
+restart policies (depends on persistent application-owned supervision)
+per-network IPv4 addresses (current WSLc endpoint limitation)
+external and inline secrets/configs (outside the portable materialization contract)
+build context paths (not portable across machines)
 ```
 
-Fields must not enter `v2` merely because one frontend can hash them. Each must
-be represented in both models, emitted to the WSLc engine by both frontends,
-covered by a shared golden vector, and exercised by the opt-in runtime
-interoperability tests. Until then, `v1` remains the published shared hash and
-each frontend may retain a richer private reconciliation fingerprint.
-
-When `v2` is enabled, it will be published in a new shared label alongside
-the existing `v1` label for one compatibility release. Consumers must prefer
-the newest version they understand; `v1` remains authoritative for older
-consumers until the coordinated retirement release.
+Each candidate field requires matching models, application, golden vectors and
+runtime interoperability. `v1` remains the only published shared hash. Once
+the project-level canonicalization mismatch is fixed, `v2` can be published in
+a new label alongside `v1` for one compatibility release.

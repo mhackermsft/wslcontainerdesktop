@@ -514,7 +514,7 @@ public static class ComposeReconciliationPlanner
             ["environment"] = Pairs(o.EnvironmentVariables), ["ports"] = Set(o.PortMappings),
             ["mounts"] = Set(o.Volumes),
             ["networks"] = o.GetNetworkAttachments().OrderBy(a => a.Network, StringComparer.Ordinal)
-                .Select(a => new { name = a.Network, aliases = Set(a.Aliases) }).ToArray(),
+                .Select(a => new { name = a.Network, aliases = includeV2Fields ? Set(a.Aliases.Append(service.Name)) : Set(a.Aliases) }).ToArray(),
             ["labels"] = o.Labels.Where(p => !p.Key.StartsWith("com.wslc-compose.", StringComparison.Ordinal) &&
                 !p.Key.StartsWith("com.wsldesktop.", StringComparison.Ordinal))
                 .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),

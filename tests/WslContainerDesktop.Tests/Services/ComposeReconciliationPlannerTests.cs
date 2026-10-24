@@ -69,7 +69,7 @@ public sealed class ComposeReconciliationPlannerTests
         var project = new ComposeProject { Name = "demo", Services = [service], Networks =
             [new() { Key = "private", Name = "demo_private", Internal = true }] };
 
-        Assert.Equal("v2:71b342204cb8bd820f84186d09bb1d49924e128e38e739ce785c6eff41b3b517",
+        Assert.Equal("v2:c54eebce7360092c4d64852a8262529f0aa5bf92e9814e66b6073fe5e9def56c",
             ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
     }
 
@@ -114,6 +114,27 @@ public sealed class ComposeReconciliationPlannerTests
                 ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
         }
         finally { File.Delete(file); }
+    }
+
+    [Fact]
+    public void ExperimentalInteropFingerprintV2MatchesRuntimeProjectVector()
+    {
+        var service = new ComposeService
+        {
+            Name = "web",
+            Options = new()
+            {
+                Image = "hello-world:latest", Interactive = true, Terminal = true, StopTimeoutSeconds = 2,
+                Volumes = ["demo_data:/data"], NetworkAttachments = [new() { Network = "demo_default" }],
+            },
+            Health = new() { DesiredHealth = new() { Test = ["CMD-SHELL", "true"], Interval = "30s", Timeout = "5s", StartPeriod = "10s", Retries = 3 } },
+        };
+        var project = new ComposeProject { Name = "demo", Services = [service],
+            Networks = [new() { Key = "default", Name = "demo_default" }],
+            Volumes = [new() { Key = "data", Name = "demo_data" }] };
+
+        Assert.Equal("v2:677651300cb178b243dd16e70793045ff72882070e3787b3fd0fed6a6dd14441",
+            ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
     }
 
 

@@ -530,6 +530,7 @@ public sealed class Wslc301RuntimeTests
                 .GetProperty("Config").GetProperty("Labels");
             Assert.Equal(projectName, containerLabels.GetProperty(ComposeProject.ProjectLabel).GetString());
             Assert.Equal("web", containerLabels.GetProperty(ComposeProject.ServiceLabel).GetString());
+            Assert.StartsWith("v1:", containerLabels.GetProperty(ComposeProject.ConfigHashLabel).GetString());
             var networkLabels = (await lease.InspectNetworkJsonAsync(defaultNetworkName)).GetProperty("Labels");
             Assert.Equal(projectName, networkLabels.GetProperty(ComposeProject.ProjectLabel).GetString());
             Assert.Equal("default", networkLabels.GetProperty(ComposeProject.NetworkLabel).GetString());
