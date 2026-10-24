@@ -193,17 +193,32 @@ public sealed class Wslc301RuntimeTests
         var composeFile = Path.Combine(root, "compose.yaml");
         var projectName = lease.Name("compose-cli");
         var canonicalContainerName = projectName + "-web-1";
+        var defaultNetworkName = projectName + "_default";
+        var dataVolumeName = projectName + "_data";
         await File.WriteAllTextAsync(composeFile, """
             services:
               web:
                 image: hello-world:latest
+                volumes:
+                  - data:/data
+            volumes:
+              data:
             """, new UTF8Encoding(false), lease.Ct);
 
         var arguments = new[] { "-p", projectName, "-f", composeFile };
         try
         {
+            lease.TrackNetwork(defaultNetworkName);
+            lease.TrackVolume(dataVolumeName);
             WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
                 "Compose CLI up");
+
+            var networkLabels = (await lease.InspectNetworkJsonAsync(defaultNetworkName)).GetProperty("Labels");
+            Assert.Equal(projectName, networkLabels.GetProperty("com.wslc-compose.project").GetString());
+            Assert.Equal("default", networkLabels.GetProperty("com.wslc-compose.network").GetString());
+            var volumeLabels = (await lease.InspectVolumeJsonAsync(dataVolumeName)).GetProperty("Labels");
+            Assert.Equal(projectName, volumeLabels.GetProperty("com.wslc-compose.project").GetString());
+            Assert.Equal("data", volumeLabels.GetProperty("com.wslc-compose.volume").GetString());
 
             var containers = await lease.Service.ListContainersAsync(all: true, ct: lease.Ct);
             var canonicalContainer = Assert.Single(containers, container => container.Name == canonicalContainerName);
@@ -881,6 +896,8 @@ public sealed class Wslc301RuntimeTests
         }
 
         public Task<JsonElement> InspectNetworkJsonAsync(string name) => InspectJsonAsync(["network", "inspect", name]);
+
+        public Task<JsonElement> InspectVolumeJsonAsync(string name) => InspectJsonAsync(["volume", "inspect", name]);
 
         private async Task<JsonElement> InspectJsonAsync(IEnumerable<string> args)
         {
