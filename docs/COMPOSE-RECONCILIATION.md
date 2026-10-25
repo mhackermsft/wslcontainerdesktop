@@ -93,6 +93,12 @@ shared projection, such as `extra_hosts`, advanced mount options, build labels o
 secret/config mounts, require desktop creation rather than first-time shared-hash adoption.
 Explicit rebuild/force-recreate requests continue to replace the instance.
 
+The shared v2 JSON bytes use the canonical interoperability representation:
+sorted object keys, compact separators, ASCII Unicode escapes and no HTML escaping
+of shell operators such as `&&`. Common golden vectors cover shell operators,
+non-ASCII text and Unicode object-key ordering. Desktop's private v1 serialization
+is independent and retains its existing byte representation.
+
 ## Selection and readiness
 
 - Whole-project apply selects unprofiled and active-profile services; `*` enables all profiles.

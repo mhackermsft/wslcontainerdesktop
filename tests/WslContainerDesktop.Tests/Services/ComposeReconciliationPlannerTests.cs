@@ -25,6 +25,28 @@ namespace WslContainerDesktop.Tests.Services;
 public sealed class ComposeReconciliationPlannerTests
 {
     [Fact]
+    public void InteropFingerprintMatchesSharedShellOperatorVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new()
+        {
+            Image = "fixture", Command = "sh -c \"echo a && echo b\"",
+        } };
+        Assert.Equal("v2:b4690ac86a52bb4afac721d21138fd2fc10e9474ac4023dc85faee2a50615bc9",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesSharedAsciiEscapingAndUnicodeKeyOrder()
+    {
+        var service = new ComposeService { Name = "web", Options = new()
+        {
+            Image = "fixture", Labels = new() { ["\ue000"] = "<>&'\"é😀\u007f\n", ["\U00010000"] = "astral" },
+        } };
+        Assert.Equal("v2:f89618003f02eb194df1cf76766b87371842c116134f5c31a376ee969fe0f0f4",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
     public void InteropFingerprintMatchesSharedGoldenVector()
     {
         var service = new ComposeService

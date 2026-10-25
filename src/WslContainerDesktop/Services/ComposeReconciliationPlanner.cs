@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using WslContainerDesktop.Models;
 
@@ -676,10 +677,87 @@ public static class ComposeReconciliationPlanner
 
     private static string HashConfiguration(object? configuration, string version = "v1")
     {
+        if (version == "v2")
+        {
+            // Shared canonical JSON uses compact separators and ASCII Unicode escapes
+            // and does not HTML-escape &, <, >, apostrophes or '+'. Keep private v1 bytes stable.
+            var json = new StringBuilder();
+            WriteInteropCanonical(json, JsonSerializer.SerializeToElement(configuration));
+            return "v2:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json.ToString())))
+                .ToLowerInvariant();
+        }
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer))
             WriteCanonical(writer, JsonSerializer.SerializeToElement(configuration));
         return version + ":" + Convert.ToHexString(SHA256.HashData(buffer.ToArray())).ToLowerInvariant();
+    }
+
+    private static int CompareCodePoints(string left, string right)
+    {
+        var a = left.EnumerateRunes().GetEnumerator();
+        var b = right.EnumerateRunes().GetEnumerator();
+        while (a.MoveNext())
+        {
+            if (!b.MoveNext()) return 1;
+            var comparison = a.Current.Value.CompareTo(b.Current.Value);
+            if (comparison != 0) return comparison;
+        }
+        return b.MoveNext() ? -1 : 0;
+    }
+
+    private static void WriteInteropString(StringBuilder json, string value)
+    {
+        json.Append('"');
+        foreach (var character in value)
+        {
+            var escape = character switch
+            {
+                '"' => "\\\"", '\\' => "\\\\", '\b' => "\\b", '\f' => "\\f",
+                '\n' => "\\n", '\r' => "\\r", '\t' => "\\t", _ => null,
+            };
+            if (escape is not null) json.Append(escape);
+            else if (character < 0x20 || character >= 0x7f)
+                json.Append("\\u").Append(((int)character).ToString("x4", System.Globalization.CultureInfo.InvariantCulture));
+            else json.Append(character);
+        }
+        json.Append('"');
+    }
+
+    private static void WriteInteropCanonical(StringBuilder json, JsonElement value)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                json.Append('{');
+                var first = true;
+                foreach (var property in value.EnumerateObject().OrderBy(p => p.Name,
+                    Comparer<string>.Create(CompareCodePoints)))
+                {
+                    if (!first) json.Append(',');
+                    first = false;
+                    WriteInteropString(json, property.Name);
+                    json.Append(':');
+                    WriteInteropCanonical(json, property.Value);
+                }
+                json.Append('}');
+                break;
+            case JsonValueKind.Array:
+                json.Append('[');
+                var index = 0;
+                foreach (var item in value.EnumerateArray())
+                {
+                    if (index++ > 0) json.Append(',');
+                    WriteInteropCanonical(json, item);
+                }
+                json.Append(']');
+                break;
+            case JsonValueKind.String:
+                WriteInteropString(json, value.GetString()!);
+                break;
+            default:
+                json.Append(value.GetRawText());
+                break;
+        }
     }
 
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
