@@ -343,7 +343,7 @@ public sealed class ComposeNetworkOrchestratorTests
                         {
                             new
                             {
-                                Id = ContainerIds[name], Config = new { options.Labels },
+                                Id = ContainerIds[name], Image = options.Image, Config = new { options.Labels },
                                 State = new { ExitCode = ExitCodes.GetValueOrDefault(name) },
                                 Mounts = Mounts[name],
                                 NetworkSettings = new

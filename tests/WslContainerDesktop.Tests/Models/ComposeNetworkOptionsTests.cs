@@ -370,4 +370,24 @@ public sealed class ComposeNetworkOptionsTests
         Assert.Equal("172.28.0.2", ContainerDetails.Parse(json).Networks[0].Ipv4Address);
         Assert.Throws<InvalidOperationException>(() => ContainerNetworkState.Parse("""{"Id":"id"}"""));
     }
+
+    [Theory]
+    [InlineData("172.28.0.99")]
+    [InlineData("")]
+    public void RunningEndpointUsesActualIpInsteadOfRequestedAllocation(string actual)
+    {
+        var state = ContainerNetworkState.Parse(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            Id = "id", State = new { Running = true }, NetworkSettings = new
+            {
+                Networks = new Dictionary<string, object> { ["a"] = new
+                {
+                    IPAddress = actual, IPAMConfig = new { IPv4Address = "172.28.0.2" },
+                } },
+            },
+        }));
+        Assert.Equal(actual, state.Networks["a"].Ipv4Address);
+        Assert.Throws<InvalidOperationException>(() => state.RequireCompatible(
+            new() { Network = "a", Ipv4Address = "172.28.0.2" }));
+    }
 }

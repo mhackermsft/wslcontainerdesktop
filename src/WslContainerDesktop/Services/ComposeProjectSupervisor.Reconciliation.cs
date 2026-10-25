@@ -141,7 +141,8 @@ public sealed partial class ComposeProjectSupervisor
                 {
                     var observed = await _networks.InspectAsync(entry.ContainerId!, ct).ConfigureAwait(false);
                     var options = entry.Service.Options.Clone();
-                    PrepareNetworkOptions(project, entry.Service, options);
+                    PrepareNetworkOptions(project, entry.Service, options,
+                        includeReplicaContainerAlias: HasPrivateFingerprint(observed));
                     foreach (var desired in options.GetNetworkAttachments().Take(decision.Native ? int.MaxValue : 1))
                     {
                         drift |= !observed.Networks.TryGetValue(desired.Network, out var actual) ||
@@ -174,6 +175,19 @@ public sealed partial class ComposeProjectSupervisor
             }
         }
         return (new() { Services = entries }, decisions);
+    }
+
+    private static bool HasPrivateFingerprint(ContainerNetworkState state) =>
+        !string.IsNullOrEmpty(state.Labels.GetValueOrDefault(ComposeProject.InternalConfigHashLabel)) ||
+        !string.IsNullOrEmpty(state.Labels.GetValueOrDefault(ComposeProject.LegacyConfigHashLabel));
+
+    private static bool SameImage(string? first, string? second)
+    {
+        if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second)) return false;
+        static string Normalize(string value) => value.StartsWith("sha256:", StringComparison.Ordinal)
+            ? value[7..] : value;
+        var expected = Normalize(second);
+        return ContainerIdentity.ResolveId([expected], Normalize(first)) == expected;
     }
 
     /// <summary>
@@ -584,9 +598,25 @@ public sealed partial class ComposeProjectSupervisor
                 var observed = await _networks.InspectAsync(entry.ContainerId, ct).ConfigureAwait(false);
                 ComposeProject.TryGetLabel(observed.Labels, ComposeProject.ImageIdLabel,
                     ComposeProject.LegacyImageIdLabel, out previousImageId);
+                if (!HasPrivateFingerprint(observed))
+                {
+                    // Externally created containers may omit the internal image-id label. The actual engine
+                    // identity must match the resolved image; a shared label cannot prove that.
+                    previousImageId = observed.ImageId;
+                    if (entry.Action is ComposeServiceAction.Keep or ComposeServiceAction.Start &&
+                        string.IsNullOrWhiteSpace(previousImageId))
+                    {
+                        entries.Add(entry with
+                        {
+                            Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible,
+                            Reason = "The existing container image identity is unavailable; shared Compose adoption cannot be verified.",
+                        });
+                        continue;
+                    }
+                }
             }
             observedImages[entry.InstanceKey] = previousImageId;
-            var changedImage = previousImageId is not null && image is not null && previousImageId != image.Id;
+            var changedImage = previousImageId is not null && image is not null && !SameImage(previousImageId, image.Id);
             entries.Add(entry with
             {
                 ImageId = image?.Id,
@@ -609,7 +639,7 @@ public sealed partial class ComposeProjectSupervisor
             var finalImage = FindImage(images, ResolveImage(project, entry.Service));
             if (finalImage is null) continue;
             var changed = entry.ContainerId is not null && observedImages[entry.InstanceKey] is { } oldImage &&
-                oldImage != finalImage.Id;
+                !SameImage(oldImage, finalImage.Id);
             entries[i] = entry with
             {
                 ImageId = finalImage.Id,

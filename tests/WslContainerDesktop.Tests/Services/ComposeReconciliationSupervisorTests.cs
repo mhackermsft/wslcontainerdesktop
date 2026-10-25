@@ -27,6 +27,144 @@ namespace WslContainerDesktop.Tests.Services;
 /// </summary>
 public sealed class ComposeReconciliationSupervisorTests
 {
+    private static Fixture SharedComposeFixture(int replicas = 1)
+    {
+        var fixture = new Fixture();
+        var service = fixture.Project.Services[0];
+        service.Replicas = replicas;
+        service.Options.Name = null;
+        service.Options.Network = "a";
+        service.Options.Networks = ["a"];
+        service.Options.NetworkAttachments = [new()
+        {
+            Network = "a", Aliases = ["www"], Ipv4Address = replicas == 1 ? "172.28.0.51" : null,
+        }];
+        for (var index = 1; index <= replicas; index++)
+        {
+            var options = service.Options.Clone();
+            options.Name = fixture.Project.ContainerNameFor(service.Name, index);
+            options.Labels.Clear();
+            options.Labels[ComposeProject.ProjectLabel] = fixture.Project.Name;
+            options.Labels[ComposeProject.ServiceLabel] = service.Name;
+            options.Labels[ComposeProject.InstanceLabel] = index.ToString();
+            options.Labels[ComposeProject.ConfigHashLabel] =
+                ComposeReconciliationPlanner.InteropFingerprint(fixture.Project, service);
+            options.Image = fixture.Engine.Images[0].Id;
+            options.NetworkAttachments[0].Aliases.Add(service.Name);
+            fixture.Engine.Add(options);
+        }
+        return fixture;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SharedComposeContainerIsAdoptedWithoutReplacementOrRelabelling(bool stopped)
+    {
+        var fixture = SharedComposeFixture();
+        var before = new Dictionary<string, string>(fixture.Engine.Containers["demo-web-1"].Labels);
+        if (stopped) fixture.Engine.States["demo-web-1"] = ContainerState.Stopped;
+
+        var result = await fixture.Supervisor.UpAsync(fixture.Project);
+
+        Assert.True(result.AllSucceeded);
+        Assert.Equal(stopped ? ComposeServiceAction.Start : ComposeServiceAction.Keep, result.Services[0].Action);
+        Assert.Equal(stopped ? ["start:demo-web-1"] : Array.Empty<string>(), fixture.Engine.Mutations);
+        Assert.Equal(before, fixture.Engine.Containers["demo-web-1"].Labels);
+        Assert.Equal("demo-web-1", fixture.SavedProject!.AppliedServices["web"].ContainerId);
+        Assert.Equal(ComposeReconciliationPlanner.Fingerprint(fixture.Project, fixture.Project.Services[0]),
+            fixture.SavedProject.AppliedServices["web"].Fingerprint);
+
+        fixture.Engine.Mutations.Clear();
+        var reopened = new Fixture(engine: fixture.Engine, persisted: fixture.SavedProject);
+        Assert.True((await reopened.Supervisor.UpAsync(reopened.Project)).AllSucceeded);
+        Assert.Empty(fixture.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task SharedComposeReplicasDoNotRequireRetrofittingDesktopOnlyAliases()
+    {
+        var fixture = SharedComposeFixture(replicas: 2);
+
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+
+        Assert.Empty(fixture.Engine.Mutations);
+        Assert.Equal(2, fixture.SavedProject!.AppliedServices.Count);
+        Assert.All(fixture.Engine.Endpoints.Values, endpoints =>
+            Assert.Equal(["www", "web"], endpoints[0].Aliases));
+    }
+
+    [Theory]
+    [InlineData("shared-mismatch", ComposeServiceAction.Recreate)]
+    [InlineData("private-mismatch", ComposeServiceAction.Recreate)]
+    [InlineData("foreign", ComposeServiceAction.Blocked)]
+    [InlineData("missing-image", ComposeServiceAction.Blocked)]
+    [InlineData("image-changed", ComposeServiceAction.Recreate)]
+    [InlineData("misleading-image-label", ComposeServiceAction.Recreate)]
+    [InlineData("missing-endpoint", ComposeServiceAction.Recreate)]
+    [InlineData("alias-mismatch", ComposeServiceAction.Recreate)]
+    [InlineData("ip-mismatch", ComposeServiceAction.Recreate)]
+    [InlineData("unshared-setting", ComposeServiceAction.Recreate)]
+    public async Task SharedHashAloneDoesNotOverrideIncompatibleObservedConfiguration(
+        string mismatch, ComposeServiceAction expected)
+    {
+        var fixture = SharedComposeFixture();
+        var options = fixture.Engine.Containers["demo-web-1"];
+        switch (mismatch)
+        {
+            case "shared-mismatch": options.Labels[ComposeProject.ConfigHashLabel] = "v2:other"; break;
+            case "private-mismatch": options.Labels[ComposeProject.InternalConfigHashLabel] = "v1:other"; break;
+            case "foreign": options.Labels[ComposeProject.ProjectLabel] = "foreign"; break;
+            case "missing-image": options.Image = ""; break;
+            case "image-changed": fixture.Engine.Images[0].Id = "sha256:updated"; break;
+            case "misleading-image-label":
+                options.Labels[ComposeProject.ImageIdLabel] = fixture.Engine.Images[0].Id;
+                options.Image = "sha256:different";
+                break;
+            case "missing-endpoint": fixture.Engine.Endpoints["demo-web-1"].Clear(); break;
+            case "alias-mismatch": fixture.Engine.Endpoints["demo-web-1"][0].Aliases.Clear(); break;
+            case "ip-mismatch": fixture.Engine.Endpoints["demo-web-1"][0].Ipv4Address = "172.28.0.99"; break;
+            case "unshared-setting": fixture.Project.Services[0].ExtraHosts = ["host:10.0.0.1"]; break;
+        }
+
+        var plan = await fixture.Supervisor.PlanAsync(fixture.Project);
+
+        Assert.Equal(expected, Assert.Single(plan.Services).Action);
+        Assert.Empty(fixture.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task AdoptedSnapshotStillDetectsChangesOutsideTheSharedProjection()
+    {
+        var fixture = SharedComposeFixture();
+        var service = fixture.Project.Services[0];
+        service.Options.Dns = ["1.1.1.1", "8.8.8.8"];
+        fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ConfigHashLabel] =
+            ComposeReconciliationPlanner.InteropFingerprint(fixture.Project, service);
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        var shared = ComposeReconciliationPlanner.InteropFingerprint(fixture.Project, service);
+        service.Options.Dns.Reverse();
+        Assert.Equal(shared, ComposeReconciliationPlanner.InteropFingerprint(fixture.Project, service));
+
+        var plan = await fixture.Supervisor.PlanAsync(fixture.Project);
+
+        Assert.Equal(ComposeServiceAction.Recreate, Assert.Single(plan.Services).Action);
+        Assert.Empty(fixture.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task SharedAdoptionCorrelatesFullAndShortImageIds()
+    {
+        var fixture = SharedComposeFixture();
+        var image = new string('a', 64);
+        fixture.Engine.Containers["demo-web-1"].Image = "sha256:" + image;
+        fixture.Engine.Images[0].Id = image[..12];
+
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+
+        Assert.Empty(fixture.Engine.Mutations);
+    }
+
     [Theory]
     [InlineData(WslcCapabilitySupport.Supported)]
     [InlineData(WslcCapabilitySupport.Unsupported)]

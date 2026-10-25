@@ -334,9 +334,9 @@ public static class ComposeReconciliationPlanner
                 continue;
             }
 
-            // Shared hash is intentionally not sufficient for the app's richer model.
-            // Containers created before the split carry the old internal hash in the
-            // shared label and are migrated on their next reconciliation.
+            // Desktop's private fingerprint remains authoritative when present. A current shared
+            // fingerprint can adopt portable configuration; endpoint and actual image preflights
+            // still run before reuse. Persisted applied state tracks later private-only changes.
             inspected.Labels.TryGetValue(ComposeProject.InternalConfigHashLabel, out var appliedHash);
             if (string.IsNullOrEmpty(appliedHash))
                 ComposeProject.TryGetLabel(inspected.Labels, ComposeProject.LegacyConfigHashLabel,
@@ -356,6 +356,9 @@ public static class ComposeReconciliationPlanner
                 continue;
             }
 
+            var adoptedShared = string.IsNullOrEmpty(appliedHash) &&
+                CanAdoptSharedConfiguration(project, service, inspected, fingerprint);
+            if (adoptedShared) appliedHash = fingerprint;
             var changed = appliedHash != fingerprint;
             var recreate = changed || request.ForceRecreate || (request.Build && service.Build is not null);
             var reason = string.IsNullOrEmpty(appliedHash)
@@ -363,6 +366,7 @@ public static class ComposeReconciliationPlanner
                 : changed ? "Effective container configuration changed."
                 : request.ForceRecreate ? "Container recreation was explicitly requested."
                 : request.Build && service.Build is not null ? "An explicit image build was requested."
+                : adoptedShared ? "Shared Compose configuration matches; verifying existing endpoints and image for adoption."
                 : "Effective container configuration is unchanged.";
             result.Add(new(service, name, fingerprint,
                 changed ? ComposeServiceChange.Changed : ComposeServiceChange.Unchanged,
@@ -383,6 +387,23 @@ public static class ComposeReconciliationPlanner
                 Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible,
                 Reason = "Selected instances resolve to the same container name.",
             } : p).ToArray()));
+    }
+
+    /// <summary>Private-only runtime settings need desktop creation rather than a shared-hash assumption.</summary>
+    private static bool CanAdoptSharedConfiguration(ComposeProject project, ComposeService service,
+        ContainerNetworkState inspected, string fingerprint)
+    {
+        if (!inspected.HasLabel(ComposeProject.ConfigHashLabel, InteropFingerprint(project, service)) ||
+            service.ExtraHosts.Count > 0 || service.Build?.Labels.Count > 0 ||
+            service.Options.Mounts.Any(m => m.Type == "tmpfs" || m.Options.Count > 0) ||
+            service.Secrets.Any(m => project.Secrets.Any(s => s.Name == m.Source &&
+                (s.External || s.Content is not null))) ||
+            service.Configs.Any(m => project.Configs.Any(s => s.Name == m.Source &&
+                (s.External || s.Content is not null))))
+            return false;
+        return !project.AppliedServices.TryGetValue(InstanceKey(service), out var saved) ||
+            ContainerIdentity.ResolveId([inspected.Id], saved.ContainerId) == inspected.Id &&
+            saved.Fingerprint == fingerprint;
     }
 
     /// <summary>Recheck startup gates after image/network preflight refines Keep into Recreate/Restart.</summary>

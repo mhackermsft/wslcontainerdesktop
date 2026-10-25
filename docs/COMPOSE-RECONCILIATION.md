@@ -74,6 +74,25 @@ containers without a configuration fingerprint undergo a one-time explicit-up mi
 not a guessed equivalence comparison. A container-name change with a known old instance requires
 explicit removal of that instance before apply; it does not silently create a duplicate.
 
+### Shared Compose adoption
+
+An owned container created by a compatible Compose CLI can be adopted without replacement when its
+sole shared fingerprint, `com.wslc-compose.config-hash=v2:<sha256>`, matches the desired
+portable configuration. The supervisor also verifies required network endpoints, service/user
+aliases and requested static IPs, and compares the actual inspected image identity with the
+resolved local image. Full inspected image digests and unambiguous CLI short IDs are correlated.
+Missing image evidence blocks adoption; a different image or endpoint configuration requires
+recreation. Desktop-only generated replica aliases are not retrofitted onto otherwise compatible
+shared containers.
+
+Adoption does not rewrite the container's labels or introduce another shared hash. Desktop saves
+its private effective fingerprint and container identity in the applied snapshot, so subsequent
+changes outside the portable projection still reconcile normally, including after relaunch.
+An existing private container fingerprint remains authoritative. Settings not proven by the
+shared projection, such as `extra_hosts`, advanced mount options, build labels or inline/external
+secret/config mounts, require desktop creation rather than first-time shared-hash adoption.
+Explicit rebuild/force-recreate requests continue to replace the instance.
+
 ## Selection and readiness
 
 - Whole-project apply selects unprofiled and active-profile services; `*` enables all profiles.

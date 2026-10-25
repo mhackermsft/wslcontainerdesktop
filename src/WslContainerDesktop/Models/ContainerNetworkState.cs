@@ -23,6 +23,8 @@ public sealed class ContainerNetworkState
 {
     /// <summary>Gets or sets the id.</summary>
     public string Id { get; private init; } = string.Empty;
+    /// <summary>Actual immutable image identity reported by inspect, independent of Compose labels.</summary>
+    public string? ImageId { get; private init; }
     /// <summary>Gets the labels.</summary>
     public Dictionary<string, string> Labels { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets the networks.</summary>
@@ -82,7 +84,12 @@ public sealed class ContainerNetworkState
             throw new InvalidOperationException("Container inspect did not provide a usable ID and network endpoint map.");
         }
 
-        var result = new ContainerNetworkState { Id = id.GetString()! };
+        var result = new ContainerNetworkState
+        {
+            Id = id.GetString()!,
+            ImageId = root.TryGetProperty("Image", out var image) && image.ValueKind == JsonValueKind.String
+                ? image.GetString() : null,
+        };
         if (root.TryGetProperty("Config", out var config) && config.ValueKind == JsonValueKind.Object &&
             config.TryGetProperty("Labels", out var labels) && labels.ValueKind == JsonValueKind.Object)
         {
@@ -109,17 +116,20 @@ public sealed class ContainerNetworkState
                     .Select(a => a.GetString()!).ToList();
             }
 
-            // Before start, IPAddress is empty but the requested static address is in IPAMConfig.
-            if (network.Value.TryGetProperty("IPAMConfig", out var ipam) && ipam.ValueKind == JsonValueKind.Object &&
+            // A requested address is not evidence that a running endpoint actually applied it.
+            if (network.Value.TryGetProperty("IPAddress", out var address) && address.ValueKind == JsonValueKind.String)
+            {
+                endpoint.Ipv4Address = address.GetString();
+            }
+
+            var running = root.TryGetProperty("State", out var state) && state.ValueKind == JsonValueKind.Object &&
+                state.TryGetProperty("Running", out var isRunning) && isRunning.ValueKind == JsonValueKind.True;
+            // Before start, the allocation is available only in IPAMConfig.
+            if (!running && string.IsNullOrWhiteSpace(endpoint.Ipv4Address) &&
+                network.Value.TryGetProperty("IPAMConfig", out var ipam) && ipam.ValueKind == JsonValueKind.Object &&
                 ipam.TryGetProperty("IPv4Address", out var requested) && requested.ValueKind == JsonValueKind.String)
             {
                 endpoint.Ipv4Address = requested.GetString();
-            }
-
-            if (string.IsNullOrWhiteSpace(endpoint.Ipv4Address) &&
-                network.Value.TryGetProperty("IPAddress", out var address) && address.ValueKind == JsonValueKind.String)
-            {
-                endpoint.Ipv4Address = address.GetString();
             }
 
             result.Networks.Add(network.Name, endpoint);

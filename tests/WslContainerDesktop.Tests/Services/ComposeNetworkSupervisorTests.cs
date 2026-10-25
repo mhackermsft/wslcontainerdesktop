@@ -29,6 +29,60 @@ namespace WslContainerDesktop.Tests.Services;
 /// </summary>
 public sealed class ComposeNetworkSupervisorTests
 {
+    [Theory]
+    [InlineData("10.0.0.52")]
+    [InlineData(null)]
+    public async Task SingleNetworkIpOnlyChangeRecreatesWithoutChangingSharedHash(string? address)
+    {
+        var fixture = new Fixture();
+        var options = fixture.Project.Services[0].Options;
+        options.Network = "a";
+        options.Networks = ["a"];
+        options.NetworkAttachments = [new() { Network = "a", Ipv4Address = "10.0.0.51" }];
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        var hash = fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ConfigHashLabel];
+        fixture.Engine.Mutations.Clear();
+
+        options.NetworkAttachments[0].Ipv4Address = address;
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+
+        Assert.Equal(["stop:demo-web-1", "remove:demo-web-1", "run:demo-web-1"], fixture.Engine.Mutations);
+        Assert.Equal(hash, fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ConfigHashLabel]);
+        Assert.Equal(address, Assert.Single(fixture.Engine.Endpoints["demo-web-1"]).Ipv4Address);
+    }
+
+    [Fact]
+    public async Task SingleNetworkWrongIpRecreatesEvenWhenInternalHashMatches()
+    {
+        var fixture = new Fixture();
+        var options = fixture.Project.Services[0].Options;
+        options.Network = "a";
+        options.Networks = ["a"];
+        options.NetworkAttachments = [new() { Network = "a", Ipv4Address = "10.0.0.51" }];
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        fixture.Engine.Endpoints["demo-web-1"][0].Ipv4Address = "10.0.0.99";
+        fixture.Engine.Mutations.Clear();
+
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+
+        Assert.Equal(["stop:demo-web-1", "remove:demo-web-1", "run:demo-web-1"], fixture.Engine.Mutations);
+        Assert.Equal("10.0.0.51", Assert.Single(fixture.Engine.Endpoints["demo-web-1"]).Ipv4Address);
+    }
+
+    [Fact]
+    public async Task SingleNetworkRunDoesNotSucceedWhenEngineIgnoresStaticIp()
+    {
+        var fixture = new Fixture();
+        var options = fixture.Project.Services[0].Options;
+        options.Network = "a";
+        options.Networks = ["a"];
+        options.NetworkAttachments = [new() { Network = "a", Ipv4Address = "10.0.0.51" }];
+        fixture.Engine.AfterRun = name => fixture.Engine.Endpoints[name][0].Ipv4Address = null;
+
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        Assert.Empty(fixture.Engine.Containers);
+    }
+
     [Fact]
     public async Task HealthDependenciesUseVerifiedStartupIdentityAndSeedBeforeWaiting()
     {

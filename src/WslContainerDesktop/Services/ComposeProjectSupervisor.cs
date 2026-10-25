@@ -681,7 +681,8 @@ public sealed partial class ComposeProjectSupervisor
                             throw new InvalidOperationException("Existing configuration differs from the desired project; apply it explicitly.");
 
                         var options = service.Options.Clone();
-                        PrepareNetworkOptions(appliedProject, service, options);
+                        PrepareNetworkOptions(appliedProject, service, options,
+                            includeReplicaContainerAlias: HasPrivateFingerprint(state));
                         if (options.GetNetworkAttachments().Count > 1)
                         {
                             var capabilities = await _capabilities.GetAsync(ct).ConfigureAwait(false);
@@ -823,6 +824,13 @@ public sealed partial class ComposeProjectSupervisor
                 var state = await _networks.InspectAsync(name, observation.Token).ConfigureAwait(false);
                 if (!ComposeReconciliationPlanner.IsOwnedInstance(state, project, service) || !state.HasLabel(ApplyOperationLabel, operation))
                     throw new InvalidOperationException("Started container ownership could not be verified.");
+                foreach (var endpoint in prepared.GetNetworkAttachments().Take(1)
+                    .Where(n => !string.IsNullOrWhiteSpace(n.Ipv4Address)))
+                {
+                    if (!state.Networks.ContainsKey(endpoint.Network))
+                        throw new InvalidOperationException("Started container is missing its requested static IPv4 endpoint.");
+                    state.RequireCompatible(endpoint);
+                }
                 containerId = state.Id;
             }
             launched = true;
@@ -1107,7 +1115,7 @@ public sealed partial class ComposeProjectSupervisor
 
     /// <summary>Normalizes Compose network aliases and <c>network_mode: service:</c> references for <c>wslc</c>.</summary>
     private static void PrepareNetworkOptions(ComposeProject project, ComposeService service, RunContainerOptions options,
-        bool includeFirstContainerAlias = false)
+        bool includeFirstContainerAlias = false, bool includeReplicaContainerAlias = true)
     {
         var mode = options.NetworkMode ?? options.Network;
         if (mode?.StartsWith("service:", StringComparison.Ordinal) == true)
@@ -1127,7 +1135,7 @@ public sealed partial class ComposeProjectSupervisor
             }
             // New containers get an explicit unique alias on every endpoint. Existing legacy
             // instance one is not recreated/reconnected merely to retrofit this implicit alias.
-            if (includeFirstContainerAlias || ComposeReconciliationPlanner.InstanceIndex(service) > 1)
+            if (includeFirstContainerAlias || includeReplicaContainerAlias && ComposeReconciliationPlanner.InstanceIndex(service) > 1)
             {
                 var containerName = ResolveContainerName(project, service);
                 if (!endpoint.Aliases.Contains(containerName, StringComparer.Ordinal))
