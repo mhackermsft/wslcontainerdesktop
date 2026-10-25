@@ -919,9 +919,13 @@ public sealed partial class ComposeProjectSupervisor
                 return;
             }
 
-            var script = "GW=$(ip route 2>/dev/null | awk '/^default/{print $3; exit}'); " +
+            var script = "GW=$(awk '$2 == \"00000000\" { h=$3; for (i=7; i>=1; i-=2) { " +
+                "hi=index(\"0123456789ABCDEF\", substr(h,i,1))-1; " +
+                "lo=index(\"0123456789ABCDEF\", substr(h,i+1,1))-1; " +
+                "printf \"%s%d\", i==7 ? \"\" : \".\", hi*16+lo } print \"\"; exit }' " +
+                "/proc/net/route 2>/dev/null); " +
                 string.Join("; ", lines);
-            var result = await _wslc.ExecAsync(container.Id, script, ct).ConfigureAwait(false);
+            var result = await _wslc.ExecAsync(container.Id, script, ct, user: "0").ConfigureAwait(false);
             if (!result.Success)
             {
                 _logger.LogDebug("Applying extra_hosts to {Name} failed: {Detail}", name, Summarize(result));

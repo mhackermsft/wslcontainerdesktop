@@ -664,8 +664,8 @@ public sealed class WslcService(
     /// <summary>
     /// Executes a command inside a container through <c>wslc</c>.
     /// </summary>
-    public Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default) =>
-        runner.RunAsync(["exec", id, "sh", "-c", command], ct);
+    public Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default, string? user = null) =>
+        runner.RunAsync(user is null ? ["exec", id, "sh", "-c", command] : ["exec", "--user", user, id, "sh", "-c", command], ct);
 
     // Walks a filesystem staying on the root device (-xdev skips /proc, /sys, /dev, tmpfs, and
     // bind-mounted volumes automatically) and emits one "mode|size|mtime|path" line per entry.
