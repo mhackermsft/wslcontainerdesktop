@@ -487,26 +487,15 @@ public static class ComposeReconciliationPlanner
         return FingerprintValidated(project, service);
     }
 
-    /// <summary>Fingerprint published in the shared compose label namespace.</summary>
+    /// <summary>Portable configuration identity used by compatible Compose frontends.</summary>
     public static string InteropFingerprint(ComposeService service) =>
-        HashConfiguration(InteropConfiguration(service, includeV2Fields: false));
+        HashConfiguration(InteropConfiguration(service), "v2");
 
-    /// <summary>
-    /// Experimental shared fingerprint. It is intentionally not published until both Compose
-    /// implementations apply every field represented here.
-    /// </summary>
-    public static string InteropFingerprintV2(ComposeService service) =>
-        HashConfiguration(InteropConfiguration(service, includeV2Fields: true), "v2");
-
-    /// <summary>Experimental shared fingerprint including declarations for networks used by the service.</summary>
-    public static string InteropFingerprintV2(ComposeProject project, ComposeService service) =>
+    /// <summary>Portable configuration identity including declarations for resources used by the service.</summary>
+    public static string InteropFingerprint(ComposeProject project, ComposeService service) =>
         HashConfiguration(InteropConfiguration(project, service), "v2");
 
-    /// <summary>True when every file resource used by this service has a portable v2 identity.</summary>
-    public static bool CanPublishInteropFingerprintV2(ComposeProject project, ComposeService service) =>
-        CanPublishFileMounts(service.Secrets, project.Secrets) && CanPublishFileMounts(service.Configs, project.Configs);
-
-    private static SortedDictionary<string, object?> InteropConfiguration(ComposeService service, bool includeV2Fields)
+    private static SortedDictionary<string, object?> InteropConfiguration(ComposeService service)
     {
         var o = service.Options;
         var configuration = new SortedDictionary<string, object?>(StringComparer.Ordinal)
@@ -518,7 +507,7 @@ public static class ComposeReconciliationPlanner
             ["environment"] = Pairs(o.EnvironmentVariables), ["ports"] = Set(o.PortMappings),
             ["mounts"] = Set(o.Volumes),
             ["networks"] = o.GetNetworkAttachments().OrderBy(a => a.Network, StringComparer.Ordinal)
-                .Select(a => new { name = a.Network, aliases = includeV2Fields ? Set(a.Aliases.Append(service.Name)) : Set(a.Aliases) }).ToArray(),
+                .Select(a => new { name = a.Network, aliases = Set(a.Aliases.Append(service.Name)) }).ToArray(),
             ["labels"] = o.Labels.Where(p => !p.Key.StartsWith("com.wslc-compose.", StringComparison.Ordinal) &&
                 !p.Key.StartsWith("com.wsldesktop.", StringComparison.Ordinal))
                 .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
@@ -529,36 +518,33 @@ public static class ComposeReconciliationPlanner
             ["mem_limit"] = Trim(o.MemoryLimit) ?? string.Empty, ["cpus"] = Trim(o.CpuLimit) ?? string.Empty,
             ["shm_size"] = Trim(o.ShmSize) ?? string.Empty, ["stop_signal"] = Trim(o.StopSignal) ?? string.Empty,
         };
-        if (includeV2Fields)
+        configuration["stdin_open"] = o.Interactive;
+        configuration["gpus_all"] = o.AllGpus;
+        configuration["tty"] = o.Terminal;
+        configuration["stop_timeout"] = o.StopTimeoutSeconds;
+        var health = o.Health ?? service.Health?.DesiredHealth;
+        configuration["healthcheck"] = health is null ? null : new
         {
-            configuration["stdin_open"] = o.Interactive;
-            configuration["gpus_all"] = o.AllGpus;
-            configuration["tty"] = o.Terminal;
-            configuration["stop_timeout"] = o.StopTimeoutSeconds;
-            var health = o.Health ?? service.Health?.DesiredHealth;
-            configuration["healthcheck"] = health is null ? null : new
-            {
-                test = health.Test, disabled = health.Disabled, interval = health.Interval,
-                timeout = health.Timeout, start_period = health.StartPeriod, retries = health.Retries,
-            };
-            configuration["network_declarations"] = Array.Empty<object>();
-            configuration["volume_declarations"] = Array.Empty<object>();
-            configuration["build_details"] = service.Build is null ? null : new SortedDictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["dockerfile"] = string.IsNullOrWhiteSpace(service.Build.Dockerfile) ? "Dockerfile" : service.Build.Dockerfile,
-                ["args"] = Pairs(service.Build.Args), ["target"] = Trim(service.Build.Target),
-                ["pull"] = service.Build.Pull, ["no_cache"] = service.Build.NoCache,
-            };
-            configuration["secrets"] = Array.Empty<object>();
-            configuration["configs"] = Array.Empty<object>();
-            configuration["network_mode"] = Trim(o.NetworkMode);
-        }
+            test = health.Test, disabled = health.Disabled, interval = health.Interval,
+            timeout = health.Timeout, start_period = health.StartPeriod, retries = health.Retries,
+        };
+        configuration["network_declarations"] = Array.Empty<object>();
+        configuration["volume_declarations"] = Array.Empty<object>();
+        configuration["build_details"] = service.Build is null ? null : new SortedDictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["dockerfile"] = string.IsNullOrWhiteSpace(service.Build.Dockerfile) ? "Dockerfile" : service.Build.Dockerfile,
+            ["args"] = Pairs(service.Build.Args), ["target"] = Trim(service.Build.Target),
+            ["pull"] = service.Build.Pull, ["no_cache"] = service.Build.NoCache,
+        };
+        configuration["secrets"] = Array.Empty<object>();
+        configuration["configs"] = Array.Empty<object>();
+        configuration["network_mode"] = Trim(o.NetworkMode);
         return configuration;
     }
 
     private static SortedDictionary<string, object?> InteropConfiguration(ComposeProject project, ComposeService service)
     {
-        var configuration = InteropConfiguration(service, includeV2Fields: true);
+        var configuration = InteropConfiguration(service);
         var used = service.Options.GetNetworkAttachments().Select(attachment => attachment.Network)
             .ToHashSet(StringComparer.Ordinal);
         configuration["network_declarations"] = project.Networks.Where(network => used.Contains(network.Name))
@@ -580,15 +566,14 @@ public static class ComposeReconciliationPlanner
 
     private static object[] InteropFileMounts(IReadOnlyList<ComposeFileMount> mounts, IReadOnlyList<ComposeSecret> sources) =>
         mounts.OrderBy(m => m.Target, StringComparer.Ordinal).ThenBy(m => m.Source, StringComparer.Ordinal)
-            .Select(m =>
+            .Select(m => new { Mount = m, Source = sources.SingleOrDefault(s => s.Name == m.Source) })
+            .Where(item => item.Source is { External: false, Content: null, File: not null })
+            .Select(item =>
             {
-                var source = sources.SingleOrDefault(s => s.Name == m.Source);
-                if (source is null || source.External || string.IsNullOrWhiteSpace(source.File))
-                    throw new InvalidOperationException("A Compose file-backed resource is unavailable.");
                 try
                 {
-                    using var file = File.OpenRead(source.File);
-                    return (object)new { source = m.Source, target = m.Target,
+                    using var file = File.OpenRead(item.Source!.File!);
+                    return (object)new { source = item.Mount.Source, target = item.Mount.Target,
                         sha256 = Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant() };
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -596,9 +581,6 @@ public static class ComposeReconciliationPlanner
                     throw new InvalidOperationException("A Compose file-backed resource is unreadable.");
                 }
             }).ToArray();
-
-    private static bool CanPublishFileMounts(IReadOnlyList<ComposeFileMount> mounts, IReadOnlyList<ComposeSecret> sources) =>
-        mounts.All(m => sources.SingleOrDefault(s => s.Name == m.Source) is { External: false, Content: null, File: not null });
 
     /// <summary>Hashes a service within a snapshot whose project-wide inline sources have already been validated.</summary>
     internal static string FingerprintValidated(ComposeProject project, ComposeService service)
@@ -622,7 +604,6 @@ public static class ComposeReconciliationPlanner
             Ports = Set(o.PortMappings), Environment = Pairs(o.EnvironmentVariables), Mounts = Set(o.Volumes),
             Labels = o.Labels.Where(p => p.Key != ComposeProject.ProjectLabel &&
                 p.Key != ComposeProject.ServiceLabel && p.Key != ComposeProject.ConfigHashLabel &&
-                p.Key != ComposeProject.ConfigHashV2Label &&
                 p.Key != ComposeProject.ImageIdLabel && p.Key != ComposeProject.InstanceLabel &&
                 p.Key is not ("com.wsldesktop.apply-operation" or "com.wsldesktop.network-operation"))
                 .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),

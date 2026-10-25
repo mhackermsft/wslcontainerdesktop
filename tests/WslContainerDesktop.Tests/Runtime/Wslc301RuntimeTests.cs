@@ -233,9 +233,8 @@ public sealed class Wslc301RuntimeTests
             var canonicalContainer = Assert.Single(containers, container => container.Name == canonicalContainerName);
             lease.TrackContainer(canonicalContainer.Name);
             var labels = (await lease.InspectContainerJsonAsync(canonicalContainerName)).GetProperty("Config").GetProperty("Labels");
-            Assert.StartsWith("v1:", labels.GetProperty(ComposeProject.ConfigHashLabel).GetString());
-            Assert.StartsWith("v2:", labels.GetProperty(ComposeProject.ConfigHashV2Label).GetString());
-            var sourceV2 = labels.GetProperty(ComposeProject.ConfigHashV2Label).GetString();
+            var sourceFingerprint = labels.GetProperty(ComposeProject.ConfigHashLabel).GetString();
+            Assert.StartsWith("v2:", sourceFingerprint);
             var discovered = await ComposeProjectDiscovery.DiscoverAsync(containers,
                 (id, ct) => lease.Service.InspectContainerAsync(id, ct), lease.Ct);
 
@@ -274,9 +273,9 @@ public sealed class Wslc301RuntimeTests
                 container => container.Name == canonicalContainerName);
             var containerId = reimportedContainer.Id;
             Assert.False(string.IsNullOrWhiteSpace(containerId));
-            var reimportedV2 = (await lease.InspectContainerJsonAsync(canonicalContainerName))
-                .GetProperty("Config").GetProperty("Labels").GetProperty(ComposeProject.ConfigHashV2Label).GetString();
-            Assert.Equal(sourceV2, reimportedV2);
+            var reimportedFingerprint = (await lease.InspectContainerJsonAsync(canonicalContainerName))
+                .GetProperty("Config").GetProperty("Labels").GetProperty(ComposeProject.ConfigHashLabel).GetString();
+            Assert.Equal(sourceFingerprint, reimportedFingerprint);
 
             WslcRuntimeLease.Require(await ProcessRunner.RunAtPathAsync("wslc-compose", arguments.Concat(["up", "-d"]), lease.Ct),
                 "Compose CLI reconcile up");
@@ -536,7 +535,7 @@ public sealed class Wslc301RuntimeTests
                 .GetProperty("Config").GetProperty("Labels");
             Assert.Equal(projectName, containerLabels.GetProperty(ComposeProject.ProjectLabel).GetString());
             Assert.Equal("web", containerLabels.GetProperty(ComposeProject.ServiceLabel).GetString());
-            Assert.StartsWith("v1:", containerLabels.GetProperty(ComposeProject.ConfigHashLabel).GetString());
+            Assert.StartsWith("v2:", containerLabels.GetProperty(ComposeProject.ConfigHashLabel).GetString());
             var networkLabels = (await lease.InspectNetworkJsonAsync(defaultNetworkName)).GetProperty("Labels");
             Assert.Equal(projectName, networkLabels.GetProperty(ComposeProject.ProjectLabel).GetString());
             Assert.Equal("default", networkLabels.GetProperty(ComposeProject.NetworkLabel).GetString());

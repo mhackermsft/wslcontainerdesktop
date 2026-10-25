@@ -27,14 +27,6 @@ public sealed class ComposeReconciliationPlannerTests
     [Fact]
     public void InteropFingerprintMatchesSharedGoldenVector()
     {
-        var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
-        Assert.Equal("v1:27c3423594e0c47a78cad36d1076804c199b392fff0241819013bdde1a561e5f",
-            ComposeReconciliationPlanner.InteropFingerprint(service));
-    }
-
-    [Fact]
-    public void ExperimentalInteropFingerprintV2MatchesSharedGoldenVector()
-    {
         var service = new ComposeService
         {
             Name = "web",
@@ -46,11 +38,11 @@ public sealed class ComposeReconciliationPlannerTests
         };
 
         Assert.Equal("v2:7761dc3ba3aec83fa3b3e25cad2dab47fd4dc3356f16d936db7e445f6acbbd29",
-            ComposeReconciliationPlanner.InteropFingerprintV2(service));
+            ComposeReconciliationPlanner.InteropFingerprint(service));
     }
 
     [Fact]
-    public void ExperimentalInteropFingerprintV2MatchesStructuredMountVector()
+    public void InteropFingerprintMatchesStructuredMountVector()
     {
         var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
         service.Options.Volumes.Add("C:/data:/data:ro");
@@ -58,11 +50,11 @@ public sealed class ComposeReconciliationPlannerTests
             Options = ["propagation=rshared"] });
 
         Assert.Equal("v2:4aed1aa484bbbd21d5b9dd0bb844b5cd4b38cc8d61167714ad7a2b443f5df6a6",
-            ComposeReconciliationPlanner.InteropFingerprintV2(service));
+            ComposeReconciliationPlanner.InteropFingerprint(service));
     }
 
     [Fact]
-    public void ExperimentalInteropFingerprintV2MatchesInternalNetworkDeclarationVector()
+    public void InteropFingerprintMatchesInternalNetworkDeclarationVector()
     {
         var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
         service.Options.NetworkAttachments.Add(new() { Network = "demo_private" });
@@ -70,11 +62,11 @@ public sealed class ComposeReconciliationPlannerTests
             [new() { Key = "private", Name = "demo_private", Internal = true }] };
 
         Assert.Equal("v2:c3f312f032f286e3d0e3b9206d517d7554619ae1a7d7a319ffcae9005fd71295",
-            ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
+            ComposeReconciliationPlanner.InteropFingerprint(project, service));
     }
 
     [Fact]
-    public void ExperimentalInteropFingerprintV2MatchesVolumeDeclarationVector()
+    public void InteropFingerprintMatchesVolumeDeclarationVector()
     {
         var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
         service.Options.Volumes.Add("demo_data:/data");
@@ -83,11 +75,11 @@ public sealed class ComposeReconciliationPlannerTests
                 Labels = new(StringComparer.Ordinal) { ["purpose"] = "cache" } }] };
 
         Assert.Equal("v2:ea8b1dc7e8795f36d6114622ecd7dee6129c864d9c469f23a06c55b35b201a2d",
-            ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
+            ComposeReconciliationPlanner.InteropFingerprint(project, service));
     }
 
     [Fact]
-    public void ExperimentalInteropFingerprintV2MatchesBuildDetailsVector()
+    public void InteropFingerprintMatchesBuildDetailsVector()
     {
         var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" }, Build = new()
         {
@@ -95,11 +87,11 @@ public sealed class ComposeReconciliationPlannerTests
         } };
 
         Assert.Equal("v2:164d845a98d8c8ab7bde344740746eece3ae176962411708b951be1497a0b0a9",
-            ComposeReconciliationPlanner.InteropFingerprintV2(service));
+            ComposeReconciliationPlanner.InteropFingerprint(service));
     }
 
     [Fact]
-    public void ExperimentalInteropFingerprintV2MatchesFileResourceVector()
+    public void InteropFingerprintMatchesFileResourceVector()
     {
         var file = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".txt");
         File.WriteAllText(file, "secret");
@@ -111,13 +103,13 @@ public sealed class ComposeReconciliationPlannerTests
                 Secrets = [new() { Name = "token", File = file }] };
 
         Assert.Equal("v2:fc35d18446cec55bb53d049552b93c0976d76391234c74a8b89e1cdbbc602e3e",
-                ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
+                ComposeReconciliationPlanner.InteropFingerprint(project, service));
         }
         finally { File.Delete(file); }
     }
 
     [Fact]
-    public void ExperimentalInteropFingerprintV2MatchesRuntimeProjectVector()
+    public void InteropFingerprintMatchesRuntimeProjectVector()
     {
         var service = new ComposeService
         {
@@ -134,7 +126,7 @@ public sealed class ComposeReconciliationPlannerTests
             Volumes = [new() { Key = "data", Name = "demo_data" }] };
 
         Assert.Equal("v2:ee644000bdc9046eb83e2a95fde804a94ea4436fbd9d042654a6570ddf3d6247",
-            ComposeReconciliationPlanner.InteropFingerprintV2(project, service));
+            ComposeReconciliationPlanner.InteropFingerprint(project, service));
     }
 
 
@@ -154,7 +146,7 @@ public sealed class ComposeReconciliationPlannerTests
                 Labels = new(StringComparer.Ordinal) { ["b"] = "2", ["a"] = "1" },
             },
         };
-        Assert.Equal("v1:2e19c0922cf8afdd0d9d80beace8893e7c539ab3c6e423bf2b85f5fb556424f7",
+        Assert.Equal("v2:d7c09803e2b23299a5c8119bb640db4518fe0edef90753c541fe9c2c9963535e",
             ComposeReconciliationPlanner.InteropFingerprint(service));
     }
 

@@ -268,8 +268,6 @@ public sealed class ComposeProject
 
     /// <summary>Defines the config hash label constant used when the app stores or exchanges this model data.</summary>
     public const string ConfigHashLabel = "com.wslc-compose.config-hash";
-    /// <summary>Experimental interoperable Compose v2 configuration fingerprint.</summary>
-    public const string ConfigHashV2Label = "com.wslc-compose.config-hash-v2";
 
     /// <summary>WSL Container Desktop's complete reconciliation fingerprint.</summary>
     public const string InternalConfigHashLabel = "com.wsldesktop.internal-config-hash";

@@ -50,7 +50,7 @@ must refresh the runtime inventory after another tool may have changed it.
 
 ## Configuration fingerprint
 
-`com.wslc-compose.config-hash` is `v1:` followed by the lowercase SHA-256 of a
+`com.wslc-compose.config-hash` is `v2:` followed by the lowercase SHA-256 of a
 UTF-8, compact JSON object. Object keys are ordinal-sorted, arrays that represent
 sets are ordinal-sorted, and omitted fields mean their Compose defaults. The object
 contains the resolved runtime inputs common to both frontends:
@@ -92,19 +92,13 @@ The hash excludes project paths, resolved container names, resource metadata,
 runtime-generated labels, lifecycle bookkeeping, and image IDs. A hash from an
 unknown version is not trusted as equal; it requires a safe recreation.
 
-## Fingerprint v2 roadmap
-
-`com.wslc-compose.config-hash-v2` is published alongside the stable `v1`
-label. Consumers that understand it prefer `v2`; otherwise they compare `v1`.
-Unknown versions are never assumed equal.
-
-Its intended supported subset includes health checks, GPU all, stdin/TTY, stop
+The fingerprint also includes health checks, GPU all, stdin/TTY, stop
 timeouts, typed mounts, network mode, build details, file-backed secrets and
 configs, and declarations for used networks and named volumes. File resources
 contribute only source name, target, and SHA-256 content digest, never their
 content or local paths.
 
-`v2` deliberately excludes fields that cannot yet be applied equivalently:
+It deliberately excludes fields that cannot yet be applied equivalently:
 
 ```text
 restart policies (depends on persistent application-owned supervision)
