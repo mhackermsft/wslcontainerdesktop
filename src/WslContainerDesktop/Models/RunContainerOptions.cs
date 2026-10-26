@@ -31,6 +31,8 @@ public sealed class RunContainerOptions
     public bool RemoveOnExit { get; set; }
     /// <summary>Gets or sets a value indicating whether this value is interactive.</summary>
     public bool Interactive { get; set; }
+    /// <summary>Gets or sets a value indicating whether to allocate a terminal.</summary>
+    public bool Terminal { get; set; }
 
     /// <summary>Why <see cref="WaitsForTerminalInput"/> options cannot be run from the app.</summary>
     public const string ForegroundInteractiveError =
@@ -191,6 +193,7 @@ public sealed class RunContainerOptions
         Detached = Detached,
         RemoveOnExit = RemoveOnExit,
         Interactive = Interactive,
+        Terminal = Terminal,
         AllGpus = AllGpus,
         NeverPull = NeverPull,
         Command = Command,
@@ -269,6 +272,11 @@ public sealed class RunContainerOptions
         if (Interactive)
         {
             args.Add("-i");
+        }
+
+        if (Terminal)
+        {
+            args.Add("-t");
         }
 
         if (AllGpus)

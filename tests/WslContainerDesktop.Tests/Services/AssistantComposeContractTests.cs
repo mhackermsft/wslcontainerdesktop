@@ -110,14 +110,14 @@ public sealed class AssistantComposeContractTests
     }
 
     [Theory]
-    [InlineData("stop_compose_project", "stop:demo_worker", "stop:demo_web")]
-    [InlineData("down_compose_project", "remove:demo_worker", "remove:demo_web")]
-    [InlineData("restart_compose_project", "start:demo_web", "start:demo_worker")]
+    [InlineData("stop_compose_project", "stop:demo-worker-1", "stop:demo-web-1")]
+    [InlineData("down_compose_project", "remove:demo-worker-1", "remove:demo-web-1")]
+    [InlineData("restart_compose_project", "start:demo-web-1", "start:demo-worker-1")]
     public async Task SavedProjectLifecycleKeepsDependencyOrderAndUnrelatedContainers(
         string name, string first, string second)
     {
         var f = new Fixture();
-        var worker = Options("demo_worker");
+        var worker = Options("demo-worker-1");
         worker.Labels[ComposeProject.ServiceLabel] = "worker";
         f.Project.Services.Add(new() { Name = "worker", Options = worker,
             DependsOn = [new() { ServiceName = "web" }] });
@@ -140,7 +140,7 @@ public sealed class AssistantComposeContractTests
     public async Task SavedProjectLifecycleRejectsUnownedMatchingName(string name)
     {
         var f = new Fixture();
-        f.Engine.Add(new() { Name = "demo_web", Image = "fixture" });
+        f.Engine.Add(new() { Name = "demo-web-1", Image = "fixture" });
         var resolved = await Tools(f).ResolveAsync(AiContractHarness.Call(name, """{"projectName":"demo"}"""), default);
         AssertKind(resolved.BlockedResult!, "Blocked");
         Assert.Empty(f.Engine.Mutations);
@@ -198,7 +198,7 @@ public sealed class AssistantComposeContractTests
         await turn.WaitAsync(Deadline);
         AssertKind(output!, "Applied");
         Assert.Empty(f.Reviews);
-        Assert.Contains("ORDINARY=synthetic-private", f.Engine.Containers["demo_web"].EnvironmentVariables);
+        Assert.Contains("ORDINARY=synthetic-private", f.Engine.Containers["demo-web-1"].EnvironmentVariables);
         Assert.All(h.PersistedActivity, json => Assert.DoesNotContain("synthetic-private", json));
         h.Provider.Turns.Enqueue((_, _) => Task.FromResult("next"));
         await h.Assistant.SendAsync("summarize").WaitAsync(Deadline);
@@ -234,7 +234,7 @@ public sealed class AssistantComposeContractTests
                 image: fixture
                 depends_on: [bad]
             """;
-        var f = new Fixture(engine: new Engine { FailRun = "demo_bad" });
+        var f = new Fixture(engine: new Engine { FailRun = "demo-bad-1" });
         var resolved = await Tools(f, Templates(yaml)).ResolveAsync(Call(template, yaml), default);
         Assert.Null(resolved.BlockedResult);
         var output = await resolved.ExecuteAsync(default);
@@ -247,7 +247,7 @@ public sealed class AssistantComposeContractTests
         Assert.Contains("may remain", doc.RootElement.GetProperty("retentionNotice").GetString());
         Assert.Contains(doc.RootElement.GetProperty("retainedResources").EnumerateArray(),
             r => r.GetProperty("Kind").GetString() == "network" && r.GetProperty("State").GetString() == "unverified");
-        Assert.DoesNotContain("demo_dependent", f.Engine.Containers.Keys);
+        Assert.DoesNotContain("demo-dependent-1", f.Engine.Containers.Keys);
         Assert.DoesNotContain("Execution", output);
     }
 
@@ -429,7 +429,7 @@ public sealed class AssistantComposeContractTests
         {
             var f = new Fixture();
             if (resource) f.Engine.Networks["demo_default"] = "foreign-project";
-            else f.Engine.Add(new() { Name = "demo_web", Image = "fixture" });
+            else f.Engine.Add(new() { Name = "demo-web-1", Image = "fixture" });
             var resolved = await Tools(f).ResolveAsync(Call(false, BasicYaml), default);
             Assert.NotNull(resolved.BlockedResult);
             AssertKind(resolved.BlockedResult, "Blocked");
@@ -460,7 +460,7 @@ public sealed class AssistantComposeContractTests
     [Fact]
     public async Task FailedNativeCleanupReportsRetainedCandidateWithoutLegacyRetry()
     {
-        var f = new Fixture(engine: new Engine { FailStart = "demo_web", FailRemove = "demo_web" });
+        var f = new Fixture(engine: new Engine { FailStart = "demo-web-1", FailRemove = "demo-web-1" });
         f.Snapshot = new("wslc.exe", "fixture", Enum.GetValues<WslcFeature>()
             .ToDictionary(feature => feature, _ => new WslcCapability(WslcCapabilitySupport.Supported, "fixture")));
         var resolved = await Tools(f).ResolveAsync(Call(false, NetworkYaml), default);
@@ -470,9 +470,9 @@ public sealed class AssistantComposeContractTests
         Assert.Equal("failed", doc.RootElement.GetProperty("outcomes")[0].GetProperty("status").GetString());
         Assert.Contains(doc.RootElement.GetProperty("retainedResources").EnumerateArray(),
             r => r.GetProperty("Kind").GetString() == "container" &&
-                r.GetProperty("Name").GetString() == "demo_web" &&
+                r.GetProperty("Name").GetString() == "demo-web-1" &&
                 r.GetProperty("State").GetString() == "unverified");
-        Assert.Contains("demo_web", f.Engine.Containers.Keys);
+        Assert.Contains("demo-web-1", f.Engine.Containers.Keys);
         Assert.DoesNotContain(f.Engine.Mutations, m => m.StartsWith("run:", StringComparison.Ordinal));
         Assert.DoesNotContain("synthetic-private", output);
     }

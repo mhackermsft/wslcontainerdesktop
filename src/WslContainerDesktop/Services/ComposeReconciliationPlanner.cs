@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using WslContainerDesktop.Models;
 
@@ -48,7 +49,9 @@ public static class ComposeReconciliationPlanner
     public static bool IsOwnedInstance(ContainerNetworkState state, ComposeProject project, ComposeService service) =>
         state.IsOwnedBy(project, service) &&
         (state.HasLabel(ComposeProject.InstanceLabel, InstanceIndex(service).ToString(System.Globalization.CultureInfo.InvariantCulture)) ||
-         InstanceIndex(service) == 1 && !state.Labels.ContainsKey(ComposeProject.InstanceLabel));
+         state.HasLabel(ComposeProject.LegacyInstanceLabel, InstanceIndex(service).ToString(System.Globalization.CultureInfo.InvariantCulture)) ||
+         InstanceIndex(service) == 1 && !state.Labels.ContainsKey(ComposeProject.InstanceLabel) &&
+         !state.Labels.ContainsKey(ComposeProject.LegacyInstanceLabel));
 
     /// <summary>Returns the expected container name for a service using its runtime instance index.</summary>
     public static string ContainerName(ComposeProject project, ComposeService service) =>
@@ -56,9 +59,8 @@ public static class ComposeReconciliationPlanner
 
     /// <summary>Returns the expected container name for a service replica index.</summary>
     public static string ContainerName(ComposeProject project, ComposeService service, int index) =>
-        index > 1 ? $"{project.ContainerNameFor(service.Name)}_{index}" :
         string.IsNullOrWhiteSpace(service.Options.Name)
-            ? project.ContainerNameFor(service.Name)
+            ? project.ContainerNameFor(service.Name, index)
             : service.Options.Name.Trim();
 
     /// <summary>Resolves the desired replica count from the request, saved overrides, or service default.</summary>
@@ -71,7 +73,20 @@ public static class ComposeReconciliationPlanner
     {
         var name = containerName.TrimStart('/');
         if (name == ContainerName(project, service, 1)) return 1;
-        var prefix = project.ContainerNameFor(service.Name) + "_";
+        // Earlier WSL Container Desktop releases used underscore names. Accept
+        // them only for display/discovery; labels still authorize mutations.
+        if (string.IsNullOrWhiteSpace(service.Options.Name))
+        {
+            var legacy = $"{project.Name}_{service.Name}";
+            if (name == legacy) return 1;
+            var legacyPrefix = legacy + "_";
+            if (name.StartsWith(legacyPrefix, StringComparison.Ordinal) &&
+                int.TryParse(name[legacyPrefix.Length..], System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var legacyIndex) && legacyIndex > 1 &&
+                name == legacyPrefix + legacyIndex.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                return legacyIndex;
+        }
+        var prefix = $"{project.Name}-{service.Name}-";
         return name.StartsWith(prefix, StringComparison.Ordinal) &&
             int.TryParse(name[prefix.Length..], System.Globalization.NumberStyles.None,
                 System.Globalization.CultureInfo.InvariantCulture, out var index) && index > 1 &&
@@ -320,7 +335,13 @@ public static class ComposeReconciliationPlanner
                 continue;
             }
 
-            inspected.Labels.TryGetValue(ComposeProject.ConfigHashLabel, out var appliedHash);
+            // Desktop's private fingerprint remains authoritative when present. A current shared
+            // fingerprint can adopt portable configuration; endpoint and actual image preflights
+            // still run before reuse. Persisted applied state tracks later private-only changes.
+            inspected.Labels.TryGetValue(ComposeProject.InternalConfigHashLabel, out var appliedHash);
+            if (string.IsNullOrEmpty(appliedHash))
+                ComposeProject.TryGetLabel(inspected.Labels, ComposeProject.LegacyConfigHashLabel,
+                    ComposeProject.LegacyConfigHashLabel, out appliedHash);
             if (request.Operation != ComposeLifecycleOperation.Up || excess)
             {
                 var action = excess ? ComposeServiceAction.Remove : request.Operation switch
@@ -336,6 +357,9 @@ public static class ComposeReconciliationPlanner
                 continue;
             }
 
+            var adoptedShared = string.IsNullOrEmpty(appliedHash) &&
+                CanAdoptSharedConfiguration(project, service, inspected, fingerprint);
+            if (adoptedShared) appliedHash = fingerprint;
             var changed = appliedHash != fingerprint;
             var recreate = changed || request.ForceRecreate || (request.Build && service.Build is not null);
             var reason = string.IsNullOrEmpty(appliedHash)
@@ -343,6 +367,7 @@ public static class ComposeReconciliationPlanner
                 : changed ? "Effective container configuration changed."
                 : request.ForceRecreate ? "Container recreation was explicitly requested."
                 : request.Build && service.Build is not null ? "An explicit image build was requested."
+                : adoptedShared ? "Shared Compose configuration matches; verifying existing endpoints and image for adoption."
                 : "Effective container configuration is unchanged.";
             result.Add(new(service, name, fingerprint,
                 changed ? ComposeServiceChange.Changed : ComposeServiceChange.Unchanged,
@@ -354,6 +379,9 @@ public static class ComposeReconciliationPlanner
         {
             InstanceIndex = InstanceIndex(p.Service),
             DesiredReplicas = DesiredReplicas(project, selected.Single(s => s.Name == p.Service.Name), request),
+            HostGatewayCompatibilityKnown = p.ContainerId is not null &&
+                (inspections.TryGetValue(p.ContainerId, out var gatewayState) || inspections.TryGetValue(p.ContainerName, out gatewayState)) &&
+                gatewayState.HasLabel(ComposeHostGateway.MarkerLabel, "v1"),
         }).ToArray();
         var collisions = entries.GroupBy(p => p.ContainerName, StringComparer.Ordinal).Where(g => g.Count() > 1)
             .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
@@ -363,6 +391,24 @@ public static class ComposeReconciliationPlanner
                 Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible,
                 Reason = "Selected instances resolve to the same container name.",
             } : p).ToArray()));
+    }
+
+    /// <summary>Private-only runtime settings need desktop creation rather than a shared-hash assumption.</summary>
+    private static bool CanAdoptSharedConfiguration(ComposeProject project, ComposeService service,
+        ContainerNetworkState inspected, string fingerprint)
+    {
+        if (!inspected.HasLabel(ComposeProject.ConfigHashLabel, InteropFingerprint(project, service)) ||
+            inspected.HasLabel(ComposeHostGateway.MarkerLabel, "v1") && !ComposeHostGateway.UsesGateway(service) ||
+            service.ExtraHosts.Count > 0 || service.Build?.Labels.Count > 0 ||
+            service.Options.Mounts.Any(m => m.Type == "tmpfs" || m.Options.Count > 0) ||
+            service.Secrets.Any(m => project.Secrets.Any(s => s.Name == m.Source &&
+                (s.External || s.Content is not null))) ||
+            service.Configs.Any(m => project.Configs.Any(s => s.Name == m.Source &&
+                (s.External || s.Content is not null))))
+            return false;
+        return !project.AppliedServices.TryGetValue(InstanceKey(service), out var saved) ||
+            ContainerIdentity.ResolveId([inspected.Id], saved.ContainerId) == inspected.Id &&
+            saved.Fingerprint == fingerprint;
     }
 
     /// <summary>Recheck startup gates after image/network preflight refines Keep into Recreate/Restart.</summary>
@@ -467,6 +513,101 @@ public static class ComposeReconciliationPlanner
         return FingerprintValidated(project, service);
     }
 
+    /// <summary>Portable configuration identity used by compatible Compose frontends.</summary>
+    public static string InteropFingerprint(ComposeService service) =>
+        HashConfiguration(InteropConfiguration(service), "v2");
+
+    /// <summary>Portable configuration identity including declarations for resources used by the service.</summary>
+    public static string InteropFingerprint(ComposeProject project, ComposeService service) =>
+        HashConfiguration(InteropConfiguration(project, service), "v2");
+
+    private static SortedDictionary<string, object?> InteropConfiguration(ComposeService service)
+    {
+        var o = service.Options;
+        var configuration = new SortedDictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["service"] = service.Name, ["image"] = Trim(o.Image) ?? string.Empty,
+            ["build"] = service.Build is not null,
+            ["command"] = Tokens(o.Command) ?? Array.Empty<string>(),
+            ["entrypoint"] = Tokens(o.Entrypoint) ?? Array.Empty<string>(),
+            ["environment"] = Pairs(o.EnvironmentVariables), ["ports"] = Set(o.PortMappings),
+            ["mounts"] = Set(o.Volumes),
+            ["networks"] = o.GetNetworkAttachments().OrderBy(a => a.Network, StringComparer.Ordinal)
+                .Select(a => new { name = a.Network, aliases = Set(a.Aliases.Append(service.Name)) }).ToArray(),
+            ["labels"] = o.Labels.Where(p => !p.Key.StartsWith("com.wslc-compose.", StringComparison.Ordinal) &&
+                !p.Key.StartsWith("com.wsldesktop.", StringComparison.Ordinal))
+                .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+            ["hostname"] = Trim(o.Hostname) ?? string.Empty, ["domainname"] = Trim(o.Domainname) ?? string.Empty,
+            ["user"] = Trim(o.User) ?? string.Empty, ["working_dir"] = Trim(o.WorkingDir) ?? string.Empty,
+            ["dns"] = Set(o.Dns), ["dns_search"] = Set(o.DnsSearch), ["dns_opt"] = Set(o.DnsOptions),
+            ["tmpfs"] = Set(o.Tmpfs), ["ulimits"] = Set(o.Ulimits),
+            ["mem_limit"] = Trim(o.MemoryLimit) ?? string.Empty, ["cpus"] = Trim(o.CpuLimit) ?? string.Empty,
+            ["shm_size"] = Trim(o.ShmSize) ?? string.Empty, ["stop_signal"] = Trim(o.StopSignal) ?? string.Empty,
+        };
+        configuration["stdin_open"] = o.Interactive;
+        configuration["gpus_all"] = o.AllGpus;
+        configuration["tty"] = o.Terminal;
+        configuration["stop_timeout"] = o.StopTimeoutSeconds;
+        var health = o.Health ?? service.Health?.DesiredHealth;
+        configuration["healthcheck"] = health is null ? null : new
+        {
+            test = health.Test, disabled = health.Disabled, interval = health.Interval,
+            timeout = health.Timeout, start_period = health.StartPeriod, retries = health.Retries,
+        };
+        configuration["network_declarations"] = Array.Empty<object>();
+        configuration["volume_declarations"] = Array.Empty<object>();
+        configuration["build_details"] = service.Build is null ? null : new SortedDictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["dockerfile"] = string.IsNullOrWhiteSpace(service.Build.Dockerfile) ? "Dockerfile" : service.Build.Dockerfile,
+            ["args"] = Pairs(service.Build.Args), ["target"] = Trim(service.Build.Target),
+            ["pull"] = service.Build.Pull, ["no_cache"] = service.Build.NoCache,
+        };
+        configuration["secrets"] = Array.Empty<object>();
+        configuration["configs"] = Array.Empty<object>();
+        configuration["network_mode"] = Trim(o.NetworkMode);
+        return configuration;
+    }
+
+    private static SortedDictionary<string, object?> InteropConfiguration(ComposeProject project, ComposeService service)
+    {
+        var configuration = InteropConfiguration(service);
+        var used = service.Options.GetNetworkAttachments().Select(attachment => attachment.Network)
+            .ToHashSet(StringComparer.Ordinal);
+        configuration["network_declarations"] = project.Networks.Where(network => used.Contains(network.Name))
+            .OrderBy(network => network.Name, StringComparer.Ordinal).Select(network => new SortedDictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["name"] = network.Name, ["external"] = network.External, ["internal"] = network.Internal,
+            }).ToArray();
+        var volumeNames = service.Options.Volumes.Select(volume => volume.Split(':')[0]).ToHashSet(StringComparer.Ordinal);
+        configuration["volume_declarations"] = project.Volumes.Where(volume => volumeNames.Contains(volume.Name))
+            .OrderBy(volume => volume.Name, StringComparer.Ordinal).Select(volume => new SortedDictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["name"] = volume.Name, ["external"] = volume.External, ["driver"] = Trim(volume.Driver) ?? string.Empty,
+                ["driver_opts"] = Pairs(volume.DriverOpts), ["labels"] = volume.Labels,
+            }).ToArray();
+        configuration["secrets"] = InteropFileMounts(service.Secrets, project.Secrets);
+        configuration["configs"] = InteropFileMounts(service.Configs, project.Configs);
+        return configuration;
+    }
+
+    private static object[] InteropFileMounts(IReadOnlyList<ComposeFileMount> mounts, IReadOnlyList<ComposeSecret> sources) =>
+        mounts.OrderBy(m => m.Target, StringComparer.Ordinal).ThenBy(m => m.Source, StringComparer.Ordinal)
+            .Select(m => new { Mount = m, Source = sources.SingleOrDefault(s => s.Name == m.Source) })
+            .Where(item => item.Source is { External: false, Content: null, File: not null })
+            .Select(item =>
+            {
+                try
+                {
+                    using var file = File.OpenRead(item.Source!.File!);
+                    return (object)new { source = item.Mount.Source, target = item.Mount.Target,
+                        sha256 = Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant() };
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                {
+                    throw new InvalidOperationException("A Compose file-backed resource is unreadable.");
+                }
+            }).ToArray();
+
     /// <summary>Hashes a service within a snapshot whose project-wide inline sources have already been validated.</summary>
     internal static string FingerprintValidated(ComposeProject project, ComposeService service)
     {
@@ -538,12 +679,89 @@ public static class ComposeReconciliationPlanner
         Args = Pairs(build.Args), Target = Trim(build.Target), build.Labels, build.NoCache, build.Pull,
     };
 
-    private static string HashConfiguration(object? configuration)
+    private static string HashConfiguration(object? configuration, string version = "v1")
     {
+        if (version == "v2")
+        {
+            // Shared canonical JSON uses compact separators and ASCII Unicode escapes
+            // and does not HTML-escape &, <, >, apostrophes or '+'. Keep private v1 bytes stable.
+            var json = new StringBuilder();
+            WriteInteropCanonical(json, JsonSerializer.SerializeToElement(configuration));
+            return "v2:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json.ToString())))
+                .ToLowerInvariant();
+        }
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer))
             WriteCanonical(writer, JsonSerializer.SerializeToElement(configuration));
-        return "v1:" + Convert.ToHexString(SHA256.HashData(buffer.ToArray())).ToLowerInvariant();
+        return version + ":" + Convert.ToHexString(SHA256.HashData(buffer.ToArray())).ToLowerInvariant();
+    }
+
+    private static int CompareCodePoints(string left, string right)
+    {
+        var a = left.EnumerateRunes().GetEnumerator();
+        var b = right.EnumerateRunes().GetEnumerator();
+        while (a.MoveNext())
+        {
+            if (!b.MoveNext()) return 1;
+            var comparison = a.Current.Value.CompareTo(b.Current.Value);
+            if (comparison != 0) return comparison;
+        }
+        return b.MoveNext() ? -1 : 0;
+    }
+
+    private static void WriteInteropString(StringBuilder json, string value)
+    {
+        json.Append('"');
+        foreach (var character in value)
+        {
+            var escape = character switch
+            {
+                '"' => "\\\"", '\\' => "\\\\", '\b' => "\\b", '\f' => "\\f",
+                '\n' => "\\n", '\r' => "\\r", '\t' => "\\t", _ => null,
+            };
+            if (escape is not null) json.Append(escape);
+            else if (character < 0x20 || character >= 0x7f)
+                json.Append("\\u").Append(((int)character).ToString("x4", System.Globalization.CultureInfo.InvariantCulture));
+            else json.Append(character);
+        }
+        json.Append('"');
+    }
+
+    private static void WriteInteropCanonical(StringBuilder json, JsonElement value)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                json.Append('{');
+                var first = true;
+                foreach (var property in value.EnumerateObject().OrderBy(p => p.Name,
+                    Comparer<string>.Create(CompareCodePoints)))
+                {
+                    if (!first) json.Append(',');
+                    first = false;
+                    WriteInteropString(json, property.Name);
+                    json.Append(':');
+                    WriteInteropCanonical(json, property.Value);
+                }
+                json.Append('}');
+                break;
+            case JsonValueKind.Array:
+                json.Append('[');
+                var index = 0;
+                foreach (var item in value.EnumerateArray())
+                {
+                    if (index++ > 0) json.Append(',');
+                    WriteInteropCanonical(json, item);
+                }
+                json.Append(']');
+                break;
+            case JsonValueKind.String:
+                WriteInteropString(json, value.GetString()!);
+                break;
+            default:
+                json.Append(value.GetRawText());
+                break;
+        }
     }
 
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

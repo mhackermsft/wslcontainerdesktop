@@ -75,6 +75,29 @@ public sealed class WslcService(
 
     // ---- Engine ---------------------------------------------------------
 
+    public async Task<CommandResult> ConfigureHostGatewayAsync(ComposeProject project, bool cleanup = false, CancellationToken ct = default)
+    {
+        if (!ComposeHostGateway.Requested(project) && !cleanup) return new();
+        cleanup = cleanup || !ComposeHostGateway.Desired(project);
+        var snapshots = new List<JsonElement>();
+        if (!cleanup)
+        {
+            var inventory = await ListContainersAsync(all: true, ct).ConfigureAwait(false);
+            foreach (var container in inventory.Where(c => project.Services.Any(s =>
+                ComposeReconciliationPlanner.ObservedInstanceIndex(project, s, c.Name) is not null)))
+            {
+                var result = await InspectContainerAsync(container.Id, ct).ConfigureAwait(false);
+                if (!result.Success) return result;
+                using var json = JsonDocument.Parse(result.StandardOutput);
+                snapshots.Add((json.RootElement.ValueKind == JsonValueKind.Array ? json.RootElement[0] : json.RootElement).Clone());
+            }
+        }
+        var script = ComposeHostGateway.Script(project.Name, ComposeHostGateway.Plan(project, snapshots), cleanup);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        return await runner.RunWithStdinAsync(["system", "session", "run", "sh", "-c", script], "", timeout.Token).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Gets version information for callers in the service or view-model layer.
     /// </summary>
@@ -664,8 +687,8 @@ public sealed class WslcService(
     /// <summary>
     /// Executes a command inside a container through <c>wslc</c>.
     /// </summary>
-    public Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default) =>
-        runner.RunAsync(["exec", id, "sh", "-c", command], ct);
+    public Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default, string? user = null) =>
+        runner.RunAsync(user is null ? ["exec", id, "sh", "-c", command] : ["exec", "--user", user, id, "sh", "-c", command], ct);
 
     // Walks a filesystem staying on the root device (-xdev skips /proc, /sys, /dev, tmpfs, and
     // bind-mounted volumes automatically) and emits one "mode|size|mtime|path" line per entry.

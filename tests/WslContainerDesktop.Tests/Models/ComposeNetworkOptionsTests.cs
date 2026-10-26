@@ -37,6 +37,18 @@ public sealed class ComposeNetworkOptionsTests
     }
 
     [Fact]
+    public void InteractiveGpuRunIncludesBothEngineFlags()
+    {
+        var args = new RunContainerOptions
+        {
+            Image = "fixture", Detached = true, Interactive = true, Terminal = true, AllGpus = true,
+        }
+            .ToArguments();
+
+        Assert.Equal(["run", "-d", "-i", "-t", "--gpus", "all", "fixture"], args);
+    }
+
+    [Fact]
     public void StopTimeoutAndNativeMountsBuildRunAndCreateArguments()
     {
         var options = new RunContainerOptions
@@ -351,11 +363,31 @@ public sealed class ComposeNetworkOptionsTests
             """;
         var state = ContainerNetworkState.Parse(json);
         Assert.Equal("172.28.0.2", state.Networks["a"].Ipv4Address);
-        Assert.True(state.HasLabel(ComposeProject.ProjectLabel, "demo"));
+        Assert.True(state.HasLabel(ComposeProject.LegacyProjectLabel, "demo"));
         Assert.Equal("a, b", ContainerDetails.Parse(json).NetworkMode);
         Assert.Contains("b: 172.29.0.2", ContainerDetails.Parse(json).IpAddress);
         Assert.Equal(["a", "b"], ContainerDetails.Parse(json).Networks.Select(n => n.Network));
         Assert.Equal("172.28.0.2", ContainerDetails.Parse(json).Networks[0].Ipv4Address);
         Assert.Throws<InvalidOperationException>(() => ContainerNetworkState.Parse("""{"Id":"id"}"""));
+    }
+
+    [Theory]
+    [InlineData("172.28.0.99")]
+    [InlineData("")]
+    public void RunningEndpointUsesActualIpInsteadOfRequestedAllocation(string actual)
+    {
+        var state = ContainerNetworkState.Parse(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            Id = "id", State = new { Running = true }, NetworkSettings = new
+            {
+                Networks = new Dictionary<string, object> { ["a"] = new
+                {
+                    IPAddress = actual, IPAMConfig = new { IPv4Address = "172.28.0.2" },
+                } },
+            },
+        }));
+        Assert.Equal(actual, state.Networks["a"].Ipv4Address);
+        Assert.Throws<InvalidOperationException>(() => state.RequireCompatible(
+            new() { Network = "a", Ipv4Address = "172.28.0.2" }));
     }
 }

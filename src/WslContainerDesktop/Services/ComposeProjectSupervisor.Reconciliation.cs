@@ -141,7 +141,8 @@ public sealed partial class ComposeProjectSupervisor
                 {
                     var observed = await _networks.InspectAsync(entry.ContainerId!, ct).ConfigureAwait(false);
                     var options = entry.Service.Options.Clone();
-                    PrepareNetworkOptions(project, entry.Service, options);
+                    PrepareNetworkOptions(project, entry.Service, options,
+                        includeReplicaContainerAlias: HasPrivateFingerprint(observed));
                     foreach (var desired in options.GetNetworkAttachments().Take(decision.Native ? int.MaxValue : 1))
                     {
                         drift |= !observed.Networks.TryGetValue(desired.Network, out var actual) ||
@@ -174,6 +175,19 @@ public sealed partial class ComposeProjectSupervisor
             }
         }
         return (new() { Services = entries }, decisions);
+    }
+
+    private static bool HasPrivateFingerprint(ContainerNetworkState state) =>
+        !string.IsNullOrEmpty(state.Labels.GetValueOrDefault(ComposeProject.InternalConfigHashLabel)) ||
+        !string.IsNullOrEmpty(state.Labels.GetValueOrDefault(ComposeProject.LegacyConfigHashLabel));
+
+    private static bool SameImage(string? first, string? second)
+    {
+        if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second)) return false;
+        static string Normalize(string value) => value.StartsWith("sha256:", StringComparison.Ordinal)
+            ? value[7..] : value;
+        var expected = Normalize(second);
+        return ContainerIdentity.ResolveId([expected], Normalize(first)) == expected;
     }
 
     /// <summary>
@@ -309,6 +323,8 @@ public sealed partial class ComposeProjectSupervisor
                 RecordFailedOutcome(results, entry, ex);
             }
         }
+        await EnsureHostGatewayAsync(applied, ct, cleanup: !ComposeHostGateway.Desired(applied) &&
+            plan.Services.Any(entry => entry.HostGatewayCompatibilityKnown)).ConfigureAwait(false);
         return new() { Services = results, Plan = plan };
     }
 
@@ -360,6 +376,8 @@ public sealed partial class ComposeProjectSupervisor
             var start = await _wslc.StartContainerAsync(entry.ContainerId!, ct, explicitStart: false).ConfigureAwait(false);
             if (resume is { } token) _suppression!.CompleteExplicitStart(token, start.Success);
             if (!start.Success) return new(entry.Service.Name, false, Summarize(start));
+            await EnsureHostGatewayAsync(project, ct).ConfigureAwait(false);
+            await ApplyExtraHostsAsync(entry.ContainerName, entry.Service, ct).ConfigureAwait(false);
             return new(entry.Service.Name, true, entry.Reason) { ContainerId = entry.ContainerId };
         }
         catch (OperationCanceledException) { throw; }
@@ -449,7 +467,8 @@ public sealed partial class ComposeProjectSupervisor
             var options = CloneForRun(project, entry.Service, entry.ContainerName, Guid.NewGuid().ToString("N"));
             options.Labels[ComposeProject.InstanceLabel] = entry.InstanceIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
             options.Image = entry.ImageId ?? throw new InvalidOperationException("Image identity is unavailable after preflight.");
-            options.Labels[ComposeProject.ConfigHashLabel] = entry.Fingerprint;
+            options.Labels[ComposeProject.ConfigHashLabel] = ComposeReconciliationPlanner.InteropFingerprint(project, entry.Service);
+            options.Labels[ComposeProject.InternalConfigHashLabel] = entry.Fingerprint;
             if (entry.ImageId is not null) options.Labels[ComposeProject.ImageIdLabel] = entry.ImageId;
             if (entry.ContainerId is not null)
                 await PreserveAnonymousVolumesAsync(project, entry, options, ct).ConfigureAwait(false);
@@ -581,10 +600,27 @@ public sealed partial class ComposeProjectSupervisor
             if (entry.ContainerId is not null)
             {
                 var observed = await _networks.InspectAsync(entry.ContainerId, ct).ConfigureAwait(false);
-                observed.Labels.TryGetValue(ComposeProject.ImageIdLabel, out previousImageId);
+                ComposeProject.TryGetLabel(observed.Labels, ComposeProject.ImageIdLabel,
+                    ComposeProject.LegacyImageIdLabel, out previousImageId);
+                if (!HasPrivateFingerprint(observed))
+                {
+                    // Externally created containers may omit the internal image-id label. The actual engine
+                    // identity must match the resolved image; a shared label cannot prove that.
+                    previousImageId = observed.ImageId;
+                    if (entry.Action is ComposeServiceAction.Keep or ComposeServiceAction.Start &&
+                        string.IsNullOrWhiteSpace(previousImageId))
+                    {
+                        entries.Add(entry with
+                        {
+                            Action = ComposeServiceAction.Blocked, Change = ComposeServiceChange.Incompatible,
+                            Reason = "The existing container image identity is unavailable; shared Compose adoption cannot be verified.",
+                        });
+                        continue;
+                    }
+                }
             }
             observedImages[entry.InstanceKey] = previousImageId;
-            var changedImage = previousImageId is not null && image is not null && previousImageId != image.Id;
+            var changedImage = previousImageId is not null && image is not null && !SameImage(previousImageId, image.Id);
             entries.Add(entry with
             {
                 ImageId = image?.Id,
@@ -607,7 +643,7 @@ public sealed partial class ComposeProjectSupervisor
             var finalImage = FindImage(images, ResolveImage(project, entry.Service));
             if (finalImage is null) continue;
             var changed = entry.ContainerId is not null && observedImages[entry.InstanceKey] is { } oldImage &&
-                oldImage != finalImage.Id;
+                !SameImage(oldImage, finalImage.Id);
             entries[i] = entry with
             {
                 ImageId = finalImage.Id,
@@ -683,6 +719,9 @@ public sealed partial class ComposeProjectSupervisor
         return new()
         {
             Name = project.Name, Services = services,
+            WorkingDirectory = project.WorkingDirectory,
+            ComposeFiles = new List<string>(project.ComposeFiles),
+            EnvironmentFile = project.EnvironmentFile,
             Networks = project.Networks.Where(n => networks.Contains(n.Name)).ToList(),
             Volumes = project.Volumes.Where(v => services.Any(s => s.Options.Volumes.Any(m =>
                 m.StartsWith(v.Name + ":", StringComparison.Ordinal)))).ToList(),

@@ -113,6 +113,8 @@ public sealed class ComposeFileMount
 /// <summary>A top-level named <c>network:</c> the project declares (and the app creates on up).</summary>
 public sealed class ComposeNetwork
 {
+    /// <summary>Compose YAML declaration key, retained after runtime namespacing.</summary>
+    public string Key { get; set; } = string.Empty;
     /// <summary>Gets or sets the name.</summary>
     public string Name { get; set; } = string.Empty;
 
@@ -144,6 +146,8 @@ public sealed class ComposeNetwork
 /// <summary>A top-level named <c>volume:</c> the project declares (and the app creates on up).</summary>
 public sealed class ComposeVolume
 {
+    /// <summary>Compose YAML declaration key, retained after runtime namespacing.</summary>
+    public string Key { get; set; } = string.Empty;
     /// <summary>Gets or sets the name.</summary>
     public string Name { get; set; } = string.Empty;
 
@@ -254,22 +258,63 @@ public sealed class ComposeService
 public sealed class ComposeProject
 {
     /// <summary>Label key used to tag every container the app runs as part of a project.</summary>
-    public const string ProjectLabel = "com.wsldesktop.project";
+    public const string ProjectLabel = "com.wslc-compose.project";
 
     /// <summary>Label key identifying which service within the project a container belongs to.</summary>
-    public const string ServiceLabel = "com.wsldesktop.service";
+    public const string ServiceLabel = "com.wslc-compose.service";
 
     /// <summary>Defines the instance label constant used when the app stores or exchanges this model data.</summary>
-    public const string InstanceLabel = "com.wsldesktop.instance";
+    public const string InstanceLabel = "com.wslc-compose.container-number";
 
     /// <summary>Defines the config hash label constant used when the app stores or exchanges this model data.</summary>
-    public const string ConfigHashLabel = "com.wsldesktop.config-hash";
+    public const string ConfigHashLabel = "com.wslc-compose.config-hash";
+
+    /// <summary>WSL Container Desktop's complete reconciliation fingerprint.</summary>
+    public const string InternalConfigHashLabel = "com.wsldesktop.internal-config-hash";
 
     /// <summary>Defines the image id label constant used when the app stores or exchanges this model data.</summary>
-    public const string ImageIdLabel = "com.wsldesktop.image-id";
+    public const string ImageIdLabel = "com.wslc-compose.image-id";
+
+    /// <summary>Labels written by earlier WSL Container Desktop releases.</summary>
+    public const string LegacyProjectLabel = "com.wsldesktop.project";
+    public const string LegacyServiceLabel = "com.wsldesktop.service";
+    public const string LegacyInstanceLabel = "com.wsldesktop.instance";
+    public const string LegacyConfigHashLabel = "com.wsldesktop.config-hash";
+    public const string LegacyImageIdLabel = "com.wsldesktop.image-id";
+
+    /// <summary>Shared metadata for externally managed Compose projects.</summary>
+    public const string WorkingDirectoryLabel = "com.wslc-compose.project.working_dir";
+    public const string ConfigFilesLabel = "com.wslc-compose.project.config_files";
+    public const string EnvironmentFileLabel = "com.wslc-compose.project.environment_file";
+    public const string ManagedByLabel = "com.wslc-compose.managed-by";
+    public const string ManagedByValue = "wsl-container-desktop";
+    public const string NetworkLabel = "com.wslc-compose.network";
+    public const string VolumeLabel = "com.wslc-compose.volume";
 
     /// <summary>Project name (compose top-level <c>name:</c> or the imported file/folder name).</summary>
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>True when the project was discovered from another Compose tool and is read-only here.</summary>
+    public bool IsExternallyManaged { get; set; }
+
+    /// <summary>Absolute Compose files that define the project.</summary>
+    public List<string> ComposeFiles { get; set; } = new();
+
+    /// <summary>Absolute directory used to resolve the project's Compose input.</summary>
+    public string? WorkingDirectory { get; set; }
+
+    /// <summary>Implicit or explicit environment file used while importing the project.</summary>
+    public string? EnvironmentFile { get; set; }
+
+    /// <summary>Runtime instance count observed while discovering an externally managed project.</summary>
+    public int ExternalContainerCount { get; set; }
+
+    /// <summary>Running instances observed while discovering an externally managed project.</summary>
+    public int ExternalRunningCount { get; set; }
+
+    /// <summary>Reads a shared label first, then its historical desktop equivalent.</summary>
+    public static bool TryGetLabel(IReadOnlyDictionary<string, string> labels, string primary, string legacy,
+        out string value) => labels.TryGetValue(primary, out value!) || labels.TryGetValue(legacy, out value!);
 
     /// <summary>The services that make up this project.</summary>
     public List<ComposeService> Services { get; set; } = new();
@@ -301,8 +346,8 @@ public sealed class ComposeProject
     /// <summary>Top-level file-backed or inline configs, bind-mounted into referencing services.</summary>
     public List<ComposeSecret> Configs { get; set; } = new();
 
-    /// <summary>The deterministic container name the supervisor assigns to a service (<c>project_service</c>).</summary>
-    public string ContainerNameFor(string serviceName) => $"{Name}_{serviceName}";
+    /// <summary>The Docker Compose-compatible container name assigned to a service replica.</summary>
+    public string ContainerNameFor(string serviceName, int index = 1) => $"{Name}-{serviceName}-{index}";
 
     /// <summary>
     /// Prefixes non-external top-level volumes and networks with the project name (matching
@@ -415,7 +460,7 @@ public sealed class ComposeProject
 
         if (!Networks.Any(n => string.Equals(n.Name, defaultName, StringComparison.Ordinal)))
         {
-            Networks.Add(new ComposeNetwork { Name = defaultName });
+            Networks.Add(new ComposeNetwork { Key = defaultName, Name = defaultName });
         }
 
         foreach (var service in attach)

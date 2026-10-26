@@ -60,6 +60,7 @@ namespace WslContainerDesktop.Dialogs
     {
         public string Yaml => throw new NotSupportedException();
         public string BaseDirectory => throw new NotSupportedException();
+        public string? FilePath => throw new NotSupportedException();
     }
 
     /// <summary>Stores the default value supplied to a simple input dialog without rendering WinUI.</summary>

@@ -411,7 +411,7 @@ public sealed class DevContainerLifecycleTests
         fixture.Config.Compose.Project.Services[0].Options.EnvironmentVariables.Add("UPDATED=yes");
         Assert.True((await fixture.Up()).Success);
         Assert.Equal(["create", "content", "created", "started"], fixture.Commands);
-        Assert.All(fixture.ExecIds, id => Assert.Equal(fixture.Compose.Engine.ContainerIds["demo_web"], id));
+        Assert.All(fixture.ExecIds, id => Assert.Equal(fixture.Compose.Engine.ContainerIds["demo-web-1"], id));
     }
 
     [Fact]
@@ -422,7 +422,7 @@ public sealed class DevContainerLifecycleTests
         fixture.Compose.Engine.AfterRun = name =>
         {
             fixture.Compose.Engine.ContainerIds[name] = name;
-            fixture.Compose.Engine.FailRunAfterCreate = name == "demo_web";
+            fixture.Compose.Engine.FailRunAfterCreate = name == "demo-web-1";
         };
 
         var result = await fixture.Up();
@@ -430,7 +430,7 @@ public sealed class DevContainerLifecycleTests
         Assert.False(result.Success);
         Assert.Empty(fixture.Commands);
         Assert.Null(fixture.Config.ComposeLifecycleProgress);
-        Assert.Contains("demo_web_2", fixture.Compose.Engine.Containers.Keys);
+        Assert.Contains("demo-web-2", fixture.Compose.Engine.Containers.Keys);
     }
 
     [Fact]
@@ -442,7 +442,7 @@ public sealed class DevContainerLifecycleTests
         fixture.Compose.Engine.AfterRun = name =>
         {
             fixture.Compose.Engine.ContainerIds[name] = name;
-            if (name == "demo_web_2") cancellation.Cancel();
+            if (name == "demo-web-2") cancellation.Cancel();
         };
 
         var result = await fixture.Up(cancellation.Token);
@@ -451,13 +451,13 @@ public sealed class DevContainerLifecycleTests
         Assert.Contains("cancelled", result.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(fixture.Commands);
         fixture.Reload();
-        Assert.Equal("demo_web", fixture.Config.ComposeLifecycleProgress!.ContainerId);
+        Assert.Equal("demo-web-1", fixture.Config.ComposeLifecycleProgress!.ContainerId);
         Assert.Equal(3, fixture.Config.ComposeLifecycleProgress.PendingCreate.Count);
         Assert.Single(fixture.Config.ComposeLifecycleProgress.PendingStart);
         fixture.Compose.Engine.AfterRun = null;
         Assert.True((await fixture.Up()).Success);
         Assert.Equal(["create", "content", "created", "started"], fixture.Commands);
-        Assert.All(fixture.ExecIds, id => Assert.Equal("demo_web", id));
+        Assert.All(fixture.ExecIds, id => Assert.Equal("demo-web-1", id));
     }
 
     [Fact]
@@ -480,7 +480,7 @@ public sealed class DevContainerLifecycleTests
     {
         var fixture = new Fixture();
         Assert.True((await fixture.Up()).Success);
-        fixture.Compose.Engine.States["demo_web"] = ContainerState.Stopped;
+        fixture.Compose.Engine.States["demo-web-1"] = ContainerState.Stopped;
         fixture.Commands.Clear();
 
         Assert.True((await fixture.Up()).Success);
@@ -511,7 +511,7 @@ public sealed class DevContainerLifecycleTests
         fixture.Compose.Engine.AfterRun = name =>
         {
             fixture.Compose.Engine.ContainerIds[name] = name;
-            fixture.Compose.Engine.FailRunAfterCreate = name == "demo_other";
+            fixture.Compose.Engine.FailRunAfterCreate = name == "demo-other-1";
         };
 
         Assert.False((await fixture.Up()).Success);
@@ -610,7 +610,7 @@ public sealed class DevContainerLifecycleTests
         if (existing)
         {
             Assert.True((await fixture.Up()).Success);
-            fixture.Compose.Engine.States["demo_web"] = ContainerState.Stopped;
+            fixture.Compose.Engine.States["demo-web-1"] = ContainerState.Stopped;
             fixture.Commands.Clear();
         }
         using var cancellation = new CancellationTokenSource();
@@ -620,7 +620,7 @@ public sealed class DevContainerLifecycleTests
         fixture.Compose.Engine.AfterRun = name =>
         {
             fixture.Compose.Engine.ContainerIds[name] = name;
-            if (name == "demo_other") cancellation.Cancel();
+            if (name == "demo-other-1") cancellation.Cancel();
         };
 
         var cancelled = await fixture.Up(cancellation.Token);
@@ -642,8 +642,8 @@ public sealed class DevContainerLifecycleTests
     {
         var fixture = new Fixture();
         Assert.True((await fixture.Up()).Success);
-        fixture.Compose.Engine.States["demo_web"] = ContainerState.Stopped;
-        fixture.Compose.Engine.FailStart = "demo_web";
+        fixture.Compose.Engine.States["demo-web-1"] = ContainerState.Stopped;
+        fixture.Compose.Engine.FailStart = "demo-web-1";
         fixture.Commands.Clear();
 
         Assert.False((await fixture.Up()).Success);
@@ -676,7 +676,7 @@ public sealed class DevContainerLifecycleTests
         fixture.Compose.Engine.AfterRun = name => fixture.Compose.Engine.ContainerIds[name] = fullId;
         Assert.False((await fixture.Up()).Success);
         fixture.Reload();
-        fixture.Compose.Engine.ContainerIds["demo_web"] = fullId[..12];
+        fixture.Compose.Engine.ContainerIds["demo-web-1"] = fullId[..12];
         fixture.FailCommand = null;
         fixture.Commands.Clear();
 
@@ -694,7 +694,7 @@ public sealed class DevContainerLifecycleTests
         Assert.Contains("fixture save failure", result.Detail);
         Assert.Empty(fixture.Commands);
         Assert.Equal("instance-1", fixture.Compose.SavedProject!.AppliedServices["web"].ContainerId);
-        Assert.Equal(ContainerState.Running, fixture.Compose.Engine.States["demo_web"]);
+        Assert.Equal(ContainerState.Running, fixture.Compose.Engine.States["demo-web-1"]);
         fixture.FailSave = false;
 
         Assert.True((await fixture.Up()).Success);
@@ -711,7 +711,7 @@ public sealed class DevContainerLifecycleTests
         var settingsAttempts = 0;
         fixture.Compose.BeforeSettingsSave = () =>
         {
-            if (fixture.Compose.Engine.Containers.ContainsKey("demo_web") && ++settingsAttempts == 1)
+            if (fixture.Compose.Engine.Containers.ContainsKey("demo-web-1") && ++settingsAttempts == 1)
                 throw new InvalidOperationException("fixture supervision failure");
         };
         var refreshed = false;
@@ -724,11 +724,11 @@ public sealed class DevContainerLifecycleTests
         Assert.Contains("fixture supervision failure", result.Detail);
         Assert.Equal(2, settingsAttempts);
         Assert.Equal("instance-1", fixture.Compose.SavedProject!.AppliedServices["web"].ContainerId);
-        Assert.Equal("demo_web", Assert.Single(fixture.Compose.RestartPolicies).ContainerName);
+        Assert.Equal("demo-web-1", Assert.Single(fixture.Compose.RestartPolicies).ContainerName);
         Assert.True(refreshed);
         Assert.Empty(fixture.Commands);
-        Assert.DoesNotContain("run:demo_other", fixture.Compose.Engine.Mutations);
-        Assert.DoesNotContain("run:demo_web_2", fixture.Compose.Engine.Mutations);
+        Assert.DoesNotContain("run:demo-other-1", fixture.Compose.Engine.Mutations);
+        Assert.DoesNotContain("run:demo-web-2", fixture.Compose.Engine.Mutations);
     }
 
     [Theory]
@@ -748,7 +748,7 @@ public sealed class DevContainerLifecycleTests
         };
         fixture.Compose.BeforeSettingsSave = () =>
         {
-            if (failure == "supervision" && fixture.Compose.Engine.Containers.ContainsKey("demo_web"))
+            if (failure == "supervision" && fixture.Compose.Engine.Containers.ContainsKey("demo-web-1"))
                 throw new InvalidOperationException("fixture supervision failure");
         };
         fixture.Compose.Monitor.RefreshRequested = () =>
@@ -761,9 +761,9 @@ public sealed class DevContainerLifecycleTests
         Assert.False(result.Success);
         Assert.Contains($"fixture {failure} failure", result.Detail);
         Assert.Empty(fixture.Commands);
-        Assert.DoesNotContain("run:demo_other", fixture.Compose.Engine.Mutations);
-        Assert.DoesNotContain("run:demo_web_2", fixture.Compose.Engine.Mutations);
-        Assert.Equal(ContainerState.Running, fixture.Compose.Engine.States["demo_web"]);
+        Assert.DoesNotContain("run:demo-other-1", fixture.Compose.Engine.Mutations);
+        Assert.DoesNotContain("run:demo-web-2", fixture.Compose.Engine.Mutations);
+        Assert.Equal(ContainerState.Running, fixture.Compose.Engine.States["demo-web-1"]);
         fixture.Reload();
         fixture.Compose.BeforeSave = null;
         fixture.Compose.BeforeSettingsSave = null;
@@ -771,7 +771,7 @@ public sealed class DevContainerLifecycleTests
 
         Assert.True((await fixture.Up()).Success);
         Assert.Equal(["create", "content", "created", "started"], fixture.Commands);
-        Assert.Equal(1, fixture.Compose.Engine.Mutations.Count(m => m == "run:demo_web"));
+        Assert.Equal(1, fixture.Compose.Engine.Mutations.Count(m => m == "run:demo-web-1"));
         Assert.All(fixture.ExecIds, id => Assert.Equal("instance-1", id));
         fixture.Commands.Clear();
         Assert.True((await fixture.Up()).Success);

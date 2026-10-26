@@ -17,6 +17,7 @@
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 
@@ -215,6 +216,8 @@ public sealed partial class ComposeProjectSupervisor
         foreach (var entry in plan.Services.Where(p => p.Action is ComposeServiceAction.Create or ComposeServiceAction.Recreate))
             prepared.Add(entry.InstanceKey, await PrepareRunAsync(project, entry, ct).ConfigureAwait(false));
         await ProvisionResourcesAsync(ResourcesForPlan(project, plan), ct).ConfigureAwait(false);
+        await EnsureHostGatewayAsync(project, ct, cleanup: !ComposeHostGateway.Desired(project) &&
+            plan.Services.Any(entry => entry.HostGatewayCompatibilityKnown)).ConfigureAwait(false);
         _store.Save(project);
 
         var results = new List<ComposeServiceResult>();
@@ -227,6 +230,7 @@ public sealed partial class ComposeProjectSupervisor
             {
                 ct.ThrowIfCancellationRequested();
                 var service = entry.Service;
+                await EnsureHostGatewayAsync(project, ct).ConfigureAwait(false);
                 if (entry.Action == ComposeServiceAction.Remove)
                 {
                     results.Add(await RemoveExcessAsync(project, entry, ct).ConfigureAwait(false));
@@ -295,6 +299,7 @@ public sealed partial class ComposeProjectSupervisor
             }
         }
 
+        await EnsureHostGatewayAsync(project, ct).ConfigureAwait(false);
         return new ComposeUpResult { Services = results, Plan = plan };
     }
 
@@ -418,7 +423,10 @@ public sealed partial class ComposeProjectSupervisor
             var labels = new Dictionary<string, string>(network.Labels, StringComparer.Ordinal)
             {
                 [ComposeProject.ProjectLabel] = project.Name,
+                [ComposeProject.ManagedByLabel] = ComposeProject.ManagedByValue,
+                [ComposeProject.NetworkLabel] = string.IsNullOrWhiteSpace(network.Key) ? network.Name : network.Key,
             };
+            AddProjectMetadata(labels, project);
             var created = await _wslc.CreateNetworkAsync(network.Name, network.Driver, network.DriverOpts, labels,
                 network.Subnet, network.Gateway, network.IpRange, ct, network.Internal)
                 .ConfigureAwait(false);
@@ -449,7 +457,10 @@ public sealed partial class ComposeProjectSupervisor
             var labels = new Dictionary<string, string>(volume.Labels, StringComparer.Ordinal)
             {
                 [ComposeProject.ProjectLabel] = project.Name,
+                [ComposeProject.ManagedByLabel] = ComposeProject.ManagedByValue,
+                [ComposeProject.VolumeLabel] = string.IsNullOrWhiteSpace(volume.Key) ? volume.Name : volume.Key,
             };
+            AddProjectMetadata(labels, project);
             var created = await _wslc.CreateVolumeAsync(volume.Name, volume.Driver, volume.DriverOpts, labels, ct).ConfigureAwait(false);
             if (created.Success)
             {
@@ -496,6 +507,7 @@ public sealed partial class ComposeProjectSupervisor
             return;
         }
 
+        var gatewayProject = ExistingProject(SnapshotProject(project));
         var result = await ExistingCoreAsync(project,
             new ComposeOperationRequest
             {
@@ -504,6 +516,9 @@ public sealed partial class ComposeProjectSupervisor
             }, long.MaxValue, ct).ConfigureAwait(false);
         if (!result.AllSucceeded)
             throw new InvalidOperationException(string.Join("; ", result.Services.Where(s => !s.Success).Select(s => s.Detail)));
+
+        if (ComposeHostGateway.Requested(gatewayProject) || result.Plan?.Services.Any(entry => entry.HostGatewayCompatibilityKnown) == true)
+            await EnsureHostGatewayAsync(gatewayProject, ct, cleanup: true).ConfigureAwait(false);
 
         // Remove project-created networks (like `docker compose down`). Volumes are preserved
         // unless the caller requested their removal (like `docker compose down --volumes`).
@@ -613,6 +628,7 @@ public sealed partial class ComposeProjectSupervisor
                 });
                 var ready = new List<ComposeService>();
                 var appliedProject = ExistingProject(project);
+                await EnsureHostGatewayAsync(appliedProject, ct).ConfigureAwait(false);
                 var services = ComposeReconciliationPlanner.ExpandInstances(appliedProject,
                     new() { Operation = ComposeLifecycleOperation.Restart }, appliedProject.Services, containers);
                 foreach (var desired in services)
@@ -664,12 +680,18 @@ public sealed partial class ComposeProjectSupervisor
                             RemoveRestartPolicies(untracked);
                             throw new InvalidOperationException("An untracked owned instance exceeds the desired replica count; apply explicitly to reconcile it.");
                         }
-                        if (applied is null && state.Labels.TryGetValue(ComposeProject.ConfigHashLabel, out var fingerprint) &&
-                            fingerprint != ComposeReconciliationPlanner.FingerprintValidated(validatedProject.Value, service))
+                        if (applied is null && state.Labels.TryGetValue(ComposeProject.ConfigHashLabel, out var fingerprint))
+                        {
+                            if (fingerprint != ComposeReconciliationPlanner.InteropFingerprint(validatedProject.Value, service))
+                                throw new InvalidOperationException("Existing configuration differs from the desired project; apply it explicitly.");
+                        }
+                        else if (applied is null && state.Labels.TryGetValue(ComposeProject.LegacyConfigHashLabel, out var legacyFingerprint) &&
+                            legacyFingerprint != ComposeReconciliationPlanner.FingerprintValidated(validatedProject.Value, service))
                             throw new InvalidOperationException("Existing configuration differs from the desired project; apply it explicitly.");
 
                         var options = service.Options.Clone();
-                        PrepareNetworkOptions(appliedProject, service, options);
+                        PrepareNetworkOptions(appliedProject, service, options,
+                            includeReplicaContainerAlias: HasPrivateFingerprint(state));
                         if (options.GetNetworkAttachments().Count > 1)
                         {
                             var capabilities = await _capabilities.GetAsync(ct).ConfigureAwait(false);
@@ -811,9 +833,17 @@ public sealed partial class ComposeProjectSupervisor
                 var state = await _networks.InspectAsync(name, observation.Token).ConfigureAwait(false);
                 if (!ComposeReconciliationPlanner.IsOwnedInstance(state, project, service) || !state.HasLabel(ApplyOperationLabel, operation))
                     throw new InvalidOperationException("Started container ownership could not be verified.");
+                foreach (var endpoint in prepared.GetNetworkAttachments().Take(1)
+                    .Where(n => !string.IsNullOrWhiteSpace(n.Ipv4Address)))
+                {
+                    if (!state.Networks.ContainsKey(endpoint.Network))
+                        throw new InvalidOperationException("Started container is missing its requested static IPv4 endpoint.");
+                    state.RequireCompatible(endpoint);
+                }
                 containerId = state.Id;
             }
             launched = true;
+            await EnsureHostGatewayAsync(project, ct).ConfigureAwait(false);
             await ApplyExtraHostsAsync(name, service, ct).ConfigureAwait(false);
             return outcome = new(service.Name, true, $"Started as {name}", networkWarning) { ContainerId = containerId };
         }
@@ -865,10 +895,16 @@ public sealed partial class ComposeProjectSupervisor
     }
 
     /// <summary>
-    /// Appends compose <c>extra_hosts:</c> entries to the container's <c>/etc/hosts</c> via
-    /// <c>exec</c>, since <c>wslc run</c> has no <c>--add-host</c>. The special <c>host-gateway</c>
-    /// address resolves to the container's default gateway at runtime. Best-effort: failures are logged.
+    /// Reconciles project-owned published-port routes in the native WSLC session.
     /// </summary>
+    private async Task EnsureHostGatewayAsync(ComposeProject project, CancellationToken ct, bool cleanup = false)
+    {
+        if (!ComposeHostGateway.Requested(project) && !cleanup) return;
+        var result = await _wslc.ConfigureHostGatewayAsync(project, cleanup, ct).ConfigureAwait(false);
+        if (!result.Success) throw new InvalidOperationException("Host-gateway published-port compatibility failed: " + Summarize(result));
+    }
+
+    /// <summary>Writes extra_hosts as root; host-gateway resolves to the container gateway.</summary>
     private async Task ApplyExtraHostsAsync(string name, ComposeService service, CancellationToken ct)
     {
         if (service.ExtraHosts.Count == 0)
@@ -907,9 +943,13 @@ public sealed partial class ComposeProjectSupervisor
                 return;
             }
 
-            var script = "GW=$(ip route 2>/dev/null | awk '/^default/{print $3; exit}'); " +
+            var script = "GW=$(awk '$2 == \"00000000\" { h=$3; for (i=7; i>=1; i-=2) { " +
+                "hi=index(\"0123456789ABCDEF\", substr(h,i,1))-1; " +
+                "lo=index(\"0123456789ABCDEF\", substr(h,i+1,1))-1; " +
+                "printf \"%s%d\", i==7 ? \"\" : \".\", hi*16+lo } print \"\"; exit }' " +
+                "/proc/net/route 2>/dev/null); " +
                 string.Join("; ", lines);
-            var result = await _wslc.ExecAsync(container.Id, script, ct).ConfigureAwait(false);
+            var result = await _wslc.ExecAsync(container.Id, script, ct, user: "0").ConfigureAwait(false);
             if (!result.Success)
             {
                 _logger.LogDebug("Applying extra_hosts to {Name} failed: {Detail}", name, Summarize(result));
@@ -1034,7 +1074,8 @@ public sealed partial class ComposeProjectSupervisor
             Name = name,
             Detached = true,
             RemoveOnExit = false,
-            Interactive = false,
+            Interactive = src.Interactive,
+            Terminal = src.Terminal,
             AllGpus = src.AllGpus,
             Command = src.Command,
             Health = src.Health?.Clone() ?? service.Health?.DesiredHealth?.Clone(),
@@ -1081,6 +1122,10 @@ public sealed partial class ComposeProjectSupervisor
         // Tag the container so the project can be re-adopted and torn down as a unit.
         options.Labels[ComposeProject.ProjectLabel] = project.Name;
         options.Labels[ComposeProject.ServiceLabel] = service.Name;
+        options.Labels[ComposeProject.ManagedByLabel] = ComposeProject.ManagedByValue;
+        if (ComposeHostGateway.UsesGateway(service))
+            options.Labels[ComposeHostGateway.MarkerLabel] = "v1";
+        AddProjectMetadata(options.Labels, project);
         // The sole issuer is PrepareRunAsync, after validating the plan's explicit ordinal.
         options.Labels.Remove(ComposeProject.InstanceLabel);
         return options;
@@ -1088,7 +1133,7 @@ public sealed partial class ComposeProjectSupervisor
 
     /// <summary>Normalizes Compose network aliases and <c>network_mode: service:</c> references for <c>wslc</c>.</summary>
     private static void PrepareNetworkOptions(ComposeProject project, ComposeService service, RunContainerOptions options,
-        bool includeFirstContainerAlias = false)
+        bool includeFirstContainerAlias = false, bool includeReplicaContainerAlias = true)
     {
         var mode = options.NetworkMode ?? options.Network;
         if (mode?.StartsWith("service:", StringComparison.Ordinal) == true)
@@ -1108,7 +1153,7 @@ public sealed partial class ComposeProjectSupervisor
             }
             // New containers get an explicit unique alias on every endpoint. Existing legacy
             // instance one is not recreated/reconnected merely to retrofit this implicit alias.
-            if (includeFirstContainerAlias || ComposeReconciliationPlanner.InstanceIndex(service) > 1)
+            if (includeFirstContainerAlias || includeReplicaContainerAlias && ComposeReconciliationPlanner.InstanceIndex(service) > 1)
             {
                 var containerName = ResolveContainerName(project, service);
                 if (!endpoint.Aliases.Contains(containerName, StringComparer.Ordinal))
@@ -1166,9 +1211,11 @@ public sealed partial class ComposeProjectSupervisor
                 root = root[0];
             }
 
-            return root.ValueKind == System.Text.Json.JsonValueKind.Object &&
-                root.TryGetProperty("Labels", out var labels) && labels.ValueKind == System.Text.Json.JsonValueKind.Object &&
-                labels.TryGetProperty(ComposeProject.ProjectLabel, out var owner) &&
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                !root.TryGetProperty("Labels", out var labels) || labels.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return false;
+            return (labels.TryGetProperty(ComposeProject.ProjectLabel, out var owner) ||
+                    labels.TryGetProperty(ComposeProject.LegacyProjectLabel, out owner)) &&
                 owner.ValueKind == System.Text.Json.JsonValueKind.String && owner.GetString() == project;
         }
         catch (System.Text.Json.JsonException)
@@ -1177,6 +1224,16 @@ public sealed partial class ComposeProjectSupervisor
             // than deleted or allowed to abort the rest of the teardown.
             return false;
         }
+    }
+
+    private static void AddProjectMetadata(Dictionary<string, string> labels, ComposeProject project)
+    {
+        if (!string.IsNullOrWhiteSpace(project.WorkingDirectory))
+            labels[ComposeProject.WorkingDirectoryLabel] = project.WorkingDirectory;
+        if (project.ComposeFiles.Count > 0)
+            labels[ComposeProject.ConfigFilesLabel] = JsonSerializer.Serialize(project.ComposeFiles);
+        if (!string.IsNullOrWhiteSpace(project.EnvironmentFile))
+            labels[ComposeProject.EnvironmentFileLabel] = project.EnvironmentFile;
     }
 
     /// <summary>

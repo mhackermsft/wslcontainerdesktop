@@ -56,6 +56,8 @@ public partial class ComposeProjectRow : ObservableObject
 
     /// <summary>Project name shown in the list.</summary>
     public string Name => Project.Name;
+    /// <summary>Whether this row can be controlled by WSL Container Desktop.</summary>
+    public bool CanManage => !Project.IsExternallyManaged;
 
     /// <summary>Number of services in the Compose project.</summary>
     public int ServiceCount => Project.Services.Count;
@@ -76,6 +78,13 @@ public partial class ComposeProjectRow : ObservableObject
         get
         {
             var names = Project.Services.Select(s => $"{s.Name} × {ComposeReconciliationPlanner.DesiredReplicas(Project, s, new())}").ToList();
+            if (Project.IsExternallyManaged)
+            {
+                var source = Project.ComposeFiles.Count == 0
+                    ? "Compose file unavailable"
+                    : string.Join(", ", Project.ComposeFiles.Select(Path.GetFileName));
+                return $"External runtime: {source}";
+            }
             return names.Count == 0 ? UiText.Get("Workload_Text_No_services_76de88", "No services") : string.Join(", ", names);
         }
     }
@@ -149,9 +158,18 @@ public partial class ComposeViewModel : ObservableObject
             }
 
             var projects = _store.GetAll();
+            var discovered = containers is null
+                ? []
+                : await ComposeProjectDiscovery.DiscoverAsync(containers,
+                    (id, token) => _wslc.InspectContainerAsync(id, token), CancellationToken.None);
+            var discoveredNames = discovered.Select(project => project.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             Projects.Clear();
-            foreach (var project in projects)
+            foreach (var project in discovered.Concat(projects.Where(project => !discoveredNames.Contains(project.Name))))
             {
+                // A reimported shared project has a complete local definition. Persist it so
+                // name-based actions such as Down use the same reviewed configuration.
+                if (!project.IsExternallyManaged)
+                    _store.Save(project);
                 var row = new ComposeProjectRow(project, ManageServicesCommand);
                 if (containers is null) row.StatusText = UiText.Get("Workload_Text_Status_unavailable_7eb5af", "Status unavailable");
                 else UpdateStatus(row, containers);
@@ -176,6 +194,12 @@ public partial class ComposeViewModel : ObservableObject
 
     private static void UpdateStatus(ComposeProjectRow row, IReadOnlyList<ContainerInfo> containers)
     {
+        if (row.Project.IsExternallyManaged)
+        {
+            row.RunningCount = row.Project.ExternalRunningCount;
+            row.StatusText = $"External runtime ({row.Project.ExternalRunningCount}/{row.Project.ExternalContainerCount} instances)";
+            return;
+        }
         var running = ComposeReconciliationPlanner.ObservedRunningCount(row.Project, containers);
 
         row.RunningCount = running;
@@ -202,7 +226,7 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
-        await ImportProjectFromYamlAsync(dialog.Yaml, baseDirectory: dialog.BaseDirectory);
+        await ImportProjectFromYamlAsync(dialog.Yaml, baseDirectory: dialog.BaseDirectory, composeFilePath: dialog.FilePath);
     }
 
     /// <summary>
@@ -213,12 +237,20 @@ public partial class ComposeViewModel : ObservableObject
     /// <param name="yaml">The docker-compose YAML content.</param>
     /// <param name="baseDirectory">Directory used to resolve relative env_file/.env paths, if any.</param>
     /// <param name="suggestedName">Pre-selected project name (e.g. from a template); falls back to the compose <c>name:</c>.</param>
-    public async Task ImportProjectFromYamlAsync(string yaml, string? baseDirectory = null, string? suggestedName = null)
+    public async Task ImportProjectFromYamlAsync(string yaml, string? baseDirectory = null, string? suggestedName = null,
+        string? composeFilePath = null)
     {
         ComposeProject project;
         try
         {
             project = ComposeImporter.ParseProject(yaml, baseDirectory: baseDirectory);
+            if (!string.IsNullOrWhiteSpace(composeFilePath))
+            {
+                project.ComposeFiles = [Path.GetFullPath(composeFilePath)];
+                project.WorkingDirectory = Path.GetDirectoryName(project.ComposeFiles[0]);
+                var envFile = Path.Combine(project.WorkingDirectory!, ".env");
+                project.EnvironmentFile = File.Exists(envFile) ? envFile : null;
+            }
         }
         catch (Exception ex)
         {

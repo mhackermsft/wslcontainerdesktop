@@ -25,6 +25,154 @@ namespace WslContainerDesktop.Tests.Services;
 public sealed class ComposeReconciliationPlannerTests
 {
     [Fact]
+    public void InteropFingerprintMatchesSharedShellOperatorVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new()
+        {
+            Image = "fixture", Command = "sh -c \"echo a && echo b\"",
+        } };
+        Assert.Equal("v2:b4690ac86a52bb4afac721d21138fd2fc10e9474ac4023dc85faee2a50615bc9",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesSharedAsciiEscapingAndUnicodeKeyOrder()
+    {
+        var service = new ComposeService { Name = "web", Options = new()
+        {
+            Image = "fixture", Labels = new() { ["\ue000"] = "<>&'\"é😀\u007f\n", ["\U00010000"] = "astral" },
+        } };
+        Assert.Equal("v2:f89618003f02eb194df1cf76766b87371842c116134f5c31a376ee969fe0f0f4",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesSharedGoldenVector()
+    {
+        var service = new ComposeService
+        {
+            Name = "web",
+            Options = new()
+            {
+                Image = "fixture", Interactive = true, AllGpus = true, Terminal = true, StopTimeoutSeconds = 90,
+                Health = new() { Test = ["CMD-SHELL", "true"], Interval = "30s", Timeout = "5s", StartPeriod = "10s", Retries = 3 },
+            },
+        };
+
+        Assert.Equal("v2:7761dc3ba3aec83fa3b3e25cad2dab47fd4dc3356f16d936db7e445f6acbbd29",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesStructuredMountVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
+        service.Options.Volumes.Add("C:/data:/data:ro");
+        service.Options.Mounts.Add(new() { Type = "bind", Source = "C:/data", Target = "/data", ReadOnly = true,
+            Options = ["propagation=rshared"] });
+
+        Assert.Equal("v2:4aed1aa484bbbd21d5b9dd0bb844b5cd4b38cc8d61167714ad7a2b443f5df6a6",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesInternalNetworkDeclarationVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
+        service.Options.NetworkAttachments.Add(new() { Network = "demo_private" });
+        var project = new ComposeProject { Name = "demo", Services = [service], Networks =
+            [new() { Key = "private", Name = "demo_private", Internal = true }] };
+
+        Assert.Equal("v2:c3f312f032f286e3d0e3b9206d517d7554619ae1a7d7a319ffcae9005fd71295",
+            ComposeReconciliationPlanner.InteropFingerprint(project, service));
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesVolumeDeclarationVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" } };
+        service.Options.Volumes.Add("demo_data:/data");
+        var project = new ComposeProject { Name = "demo", Services = [service], Volumes =
+            [new() { Key = "data", Name = "demo_data", Driver = "guest", DriverOpts = ["size=1G"],
+                Labels = new(StringComparer.Ordinal) { ["purpose"] = "cache" } }] };
+
+        Assert.Equal("v2:ea8b1dc7e8795f36d6114622ecd7dee6129c864d9c469f23a06c55b35b201a2d",
+            ComposeReconciliationPlanner.InteropFingerprint(project, service));
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesBuildDetailsVector()
+    {
+        var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" }, Build = new()
+        {
+            Context = ".", Dockerfile = "Dockerfile.custom", Args = ["B=2", "A=1"], Target = "release", Pull = true, NoCache = true,
+        } };
+
+        Assert.Equal("v2:164d845a98d8c8ab7bde344740746eece3ae176962411708b951be1497a0b0a9",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesFileResourceVector()
+    {
+        var file = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".txt");
+        File.WriteAllText(file, "secret");
+        try
+        {
+            var service = new ComposeService { Name = "web", Options = new() { Image = "fixture" },
+                Secrets = [new() { Source = "token", Target = "/run/secrets/token" }] };
+            var project = new ComposeProject { Name = "demo", Services = [service],
+                Secrets = [new() { Name = "token", File = file }] };
+
+        Assert.Equal("v2:fc35d18446cec55bb53d049552b93c0976d76391234c74a8b89e1cdbbc602e3e",
+                ComposeReconciliationPlanner.InteropFingerprint(project, service));
+        }
+        finally { File.Delete(file); }
+    }
+
+    [Fact]
+    public void InteropFingerprintMatchesRuntimeProjectVector()
+    {
+        var service = new ComposeService
+        {
+            Name = "web",
+            Options = new()
+            {
+                Image = "hello-world:latest", Interactive = true, Terminal = true, StopTimeoutSeconds = 2,
+                Volumes = ["demo_data:/data"], NetworkAttachments = [new() { Network = "demo_default" }],
+            },
+            Health = new() { DesiredHealth = new() { Test = ["CMD-SHELL", "true"], Interval = "30s", Timeout = "5s", StartPeriod = "10s", Retries = 3 } },
+        };
+        var project = new ComposeProject { Name = "demo", Services = [service],
+            Networks = [new() { Key = "default", Name = "demo_default" }],
+            Volumes = [new() { Key = "data", Name = "demo_data" }] };
+
+        Assert.Equal("v2:ee644000bdc9046eb83e2a95fde804a94ea4436fbd9d042654a6570ddf3d6247",
+            ComposeReconciliationPlanner.InteropFingerprint(project, service));
+    }
+
+
+    [Fact]
+    public void InteropFingerprintMatchesSharedRuntimeGoldenVector()
+    {
+        var service = new ComposeService
+        {
+            Name = "web",
+            Options = new()
+            {
+                Image = "fixture", Command = "run server", Entrypoint = "entry", Hostname = "host",
+                User = "1000", WorkingDir = "/app", CpuLimit = "0.5", MemoryLimit = "256M",
+                EnvironmentVariables = ["B=2", "A=1"], PortMappings = ["8080:80"],
+                Volumes = ["data:/data:ro"], Dns = ["1.1.1.1"],
+                NetworkAttachments = [new() { Network = "front", Aliases = ["www"] }],
+                Labels = new(StringComparer.Ordinal) { ["b"] = "2", ["a"] = "1" },
+            },
+        };
+        Assert.Equal("v2:d7c09803e2b23299a5c8119bb640db4518fe0edef90753c541fe9c2c9963535e",
+            ComposeReconciliationPlanner.InteropFingerprint(service));
+    }
+
+    [Fact]
     public void EngineOwnedBuildPathsRetainCaseSensitiveIdentity()
     {
         Assert.NotEqual(
@@ -99,7 +247,7 @@ public sealed class ComposeReconciliationPlannerTests
             labels[ComposeProject.ProjectLabel] = project.Name;
             labels[ComposeProject.ServiceLabel] = service.Name;
         }
-        if (fingerprint is not null) labels[ComposeProject.ConfigHashLabel] = fingerprint;
+        if (fingerprint is not null) labels[ComposeProject.InternalConfigHashLabel] = fingerprint;
         return ContainerNetworkState.Parse(JsonSerializer.Serialize(new
         {
             Id = id, Config = new { Labels = labels },
@@ -256,7 +404,7 @@ public sealed class ComposeReconciliationPlannerTests
         Assert.Throws<InvalidOperationException>(() => Selected(Project(Service("a", "missing"))));
         Assert.Throws<InvalidOperationException>(() => Selected(Project(Service("a")), new() { Services = ["missing"] }));
         var collision = Service("b");
-        collision.Options.Name = " project_a ";
+        collision.Options.Name = " project-a-1 ";
         Assert.Throws<InvalidOperationException>(() => Selected(Project(Service("a"), collision)));
     }
 
@@ -536,7 +684,7 @@ public sealed class ComposeReconciliationPlannerTests
     public void UnknownInspectAndDuplicateInventoryAreBlocked()
     {
         var project = Project(Service("web"));
-        var container = new ContainerInfo { Name = "project_web", Id = "id", StateValue = 2 };
+        var container = new ContainerInfo { Name = "project-web-1", Id = "id", StateValue = 2 };
         Assert.False(ComposeReconciliationPlanner.Plan(project, new(), [container],
             new Dictionary<string, ContainerNetworkState>()).CanApply);
         Assert.False(ComposeReconciliationPlanner.Plan(project, new(), [container, container],
@@ -556,7 +704,7 @@ public sealed class ComposeReconciliationPlannerTests
         var shortId = fullId[..12];
         var hash = ComposeReconciliationPlanner.Fingerprint(project, service);
         var plan = ComposeReconciliationPlanner.Plan(project, new() { Operation = operation },
-            [new() { Name = "/project_web", Id = shortId, StateValue = 2 }],
+            [new() { Name = "/project-web-1", Id = shortId, StateValue = 2 }],
             new Dictionary<string, ContainerNetworkState> { [shortId] = Inspect(project, service, hash, fullId) });
         Assert.True(plan.CanApply);
         Assert.Equal(fullId, Assert.Single(plan.Services).ContainerId);
@@ -573,7 +721,7 @@ public sealed class ComposeReconciliationPlannerTests
         var fullId = "123456789abc".PadRight(64, 'd');
         var plan = ComposeReconciliationPlanner.Plan(project, new(),
             [
-                new() { Name = "project_web", Id = firstId, StateValue = 2 },
+                new() { Name = "project-web-1", Id = firstId, StateValue = 2 },
                 new() { Name = "unrelated", Id = otherId, StateValue = 2 },
             ],
             new Dictionary<string, ContainerNetworkState> { [firstId] = Inspect(project, service, null, fullId) });

@@ -52,7 +52,7 @@ public sealed class ComposeReviewSupervisorTests
         var outcome = await fixture.Supervisor.ApplyReviewedAsync(review, true);
         Assert.Equal(ComposeReviewOutcomeKind.Applied, outcome.Kind);
         Assert.Equal(2, fixture.CapabilityInvalidations);
-        Assert.Contains("create:demo_web", fixture.Engine.Mutations);
+        Assert.Contains("create:demo-web-1", fixture.Engine.Mutations);
         Assert.Equal(2, fixture.SavedProject!.Services[0].Options.GetNetworkAttachments().Count);
     }
 
@@ -166,7 +166,7 @@ public sealed class ComposeReviewSupervisorTests
             fixture.Supervisor.ApplyReviewedAsync(review, true));
         Assert.Single(outcomes, o => o.Kind == ComposeReviewOutcomeKind.Applied);
         Assert.Single(outcomes, o => o.Kind == ComposeReviewOutcomeKind.AlreadyUsed);
-        Assert.Single(fixture.Engine.Mutations, mutation => mutation == "create:demo_web");
+        Assert.Single(fixture.Engine.Mutations, mutation => mutation == "create:demo-web-1");
         Assert.Equal(ComposePlanValidation.AlreadyUsed, await fixture.Supervisor.ValidateReviewAsync(review));
     }
 
@@ -454,7 +454,7 @@ public sealed class ComposeReviewSupervisorTests
     [Fact]
     public async Task PublicTokenAndOutcomeDoNotSerializeRawPlanOrEngineErrors()
     {
-        var engine = new Engine { FailRun = "demo_web" };
+        var engine = new Engine { FailRun = "demo-web-1" };
         var fixture = new Fixture(engine: engine);
         fixture.Project.Services[0].Options.EnvironmentVariables.Add("ORDINARY=private-value-1974");
         fixture.Project.Services[0].Options.Command = "unstructured-command-9324";
@@ -488,7 +488,7 @@ public sealed class ComposeReviewSupervisorTests
         Assert.NotEmpty(outcome.Services);
         Assert.DoesNotContain(secret, JsonSerializer.Serialize(outcome));
         Assert.DoesNotContain(fixture.Engine.Mutations, mutation => mutation.StartsWith("run:", StringComparison.Ordinal));
-        Assert.Contains("create:demo_web", fixture.Engine.Mutations);
+        Assert.Contains("create:demo-web-1", fixture.Engine.Mutations);
     }
 
     [Theory]
@@ -517,7 +517,7 @@ public sealed class ComposeReviewSupervisorTests
     {
         var fixture = new Fixture();
         Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
-        fixture.Engine.Mounts["demo_web"] = [new { Type = "volume", Name = "old-anonymous", Source = "/old", Destination = "/data", RW = true }];
+        fixture.Engine.Mounts["demo-web-1"] = [new { Type = "volume", Name = "old-anonymous", Source = "/old", Destination = "/data", RW = true }];
         fixture.Project.Services[0].Options.Command = "changed";
         fixture.Engine.Mutations.Clear();
         var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
@@ -525,7 +525,7 @@ public sealed class ComposeReviewSupervisorTests
         Assert.Contains("Recreate", Row(review, "instances").EffectiveValue);
         // A replacement must still say plainly that container contents are lost.
         Assert.Contains("discards anything written inside it", Row(review, "instances").Explanation);
-        fixture.Engine.Mounts["demo_web"] = [new { Type = "volume", Name = "new-anonymous", Source = "/new", Destination = "/data", RW = true }];
+        fixture.Engine.Mounts["demo-web-1"] = [new { Type = "volume", Name = "new-anonymous", Source = "/new", Destination = "/data", RW = true }];
         Assert.Equal(ComposeReviewOutcomeKind.Stale, (await fixture.Supervisor.ApplyReviewedAsync(review, true)).Kind);
         Assert.Empty(fixture.Engine.Mutations);
     }
@@ -568,7 +568,7 @@ public sealed class ComposeReviewSupervisorTests
         var fixture = new Fixture();
         fixture.Project.Services[0].Options.PortMappings = ["8080:80"];
         Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
-        fixture.Engine.PublishedPorts["demo_web"] = [new() { HostPort = 8080, ContainerPort = 80, Protocol = 6 }];
+        fixture.Engine.PublishedPorts["demo-web-1"] = [new() { HostPort = 8080, ContainerPort = 80, Protocol = 6 }];
         fixture.Engine.Mutations.Clear();
         var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
         Assert.True(review.Preview.CanApply);
@@ -602,7 +602,7 @@ public sealed class ComposeReviewSupervisorTests
             Assert.False(Directory.Exists(root));
             Assert.DoesNotContain("original", JsonSerializer.Serialize(review));
             Assert.True((await fixture.Supervisor.ApplyReviewedAsync(review, true)).AllSucceeded);
-            var name = fixture.Project.Name + "_web";
+            var name = fixture.Project.ContainerNameFor("web");
             var original = InlineMountSource(fixture.Engine.Containers[name].Volumes.Single());
             Assert.Equal(System.Text.Encoding.UTF8.GetBytes("original\n"), File.ReadAllBytes(original));
             Assert.StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, original);
@@ -660,7 +660,7 @@ public sealed class ComposeReviewSupervisorTests
         try
         {
             Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
-            var name = fixture.Project.Name + "_web";
+            var name = fixture.Project.ContainerNameFor("web");
             var original = InlineMountSource(fixture.Engine.Containers[name].Volumes.Single());
             fixture.Project.Configs[0].Content = "private-replacement";
             var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
@@ -709,7 +709,7 @@ public sealed class ComposeReviewSupervisorTests
             byte[] binary = [0xff, 0x00, 0x80, 0x0d, 0x0a];
             File.WriteAllBytes(Path.Combine(inputDirectory, "content"), binary);
             Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
-            var sources = fixture.Engine.Containers[project.Name + "_web"].Volumes.Select(InlineMountSource).ToArray();
+            var sources = fixture.Engine.Containers[project.ContainerNameFor("web")].Volumes.Select(InlineMountSource).ToArray();
             Assert.Equal(4, sources.Length);
             Assert.Equal(3, sources.Distinct().Count());
             Assert.Equal(new[] { "first", "first", "second" }, sources.Take(3).Select(File.ReadAllText).Order().ToArray());
@@ -757,6 +757,8 @@ public sealed class ComposeReviewSupervisorTests
             }
 
             relaunched.Project.Configs[0].File = null;
+            if (legacy)
+                Assert.True((await relaunched.Supervisor.UpAsync(relaunched.Project)).AllSucceeded);
             await relaunched.Supervisor.ReconcileAsync();
             Assert.Empty(relaunched.Supervisor.ReconciliationWarnings);
             Assert.Equal(2, relaunched.RestartPolicies.Count);

@@ -80,6 +80,8 @@ public sealed record ComposeServicePlan(
     public ComposePolicyOwner HealthOwner { get; init; } = ComposePolicyOwner.Unknown;
     /// <summary>Gets or sets the compatibility warning.</summary>
     public string? CompatibilityWarning { get; init; }
+    /// <summary>Observed runtime marker used to clean compatibility rules after removing extra_hosts.</summary>
+    public bool HostGatewayCompatibilityKnown { get; init; }
 }
 
 /// <summary>Immutable or init-only data model that carries compose reconciliation plan information between services and view models.</summary>

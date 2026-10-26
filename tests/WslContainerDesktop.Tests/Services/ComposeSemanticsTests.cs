@@ -118,6 +118,38 @@ public sealed class ComposeSemanticsTests
         Assert.False(Assert.Single(ComposeImporter.ParseProject(
             "services: {web: {image: fixture, deploy: {resources: {limits: {cpus: '1.5'}}}}}").Services).Options.AllGpus);
 
+    [Fact]
+    public void StdinOpenMapsToInteractiveRunOption()
+    {
+        var project = ComposeImporter.ParseProject("services: {web: {image: fixture, stdin_open: true}}");
+
+        Assert.True(Assert.Single(project.Services).Options.Interactive);
+    }
+
+    [Fact]
+    public void TtyMapsToTerminalRunOption()
+    {
+        var project = ComposeImporter.ParseProject("services: {web: {image: fixture, tty: true}}");
+
+        Assert.True(Assert.Single(project.Services).Options.Terminal);
+    }
+
+    [Theory]
+    [InlineData("stdin_open: false")]
+    [InlineData("stdin_open: invalid")]
+    public void StdinOpenRequiresBooleanValue(string definition)
+    {
+        if (definition.EndsWith("false", StringComparison.Ordinal))
+        {
+            Assert.False(Assert.Single(ComposeImporter.ParseProject(
+                "services:\n  web:\n    image: fixture\n    " + definition).Services).Options.Interactive);
+            return;
+        }
+
+        Assert.Throws<ComposeConfigurationException>(() => ComposeImporter.ParseProject(
+            "services:\n  web:\n    image: fixture\n    " + definition));
+    }
+
     /// <summary>Only all-or-nothing passthrough exists, so a narrower request is honoured as all
     /// GPUs and says so rather than pretending the selection was applied.</summary>
     [Theory]

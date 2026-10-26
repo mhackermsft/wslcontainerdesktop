@@ -30,6 +30,73 @@ namespace WslContainerDesktop.Tests.Services;
 public sealed class ComposeNetworkSupervisorTests
 {
     [Fact]
+    public async Task HostGatewayCompatibilityIsPreparedBeforeStartupAndCleanedOnDown()
+    {
+        var fixture = new Fixture();
+        fixture.Project.Services[0].ExtraHosts = ["host.docker.internal:host-gateway"];
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        Assert.True(fixture.Engine.Mutations.IndexOf("host-gateway:False") <
+            fixture.Engine.Mutations.IndexOf("create:demo-web-1"));
+        Assert.Equal("v1", fixture.Engine.Containers["demo-web-1"].Labels[ComposeHostGateway.MarkerLabel]);
+        await fixture.Supervisor.DownAsync("demo");
+        Assert.Contains("host-gateway:True", fixture.Engine.Mutations);
+    }
+
+    [Theory]
+    [InlineData("10.0.0.52")]
+    [InlineData(null)]
+    public async Task SingleNetworkIpOnlyChangeRecreatesWithoutChangingSharedHash(string? address)
+    {
+        var fixture = new Fixture();
+        var options = fixture.Project.Services[0].Options;
+        options.Network = "a";
+        options.Networks = ["a"];
+        options.NetworkAttachments = [new() { Network = "a", Ipv4Address = "10.0.0.51" }];
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        var hash = fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ConfigHashLabel];
+        fixture.Engine.Mutations.Clear();
+
+        options.NetworkAttachments[0].Ipv4Address = address;
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+
+        Assert.Equal(["stop:demo-web-1", "remove:demo-web-1", "run:demo-web-1"], fixture.Engine.Mutations);
+        Assert.Equal(hash, fixture.Engine.Containers["demo-web-1"].Labels[ComposeProject.ConfigHashLabel]);
+        Assert.Equal(address, Assert.Single(fixture.Engine.Endpoints["demo-web-1"]).Ipv4Address);
+    }
+
+    [Fact]
+    public async Task SingleNetworkWrongIpRecreatesEvenWhenInternalHashMatches()
+    {
+        var fixture = new Fixture();
+        var options = fixture.Project.Services[0].Options;
+        options.Network = "a";
+        options.Networks = ["a"];
+        options.NetworkAttachments = [new() { Network = "a", Ipv4Address = "10.0.0.51" }];
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        fixture.Engine.Endpoints["demo-web-1"][0].Ipv4Address = "10.0.0.99";
+        fixture.Engine.Mutations.Clear();
+
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+
+        Assert.Equal(["stop:demo-web-1", "remove:demo-web-1", "run:demo-web-1"], fixture.Engine.Mutations);
+        Assert.Equal("10.0.0.51", Assert.Single(fixture.Engine.Endpoints["demo-web-1"]).Ipv4Address);
+    }
+
+    [Fact]
+    public async Task SingleNetworkRunDoesNotSucceedWhenEngineIgnoresStaticIp()
+    {
+        var fixture = new Fixture();
+        var options = fixture.Project.Services[0].Options;
+        options.Network = "a";
+        options.Networks = ["a"];
+        options.NetworkAttachments = [new() { Network = "a", Ipv4Address = "10.0.0.51" }];
+        fixture.Engine.AfterRun = name => fixture.Engine.Endpoints[name][0].Ipv4Address = null;
+
+        Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        Assert.Empty(fixture.Engine.Containers);
+    }
+
+    [Fact]
     public async Task HealthDependenciesUseVerifiedStartupIdentityAndSeedBeforeWaiting()
     {
         var fixture = new Fixture();
@@ -47,14 +114,14 @@ public sealed class ComposeNetworkSupervisorTests
         });
         fixture.Monitor.RefreshRequested = () =>
         {
-            Assert.Contains(fixture.HealthChecks, check => check.ContainerName == "demo_web");
+            Assert.Contains(fixture.HealthChecks, check => check.ContainerName == "demo-web-1");
             fixture.Monitor.Latest = new([new()
             {
-                Id = "demo_web", Name = "demo_web", StateValue = (int)ContainerState.Running,
+                Id = "demo-web-1", Name = "demo-web-1", StateValue = (int)ContainerState.Running,
             }]);
             fixture.Health.Latest = new([new()
             {
-                ContainerId = "demo_web", ContainerName = "demo_web",
+                ContainerId = "demo-web-1", ContainerName = "demo-web-1",
                 State = ContainerHealthState.Healthy, ObservedAt = DateTimeOffset.UtcNow,
             }]);
         };
@@ -62,9 +129,9 @@ public sealed class ComposeNetworkSupervisorTests
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
 
         Assert.True(result.AllSucceeded);
-        Assert.Equal("demo_web", result.Services[0].ContainerId);
-        Assert.Contains("run:demo_dependent", fixture.Engine.Mutations);
-        Assert.Equal(desired.Test, fixture.Engine.Containers["demo_web"].Health!.Test);
+        Assert.Equal("demo-web-1", result.Services[0].ContainerId);
+        Assert.Contains("run:demo-dependent-1", fixture.Engine.Mutations);
+        Assert.Equal(desired.Test, fixture.Engine.Containers["demo-web-1"].Health!.Test);
     }
 
     private static WslcCapabilities HealthCapabilities() =>
@@ -81,7 +148,7 @@ public sealed class ComposeNetworkSupervisorTests
     {
         var fixture = new Fixture();
         if (previouslyStopped)
-            fixture.Suppression.Suppress("demo_web");
+            fixture.Suppression.Suppress("demo-web-1");
         var requestEpoch = fixture.Suppression.Version;
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -95,12 +162,12 @@ public sealed class ComposeNetworkSupervisorTests
 
         var start = restart ? fixture.Supervisor.RestartAsync("demo") : fixture.Supervisor.UpAsync(fixture.Project);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        fixture.Suppression.Suppress("demo_web");
+        fixture.Suppression.Suppress("demo-web-1");
         unblock.SetResult();
         var result = await start.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.True(result.AllSucceeded);
-        Assert.True(fixture.Suppression.IsSuppressed("demo_web"));
+        Assert.True(fixture.Suppression.IsSuppressed("demo-web-1"));
         Assert.False(fixture.Engine.LastStartWasExplicit);
     }
 
@@ -110,13 +177,13 @@ public sealed class ComposeNetworkSupervisorTests
         var fixture = new Fixture();
         fixture.Snapshot = HealthCapabilities();
         fixture.Engine.Add(Options(), allEndpoints: true);
-        var other = Options("demo_other");
+        var other = Options("demo-other-1");
         other.Labels[ComposeProject.ServiceLabel] = "other";
         other.Health = new() { Test = ["CMD-SHELL", "true"], Retries = 0 };
         fixture.Project.Services.Add(new() { Name = "other", Options = other });
         fixture.Engine.Add(other, allEndpoints: true);
-        var health = new HealthCheckConfig { ContainerName = "demo_web", Command = "old-probe" };
-        var restart = new RestartPolicyConfig { ContainerName = "demo_other", Policy = RestartPolicyKind.Always };
+        var health = new HealthCheckConfig { ContainerName = "demo-web-1", Command = "old-probe" };
+        var restart = new RestartPolicyConfig { ContainerName = "demo-other-1", Policy = RestartPolicyKind.Always };
         fixture.HealthChecks.Add(health);
         fixture.RestartPolicies.Add(restart);
 
@@ -138,12 +205,12 @@ public sealed class ComposeNetworkSupervisorTests
         fixture.Engine.Add(Options(), allEndpoints: true);
         fixture.Project.Networks = [new() { Name = "a" }];
         fixture.Engine.Networks["a"] = "demo";
-        fixture.RestartPolicies.Add(new() { ContainerName = "demo_web", Policy = RestartPolicyKind.Always });
+        fixture.RestartPolicies.Add(new() { ContainerName = "demo-web-1", Policy = RestartPolicyKind.Always });
         if (failure == "discovery-failure")
             fixture.CapabilityError = new IOException("fixture discovery failed");
         else
         {
-            var other = Options("demo_other");
+            var other = Options("demo-other-1");
             other.Labels[ComposeProject.ServiceLabel] = "other";
             other.NetworkAttachments[1].Ipv4Address = "invalid-ip";
             fixture.Project.Services.Add(new() { Name = "other", Options = other });
@@ -170,10 +237,10 @@ public sealed class ComposeNetworkSupervisorTests
 
         Assert.True(result.AllSucceeded);
         Assert.Equal(1, fixture.CapabilityReads);
-        Assert.Equal(["stop:demo_web", "start:demo_web"], fixture.Engine.Mutations);
+        Assert.Equal(["stop:demo-web-1", "start:demo-web-1"], fixture.Engine.Mutations);
         Assert.False(fixture.Engine.LastStartWasExplicit);
         Assert.Single(fixture.RestartPolicies);
-        Assert.Equal(2, fixture.Engine.Endpoints["demo_web"].Count);
+        Assert.Equal(2, fixture.Engine.Endpoints["demo-web-1"].Count);
     }
 
     [Fact]
@@ -183,8 +250,8 @@ public sealed class ComposeNetworkSupervisorTests
         fixture.Engine.Add(Options(), allEndpoints: true);
         fixture.Project.Networks = [new() { Name = "missing", External = true }];
         fixture.Project.Services[0].Options.NetworkAttachments.Add(new() { Network = "missing" });
-        fixture.HealthChecks.Add(new() { ContainerName = "demo_web", Command = "old-probe" });
-        fixture.RestartPolicies.Add(new() { ContainerName = "demo_web", Policy = RestartPolicyKind.Always });
+        fixture.HealthChecks.Add(new() { ContainerName = "demo-web-1", Command = "old-probe" });
+        fixture.RestartPolicies.Add(new() { ContainerName = "demo-web-1", Policy = RestartPolicyKind.Always });
 
         Assert.False((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
 
@@ -199,19 +266,19 @@ public sealed class ComposeNetworkSupervisorTests
         using var cts = new CancellationTokenSource();
         var fixture = new Fixture();
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
-        var other = Options("demo_other");
+        var other = Options("demo-other-1");
         other.Labels[ComposeProject.ServiceLabel] = "other";
         fixture.Project.Services.Add(new() { Name = "other", Options = other });
         fixture.Engine.Add(other, allEndpoints: true);
-        var previous = new HealthCheckConfig { ContainerName = "demo_other", Command = "old-probe" };
+        var previous = new HealthCheckConfig { ContainerName = "demo-other-1", Command = "old-probe" };
         fixture.HealthChecks.Add(previous);
         fixture.Engine.AfterStart = _ => cts.Cancel();
 
         Assert.True((await fixture.Supervisor.UpAsync(fixture.Project, cts.Token)).IsCancelled);
 
-        Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
+        Assert.Equal("demo-web-1", Assert.Single(fixture.RestartPolicies).ContainerName);
         Assert.Same(previous, Assert.Single(fixture.HealthChecks));
-        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo_other"));
+        Assert.DoesNotContain(fixture.Engine.Mutations, m => m.Contains("demo-other-1"));
     }
 
     [Fact]
@@ -220,7 +287,7 @@ public sealed class ComposeNetworkSupervisorTests
         var fixture = new Fixture();
         fixture.Engine.Add(Options(), allEndpoints: true);
         fixture.Engine.BeforeList = () => throw new IOException("fixture inventory failed");
-        fixture.RestartPolicies.Add(new() { ContainerName = "demo_web", Policy = RestartPolicyKind.Always });
+        fixture.RestartPolicies.Add(new() { ContainerName = "demo-web-1", Policy = RestartPolicyKind.Always });
 
         await Assert.ThrowsAsync<IOException>(() => fixture.Supervisor.DownAsync("demo"));
 
@@ -248,8 +315,8 @@ public sealed class ComposeNetworkSupervisorTests
         Assert.False(result.AllSucceeded);
         Assert.False(result.Services.Single(s => s.Service == "dependent").Success);
         Assert.True(result.Services.Single(s => s.Service == "independent").Success);
-        Assert.Equal("demo_independent", Assert.Single(fixture.RestartPolicies).ContainerName);
-        Assert.DoesNotContain(engine.Mutations, m => m.Contains("demo_dependent"));
+        Assert.Equal("demo-independent-1", Assert.Single(fixture.RestartPolicies).ContainerName);
+        Assert.DoesNotContain(engine.Mutations, m => m.Contains("demo-dependent-1"));
     }
 
     [Fact]
@@ -374,9 +441,9 @@ public sealed class ComposeNetworkSupervisorTests
         fixture.Project.Services = parsed.Services;
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
         Assert.True(result.AllSucceeded);
-        Assert.Equal(["run:demo_web", "run:demo_sidecar"], fixture.Engine.Mutations);
-        Assert.Equal("container:demo_web", fixture.Engine.Containers["demo_sidecar"].NetworkMode);
-        Assert.Empty(fixture.Engine.Endpoints["demo_sidecar"]);
+        Assert.Equal(["run:demo-web-1", "run:demo-sidecar-1"], fixture.Engine.Mutations);
+        Assert.Equal("container:demo-web-1", fixture.Engine.Containers["demo-sidecar-1"].NetworkMode);
+        Assert.Empty(fixture.Engine.Endpoints["demo-sidecar-1"]);
     }
 
     [Fact]
@@ -398,7 +465,7 @@ public sealed class ComposeNetworkSupervisorTests
         var fixture = new Fixture();
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
         fixture.Engine.Add(Options(), allEndpoints: true);
-        fixture.Engine.Endpoints["demo_web"][1].Aliases.Clear();
+        fixture.Engine.Endpoints["demo-web-1"][1].Aliases.Clear();
         await fixture.Supervisor.ReconcileAsync();
         Assert.Contains("'b'", Assert.Single(fixture.Supervisor.ReconciliationWarnings));
         Assert.Empty(fixture.RestartPolicies);

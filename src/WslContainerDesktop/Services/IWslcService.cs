@@ -38,6 +38,8 @@ public enum BindMountProbeResult
 /// </summary>
 public interface IWslcService
 {
+    /// <summary>Reconciles project-owned bridge access to Compose-published host ports.</summary>
+    Task<CommandResult> ConfigureHostGatewayAsync(ComposeProject project, bool cleanup = false, CancellationToken ct = default);
     // Engine
     /// <summary>
     /// Gets version information for callers that should not run commands directly.
@@ -180,7 +182,7 @@ public interface IWslcService
     void AttachContainer(string id);
 
     /// <summary>Runs a shell command inside a container (`wslc exec &lt;id&gt; sh -c &lt;command&gt;`) and returns its result.</summary>
-    Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default);
+    Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default, string? user = null);
     /// <summary>
     /// Executes an app-owned health command inside a container.
     /// </summary>

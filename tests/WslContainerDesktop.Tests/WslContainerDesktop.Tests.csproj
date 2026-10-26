@@ -193,6 +193,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeInterpolation.cs" Link="Services\ComposeInterpolation.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeConfigurationException.cs" Link="Services\ComposeConfigurationException.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeNetworkOrchestrator.cs" Link="Services\ComposeNetworkOrchestrator.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeHostGateway.cs" Link="Services\ComposeHostGateway.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.cs" Link="Services\ComposeProjectSupervisor.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectSupervisor.Reconciliation.cs" Link="Services\ComposeProjectSupervisor.Reconciliation.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcService.cs" Link="Services\IWslcService.cs" />
@@ -221,6 +222,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\DeploymentConflictResolver.cs" Link="Services\DeploymentConflictResolver.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IComposeProjectStore.cs" Link="Services\IComposeProjectStore.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectStore.cs" Link="Services\ComposeProjectStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeProjectDiscovery.cs" Link="Services\ComposeProjectDiscovery.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\AppUpdateRelease.cs" Link="Models\AppUpdateRelease.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\MsixIdentity.cs" Link="Models\MsixIdentity.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AppUpdateException.cs" Link="Services\AppUpdateException.cs" />
