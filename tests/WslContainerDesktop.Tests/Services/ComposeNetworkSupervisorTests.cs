@@ -29,6 +29,19 @@ namespace WslContainerDesktop.Tests.Services;
 /// </summary>
 public sealed class ComposeNetworkSupervisorTests
 {
+    [Fact]
+    public async Task HostGatewayCompatibilityIsPreparedBeforeStartupAndCleanedOnDown()
+    {
+        var fixture = new Fixture();
+        fixture.Project.Services[0].ExtraHosts = ["host.docker.internal:host-gateway"];
+        Assert.True((await fixture.Supervisor.UpAsync(fixture.Project)).AllSucceeded);
+        Assert.True(fixture.Engine.Mutations.IndexOf("host-gateway:False") <
+            fixture.Engine.Mutations.IndexOf("create:demo-web-1"));
+        Assert.Equal("v1", fixture.Engine.Containers["demo-web-1"].Labels[ComposeHostGateway.MarkerLabel]);
+        await fixture.Supervisor.DownAsync("demo");
+        Assert.Contains("host-gateway:True", fixture.Engine.Mutations);
+    }
+
     [Theory]
     [InlineData("10.0.0.52")]
     [InlineData(null)]

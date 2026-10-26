@@ -99,6 +99,21 @@ of shell operators such as `&&`. Common golden vectors cover shell operators,
 non-ASCII text and Unicode object-key ordering. Desktop's private v1 serialization
 is independent and retains its existing byte representation.
 
+## Host-gateway publications
+
+For bridge-network clients using `extra_hosts` with `host-gateway`, the supervisor reconciles project-owned
+IPv4 published-port hairpin rules in the WSLC session, using the actual running endpoint IPs
+and Compose host-port declarations. This compensates for WSLC's Windows-port/internal-VM-port
+translation without rewriting the application's environment or Compose file. Only same-project
+TCP/UDP publications with wildcard/omitted host bindings are forwarded. Explicit loopback or
+interface bindings are preserved. This is not a proxy for arbitrary Windows host services.
+
+The managed NAT/filter chains use the shared owner format and project lock. Existing Docker
+chains are not flushed; forwarding hooks run after `DOCKER-USER` so custom policy is retained.
+Apply, startup reconciliation and lifecycle operations refresh routes; project down removes the
+owned hooks/chains. WSLC session execution receives redirected stdin, required to avoid Windows
+`ERROR_INVALID_HANDLE` in the non-TTY session API. Host-file writes remain root post-start fallback.
+
 ## Selection and readiness
 
 - Whole-project apply selects unprofiled and active-profile services; `*` enables all profiles.

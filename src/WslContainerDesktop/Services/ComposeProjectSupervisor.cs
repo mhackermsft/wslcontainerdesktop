@@ -216,6 +216,8 @@ public sealed partial class ComposeProjectSupervisor
         foreach (var entry in plan.Services.Where(p => p.Action is ComposeServiceAction.Create or ComposeServiceAction.Recreate))
             prepared.Add(entry.InstanceKey, await PrepareRunAsync(project, entry, ct).ConfigureAwait(false));
         await ProvisionResourcesAsync(ResourcesForPlan(project, plan), ct).ConfigureAwait(false);
+        await EnsureHostGatewayAsync(project, ct, cleanup: !ComposeHostGateway.Desired(project) &&
+            plan.Services.Any(entry => entry.HostGatewayCompatibilityKnown)).ConfigureAwait(false);
         _store.Save(project);
 
         var results = new List<ComposeServiceResult>();
@@ -228,6 +230,7 @@ public sealed partial class ComposeProjectSupervisor
             {
                 ct.ThrowIfCancellationRequested();
                 var service = entry.Service;
+                await EnsureHostGatewayAsync(project, ct).ConfigureAwait(false);
                 if (entry.Action == ComposeServiceAction.Remove)
                 {
                     results.Add(await RemoveExcessAsync(project, entry, ct).ConfigureAwait(false));
@@ -296,6 +299,7 @@ public sealed partial class ComposeProjectSupervisor
             }
         }
 
+        await EnsureHostGatewayAsync(project, ct).ConfigureAwait(false);
         return new ComposeUpResult { Services = results, Plan = plan };
     }
 
@@ -503,6 +507,7 @@ public sealed partial class ComposeProjectSupervisor
             return;
         }
 
+        var gatewayProject = ExistingProject(SnapshotProject(project));
         var result = await ExistingCoreAsync(project,
             new ComposeOperationRequest
             {
@@ -511,6 +516,9 @@ public sealed partial class ComposeProjectSupervisor
             }, long.MaxValue, ct).ConfigureAwait(false);
         if (!result.AllSucceeded)
             throw new InvalidOperationException(string.Join("; ", result.Services.Where(s => !s.Success).Select(s => s.Detail)));
+
+        if (ComposeHostGateway.Requested(gatewayProject) || result.Plan?.Services.Any(entry => entry.HostGatewayCompatibilityKnown) == true)
+            await EnsureHostGatewayAsync(gatewayProject, ct, cleanup: true).ConfigureAwait(false);
 
         // Remove project-created networks (like `docker compose down`). Volumes are preserved
         // unless the caller requested their removal (like `docker compose down --volumes`).
@@ -620,6 +628,7 @@ public sealed partial class ComposeProjectSupervisor
                 });
                 var ready = new List<ComposeService>();
                 var appliedProject = ExistingProject(project);
+                await EnsureHostGatewayAsync(appliedProject, ct).ConfigureAwait(false);
                 var services = ComposeReconciliationPlanner.ExpandInstances(appliedProject,
                     new() { Operation = ComposeLifecycleOperation.Restart }, appliedProject.Services, containers);
                 foreach (var desired in services)
@@ -834,6 +843,7 @@ public sealed partial class ComposeProjectSupervisor
                 containerId = state.Id;
             }
             launched = true;
+            await EnsureHostGatewayAsync(project, ct).ConfigureAwait(false);
             await ApplyExtraHostsAsync(name, service, ct).ConfigureAwait(false);
             return outcome = new(service.Name, true, $"Started as {name}", networkWarning) { ContainerId = containerId };
         }
@@ -885,10 +895,16 @@ public sealed partial class ComposeProjectSupervisor
     }
 
     /// <summary>
-    /// Appends compose <c>extra_hosts:</c> entries to the container's <c>/etc/hosts</c> via
-    /// <c>exec</c>, since <c>wslc run</c> has no <c>--add-host</c>. The special <c>host-gateway</c>
-    /// address resolves to the container's default gateway at runtime. Best-effort: failures are logged.
+    /// Reconciles project-owned published-port routes in the native WSLC session.
     /// </summary>
+    private async Task EnsureHostGatewayAsync(ComposeProject project, CancellationToken ct, bool cleanup = false)
+    {
+        if (!ComposeHostGateway.Requested(project) && !cleanup) return;
+        var result = await _wslc.ConfigureHostGatewayAsync(project, cleanup, ct).ConfigureAwait(false);
+        if (!result.Success) throw new InvalidOperationException("Host-gateway published-port compatibility failed: " + Summarize(result));
+    }
+
+    /// <summary>Writes extra_hosts as root; host-gateway resolves to the container gateway.</summary>
     private async Task ApplyExtraHostsAsync(string name, ComposeService service, CancellationToken ct)
     {
         if (service.ExtraHosts.Count == 0)
@@ -1107,6 +1123,8 @@ public sealed partial class ComposeProjectSupervisor
         options.Labels[ComposeProject.ProjectLabel] = project.Name;
         options.Labels[ComposeProject.ServiceLabel] = service.Name;
         options.Labels[ComposeProject.ManagedByLabel] = ComposeProject.ManagedByValue;
+        if (ComposeHostGateway.UsesGateway(service))
+            options.Labels[ComposeHostGateway.MarkerLabel] = "v1";
         AddProjectMetadata(options.Labels, project);
         // The sole issuer is PrepareRunAsync, after validating the plan's explicit ordinal.
         options.Labels.Remove(ComposeProject.InstanceLabel);

@@ -323,6 +323,8 @@ public sealed partial class ComposeProjectSupervisor
                 RecordFailedOutcome(results, entry, ex);
             }
         }
+        await EnsureHostGatewayAsync(applied, ct, cleanup: !ComposeHostGateway.Desired(applied) &&
+            plan.Services.Any(entry => entry.HostGatewayCompatibilityKnown)).ConfigureAwait(false);
         return new() { Services = results, Plan = plan };
     }
 
@@ -374,6 +376,8 @@ public sealed partial class ComposeProjectSupervisor
             var start = await _wslc.StartContainerAsync(entry.ContainerId!, ct, explicitStart: false).ConfigureAwait(false);
             if (resume is { } token) _suppression!.CompleteExplicitStart(token, start.Success);
             if (!start.Success) return new(entry.Service.Name, false, Summarize(start));
+            await EnsureHostGatewayAsync(project, ct).ConfigureAwait(false);
+            await ApplyExtraHostsAsync(entry.ContainerName, entry.Service, ct).ConfigureAwait(false);
             return new(entry.Service.Name, true, entry.Reason) { ContainerId = entry.ContainerId };
         }
         catch (OperationCanceledException) { throw; }

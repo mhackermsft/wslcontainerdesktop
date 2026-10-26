@@ -274,6 +274,9 @@ public sealed class ComposeNetworkOrchestratorTests
                 ct.ThrowIfCancellationRequested();
                 switch (method.Name)
                 {
+                    case nameof(IWslcService.ConfigureHostGatewayAsync):
+                        Mutations.Add("host-gateway:" + args[1]);
+                        return Result(true);
                     case nameof(IWslcService.VerifyBindMountAsync):
                         return Task.FromResult(VerifyBindMount?.Invoke((string)args[0]!) ?? BindMountProbeResult.MountsAsFile);
                     case nameof(IWslcService.ListContainersAsync):

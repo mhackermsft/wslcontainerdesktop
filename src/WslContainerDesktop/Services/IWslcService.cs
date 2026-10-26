@@ -38,6 +38,8 @@ public enum BindMountProbeResult
 /// </summary>
 public interface IWslcService
 {
+    /// <summary>Reconciles project-owned bridge access to Compose-published host ports.</summary>
+    Task<CommandResult> ConfigureHostGatewayAsync(ComposeProject project, bool cleanup = false, CancellationToken ct = default);
     // Engine
     /// <summary>
     /// Gets version information for callers that should not run commands directly.

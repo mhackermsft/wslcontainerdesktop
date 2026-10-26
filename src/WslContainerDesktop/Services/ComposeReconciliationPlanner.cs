@@ -379,6 +379,9 @@ public static class ComposeReconciliationPlanner
         {
             InstanceIndex = InstanceIndex(p.Service),
             DesiredReplicas = DesiredReplicas(project, selected.Single(s => s.Name == p.Service.Name), request),
+            HostGatewayCompatibilityKnown = p.ContainerId is not null &&
+                (inspections.TryGetValue(p.ContainerId, out var gatewayState) || inspections.TryGetValue(p.ContainerName, out gatewayState)) &&
+                gatewayState.HasLabel(ComposeHostGateway.MarkerLabel, "v1"),
         }).ToArray();
         var collisions = entries.GroupBy(p => p.ContainerName, StringComparer.Ordinal).Where(g => g.Count() > 1)
             .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
@@ -395,6 +398,7 @@ public static class ComposeReconciliationPlanner
         ContainerNetworkState inspected, string fingerprint)
     {
         if (!inspected.HasLabel(ComposeProject.ConfigHashLabel, InteropFingerprint(project, service)) ||
+            inspected.HasLabel(ComposeHostGateway.MarkerLabel, "v1") && !ComposeHostGateway.UsesGateway(service) ||
             service.ExtraHosts.Count > 0 || service.Build?.Labels.Count > 0 ||
             service.Options.Mounts.Any(m => m.Type == "tmpfs" || m.Options.Count > 0) ||
             service.Secrets.Any(m => project.Secrets.Any(s => s.Name == m.Source &&
