@@ -49,7 +49,20 @@ public sealed partial class ImageInfo : ObservableObject
     /// Returns the image reference. List controls use this as each row's screen-reader name;
     /// without it Narrator announces the .NET type name instead.
     /// </summary>
-    public override string ToString() => Reference;
+    public override string ToString() => string.IsNullOrEmpty(SessionName) ? Reference : $"{SessionName}: {Reference}";
+
+    /// <summary>The owning session shown in combined resource lists.</summary>
+    [JsonIgnore]
+    public string SessionName { get; set; } = string.Empty;
+
+    /// <summary>Session label for combined read-only views.</summary>
+    [JsonIgnore]
+    public string SessionDisplay => string.IsNullOrEmpty(SessionName) ? string.Empty :
+        UiText.Get("Reclaim_SessionLabel", "Session: {0}", SessionName);
+
+    /// <summary>Whether the session and image identity can be used for a scoped action.</summary>
+    [JsonIgnore]
+    public bool SessionActionsAvailable { get; set; } = true;
 
     /// <summary>Gets or sets the id.</summary>
     [JsonPropertyName("Id")]
@@ -99,13 +112,20 @@ public sealed partial class ImageInfo : ObservableObject
     [NotifyPropertyChangedFor(nameof(UsedByCaption))]
     private string _usedBy = string.Empty;
 
+    /// <summary>Whether missing container metadata prevents determining image usage.</summary>
+    [JsonIgnore]
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UsedByCaption))]
+    private bool _usageUnknown;
+
     /// <summary>Gets a value indicating whether this value is in use.</summary>
     [JsonIgnore]
     public bool IsInUse => !string.IsNullOrEmpty(UsedBy);
 
     /// <summary>Why this image is still here, for a row that would otherwise only say "&lt;none&gt;".</summary>
     [JsonIgnore]
-    public string UsedByCaption => IsInUse ? UiText.Get("Resource_Text_ed7c33b27513", "In use by {0}", UsedBy) : string.Empty;
+    public string UsedByCaption => IsInUse ? UiText.Get("Resource_Text_ed7c33b27513", "In use by {0}", UsedBy) :
+        UsageUnknown ? UiText.Get("Reclaim_ImageUsageUnknown", "Image usage is unknown.") : string.Empty;
 
     /// <summary>Live result of the upstream update check for this image's tag (not persisted).</summary>
     [JsonIgnore]

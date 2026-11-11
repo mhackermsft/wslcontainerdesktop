@@ -42,7 +42,8 @@ public sealed class RegistryLogoutService(
     IWslcSettingsFileService settings)
 {
     /// <summary>Logs out of the requested registry, cleaning both independent Docker Hub engine keys.</summary>
-    public async Task<RegistryLogoutResult> LogoutAsync(string server, CancellationToken ct = default)
+    public async Task<RegistryLogoutResult> LogoutAsync(string server, CancellationToken ct = default,
+        IWslcService? sessionClient = null, Func<CancellationToken, Task>? verifyTarget = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(server);
         ct.ThrowIfCancellationRequested();
@@ -64,13 +65,15 @@ public sealed class RegistryLogoutService(
             : [target];
         foreach (var logoutTarget in targets)
         {
-            var result = await wslc.LogoutRegistryAsync(logoutTarget, ct).ConfigureAwait(false);
+            if (verifyTarget is not null) await verifyTarget(ct).ConfigureAwait(false);
+            var result = await (sessionClient ?? wslc).LogoutRegistryAsync(logoutTarget, ct).ConfigureAwait(false);
             if (!result.Success && !CommandErrorText.IsNotLoggedIn(result))
             {
                 return new(RegistryLogoutStatus.Failed, result);
             }
         }
 
+        if (verifyTarget is not null) await verifyTarget(ct).ConfigureAwait(false);
         if (string.Equals(backend, "file", StringComparison.OrdinalIgnoreCase))
         {
             // The engine owns file-backend credentials; old Windows entries are unrelated.

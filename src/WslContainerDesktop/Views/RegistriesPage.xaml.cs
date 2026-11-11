@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 using WslContainerDesktop.Services;
@@ -42,7 +43,7 @@ public sealed partial class RegistriesPage : Page
         base.OnNavigatedTo(e);
         UiText.LanguageChanged += OnUiLanguageChanged;
         ViewModel.RefreshLocalizedText();
-        ViewModel.Load();
+        UiSafe.Run(ViewModel.LoadAsync);
     }
 
     private static RegistryEntry? RowOf(object sender) =>
@@ -73,6 +74,7 @@ public sealed partial class RegistriesPage : Page
     }
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
+        ViewModel.StopStatusRefresh();
         UiText.LanguageChanged -= OnUiLanguageChanged;
         base.OnNavigatedFrom(e);
     }

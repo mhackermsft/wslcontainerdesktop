@@ -253,6 +253,9 @@ public sealed class ComposeService
 /// </summary>
 public sealed class ComposeProject
 {
+    /// <summary>Session ownership for automatic reconciliation; null requires explicit review.</summary>
+    public AutomationSessionOwner? SessionOwner { get; set; }
+
     /// <summary>Label key used to tag every container the app runs as part of a project.</summary>
     public const string ProjectLabel = "com.wsldesktop.project";
 
@@ -282,6 +285,9 @@ public sealed class ComposeProject
 
     /// <summary>True when the applied snapshot is authoritative, including an explicitly empty snapshot.</summary>
     public bool AppliedStateKnown { get; set; }
+
+    /// <summary>Import-only definitions do not enroll existing containers in automatic supervision.</summary>
+    public bool ImportedOnly { get; set; }
 
     /// <summary>
     /// Profiles enabled for this project. Empty means only profile-less services start (the

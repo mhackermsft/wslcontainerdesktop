@@ -32,24 +32,25 @@ public static class NetworkAddressing
         {
             return string.IsNullOrEmpty(gateway) && string.IsNullOrEmpty(ipRange)
                 ? null
-                : "Enter a subnet to set a gateway or IP range.";
+                : UiText.Get("NetworkAddressing_SubnetRequired", "Enter a subnet to set a gateway or IP range.");
         }
 
         if (!IPNetwork.TryParse(subnet, out var network))
         {
-            return $"'{subnet}' is not a valid subnet. Use CIDR notation, for example 172.28.0.0/16.";
+            return UiText.Get("NetworkAddressing_InvalidSubnet",
+                "'{0}' is not a valid subnet. Use CIDR notation, for example 172.28.0.0/16.", subnet);
         }
 
         if (!string.IsNullOrEmpty(gateway))
         {
             if (!IPAddress.TryParse(gateway, out var address) || gateway.Contains('/'))
             {
-                return $"'{gateway}' is not a valid gateway address.";
+                return UiText.Get("NetworkAddressing_InvalidGateway", "'{0}' is not a valid gateway address.", gateway);
             }
 
             if (!network.Contains(address))
             {
-                return $"The gateway {gateway} is not inside the subnet {subnet}.";
+                return UiText.Get("NetworkAddressing_GatewayOutside", "The gateway {0} is not inside the subnet {1}.", gateway, subnet);
             }
         }
 
@@ -57,14 +58,15 @@ public static class NetworkAddressing
         {
             if (!IPNetwork.TryParse(ipRange, out var range))
             {
-                return $"'{ipRange}' is not a valid IP range. Use CIDR notation, for example 172.28.5.0/24.";
+                return UiText.Get("NetworkAddressing_InvalidRange",
+                    "'{0}' is not a valid IP range. Use CIDR notation, for example 172.28.5.0/24.", ipRange);
             }
 
             if (range.BaseAddress.AddressFamily != network.BaseAddress.AddressFamily ||
                 range.PrefixLength < network.PrefixLength ||
                 !network.Contains(range.BaseAddress))
             {
-                return $"The IP range {ipRange} must be inside the subnet {subnet}.";
+                return UiText.Get("NetworkAddressing_RangeOutside", "The IP range {0} must be inside the subnet {1}.", ipRange, subnet);
             }
         }
 

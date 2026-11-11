@@ -22,6 +22,8 @@ namespace WslContainerDesktop.Models;
 /// <summary>Parsed representation of a <c>.devcontainer/devcontainer.json</c>.</summary>
 public sealed class DevContainerConfig
 {
+    /// <summary>Session that owns this workspace's containers, or null until explicitly assigned.</summary>
+    public AutomationSessionOwner? SessionOwner { get; set; }
     /// <summary>Gets or sets the id.</summary>
     public string Id { get; set; } = string.Empty;
     /// <summary>Gets or sets the name.</summary>

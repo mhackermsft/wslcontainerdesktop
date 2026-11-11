@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 using WslContainerDesktop.Services;
@@ -27,23 +28,33 @@ namespace WslContainerDesktop.Views;
 /// <summary>Page that lists container networks, including built-in networks and removable user-created networks.</summary>
 public sealed partial class NetworksPage : Page
 {
+    private ResourceGridSelection<NetworkInfo>? _gridSelection;
+
     /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public NetworksPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<NetworksViewModel>();
         InitializeComponent();
+        Loaded += (_, _) => _gridSelection = new(ViewModel.Grid, NetworksList, UpdateSelectedCount);
+        Unloaded += (_, _) => { _gridSelection?.Dispose(); _gridSelection = null; };
         NavigationCacheMode = NavigationCacheMode.Enabled;
     }
 
     /// <summary>Network inventory view model bound by the page.</summary>
     public NetworksViewModel ViewModel { get; }
 
-    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    private void TableRoot_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        ResourceGridLayout.UpdateTable(HeaderBorder, NetworksList, e.NewSize.Width, 720);
+
+    private void RowRoot_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        ResourceGridLayout.UpdateRow((Grid)sender, TableRoot.ActualWidth >= 720);
+
+    protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         UiText.LanguageChanged += OnUiLanguageChanged;
         ViewModel.RefreshLocalizedText();
-        await ViewModel.RefreshAsync();
+        UiSafe.Run(ViewModel.RefreshOnNavigationAsync);
     }
 
     private static NetworkInfo? NetworkOf(object sender) =>
@@ -66,16 +77,19 @@ public sealed partial class NetworksPage : Page
     }
 
     private void List_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        => UpdateSelectedCount();
+
+    private void UpdateSelectedCount()
     {
         if (ViewModel.IsSelectionMode)
         {
-            ViewModel.SelectedCount = NetworksList.SelectedItems.Count;
+            ViewModel.SelectedCount = SelectedRows().Count;
         }
     }
 
     private async void BulkRemove_Click(object sender, RoutedEventArgs e)
     {
-        var selected = NetworksList.SelectedItems.OfType<NetworkInfo>().ToList();
+        var selected = SelectedRows();
         await ViewModel.BulkRemoveAsync(selected);
     }
 
@@ -83,8 +97,12 @@ public sealed partial class NetworksPage : Page
     {
         ViewModel.IsSelectionMode = false;
     }
+
+    private List<NetworkInfo> SelectedRows() => NetworksList.SelectedItems.OfType<NetworkInfo>()
+        .Where(ViewModel.Grid.Items.Contains).ToList();
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
+        ViewModel.CancelRefresh();
         UiText.LanguageChanged -= OnUiLanguageChanged;
         base.OnNavigatedFrom(e);
     }

@@ -43,8 +43,10 @@ public partial class App : Application
     private INotificationService? _notifications;
     private HealthWatchdog? _watchdog;
     private RestartPolicyWatchdog? _restartWatchdog;
+    private SessionAutomationCoordinator? _sessionAutomation;
     private ContainerAutostartService? _autostart;
     private EngineHealth _engineHealth = EngineHealth.Unknown;
+    private bool _defaultSessionStoppedByUser;
     private string _engineSummary = string.Empty;
     private int _runningCount;
     private IReadOnlyList<ContainerInfo> _lastContainers = Array.Empty<ContainerInfo>();
@@ -174,27 +176,24 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         // Health watchdog rides on the monitor's polling and enforces per-container probes.
         _watchdog = Services.GetRequiredService<HealthWatchdog>();
+        _watchdog.UseAsMirror();
         _watchdog.HealthChanged += OnHealthChanged;
-        _watchdog.NotificationRequested += OnHealthNotification;
-        _watchdog.Start();
 
         // Restart watchdog enforces compose restart: policies for containers that have no health
         // check (health-checked containers are handled by the health watchdog above).
         _restartWatchdog = Services.GetRequiredService<RestartPolicyWatchdog>();
-        _restartWatchdog.NotificationRequested += OnHealthNotification;
-        _restartWatchdog.Start();
-
-        // Re-adopt any previously-imported compose projects whose containers still exist, so their
-        // health/restart policies resume being enforced after a restart. Fire-and-forget: failures
-        // must never block launch.
-        _ = Services.GetRequiredService<ComposeProjectSupervisor>().ReconcileAsync();
+        _sessionAutomation = Services.GetRequiredService<SessionAutomationCoordinator>();
+        _autostart = Services.GetRequiredService<ContainerAutostartService>();
+        _sessionAutomation.NotificationRequested += OnSessionHealthNotification;
+        if (!settings.HasLoadError)
+            _sessionAutomation.Start();
 
         // Restart containers that were running before the last shutdown (a reboot / wsl --shutdown
         // stops them all) and then keep tracking the running set. Resolved on the UI thread here so
         // it observes the same StatusMonitor singleton. Fire-and-forget: it waits for the engine and
         // must never block launch.
-        _autostart = Services.GetRequiredService<ContainerAutostartService>();
-        _ = _autostart.RestoreThenAttachAsync();
+        Services.GetRequiredService<AutomationReviewViewModel>().Start();
+        _ = RestoreSessionsAndAutostartAsync(Services.GetRequiredService<ManagedSessionService>(), _autostart);
 
         // Keep an installed k3s cluster running while the app runs (one deliberate start of its WSL
         // distribution here, never from polling). Fire-and-forget: failures must never block launch.
@@ -278,6 +277,20 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         }
     }
 
+    private async Task RestoreSessionsAndAutostartAsync(ManagedSessionService sessions, ContainerAutostartService autostart)
+    {
+        try
+        {
+            await sessions.RestoreAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Could not restore app-created sessions.");
+            sessions.ReportRestoreFailure(ex);
+        }
+        await autostart.RestoreThenAttachAsync();
+    }
+
     /// <summary>Returns the toast activation that launched the app, or null for a normal launch.</summary>
     private NotificationActivation? GetNotificationActivation()
     {
@@ -318,7 +331,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         }
         else if (string.Equals(e.Action, "logs", StringComparison.Ordinal) && !string.IsNullOrEmpty(e.TargetId))
         {
-            _window?.OpenContainerLogs(e.TargetId);
+            _window?.OpenContainerLogs(e.TargetId, requireManualSelection: e.SessionOwner is null, owner: e.SessionOwner);
         }
         else if (!string.IsNullOrEmpty(e.Page))
         {
@@ -379,6 +392,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
     private void OnEngineStatusChanged(object? sender, EngineStatusSnapshot e)
     {
         _engineHealth = e.Health;
+        _defaultSessionStoppedByUser = e.DefaultSessionStoppedByUser;
         _engineSummary = e.Summary;
         _runningCount = e.RunningCount;
         _lastContainers = e.Containers;
@@ -391,8 +405,8 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         UpdateTray();
     }
 
-    private void OnHealthNotification(string title, string message) =>
-        _tray?.ShowNotification(UiText.Translate(title), UiText.Translate(message));
+    private void OnSessionHealthNotification(string session, string title, string message) =>
+        _tray?.ShowNotification(UiText.Get("Automation_SessionNotificationTitle", "{0} · {1}", session, title), message);
 
     /// <summary>Rolls the engine status and per-container health into the single tray glyph.</summary>
     private void UpdateTray()
@@ -409,10 +423,14 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             };
         }
 
-        var tooltip = _engineHealth switch
+        var tooltip = _defaultSessionStoppedByUser
+            ? UiText.Get("ManagedSession_TrayPaused", "WSL Container Desktop — default CLI session paused")
+            : _engineHealth switch
         {
-            EngineHealth.Healthy => $"WSL Container Desktop — {UiText.Translate(_engineSummary)}",
-            EngineHealth.Down => UiText.Get("Root_EngineUnreachable", "WSL Container Desktop — engine unreachable"),
+            EngineHealth.Healthy => UiText.Get("Root_DefaultSessionHealthy",
+                "WSL Container Desktop — Default CLI session: {0}", UiText.Translate(_engineSummary)),
+            EngineHealth.Down => UiText.Get("Root_DefaultSessionUnreachable",
+                "WSL Container Desktop — Default CLI session unreachable"),
             _ => "WSL Container Desktop",
         };
 
@@ -426,7 +444,10 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         }
 
         var settings = Services.GetRequiredService<ISettingsService>();
-        var statusText = _engineSummary.Length == 0 ? UiText.Get("Root_StatusUnknown", "Status: unknown") : UiText.Translate(_engineSummary);
+        var statusText = _defaultSessionStoppedByUser
+            ? UiText.Get("ManagedSession_DefaultStatus",
+                "Default CLI session paused in this app. Start or resume it on the WSL engine page.")
+            : _engineSummary.Length == 0 ? UiText.Get("Root_StatusUnknown", "Status: unknown") : UiText.Translate(_engineSummary);
         _tray?.UpdateStatus(health, tooltip, statusText, _runningCount, _lastContainers, settings.NotificationsEnabled);
     }
 
@@ -488,6 +509,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
 
         _watchdog?.Dispose();
         _restartWatchdog?.Dispose();
+        _sessionAutomation?.Dispose();
         _autostart?.Dispose();
         (Services.GetService<IEngineEventStream>() as IDisposable)?.Dispose();
         _monitor?.Dispose();
@@ -535,11 +557,34 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<ITextLocalizer, TextLocalizer>();
         services.AddSingleton<WslcSessionContext>();
+        services.AddSingleton<LegacyPolicyOwnershipStore>();
+        services.AddSingleton<AutostartStateStore>();
         services.AddSingleton<ProcessRunner>();
         services.AddSingleton<IWslPolicyRegistryReader, RegistryWslPolicyRegistryReader>();
         services.AddSingleton<IWslPolicyService, WslPolicyService>();
         services.AddSingleton<IWslcCapabilitiesService, WslcCapabilitiesService>();
+        services.AddSingleton<ContainerPortResolver>();
         services.AddSingleton<IWslcService, WslcService>();
+        services.AddSingleton<WslcSessionClientFactory>();
+        services.AddSingleton<WslcSessionSelectionService>();
+        services.AddSingleton<IWslcSessionSelectionService>(sp => sp.GetRequiredService<WslcSessionSelectionService>());
+        services.AddSingleton<ManagedSessionStore>();
+        services.AddSingleton<SessionRemovalGuard>();
+        services.AddSingleton<SessionRemovalProgress>();
+        services.AddSingleton<SessionStopProgress>();
+        services.AddSingleton(sp => new ManagedSessionService(
+            sp.GetRequiredService<ManagedSessionStore>(), sp.GetRequiredService<WslcSessionInventoryReader>(),
+            sp.GetRequiredService<IWslcService>(), sp.GetRequiredService<WslcSessionClientFactory>(),
+            sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<WslcSessionContext>(),
+            DispatcherQueue.GetForCurrentThread()
+                ?? throw new InvalidOperationException("ManagedSessionService must first be resolved on the UI thread."),
+            sp.GetRequiredService<ILogger<ManagedSessionService>>(), sp.GetRequiredService<SessionRemovalGuard>(),
+            sp.GetRequiredService<ContainerAutostartService>(), sp.GetRequiredService<SessionAutomationCoordinator>(),
+            sp.GetRequiredService<StatusMonitor>()));
+        services.AddSingleton<WslcSessionInventoryReader>();
+        services.AddSingleton<ActivitySessionReader>();
+        services.AddSingleton<WslcSessionContainerActions>();
+        services.AddSingleton<WslcSessionResourceActions>();
         services.AddSingleton<IWslcSettingsFileService, WslcSettingsFileService>();
         services.AddSingleton<RestartSuppressionState>();
         services.AddSingleton<IWslSystemService, WslSystemService>();
@@ -589,7 +634,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IAiChatProvider, AzureOpenAiProvider>();
         services.AddSingleton<IAiChatProvider, OpenAiProvider>();
         services.AddSingleton<IAiDiagnosticsService, AiDiagnosticsService>();
-        services.AddSingleton<ILocalAiSetupService, LocalAiSetupService>();
+        services.AddSingleton<LocalAiSessionCoordinator>();
         services.AddSingleton<IRegistryCatalogService, RegistryCatalogService>();
         services.AddSingleton<IRunProfileStore, RunProfileStore>();
         services.AddSingleton<ITemplateConfigStore, TemplateConfigStore>();
@@ -601,8 +646,9 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IDevContainerImporter, DevContainerImporter>();
         services.AddSingleton<IDevContainerStore, DevContainerStore>();
         services.AddSingleton<IDevContainerFeatureResolver, DevContainerFeatureResolver>();
-        services.AddSingleton<IDevContainerSupervisor, DevContainerSupervisor>();
+        services.AddSingleton<DevContainerSessionCoordinator>();
         services.AddSingleton<IDevContainerHostCommandPresenter, DevContainerHostCommandPresenter>();
+        services.AddSingleton<IAssistantSessionResolver, AssistantSessionResolver>();
         services.AddSingleton<AssistantToolset>();
         services.AddSingleton<IHealthObservationSource>(sp => sp.GetRequiredService<StatusMonitor>());
         services.AddSingleton<IAppHealthObservationSource>(sp => sp.GetRequiredService<HealthWatchdog>());
@@ -646,6 +692,8 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         // here — no static bridge required. GetForCurrentThread must be non-null at that point.
         services.AddSingleton(sp => new StatusMonitor(
             sp.GetRequiredService<IWslcService>(),
+            sp.GetRequiredService<ProcessRunner>(),
+            sp.GetRequiredService<WslcSessionContext>(),
             sp.GetRequiredService<IKubernetesService>(),
             sp.GetRequiredService<RegistryAuthRefresher>(),
             sp.GetRequiredService<ISettingsService>(),
@@ -655,10 +703,14 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
             sp.GetRequiredService<IWindowVisibility>(),
             DispatcherQueue.GetForCurrentThread()
                 ?? throw new InvalidOperationException("StatusMonitor must first be resolved on the UI thread."),
-            sp.GetRequiredService<ILogger<StatusMonitor>>()));
+            sp.GetRequiredService<ILogger<StatusMonitor>>(),
+            sp.GetRequiredService<WslcSessionInventoryReader>(),
+            sp.GetRequiredService<LegacyPolicyOwnershipStore>(),
+            sp.GetRequiredService<IComposeProjectStore>()));
 
         services.AddSingleton<HealthWatchdog>();
         services.AddSingleton<RestartPolicyWatchdog>();
+        services.AddSingleton<SessionAutomationCoordinator>();
         services.AddSingleton<ContainerAutostartService>();
         services.AddSingleton<IActivityLog, ActivityLog>();
         services.AddSingleton<ITemplateCatalog, TemplateCatalog>();
@@ -675,6 +727,9 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<IAppUpdateService, AppUpdateService>();
 
         services.AddSingleton<ContainersViewModel>();
+        services.AddSingleton<CombinedSessionViewModel>();
+        services.AddSingleton<CombinedSessionActionsViewModel>();
+        services.AddSingleton<AutomationReviewViewModel>();
         services.AddSingleton<ImagesViewModel>();
         services.AddSingleton<VolumesViewModel>();
         services.AddSingleton<ReclaimSpaceViewModel>();
@@ -687,6 +742,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<ShellViewModel>();
         services.AddSingleton<AppUpdateViewModel>();
         services.AddSingleton<DashboardViewModel>();
+        services.AddSingleton<DashboardStatsReader>();
         services.AddSingleton<PortsViewModel>();
         services.AddSingleton<ActivityViewModel>();
         services.AddSingleton<KubernetesViewModel>();

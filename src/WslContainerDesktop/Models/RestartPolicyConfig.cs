@@ -30,6 +30,9 @@ public sealed class RestartPolicyConfig
     /// <summary>Gets or sets the container name.</summary>
     public string ContainerName { get; set; } = string.Empty;
 
+    /// <summary>Explicit ownership; null preserves a legacy policy awaiting assignment.</summary>
+    public AutomationSessionOwner? SessionOwner { get; set; }
+
     /// <summary>The compose restart policy to enforce.</summary>
     public RestartPolicyKind Policy { get; set; } = RestartPolicyKind.No;
 

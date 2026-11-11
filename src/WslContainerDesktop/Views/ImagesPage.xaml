@@ -34,11 +34,21 @@
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
                 Text="{x:Bind ViewModel.StatusMessageDisplay, Mode=OneWay}" />
+            <TextBlock Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                Text="{x:Bind ViewModel.CombinedWarning, Mode=OneWay}" TextWrapping="Wrap" />
+            <TextBlock x:Uid="ResourceSessionWakeNotice" i18n:Localization.Uid="ResourceSessionWakeNotice"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+            <TextBlock Text="{x:Bind ViewModel.ManagementDestination, Mode=OneWay}" TextWrapping="Wrap" />
         </StackPanel>
 
-        <!-- Actions wrap on narrow windows; Select and the view toggle stay pinned right.  -->
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+        <!-- Actions wrap on narrow windows; Select stays pinned right. -->
         <Grid
-            Grid.Row="1"
+            Grid.Column="0"
             ColumnSpacing="12"
             Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
             <Grid.ColumnDefinitions>
@@ -175,10 +185,10 @@
         </Grid>
 
         <!-- Bulk-action bar (shown while selecting)  -->
-        <StackPanel
-            Grid.Row="1"
-            Orientation="Horizontal"
-            Spacing="8"
+        <converters:WrapPanel
+            Grid.Column="0"
+            HorizontalSpacing="8"
+            VerticalSpacing="8"
             Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}}">
             <TextBlock
                 VerticalAlignment="Center"
@@ -211,32 +221,17 @@
                     <TextBlock x:Uid="Resource_Images_024" i18n:Localization.Uid="Resource_Images_024" />
                 </StackPanel>
             </Button>
-        </StackPanel>
+        </converters:WrapPanel>
+        <controls:ResourceGridToolbar Grid.Column="1" VerticalAlignment="Top"
+            State="{x:Bind ViewModel.Grid, Mode=OneWay}" />
+        </Grid>
 
         <!-- Table: column header (wide only) + list  -->
-        <Grid Grid.Row="2">
+        <Grid x:Name="TableRoot" Grid.Row="2" SizeChanged="TableRoot_SizeChanged">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-
-            <VisualStateManager.VisualStateGroups>
-                <VisualStateGroup>
-                    <VisualState x:Name="HeaderWide">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MinWidth="720" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                    </VisualState>
-                    <VisualState x:Name="HeaderNarrow">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MaxWidth="720" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                        <VisualState.Setters>
-                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
-                        </VisualState.Setters>
-                    </VisualState>
-                </VisualStateGroup>
-            </VisualStateManager.VisualStateGroups>
 
         <Border
             x:Name="HeaderBorder"
@@ -248,20 +243,22 @@
             CornerRadius="6,6,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2.6*" MinWidth="150" />
+                    <ColumnDefinition Width="*" MinWidth="100" />
+                    <ColumnDefinition Width="2.6*" MinWidth="140" />
+                    <ColumnDefinition Width="80" />
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="80" />
                     <ColumnDefinition Width="90" />
-                    <ColumnDefinition Width="120" />
-                    <ColumnDefinition Width="90" />
-                    <ColumnDefinition Width="110" />
-                    <ColumnDefinition Width="92" />
+                    <ColumnDefinition Width="100" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Uid="Resource_Images_025" i18n:Localization.Uid="Resource_Images_025" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Images_026" i18n:Localization.Uid="Resource_Images_026" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Images_027" i18n:Localization.Uid="Resource_Images_027" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Images_028" i18n:Localization.Uid="Resource_Images_028" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Images_029" i18n:Localization.Uid="Resource_Images_029" Grid.Column="4" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <controls:ResourceSortHeader Grid.Column="0" State="{x:Bind ViewModel.Grid}" SortKey="session"><controls:ResourceSortHeader.Header><TextBlock x:Uid="ResourceSessionColumn" i18n:Localization.Uid="ResourceSessionColumn" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="1" State="{x:Bind ViewModel.Grid}" SortKey="repository"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Images_025" i18n:Localization.Uid="Resource_Images_025" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="2" State="{x:Bind ViewModel.Grid}" SortKey="tag"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Images_026" i18n:Localization.Uid="Resource_Images_026" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="3" State="{x:Bind ViewModel.Grid}" SortKey="id"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Images_027" i18n:Localization.Uid="Resource_Images_027" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="4" State="{x:Bind ViewModel.Grid}" SortKey="size"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Images_028" i18n:Localization.Uid="Resource_Images_028" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="5" State="{x:Bind ViewModel.Grid}" SortKey="created"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Images_029" i18n:Localization.Uid="Resource_Images_029" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
                 <TextBlock x:Uid="Resource_Images_030" i18n:Localization.Uid="Resource_Images_030"
-                    Grid.Column="5"
+                    Grid.Column="6"
                     HorizontalAlignment="Right"
                     Style="{ThemeResource CaptionTextBlockStyle}" />
             </Grid>
@@ -277,7 +274,7 @@
                 <ListView
                     x:Name="ImagesList"
                     Padding="0,4"
-                    ItemsSource="{x:Bind ViewModel.Images, Mode=OneWay}"
+                    ItemsSource="{x:Bind ViewModel.Grid.Items, Mode=OneWay}"
                     SelectedItem="{x:Bind ViewModel.Selected, Mode=TwoWay}"
                     SelectionChanged="List_SelectionChanged"
                     SelectionMode="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToSelMode}}">
@@ -290,37 +287,21 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:ImageInfo">
-                            <Grid x:Name="RowRoot">
-                                <VisualStateManager.VisualStateGroups>
-                                    <VisualStateGroup>
-                                        <VisualState x:Name="RowWide">
-                                            <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MinWidth="680" TargetElement="{Binding ElementName=RowRoot}" />
-                                            </VisualState.StateTriggers>
-                                        </VisualState>
-                                        <VisualState x:Name="RowNarrow">
-                                            <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MaxWidth="680" TargetElement="{Binding ElementName=RowRoot}" />
-                                            </VisualState.StateTriggers>
-                                            <VisualState.Setters>
-                                                <Setter Target="WideGrid.Visibility" Value="Collapsed" />
-                                                <Setter Target="NarrowPanel.Visibility" Value="Visible" />
-                                            </VisualState.Setters>
-                                        </VisualState>
-                                    </VisualStateGroup>
-                                </VisualStateManager.VisualStateGroups>
-
+                            <Grid x:Name="RowRoot" SizeChanged="RowRoot_SizeChanged">
                                 <Grid x:Name="WideGrid">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="2.6*" MinWidth="150" />
+                                    <ColumnDefinition Width="*" MinWidth="100" />
+                                    <ColumnDefinition Width="2.6*" MinWidth="140" />
+                                    <ColumnDefinition Width="80" />
+                                    <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="80" />
                                     <ColumnDefinition Width="90" />
-                                    <ColumnDefinition Width="120" />
-                                    <ColumnDefinition Width="90" />
-                                    <ColumnDefinition Width="110" />
-                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="100" />
                                 </Grid.ColumnDefinitions>
 
-                                <Grid Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{x:Bind SessionName}"
+                                    TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind SessionName}" />
+                                <Grid Grid.Column="1" VerticalAlignment="Center">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
@@ -371,33 +352,33 @@
                                         Visibility="{x:Bind IsCheckingUpdate, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                                 </Grid>
                                 <TextBlock
-                                    Grid.Column="1"
+                                    Grid.Column="2"
                                     VerticalAlignment="Center"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     Text="{x:Bind Tag}" />
                                 <TextBlock
-                                    Grid.Column="2"
+                                    Grid.Column="3"
                                     VerticalAlignment="Center"
                                     FontFamily="Consolas"
                                     FontSize="12"
                                     Text="{x:Bind ShortId}" />
                                 <TextBlock
-                                    Grid.Column="3"
+                                    Grid.Column="4"
                                     VerticalAlignment="Center"
                                     Text="{x:Bind Size, Converter={StaticResource BytesToSize}}" />
                                 <TextBlock
-                                    Grid.Column="4"
+                                    Grid.Column="5"
                                     VerticalAlignment="Center"
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     Text="{x:Bind CreatedUtc, Converter={StaticResource RelativeTime}}" />
 
                                 <StackPanel
-                                    Grid.Column="5"
+                                    Grid.Column="6"
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
-                                    Spacing="4">
+                                    Spacing="4" Visibility="{x:Bind SessionActionsAvailable, Converter={StaticResource BoolToVis}}">
                                     <Button x:Uid="Resource_Images_033" i18n:Localization.Uid="Resource_Images_033"
                                         Padding="7,5"
 
@@ -442,6 +423,8 @@
 
                                 <!-- Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
                                 <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                    <TextBlock Text="{x:Bind SessionName}" TextTrimming="CharacterEllipsis"
+                                        ToolTipService.ToolTip="{x:Bind SessionName}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xEB9F;" />
                                         <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Repository}" TextTrimming="CharacterEllipsis" />
@@ -468,7 +451,8 @@
                                         <TextBlock Grid.Row="3" Grid.Column="1" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind CreatedUtc, Converter={StaticResource RelativeTime}}" />
                                     </Grid>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <StackPanel Orientation="Horizontal" Spacing="4"
+                                        Visibility="{x:Bind SessionActionsAvailable, Converter={StaticResource BoolToVis}}">
                                         <Button x:Uid="Resource_Images_047" i18n:Localization.Uid="Resource_Images_047" Padding="7,5" Click="RunButton_Click" >
                                             <FontIcon FontSize="14" Glyph="&#xE768;" />
                                         </Button>
@@ -511,6 +495,11 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+
+                <TextBlock x:Uid="ResourceGrid_NoMatches" i18n:Localization.Uid="ResourceGrid_NoMatches"
+                    Margin="0,60,0,0" HorizontalAlignment="Center" VerticalAlignment="Top"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsHitTestVisible="False"
+                    Visibility="{x:Bind ViewModel.Grid.HasNoMatches, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
 
                 <StackPanel
                     Margin="0,60,0,0"

@@ -23,6 +23,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitHub.Copilot;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Dispatching;
 using Windows.ApplicationModel.DataTransfer;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -40,16 +41,19 @@ public partial class SettingsViewModel : ObservableObject
     private readonly FileLoggerProvider _fileLogger;
     private readonly IAiDiagnosticsService _aiDiagnostics;
     private readonly IAiCredentialStore _aiCredentials;
-    private readonly ILocalAiSetupService _localAi;
+    private readonly LocalAiSessionCoordinator _localAiSessions;
     private readonly IAiCapabilityService _aiCapabilities;
     private readonly IAiAvailabilityService _aiAvailability;
     private readonly ILogger<SettingsViewModel> _logger;
     private readonly HttpClient _http;
+    private readonly WslcSessionContext _sessionContext;
+    private readonly DispatcherQueue _dispatcher;
 
     private bool _suppressStartupWrite;
     private bool _suppressProviderModelRefresh;
     private bool _suppressAiModelWrite;
     private bool _suppressAiOllamaModelWrite;
+    private bool _restoringWslcPath;
     private int _localAiSetupGeneration;
 
     /// <summary>Default quick-start model: small, widely available, and tool-capable so the
@@ -282,20 +286,45 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>Whether the user can quick start ollama from the view.</summary>
     public bool CanQuickStartOllama => ShowLocalSetupButtons && !IsOllamaBusy;
 
-    /// <summary>Removal is offered only for the local runtime that is actually installed.</summary>
+    /// <summary>Offers removal when a container has the managed runtime name; ownership is checked before removal.</summary>
     public bool ShowRemoveOllama => IsOllamaRuntimePresent;
 
     /// <summary>Bindable state for quick start hint used by the view.</summary>
     public string QuickStartHint => IsOllamaRuntimePresent
-        ? UiText.Get("Common_Text0004", "Ollama is set up and selected as your provider.")
+        ? UiText.Get("Common_Text0004", "A container named wslcd-ollama was found. The app checks ownership before managing it.")
         : UiText.Get("Common_Text0005", "Run a model on this machine, or use Provider below to configure a service yourself.");
 
     /// <summary>Refreshes which local runtimes exist, so setup and removal reflect reality.</summary>
     public async Task RefreshLocalRuntimePresenceAsync(CancellationToken ct = default)
     {
-        var present = await _localAi.IsRuntimePresentAsync(ct);
-        if (present != IsOllamaRuntimePresent)
-            IsOllamaRuntimePresent = present;
+        var revision = _localAiSessions.BeginPresenceRead();
+        try
+        {
+            var (present, complete) = await _localAiSessions.ReadPresenceAsync(ct);
+            if (!_localAiSessions.IsCurrentPresence(revision)) return;
+            if (present || complete) IsOllamaRuntimePresent = present;
+            if (!complete)
+            {
+                _logger.LogWarning("Local AI presence could not be read from every active session.");
+                if (!IsOllamaBusy)
+                    LocalAiFeedback = AiFeedback.Warning(UiText.Get("LocalAi_PresenceTitle", "Local AI status unavailable"),
+                        UiText.Get("LocalAi_PresenceIncomplete",
+                            "Local AI could not be checked in every active session. Check sessions in WSL engine, then return to Settings."));
+            }
+        }
+        catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex) && ex is not OperationCanceledException)
+        {
+            if (!_localAiSessions.IsCurrentPresence(revision))
+            {
+                _logger.LogDebug(ex, "An outdated local AI presence read failed.");
+                return;
+            }
+            _logger.LogWarning(ex, "Local AI presence could not be read from active sessions.");
+            if (!IsOllamaBusy)
+                LocalAiFeedback = AiFeedback.Warning(UiText.Get("LocalAi_PresenceTitle", "Local AI status unavailable"),
+                    UiText.Get("LocalAi_PresenceIncomplete",
+                        "Local AI could not be checked in every active session. Check sessions in WSL engine, then return to Settings."));
+        }
     }
 
     /// <summary>Short name of the provider the app will actually use, for the always-visible header.</summary>
@@ -574,18 +603,22 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Creates the Settings view model and stores its injected services.</summary>
-    public SettingsViewModel(ISettingsService settings, ITextLocalizer localizer, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger, FoundryLocalSettingsViewModel foundryLocal)
+    public SettingsViewModel(ISettingsService settings, ITextLocalizer localizer, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger, FoundryLocalSettingsViewModel foundryLocal, WslcSessionContext sessionContext, LocalAiSessionCoordinator localAiSessions)
     {
         FoundryLocal = foundryLocal;
         _settings = settings;
         _localizer = localizer;
         _wslc = wslc;
         _dialogs = dialogs;
+        _sessionContext = sessionContext;
+        _dispatcher = DispatcherQueue.GetForCurrentThread()
+            ?? throw new InvalidOperationException("SettingsViewModel must be created on the UI thread.");
+        _sessionContext.SelectionLockChanged += OnSessionSelectionLockChanged;
         _startup = startup;
         _fileLogger = fileLogger;
         _aiDiagnostics = aiDiagnostics;
         _aiCredentials = aiCredentials;
-        _localAi = localAi;
+        _localAiSessions = localAiSessions;
         _aiCapabilities = aiCapabilities;
         _aiAvailability = aiAvailability;
         _aiAvailability.Changed += (_, _) =>
@@ -642,9 +675,24 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>Handles wslc path changed changes and updates related view-model state.</summary>
     partial void OnWslcPathChanged(string value)
     {
-        _settings.WslcPath = value;
+        if (_restoringWslcPath)
+            return;
+        if (!_sessionContext.TryApplyIfUnlocked(() => _settings.WslcPath = value))
+        {
+            _restoringWslcPath = true;
+            try { WslcPath = _settings.WslcPath; }
+            finally { _restoringWslcPath = false; }
+            OnPropertyChanged(nameof(CanEditWslcPath));
+            return;
+        }
         _settings.Save();
     }
+
+    /// <summary>Whether the engine path may be changed without retargeting an in-flight operation.</summary>
+    public bool CanEditWslcPath => !_sessionContext.IsSelectionLocked;
+
+    private void OnSessionSelectionLockChanged(object? sender, EventArgs args) =>
+        _dispatcher.TryEnqueue(() => OnPropertyChanged(nameof(CanEditWslcPath)));
 
     /// <summary>Handles refresh interval seconds changed changes and updates related view-model state.</summary>
     partial void OnRefreshIntervalSecondsChanged(int value)
@@ -974,6 +1022,9 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>Localized UI language names, in the order <see cref="SelectedLanguageIndex"/> expects.</summary>
     public ObservableCollection<LocalizedOption> LanguageOptions { get; } = new();
 
+    /// <summary>Localized AI provider names, in the order <see cref="SelectedAiProviderIndex"/> expects.</summary>
+    public ObservableCollection<LocalizedOption> AiProviderOptions { get; } = new();
+
     private void RefreshLocalizedOptions()
     {
         var themes = new[]
@@ -985,8 +1036,17 @@ public partial class SettingsViewModel : ObservableObject
         var languages = AppLanguage.Supported
             .Select(option => _localizer.Get(option.ResourceKey))
             .ToArray();
+        var providers = new[]
+        {
+            _localizer.Get("Settings_Ai_Provider_None.Content"),
+            _localizer.Get("Settings_Ai_Provider_Copilot.Content"),
+            _localizer.Get("Settings_Ai_Provider_Ollama.Content"),
+            _localizer.Get("Settings_Ai_Provider_Azure.Content"),
+            _localizer.Get("Settings_Ai_Provider_OpenAI.Content"),
+        };
         UpdateOptions(ThemeOptions, themes);
         UpdateOptions(LanguageOptions, languages);
+        UpdateOptions(AiProviderOptions, providers);
     }
 
     private static void UpdateOptions(ObservableCollection<LocalizedOption> options, IReadOnlyList<string> translated)
@@ -1539,26 +1599,31 @@ public partial class SettingsViewModel : ObservableObject
     {
         var generation = Interlocked.Increment(ref _localAiSetupGeneration);
         var isAcceptingProgress = true;
+        var refreshPresence = false;
         try
         {
             IsOllamaBusy = true;
-
-            // Setup is always ownership-verified and local, independent of provider configuration.
-            var endpoint = new Uri($"http://127.0.0.1:{_localAi.HostPort}/", UriKind.Absolute);
-            var progress = new Progress<string>(msg =>
+            var scope = await _localAiSessions.OpenAsync(ct);
+            if (scope is null) return;
+            _localAiSessions.InvalidatePresence();
+            refreshPresence = true;
+            Uri endpoint;
+            LocalAiSetupResult result;
+            using (scope)
             {
-                // Progress<T> queues delivery to the UI context. Check ownership here,
-                // not at Report(), so a late callback cannot overwrite a terminal result
-                // or feedback belonging to a subsequent setup generation.
-                if (generation == Volatile.Read(ref _localAiSetupGeneration)
-                    && Volatile.Read(ref isAcceptingProgress) && !ct.IsCancellationRequested)
+                await scope.Target.VerifyAsync(ct);
+                endpoint = new Uri($"http://127.0.0.1:{scope.Service.HostPort}/", UriKind.Absolute);
+                var progress = new Progress<string>(msg =>
                 {
-                    LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0109", "Setting up local AI"), msg);
-                }
-            });
+                    // Progress<T> may deliver after the operation has already completed.
+                    if (generation == Volatile.Read(ref _localAiSetupGeneration)
+                        && Volatile.Read(ref isAcceptingProgress) && !ct.IsCancellationRequested)
+                        LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0109", "Setting up local AI"), msg);
+                });
 
-            LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0109", "Setting up local AI"), UiText.Get("Common_Text0110", "Verifying the app-owned Ollama container…"));
-            var result = await _localAi.EnsureOllamaContainerAsync(progress, ct);
+                LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0109", "Setting up local AI"), UiText.Get("Common_Text0110", "Verifying the app-owned Ollama container…"));
+                result = await scope.Service.EnsureOllamaContainerAsync(progress, ct);
+            }
             Volatile.Write(ref isAcceptingProgress, false);
             if (!result.Success || result.State is not (LocalAiContainerState.AlreadyRunning
                 or LocalAiContainerState.StartedExisting or LocalAiContainerState.CreatedWithGpu
@@ -1571,7 +1636,7 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            ct.ThrowIfCancellationRequested();
+            await scope.Target.VerifyAsync(ct);
             LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0109", "Setting up local AI"), UiText.Get("Common_Text0113", "Waiting for the owned Ollama runtime API…"));
             if (!await WaitForOllamaReadyAsync(endpoint, TimeSpan.FromSeconds(90), ct))
             {
@@ -1594,15 +1659,16 @@ public partial class SettingsViewModel : ObservableObject
             if (string.IsNullOrEmpty(model))
             {
                 Volatile.Write(ref isAcceptingProgress, false);
-                if (await _dialogs.ShowConfirmAsync(
+                if (await _dialogs.ShowLocalizedConfirmAsync(() => (
                         UiText.Get("Common_Text0116", "Download a model?"),
                         UiText.Get("Common_Text0117", "The runtime is ready but has no model yet, so it cannot answer anything.\n\n") +
                         UiText.Get("Common_Text0118", "Download {0}? It is a small chat model that supports tool calling, so the AI assistant can work.\n\n", DefaultOllamaModel) +
                         UiText.Get("Common_Text0119", "• About 5 GB, downloaded by the Ollama runtime\n") +
                         UiText.Get("Common_Text0120", "• You can pick a different model later under Provider"),
-                        primaryText: UiText.Get("Common_Text0121", "Download {0}", DefaultOllamaModel),
-                        closeText: UiText.Get("Common_Text0122", "Skip for now")))
+                        UiText.Get("Common_Text0121", "Download {0}", DefaultOllamaModel),
+                        UiText.Get("Common_Text0122", "Skip for now"))))
                 {
+                    await scope.Target.VerifyAsync(ct);
                     _aiCapabilities.Invalidate();
                     if (await StreamPullModelAsync(DefaultOllamaModel, endpoint,
                             fb => LocalAiFeedback = fb, ct))
@@ -1615,7 +1681,7 @@ public partial class SettingsViewModel : ObservableObject
                     _aiCapabilities.Invalidate();
                 }
             }
-            ct.ThrowIfCancellationRequested();
+            await scope.Target.VerifyAsync(ct);
             // Do not acquire or warm a model, or infer capabilities from a model name.
             // Model acquisition requires a separate, explicit digest/publication-age audit.
             AiOllamaEndpoint = endpoint.ToString().TrimEnd('/');
@@ -1632,6 +1698,7 @@ public partial class SettingsViewModel : ObservableObject
             }
             AiFeaturesEnabled = true;
             await RefreshLocalRuntimePresenceAsync(ct);
+            refreshPresence = false;
 
             var modelMessage = string.IsNullOrEmpty(model)
                 ? UiText.Get("Common_Text0123", "No model is installed yet, so the assistant stays hidden. Download one under Provider below to finish.")
@@ -1677,7 +1744,12 @@ public partial class SettingsViewModel : ObservableObject
         finally
         {
             Volatile.Write(ref isAcceptingProgress, false);
-            IsOllamaBusy = false;
+            try
+            {
+                if (refreshPresence && !ct.IsCancellationRequested)
+                    await RefreshLocalRuntimePresenceAsync(ct);
+            }
+            finally { IsOllamaBusy = false; }
         }
     }
 
@@ -1685,50 +1757,76 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRunOllamaCommand))]
     private async Task RemoveLocalAiAsync()
     {
-        if (!await _dialogs.ShowConfirmAsync(
+        using var scope = await _localAiSessions.OpenAsync(startDefault: false);
+        if (scope is null) return;
+        if (!await _dialogs.ShowLocalizedConfirmAsync(() => (
                 UiText.Get("Common_Text0134", "Remove Ollama"),
-                UiText.Get("Common_Text0135", "This removes the app's '{0}' container.\n\n", _localAi.ContainerName) +
+                UiText.Get("LocalAi_RemoveInSession", "This removes the app's '{0}' container in session {1}.\n\n",
+                    scope.Service.ContainerName, scope.Target.DisplayName) +
                 UiText.Get("Common_Text0136", "Ollama installed outside this app, other containers, and remote endpoints are not touched."),
-                primaryText: "Remove",
-                closeText: UiText.Get("Common_Text0094", "Cancel")))
+                UiText.Get("Workload_Text_Remove_c3812f", "Remove"),
+                UiText.Get("Common_Text0094", "Cancel"))))
         {
             return;
         }
 
-        var removeVolume = await _dialogs.ShowConfirmAsync(
+        var removeVolume = await _dialogs.ShowLocalizedConfirmAsync(() => (
             UiText.Get("Common_Text0137", "Delete downloaded models too?"),
             UiText.Get("Common_Text0138", "Downloaded models can be several GB.\n\n") +
             UiText.Get("Common_Text0139", "Delete them to free the space, or keep them so setting up again is fast."),
-            primaryText: UiText.Get("Common_Text0140", "Delete models"),
-            closeText: UiText.Get("Common_Text0141", "Keep models"));
+            UiText.Get("Common_Text0140", "Delete models"),
+            UiText.Get("Common_Text0141", "Keep models")));
 
+        var presenceReadSucceeded = false;
         try
         {
             IsOllamaBusy = true;
+            _localAiSessions.InvalidatePresence();
             LocalAiFeedback = AiFeedback.Informational(UiText.Get("Common_Text0142", "Removing local AI"), UiText.Get("Common_Text0143", "Removing the local AI container…"));
             if (removeVolume)
             {
                 _aiCapabilities.Invalidate();
             }
-            var result = await _localAi.RemoveOllamaContainerAsync(removeVolume, CancellationToken.None);
+            await scope.Target.VerifyAsync();
+            var result = await scope.Service.RemoveOllamaContainerAsync(removeVolume, CancellationToken.None);
             var isRuntimeGone = result.Runtime is LocalRuntimeResourceState.Removed or LocalRuntimeResourceState.Absent;
             var isModelDeletionUnfulfilled = removeVolume
                 && result.ModelData is not (LocalRuntimeResourceState.Removed or LocalRuntimeResourceState.Absent);
-            if (isRuntimeGone && CurrentAiProvider == AiProviderKind.Ollama)
+            var otherRuntimePresent = true;
+            var presenceComplete = false;
+            var presenceRevision = _localAiSessions.BeginPresenceRead();
+            try
             {
-                // The runtime it pointed at is gone; leaving it selected would fail on every request.
-                ReplaceOllamaModels([], string.Empty);
-                AiOllamaModel = string.Empty;
-                SelectedAiProviderIndex = (int)AiProviderKind.None;
-                _settings.AiProvider = AiProviderKind.None;
-                _settings.AiOllamaModel = string.Empty;
-                _settings.Save();
+                (otherRuntimePresent, presenceComplete) = await _localAiSessions.ReadPresenceAsync();
+                presenceReadSucceeded = true;
+                if (_localAiSessions.IsCurrentPresence(presenceRevision))
+                {
+                    if (otherRuntimePresent || presenceComplete) IsOllamaRuntimePresent = otherRuntimePresent;
+                }
+                else
+                {
+                    presenceComplete = false;
+                }
+            }
+            catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+            {
+                _logger.LogWarning(ex, "Could not determine whether another local AI runtime remains.");
             }
             LocalAiFeedback = result.Success && isRuntimeGone && !isModelDeletionUnfulfilled
                 ? AiFeedback.Success(UiText.Get("Common_Text0144", "Ollama removed"), result.Message)
                 : isRuntimeGone
                     ? AiFeedback.Warning(UiText.Get("Common_Text0145", "Ollama removed, models kept"), result.Message)
                     : AiFeedback.Error(UiText.Get("Common_Text0146", "Could not remove Ollama"), result.Message);
+            if (result.Runtime == LocalRuntimeResourceState.Removed && !presenceComplete &&
+                CurrentAiProvider == AiProviderKind.Ollama)
+                LocalAiFeedback = AiFeedback.Warning(UiText.Get("Common_Text0144", "Ollama removed"),
+                    UiText.Get("LocalAi_OtherSessionsUnknown",
+                        "The container was removed, but other sessions could not be checked. The selected provider was not changed."));
+            else if (result.Runtime == LocalRuntimeResourceState.Removed && presenceComplete && !otherRuntimePresent &&
+                CurrentAiProvider == AiProviderKind.Ollama)
+                LocalAiFeedback = AiFeedback.Warning(UiText.Get("Common_Text0144", "Ollama removed"),
+                    UiText.Get("LocalAi_ProviderRetained",
+                        "The selected provider was kept. If it used this runtime, start a runtime or choose another provider."));
         }
         catch (Exception ex)
         {
@@ -1744,7 +1842,7 @@ public partial class SettingsViewModel : ObservableObject
             // Refresh metadata/affordances only; a failed observation must not rewrite the removal outcome.
             try
             {
-                await RefreshLocalRuntimePresenceAsync();
+                if (!presenceReadSucceeded) await RefreshLocalRuntimePresenceAsync();
                 await _aiAvailability.RefreshAsync();
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or InvalidOperationException)

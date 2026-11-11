@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 using WslContainerDesktop.Services;
+using WslContainerDesktop.Helpers;
 using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
@@ -25,6 +26,36 @@ namespace WslContainerDesktop.Tests.Services;
 /// </summary>
 public sealed class WindowVisibilityTests
 {
+    [Theory]
+    [InlineData("hidden")]
+    [InlineData("minimized")]
+    [InlineData("display-off")]
+    public async Task UiReadCancelsActiveAndQueuedWorkWhenVisibilityChangesOnAnotherThread(string state)
+    {
+        var visibility = new WindowVisibility();
+        visibility.SetWindowState(true, false);
+        using var lifetime = new CancellationTokenSource();
+        using var read = new VisibleRead(visibility, lifetime.Token);
+        var active = Task.Delay(Timeout.InfiniteTimeSpan, read.Token);
+        using var gate = new SemaphoreSlim(0);
+        var queued = gate.WaitAsync(read.Token);
+        await Task.Run(() =>
+        {
+            if (state == "display-off") visibility.SetDisplayOn(false);
+            else visibility.SetWindowState(state != "hidden", state == "minimized");
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => active);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => queued);
+        Assert.False(lifetime.IsCancellationRequested);
+        visibility.SetWindowState(true, false);
+        visibility.SetDisplayOn(true);
+        using var resumed = new VisibleRead(visibility, lifetime.Token);
+        Assert.False(resumed.IsCancellationRequested);
+        lifetime.Cancel();
+        Assert.True(resumed.IsCancellationRequested);
+    }
+
     [Fact]
     public void StartsNotViewableBecauseTheAppCanStartInTheTray()
     {

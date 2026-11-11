@@ -15,7 +15,6 @@
         <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
         <converters:ErrorToBrushConverter x:Key="ErrorToBrush" />
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
-        <converters:BoolToStatusBrushConverter x:Key="BoolToStatusBrush" />
     </Page.Resources>
 
     <Grid Margin="24,16,24,16" RowSpacing="12">
@@ -31,65 +30,79 @@
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
                 Text="A running timeline of engine, container, network and image events." x:Uid="Common_ActivityPage_002" i18n:Localization.Uid="Common_ActivityPage_002" />
+            <TextBlock x:Uid="Activity_AllSessionsNotice" i18n:Localization.Uid="Activity_AllSessionsNotice"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                Style="{ThemeResource CaptionTextBlockStyle}" />
         </StackPanel>
 
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
+        <Grid Grid.Row="1" RowSpacing="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock
+                Grid.Row="0"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{ThemeResource CaptionTextBlockStyle}"
+                Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                TextWrapping="Wrap"
+                MaxLines="2"
+                TextTrimming="CharacterEllipsis"
+                ToolTipService.ToolTip="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" />
 
-            <StackPanel
-                Grid.Column="0"
-                Orientation="Horizontal"
-                Spacing="8">
-                <Ellipse
-                    Width="10"
-                    Height="10"
-                    VerticalAlignment="Center"
-                    Fill="{x:Bind ViewModel.IsConnected, Mode=OneWay, Converter={StaticResource BoolToStatusBrush}}" />
-                <TextBlock
-                    VerticalAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Style="{ThemeResource CaptionTextBlockStyle}"
-                    Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                    MaxWidth="300"
-                    TextTrimming="CharacterEllipsis"
-                    ToolTipService.ToolTip="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" />
-                <TextBlock
-                    Margin="12,0,0,0"
-                    VerticalAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Style="{ThemeResource CaptionTextBlockStyle}"
-                    Text="Filter" x:Uid="Common_ActivityPage_003" i18n:Localization.Uid="Common_ActivityPage_003" />
-                <ComboBox
-                    MinWidth="140"
-                    ItemsSource="{x:Bind ViewModel.Filters}"
-                    SelectedItem="{x:Bind ViewModel.SelectedFilter, Mode=TwoWay}" />
-                <TextBox
-                    MinWidth="220"
-                    PlaceholderText="Search events"
-                    Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" x:Uid="Common_ActivityPage_004" i18n:Localization.Uid="Common_ActivityPage_004" />
-            </StackPanel>
+            <Grid Grid.Row="1" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
 
-            <StackPanel
-                Grid.Column="2"
-                Orientation="Horizontal"
-                Spacing="8">
-                <ToggleButton IsChecked="{x:Bind ViewModel.IsPaused, Mode=TwoWay}" ToolTipService.ToolTip="Freeze the list so it stops updating while you read. New events are still collected and appear when you resume." x:Uid="Common_ActivityPage_005" i18n:Localization.Uid="Common_ActivityPage_005" >
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon FontSize="14" Glyph="&#xE769;" />
-                        <TextBlock Text="Pause" x:Uid="Common_ActivityPage_006" i18n:Localization.Uid="Common_ActivityPage_006" />
-                    </StackPanel>
-                </ToggleButton>
-                <Button Command="{x:Bind ViewModel.ClearCommand}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon FontSize="14" Glyph="&#xE74D;" />
-                        <TextBlock Text="Clear" x:Uid="Common_ActivityPage_007" i18n:Localization.Uid="Common_ActivityPage_007" />
-                    </StackPanel>
-                </Button>
-            </StackPanel>
+                <Grid Grid.Column="0" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        Grid.Column="0"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="Filter" x:Uid="Common_ActivityPage_003" i18n:Localization.Uid="Common_ActivityPage_003" />
+                    <ComboBox
+                        Grid.Column="1"
+                        Width="140"
+                        ItemsSource="{x:Bind ViewModel.Filters}"
+                        SelectedItem="{x:Bind ViewModel.SelectedFilter, Mode=TwoWay}" />
+                    <TextBox
+                        x:Name="ActivitySearchText"
+                        Grid.Column="2"
+                        MinWidth="0"
+                        PlaceholderText="Search events"
+                        Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" x:Uid="Common_ActivityPage_004" i18n:Localization.Uid="Common_ActivityPage_004" />
+                </Grid>
+
+                <StackPanel
+                    Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <ToggleButton IsChecked="{x:Bind ViewModel.IsPaused, Mode=TwoWay}" ToolTipService.ToolTip="Freeze the list so it stops updating while you read. New events are still collected and appear when you resume." x:Uid="Common_ActivityPage_005" i18n:Localization.Uid="Common_ActivityPage_005" >
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE769;" />
+                            <TextBlock Text="Pause" x:Uid="Common_ActivityPage_006" i18n:Localization.Uid="Common_ActivityPage_006" />
+                        </StackPanel>
+                    </ToggleButton>
+                    <Button x:Name="ActivityRefreshButton" x:Uid="Activity_Refresh" i18n:Localization.Uid="Activity_Refresh"
+                        Command="{x:Bind ViewModel.RefreshCommand}">
+                        <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                    </Button>
+                    <Button x:Name="ActivityClearButton" Command="{x:Bind ViewModel.ClearCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE74D;" />
+                            <TextBlock Text="Clear" x:Uid="Common_ActivityPage_007" i18n:Localization.Uid="Common_ActivityPage_007" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Grid>
 
         <Border
@@ -137,6 +150,13 @@
                                         Text="{x:Bind DisplayTitle}"
                                         TextTrimming="CharacterEllipsis"
                                         ToolTipService.ToolTip="{x:Bind DisplayTitle}" />
+                                    <TextBlock
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind SessionDisplay}"
+                                        TextTrimming="CharacterEllipsis"
+                                        ToolTipService.ToolTip="{x:Bind SessionDisplay}"
+                                        Visibility="{x:Bind SessionDisplay, Converter={StaticResource EmptyToVis}, ConverterParameter=invert}" />
                                     <TextBlock
                                         FontFamily="Consolas"
                                         FontSize="12"

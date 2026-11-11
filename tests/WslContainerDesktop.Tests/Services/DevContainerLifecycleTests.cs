@@ -28,6 +28,116 @@ namespace WslContainerDesktop.Tests.Services;
 /// </summary>
 public sealed class DevContainerLifecycleTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExistingContainerMustHaveMatchingDevContainerOwnership(bool owned)
+    {
+        var client = NetworkTestProxy.Create<IWslcService>((method, _) => method.Name switch
+        {
+            nameof(IWslcService.ListContainersAsync) => Task.FromResult<IReadOnlyList<ContainerInfo>>(
+                [new ContainerInfo { Id = "123456789abc", Name = "devcontainer-test" }]),
+            nameof(IWslcService.InspectContainerAsync) => Task.FromResult(new CommandResult
+            {
+                StandardOutput = JsonSerializer.Serialize(new
+                {
+                    Id = "123456789abc",
+                    Config = new { Labels = new Dictionary<string, string>
+                        { ["com.wslcontainerdesktop.devcontainer.id"] = owned ? "test" : "other" } },
+                    NetworkSettings = new { Networks = new Dictionary<string, object>() },
+                }),
+            }),
+            _ => throw new InvalidOperationException(method.Name),
+        });
+        var config = new DevContainerConfig { Id = "test" };
+        if (owned)
+            Assert.NotNull(await DevContainerSupervisor.FindOwnedContainerAsync(client, config));
+        else
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                DevContainerSupervisor.FindOwnedContainerAsync(client, config));
+    }
+
+    [Fact]
+    public async Task SessionChangeAfterHostApprovalPreventsHostCommandsAndContainerChanges()
+    {
+        var fixture = Fixture.SingleContainer(scopeVerifier: _ =>
+            Task.FromException(new InvalidOperationException("Session changed")));
+        fixture.Config.Lifecycle.Initialize.Add("echo hello");
+        var result = await fixture.Up(approveHostCommandsAsync: (_, _) => Task.FromResult(true));
+        Assert.False(result.Success);
+        Assert.Empty(fixture.HostProcesses);
+        Assert.DoesNotContain(fixture.Calls, call => call.StartsWith("wslc:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MissingComposeProjectCannotBeReportedAsStopped()
+    {
+        var store = NetworkTestProxy.Create<IComposeProjectStore>((method, _) =>
+            method.Name == nameof(IComposeProjectStore.Get) ? null : throw new InvalidOperationException(method.Name));
+        var fixture = new ComposeNetworkSupervisorTests.Fixture(storeOverride: store);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Supervisor.DownRequiredAsync("missing", removeVolumes: false, default));
+        Assert.Empty(fixture.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task RemovedContainerDoesNotDeleteAChangedSavedDefinition()
+    {
+        var calls = new List<string>();
+        var client = NetworkTestProxy.Create<IWslcService>((method, _) => method.Name switch
+        {
+            nameof(IWslcService.ListContainersAsync) => Task.FromResult<IReadOnlyList<ContainerInfo>>(
+                [new ContainerInfo { Id = "123456789abc", Name = "devcontainer-test" }]),
+            nameof(IWslcService.InspectContainerAsync) => Task.FromResult(new CommandResult
+            {
+                StandardOutput = """{"Id":"123456789abc","Config":{"Labels":{"com.wslcontainerdesktop.devcontainer.id":"test"}},"NetworkSettings":{"Networks":{}}}""",
+            }),
+            nameof(IWslcService.StopContainerAsync) => Record("stop"),
+            nameof(IWslcService.RemoveContainerAsync) => Record("remove"),
+            _ => throw new InvalidOperationException(method.Name),
+        });
+        Task<CommandResult> Record(string action) { calls.Add(action); return Task.FromResult(new CommandResult()); }
+        var store = NetworkTestProxy.Create<IDevContainerStore>((method, _) => method.Name switch
+        {
+            nameof(IDevContainerStore.TryDelete) => false,
+            _ => throw new InvalidOperationException(method.Name),
+        });
+        var settings = NetworkTestProxy.Create<ISettingsService>((method, _) => throw new InvalidOperationException(method.Name));
+        var supervisor = new DevContainerSupervisor(client, store,
+            NetworkTestProxy.Create<IDevContainerFeatureResolver>((method, _) => throw new InvalidOperationException(method.Name)),
+            null!, new ProcessRunner(settings), NullLogger<DevContainerSupervisor>.Instance);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            supervisor.RemoveAsync(new DevContainerConfig { Id = "test" }));
+        Assert.Contains("definition changed", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(["stop", "remove"], calls);
+    }
+
+    [Fact]
+    public void DevContainerStoreRejectsStaleAssignmentAndPreservesCurrentOwner()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wcd-dev-owner-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new DevContainerStore(NullLogger<DevContainerStore>.Instance, Path.Combine(root, "store.json"));
+            var original = new DevContainerConfig { Id = "id" };
+            store.Save(original);
+            var other = new DevContainerConfig { Id = "id", SessionOwner = AutomationSessionOwner.Capture("engine", new("alpha")) };
+            store.Save(other);
+            Assert.False(store.TryReplace(original, new DevContainerConfig
+            {
+                Id = "id", SessionOwner = AutomationSessionOwner.Capture("engine", new("beta")),
+            }));
+            Assert.Same(other, store.Get("id"));
+            store.Save(new DevContainerConfig { Id = "id", Name = "reimported" });
+            Assert.Equal("alpha", new DevContainerStore(NullLogger<DevContainerStore>.Instance,
+                Path.Combine(root, "store.json")).Get("id")!.SessionOwner!.SessionName);
+            Assert.False(store.TryDelete(other));
+            Assert.True(store.TryDelete(store.Get("id")!));
+            Assert.Null(new DevContainerStore(NullLogger<DevContainerStore>.Instance,
+                Path.Combine(root, "store.json")).Get("id"));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
     public static IEnumerable<object[]> UnsupportedHostWorkspaces()
     {
         yield return [@"\\server\share\workspace"];
@@ -162,6 +272,29 @@ public sealed class DevContainerLifecycleTests
         Assert.False(result.Success);
         Assert.Contains("Host review unavailable", result.Detail);
         Assert.Empty(fixture.Calls);
+    }
+
+    [Fact]
+    public async Task DevContainerApprovalKeepsTheSelectedSessionUntilTheOperationEnds()
+    {
+        var context = new WslcSessionContext();
+        context.Select("first");
+        var fixture = Fixture.SingleContainer(context);
+        fixture.Config.Lifecycle.Initialize = ["untrusted host command"];
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var operation = fixture.Up(approveHostCommandsAsync: (_, _) =>
+        {
+            started.TrySetResult();
+            return decision.Task;
+        });
+        await started.Task;
+        Assert.False(context.TrySelect("second"));
+        decision.SetResult(false);
+        Assert.False((await operation).Success);
+        Assert.True(context.TrySelect("second"));
+        Assert.Empty(fixture.HostProcesses);
     }
 
     [Fact]
@@ -860,7 +993,7 @@ public sealed class DevContainerLifecycleTests
         private DevContainerConfig? _saved;
         private readonly DevContainerSupervisor _supervisor;
 
-        public Fixture()
+        public Fixture(WslcSessionContext? sessionContext = null, Func<CancellationToken, Task>? scopeVerifier = null)
         {
             Compose.Project.Services[0].Options = new() { Image = "fixture" };
             Compose.Engine.NextImageId = "sha256:fixture-v1";
@@ -910,12 +1043,13 @@ public sealed class DevContainerLifecycleTests
                     HostProcesses.Add(psi);
                     AfterHostCommand?.Invoke(psi);
                     return Task.FromResult(HostResult);
-                });
+                }, sessionContext, scopeVerifier);
         }
 
-        public static Fixture SingleContainer()
+        public static Fixture SingleContainer(WslcSessionContext? sessionContext = null,
+            Func<CancellationToken, Task>? scopeVerifier = null)
         {
-            var fixture = new Fixture();
+            var fixture = new Fixture(sessionContext, scopeVerifier);
             fixture.Config.Compose = null;
             fixture.Config.Image = "fixture";
             fixture.Config.RunOptions.Image = "fixture";

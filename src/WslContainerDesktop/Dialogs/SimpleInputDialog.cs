@@ -25,6 +25,13 @@ namespace WslContainerDesktop.Dialogs;
 public sealed class SimpleInputDialog : ContentDialog
 {
     private readonly TextBox _textBox;
+    private WslcSessionSelection? _session;
+    private string? _sessionTitleKey;
+    private string _sessionTitleFallback = string.Empty;
+    private string _labelKey = string.Empty;
+    private string _labelFallback = string.Empty;
+    private string _placeholderKey = string.Empty;
+    private string _placeholderFallback = string.Empty;
 
     /// <summary>Creates a new &lt;c&gt;SimpleInputDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     /// <param name="title">The title value supplied by the caller.</param>
@@ -56,6 +63,35 @@ public sealed class SimpleInputDialog : ContentDialog
             _textBox.Focus(FocusState.Programmatic);
             _textBox.SelectAll();
         };
+        Opened += (_, _) => UiText.LanguageChanged += OnLanguageChanged;
+        Closed += (_, _) => UiText.LanguageChanged -= OnLanguageChanged;
+    }
+
+    /// <summary>Keeps session-specific wording localized without changing the entered value.</summary>
+    public void SetSession(WslcSessionSelection session, string titleKey, string titleFallback,
+        string labelKey, string labelFallback, string placeholderKey, string placeholderFallback)
+    {
+        _session = session;
+        _sessionTitleKey = titleKey;
+        _sessionTitleFallback = titleFallback;
+        _labelKey = labelKey;
+        _labelFallback = labelFallback;
+        _placeholderKey = placeholderKey;
+        _placeholderFallback = placeholderFallback;
+        RefreshLanguage();
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshLanguage();
+
+    private void RefreshLanguage()
+    {
+        if (_session is null || _sessionTitleKey is null) return;
+        Title = UiText.Get(_sessionTitleKey, _sessionTitleFallback, _session.Target.Name ??
+            UiText.Get("WslEngine_Session_Default", "Default CLI session"));
+        PrimaryButtonText = UiText.Get("Workload_Text_OK_565339", "OK");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
+        _textBox.Header = UiText.Get(_labelKey, _labelFallback);
+        _textBox.PlaceholderText = UiText.Get(_placeholderKey, _placeholderFallback);
     }
 
     /// <summary>Gets or sets the text currently entered in the dialog.</summary>

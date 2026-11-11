@@ -172,7 +172,7 @@ public class DeploymentConflictResolverTests
         Assert.Equal(["sqlserver-data:/var/opt/mssql"], options.Volumes);
     }
 
-    /// <summary>Without inventory we cannot know what clashes; deploy as asked rather than guess.</summary>
+    /// <summary>Without inventory we cannot safely determine what clashes.</summary>
     [Fact]
     public async Task UnreadableInventoryLeavesTheRequestUnchanged()
     {
@@ -182,9 +182,7 @@ public class DeploymentConflictResolverTests
                 : throw new InvalidOperationException($"Unexpected engine call: {method.Name}")));
         var options = new RunContainerOptions { Image = "img", Name = "sqlserver", PortMappings = { "1433:1433" } };
 
-        var adjustment = await resolver.ResolveAsync(options);
-
-        Assert.False(adjustment.Adjusted);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(options));
         Assert.Equal("sqlserver", options.Name);
     }
 
@@ -251,6 +249,28 @@ public class DeploymentConflictResolverTests
         Assert.Contains("already deployed", adjustment.Summary);
     }
 
+    [Fact]
+    public async Task ComposeNameAvoidsSavedProjectsEvenWhenTheTargetSessionIsEmpty()
+    {
+        var project = OpenWebUiLikeProject();
+
+        await ProjectResolver().ResolveProjectAsync(project, reservedNames: ["openwebui", "openwebui-2"]);
+
+        Assert.Equal("openwebui-3", project.Name);
+    }
+
+    [Fact]
+    public async Task ComposeNameAvoidsCollidingRenamedNetworks()
+    {
+        var project = OpenWebUiLikeProject();
+
+        await ProjectResolver([Existing("openwebui_web")], ["openwebui-net", "openwebui-net-2"])
+            .ResolveProjectAsync(project);
+
+        Assert.Equal("openwebui-3", project.Name);
+        Assert.Equal("openwebui-net-3", project.Networks[0].ExplicitName);
+    }
+
     /// <summary>
     /// Project namespacing deliberately preserves an explicitly named network, so without this the
     /// second deployment would attach to the first one's network instead of its own.
@@ -296,9 +316,7 @@ public class DeploymentConflictResolverTests
                 : throw new InvalidOperationException($"Unexpected engine call: {method.Name}")));
         var project = OpenWebUiLikeProject();
 
-        var adjustment = await resolver.ResolveProjectAsync(project);
-
-        Assert.False(adjustment.Adjusted);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveProjectAsync(project));
         Assert.Equal("openwebui", project.Name);
     }
 }

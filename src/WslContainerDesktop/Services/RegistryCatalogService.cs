@@ -53,7 +53,19 @@ public sealed class CatalogResult
     public IReadOnlyList<string> Items { get; init; } = Array.Empty<string>();
 
     /// <summary>User-facing explanation for non-success outcomes.</summary>
-    public string? Message { get; init; }
+    public string? Message
+    {
+        get => MessageKey is null ? _message : UiText.Get(MessageKey, MessageFallback ?? string.Empty, MessageArguments);
+        init => _message = value;
+    }
+
+    private readonly string? _message;
+    /// <summary>Resource key for app-authored messages, or null for external text.</summary>
+    public string? MessageKey { get; init; }
+    /// <summary>English fallback for a keyed message.</summary>
+    public string? MessageFallback { get; init; }
+    /// <summary>Untranslated values for a keyed message.</summary>
+    public object?[] MessageArguments { get; init; } = [];
 
     /// <summary>True when the browse succeeded.</summary>
     public bool IsOk => Status == CatalogStatus.Ok;
@@ -63,6 +75,10 @@ public sealed class CatalogResult
 
     /// <summary>Creates a failed or unsupported browse result with a user-facing message.</summary>
     public static CatalogResult Fail(CatalogStatus status, string message) => new() { Status = status, Message = message };
+
+    /// <summary>Creates a failed result whose app-authored wording can be refreshed in place.</summary>
+    public static CatalogResult LocalizedFailure(CatalogStatus status, string key, string fallback, params object?[] args) =>
+        new() { Status = status, MessageKey = key, MessageFallback = fallback, MessageArguments = args };
 }
 
 /// <summary>Browses a registry's available repositories and tags so a user can pick what to pull.</summary>
@@ -133,7 +149,7 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
     {
         if (!CanBrowse(registry))
         {
-            return CatalogResult.Fail(CatalogStatus.NotSupported,
+            return CatalogResult.LocalizedFailure(CatalogStatus.NotSupported, "Catalog_BrowseUnsupported",
                 "Browsing isn't supported for this registry. Enter the image reference manually.");
         }
 
@@ -141,7 +157,7 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
         {
             if (!await _azure.IsAvailableAsync(ct).ConfigureAwait(false))
             {
-                return CatalogResult.Fail(CatalogStatus.Unavailable,
+                return CatalogResult.LocalizedFailure(CatalogStatus.Unavailable, "Catalog_AzureCliMissing",
                     "The Azure CLI (az) is required to browse this registry but isn't installed.");
             }
 
@@ -159,7 +175,8 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
     {
         if (!CanBrowse(registry) || string.IsNullOrWhiteSpace(repository))
         {
-            return CatalogResult.Fail(CatalogStatus.NotSupported, "Browsing isn't supported for this registry.");
+            return CatalogResult.LocalizedFailure(CatalogStatus.NotSupported, "Catalog_TagsUnsupported",
+                "Browsing isn't supported for this registry.");
         }
 
         if (IsAcr(registry))
@@ -210,10 +227,11 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
 
                 if (authorization is null)
                 {
-                    return CatalogResult.Fail(CatalogStatus.NotLoggedIn,
-                        hasCredential
-                            ? "The stored credentials were rejected by the registry. Log in again from the Registries page."
-                            : "You need to log in to this registry first. Open the Registries page and log in.");
+                    return hasCredential
+                        ? CatalogResult.LocalizedFailure(CatalogStatus.NotLoggedIn, "Catalog_CredentialsRejected",
+                            "The stored credentials were rejected by the registry. Log in again from the Registries page.")
+                        : CatalogResult.LocalizedFailure(CatalogStatus.NotLoggedIn, "Catalog_LoginRequired",
+                            "You need to log in to this registry first. Open the Registries page and log in.");
                 }
 
                 response = await SendV2Async(url, authorization, ct).ConfigureAwait(false);
@@ -223,20 +241,20 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
             {
                 if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 {
-                    return CatalogResult.Fail(CatalogStatus.NotLoggedIn,
+                    return CatalogResult.LocalizedFailure(CatalogStatus.NotLoggedIn, "Catalog_RequestRejected",
                         "The registry rejected the request. Log in to this registry from the Registries page.");
                 }
 
                 if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
                 {
-                    return CatalogResult.Fail(CatalogStatus.NotSupported,
+                    return CatalogResult.LocalizedFailure(CatalogStatus.NotSupported, "Catalog_CatalogUnsupported",
                         "This registry doesn't support browsing its catalog.");
                 }
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return CatalogResult.Fail(CatalogStatus.Failed,
-                        $"The registry returned an error ({(int)response.StatusCode}).");
+                    return CatalogResult.LocalizedFailure(CatalogStatus.Failed, "Catalog_HttpError",
+                        "The registry returned an error ({0}).", (int)response.StatusCode);
                 }
 
                 await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -267,7 +285,7 @@ public sealed class RegistryCatalogService : IRegistryCatalogService
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Registry v2 browse failed for {Host}.", registry.Host);
-            return CatalogResult.Fail(CatalogStatus.Failed,
+            return CatalogResult.LocalizedFailure(CatalogStatus.Failed, "Catalog_Unreachable",
                 "Could not reach the registry. Check your network connection and that the host is correct.");
         }
     }

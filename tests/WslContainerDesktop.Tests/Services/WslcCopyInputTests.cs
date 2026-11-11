@@ -46,6 +46,24 @@ public sealed class WslcCopyInputTests
     }
 
     [Theory]
+    [InlineData("space name")]
+    [InlineData("%PATH%")]
+    [InlineData("!PATH!")]
+    [InlineData("& echo injection")]
+    [InlineData("^caret")]
+    [InlineData("(parentheses)")]
+    [InlineData("\u00e9")]
+    public void NamedSessionRemainsQuotedEnvironmentData(string session)
+    {
+        var info = WslcCopyInput.CreateStartInfo(
+            @"C:\wslc.exe", ["--session", session, "container", "cp", "--quiet", "-", "id:/"], @"C:\payload.tar");
+
+        Assert.Equal(session, info.Environment["WCD_CP_SESSION"]);
+        Assert.Contains("--session \"%WCD_CP_SESSION%\"", info.Arguments);
+        Assert.DoesNotContain(session, info.Arguments);
+    }
+
+    [Theory]
     [InlineData("\"")]
     [InlineData("\r")]
     [InlineData("\n")]
@@ -58,6 +76,17 @@ public sealed class WslcCopyInputTests
             @"C:\wslc.exe", ["container", "cp", "-", $"id{delimiter}:/"], @"C:\input.tar"));
         Assert.Throws<ArgumentException>(() => WslcCopyInput.CreateStartInfo(
             @"C:\wslc.exe", ["container", "cp", "-", "id:/"], $"C:\\{delimiter}\\input.tar"));
+        Assert.Throws<ArgumentException>(() => WslcCopyInput.CreateStartInfo(
+            @"C:\wslc.exe", ["--session", $"a{delimiter}b", "container", "cp", "-", "id:/"], @"C:\input.tar"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void EmptyNamedSessionIsRejected(string session)
+    {
+        Assert.Throws<ArgumentException>(() => WslcCopyInput.CreateStartInfo(
+            @"C:\wslc.exe", ["--session", session, "container", "cp", "-", "id:/"], @"C:\input.tar"));
     }
 
     [Fact]
@@ -65,6 +94,8 @@ public sealed class WslcCopyInputTests
     {
         Assert.Throws<ArgumentException>(() => WslcCopyInput.CreateStartInfo(
             @"C:\wslc.exe", ["exec", "id", "sh", "-c"], @"C:\input.tar"));
+        Assert.Throws<ArgumentException>(() => WslcCopyInput.CreateStartInfo(
+            @"C:\wslc.exe", ["--session", "named", "exec", "id", "sh", "-c"], @"C:\input.tar"));
     }
 
     [Fact]

@@ -3,6 +3,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <!-- Match the Windows SDK projection required by the WSL Containers SDK. -->
+    <WindowsSdkPackageVersion>10.0.28000.87</WindowsSdkPackageVersion>
     <RootNamespace>WslContainerDesktop</RootNamespace>
     <AssemblyName>WslContainerDesktop</AssemblyName>
     <ApplicationDisplayName>WSL Container Desktop</ApplicationDisplayName>
@@ -15,7 +17,8 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
+    <!-- The SDK projection enables an AOT/trimming analyzer; this app disables trimming. -->
+    <NoWarn>$(NoWarn);MVVMTK0045;CsWinRT1032</NoWarn>
     <!-- The SDK's MSBuild downloader currently fails TLS against npm in this environment.
          Keep normal app builds green; users can set CopilotCliBinaryPath to a predownloaded
          runtime binary, or unset this when the npm download path works. -->
@@ -66,6 +69,7 @@
     <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.7" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
+    <PackageReference Include="Microsoft.WSL.Containers" Version="3.0.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.4.0" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />

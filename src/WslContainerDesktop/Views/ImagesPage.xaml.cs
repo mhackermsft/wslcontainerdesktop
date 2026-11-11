@@ -30,23 +30,33 @@ namespace WslContainerDesktop.Views;
 /// <summary>Page that lists container images and exposes run, tag, push, save, load, and remove actions.</summary>
 public sealed partial class ImagesPage : Page
 {
+    private ResourceGridSelection<ImageInfo>? _gridSelection;
+
     /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public ImagesPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<ImagesViewModel>();
         InitializeComponent();
         NavigationCacheMode = NavigationCacheMode.Enabled;
+        Loaded += (_, _) => _gridSelection = new(ViewModel.Grid, ImagesList, UpdateSelectedCount);
+        Unloaded += (_, _) => { _gridSelection?.Dispose(); _gridSelection = null; };
     }
 
     /// <summary>Image inventory view model bound by the page.</summary>
     public ImagesViewModel ViewModel { get; }
 
-    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    private void TableRoot_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        ResourceGridLayout.UpdateTable(HeaderBorder, ImagesList, e.NewSize.Width, 760);
+
+    private void RowRoot_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        ResourceGridLayout.UpdateRow((Grid)sender, TableRoot.ActualWidth >= 760);
+
+    protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         UiText.LanguageChanged += OnUiLanguageChanged;
         ViewModel.RefreshLocalizedText();
-        await ViewModel.RefreshAsync();
+        UiSafe.Run(ViewModel.RefreshOnNavigationAsync);
     }
 
     private static ImageInfo? ImageOf(object sender) =>
@@ -86,7 +96,8 @@ public sealed partial class ImagesPage : Page
 
     private void SaveImageMenu_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
     {
-        if (ImageOf(sender) is { } img && await PickImageArchiveSavePathAsync([img]) is { } path)
+        if (ImageOf(sender) is { } img && await ViewModel.CanSaveTogetherAsync([img]) &&
+            await PickImageArchiveSavePathAsync([img]) is { } path)
         {
             await ViewModel.SaveImagesAsync([img], path);
         }
@@ -148,7 +159,7 @@ public sealed partial class ImagesPage : Page
 
         foreach (var profile in profiles)
         {
-            var item = new MenuFlyoutItem { Text = profile.Name, Tag = profile };
+            var item = new MenuFlyoutItem { Text = profile.Name, Tag = (profile, image) };
             item.Click += RunProfileMenu_Click;
             submenu.Items.Add(item);
         }
@@ -156,30 +167,33 @@ public sealed partial class ImagesPage : Page
 
     private void RunProfileMenu_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as MenuFlyoutItem)?.Tag is RunProfile profile)
+        if ((sender as MenuFlyoutItem)?.Tag is ValueTuple<RunProfile, ImageInfo?> target && target.Item2 is { } image)
         {
-            ViewModel.RunProfileCommand.Execute(profile);
+            UiSafe.Run(() => ViewModel.RunProfileForImageAsync(target.Item1, image));
         }
     }
 
     private void List_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        => UpdateSelectedCount();
+
+    private void UpdateSelectedCount()
     {
         if (ViewModel.IsSelectionMode)
         {
-            ViewModel.SelectedCount = ImagesList.SelectedItems.Count;
+            ViewModel.SelectedCount = SelectedRows().Count;
         }
     }
 
     private async void BulkRemove_Click(object sender, RoutedEventArgs e)
     {
-        var selected = ImagesList.SelectedItems.OfType<ImageInfo>().ToList();
+        var selected = SelectedRows();
         await ViewModel.BulkRemoveAsync(selected);
     }
 
     private void BulkSave_Click(object sender, RoutedEventArgs e) => UiSafe.Run(async () =>
     {
-        var selected = ImagesList.SelectedItems.OfType<ImageInfo>().ToList();
-        if (await PickImageArchiveSavePathAsync(selected) is { } path)
+        var selected = SelectedRows();
+        if (await ViewModel.CanSaveTogetherAsync(selected) && await PickImageArchiveSavePathAsync(selected) is { } path)
         {
             await ViewModel.SaveImagesAsync(selected, path);
         }
@@ -207,6 +221,9 @@ public sealed partial class ImagesPage : Page
     {
         ViewModel.IsSelectionMode = false;
     }
+
+    private List<ImageInfo> SelectedRows() => ImagesList.SelectedItems.OfType<ImageInfo>()
+        .Where(ViewModel.Grid.Items.Contains).ToList();
 
     private async Task<string?> PickImageArchiveSavePathAsync(IReadOnlyList<ImageInfo> images)
     {

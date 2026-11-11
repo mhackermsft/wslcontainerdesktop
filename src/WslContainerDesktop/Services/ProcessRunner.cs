@@ -26,7 +26,12 @@ namespace WslContainerDesktop.Services;
 /// Every captured wslc child is added to <see cref="ChildProcessJob.Shared"/> so none outlives the app;
 /// <see cref="RunInteractive"/> terminal windows are deliberately left independent.
 /// </summary>
-public sealed class ProcessRunner(ISettingsService settings, WslcSessionContext? sessionContext = null)
+public sealed class ProcessRunner(
+    ISettingsService settings,
+    WslcSessionContext? sessionContext = null,
+    WslcSessionTarget? fixedSession = null,
+    string? fixedExecutablePath = null,
+    Func<CancellationToken, Task>? scopeVerifier = null)
 {
     /// <summary>Upper bound for a non-interactive mutation; a hung engine call ends instead of blocking forever.</summary>
     internal static readonly TimeSpan MutationTimeout = TimeSpan.FromMinutes(10);
@@ -35,25 +40,62 @@ public sealed class ProcessRunner(ISettingsService settings, WslcSessionContext?
     private static readonly Regex ConfirmationPrompt = new(@"\[y/n\]",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 
+    /// <summary>Creates a runner pinned to one target and executable regardless of later settings changes.</summary>
+    public ProcessRunner ForSession(WslcSessionTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (scopeVerifier is not null && fixedSession != target)
+            throw new InvalidOperationException("A verified process runner cannot be retargeted to another session.");
+        return new ProcessRunner(settings, sessionContext, fixedSession: target, fixedExecutablePath: CaptureExecutablePath(),
+            scopeVerifier: scopeVerifier);
+    }
+
+    internal WslcSessionTarget CaptureSessionTarget(WslcSessionContext? fallback = null) =>
+        fixedSession ?? sessionContext?.Capture() ?? fallback?.Capture() ?? WslcSessionTarget.Default;
+
+    internal string CaptureExecutablePath() => fixedExecutablePath ?? settings.WslcPath;
+
+    internal Task VerifyScopeAsync(CancellationToken cancellationToken)
+    {
+        ThrowIfDefaultSessionStopped();
+        return scopeVerifier is null ? Task.CompletedTask : scopeVerifier(cancellationToken);
+    }
+
+    private void ThrowIfDefaultSessionStopped()
+    {
+        if (sessionContext?.IsDefaultSessionStopped(CaptureExecutablePath(), CaptureSessionTarget()) == true)
+            throw new InvalidOperationException(UiText.Get("ManagedSession_DefaultStartRequired",
+                "The default CLI session was stopped in this app. Open WSL engine and select Start for that session."));
+    }
+
     /// <summary>Runs wslc with the given arguments and returns captured output.</summary>
-    public Task<CommandResult> RunAsync(
+    public async Task<CommandResult> RunAsync(
         IEnumerable<string> arguments,
-        CancellationToken cancellationToken = default) =>
-        RunAtPathAsync(settings.WslcPath, ApplySession(arguments), cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        if (scopeVerifier is not null)
+            await scopeVerifier(cancellationToken).ConfigureAwait(false);
+        return await RunAtPathAsync(CaptureExecutablePath(), ApplySession(arguments), cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>Runs a WSLC command without the selected session, for global diagnostics such as system info.</summary>
     public Task<CommandResult> RunUnscopedAsync(
         IEnumerable<string> arguments,
         CancellationToken cancellationToken = default) =>
-        RunAtPathAsync(settings.WslcPath, arguments, cancellationToken);
+        RunAtPathAsync(CaptureExecutablePath(), arguments, cancellationToken);
 
     /// <summary>
     /// Runs a wslc mutation that must never wait for user input: see <see cref="RunNonInteractiveAtPathAsync"/>.
     /// </summary>
-    public Task<CommandResult> RunNonInteractiveAsync(
+    public async Task<CommandResult> RunNonInteractiveAsync(
         IEnumerable<string> arguments,
-        CancellationToken cancellationToken = default) =>
-        RunNonInteractiveAtPathAsync(settings.WslcPath, ApplySession(arguments), MutationTimeout, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        if (scopeVerifier is not null)
+            await scopeVerifier(cancellationToken).ConfigureAwait(false);
+        return await RunNonInteractiveAtPathAsync(CaptureExecutablePath(), ApplySession(arguments), MutationTimeout, cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Runs wslc with stdin redirected and immediately closed, so a confirmation prompt reads EOF
@@ -99,11 +141,16 @@ public sealed class ProcessRunner(ISettingsService settings, WslcSessionContext?
     /// Runs wslc and additionally reports each output line as it arrives (on a reader thread), for
     /// long operations such as pulls. Captured output is still returned.
     /// </summary>
-    public Task<CommandResult> RunStreamingAsync(
+    public async Task<CommandResult> RunStreamingAsync(
         IEnumerable<string> arguments,
         Action<string> onLine,
-        CancellationToken cancellationToken = default) =>
-        RunCoreAsync(settings.WslcPath, ApplySession(arguments), onLine, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        if (scopeVerifier is not null)
+            await scopeVerifier(cancellationToken).ConfigureAwait(false);
+        return await RunCoreAsync(CaptureExecutablePath(), ApplySession(arguments), onLine, cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     /// <summary>Runs against a captured executable path so a shared probe cannot mix engines.</summary>
     internal static Task<CommandResult> RunAtPathAsync(
@@ -160,17 +207,20 @@ public sealed class ProcessRunner(ISettingsService settings, WslcSessionContext?
     /// Runs wslc with the given arguments, writing <paramref name="stdin"/> to the process's
     /// standard input (used for `login --password-stdin` so secrets never appear on a command line).
     /// </summary>
-    public Task<CommandResult> RunWithStdinAsync(
+    public async Task<CommandResult> RunWithStdinAsync(
         IEnumerable<string> arguments,
         string stdin,
         CancellationToken cancellationToken = default)
     {
-        return ProcessExecutor.RunAsync(
-            CreateStartInfo(settings.WslcPath, ApplySession(arguments), redirectInput: true),
+        if (scopeVerifier is not null)
+            await scopeVerifier(cancellationToken).ConfigureAwait(false);
+        var executable = CaptureExecutablePath();
+        return await ProcessExecutor.RunAsync(
+            CreateStartInfo(executable, ApplySession(arguments), redirectInput: true),
             stdin: stdin,
-            launchErrorContext: $"Could not launch '{settings.WslcPath}'.",
+            launchErrorContext: $"Could not launch '{executable}'.",
             killOnAppExit: true,
-            ct: cancellationToken);
+            ct: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Supplies a seekable archive handle, as required by native WSLC copy.</summary>
@@ -200,9 +250,23 @@ public sealed class ProcessRunner(ISettingsService settings, WslcSessionContext?
     /// </summary>
     public void RunInteractive(IEnumerable<string> arguments)
     {
+        if (scopeVerifier is not null)
+            throw new InvalidOperationException("Interactive processes require separate session validation.");
+        StartInteractive(arguments);
+    }
+
+    /// <summary>Verifies the captured session before opening an interactive process.</summary>
+    public async Task RunInteractiveAsync(IEnumerable<string> arguments, CancellationToken cancellationToken = default)
+    {
+        await VerifyScopeAsync(cancellationToken).ConfigureAwait(false);
+        StartInteractive(arguments);
+    }
+
+    private void StartInteractive(IEnumerable<string> arguments)
+    {
         var psi = new ProcessStartInfo
         {
-            FileName = settings.WslcPath,
+            FileName = CaptureExecutablePath(),
             UseShellExecute = false,
             CreateNoWindow = false,
         };
@@ -228,6 +292,7 @@ public sealed class ProcessRunner(ISettingsService settings, WslcSessionContext?
             return args;
         }
 
-        return sessionContext?.AddSessionSelector(args) ?? args;
+        ThrowIfDefaultSessionStopped();
+        return CaptureSessionTarget().AddSessionSelector(args);
     }
 }

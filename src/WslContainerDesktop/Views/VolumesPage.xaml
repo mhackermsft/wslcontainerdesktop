@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:WslContainerDesktop.Models"
@@ -31,12 +32,22 @@
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
                 Text="{x:Bind ViewModel.StatusMessageDisplay, Mode=OneWay}" />
+            <TextBlock Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                Text="{x:Bind ViewModel.CombinedWarning, Mode=OneWay}" TextWrapping="Wrap" />
+            <TextBlock x:Uid="ResourceSessionWakeNotice" i18n:Localization.Uid="ResourceSessionWakeNotice"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+            <TextBlock Text="{x:Bind ViewModel.ManagementDestination, Mode=OneWay}" TextWrapping="Wrap" />
         </StackPanel>
 
-        <StackPanel
-            Grid.Row="1"
-            Orientation="Horizontal"
-            Spacing="8"
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+        <converters:WrapPanel
+            Grid.Column="0"
+            HorizontalSpacing="8"
+            VerticalSpacing="8"
             Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
             <Button Command="{x:Bind ViewModel.CreateCommand}" Style="{ThemeResource AccentButtonStyle}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -62,13 +73,13 @@
                     <TextBlock x:Uid="Resource_Volumes_006" i18n:Localization.Uid="Resource_Volumes_006" />
                 </StackPanel>
             </ToggleButton>
-        </StackPanel>
+        </converters:WrapPanel>
 
         <!-- Bulk-action bar (shown while selecting)  -->
-        <StackPanel
-            Grid.Row="1"
-            Orientation="Horizontal"
-            Spacing="8"
+        <converters:WrapPanel
+            Grid.Column="0"
+            HorizontalSpacing="8"
+            VerticalSpacing="8"
             Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}}">
             <TextBlock
                 VerticalAlignment="Center"
@@ -86,32 +97,17 @@
                     <TextBlock x:Uid="Resource_Volumes_008" i18n:Localization.Uid="Resource_Volumes_008" />
                 </StackPanel>
             </Button>
-        </StackPanel>
+        </converters:WrapPanel>
+        <controls:ResourceGridToolbar Grid.Column="1" VerticalAlignment="Top"
+            State="{x:Bind ViewModel.Grid, Mode=OneWay}" />
+        </Grid>
 
         <!-- Table: column header (wide only) + list  -->
-        <Grid Grid.Row="2">
+        <Grid x:Name="TableRoot" Grid.Row="2" SizeChanged="TableRoot_SizeChanged">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-
-            <VisualStateManager.VisualStateGroups>
-                <VisualStateGroup>
-                    <VisualState x:Name="HeaderWide">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MinWidth="640" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                    </VisualState>
-                    <VisualState x:Name="HeaderNarrow">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MaxWidth="640" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                        <VisualState.Setters>
-                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
-                        </VisualState.Setters>
-                    </VisualState>
-                </VisualStateGroup>
-            </VisualStateManager.VisualStateGroups>
 
         <Border
             x:Name="HeaderBorder"
@@ -123,18 +119,20 @@
             CornerRadius="6,6,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MinWidth="160" />
-                    <ColumnDefinition Width="110" />
-                    <ColumnDefinition Width="1.4*" MinWidth="140" />
-                    <ColumnDefinition Width="120" />
-                    <ColumnDefinition Width="92" />
+                    <ColumnDefinition Width="*" MinWidth="100" />
+                    <ColumnDefinition Width="*" MinWidth="140" />
+                    <ColumnDefinition Width="95" />
+                    <ColumnDefinition Width="1.4*" MinWidth="120" />
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="100" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Uid="Resource_Volumes_009" i18n:Localization.Uid="Resource_Volumes_009" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Volumes_010" i18n:Localization.Uid="Resource_Volumes_010" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Volumes_011" i18n:Localization.Uid="Resource_Volumes_011" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Volumes_012" i18n:Localization.Uid="Resource_Volumes_012" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <controls:ResourceSortHeader Grid.Column="0" State="{x:Bind ViewModel.Grid}" SortKey="session"><controls:ResourceSortHeader.Header><TextBlock x:Uid="ResourceSessionColumn" i18n:Localization.Uid="ResourceSessionColumn" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="1" State="{x:Bind ViewModel.Grid}" SortKey="name"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Volumes_009" i18n:Localization.Uid="Resource_Volumes_009" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="2" State="{x:Bind ViewModel.Grid}" SortKey="type"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Volumes_010" i18n:Localization.Uid="Resource_Volumes_010" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="3" State="{x:Bind ViewModel.Grid}" SortKey="usedby"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Volumes_011" i18n:Localization.Uid="Resource_Volumes_011" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="4" State="{x:Bind ViewModel.Grid}" SortKey="created"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Volumes_012" i18n:Localization.Uid="Resource_Volumes_012" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
                 <TextBlock x:Uid="Resource_Volumes_013" i18n:Localization.Uid="Resource_Volumes_013"
-                    Grid.Column="4"
+                    Grid.Column="5"
                     HorizontalAlignment="Right"
                     Style="{ThemeResource CaptionTextBlockStyle}" />
             </Grid>
@@ -150,7 +148,7 @@
                 <ListView
                     x:Name="VolumesList"
                     Padding="0,4"
-                    ItemsSource="{x:Bind ViewModel.Volumes, Mode=OneWay}"
+                    ItemsSource="{x:Bind ViewModel.Grid.Items, Mode=OneWay}"
                     SelectedItem="{x:Bind ViewModel.Selected, Mode=TwoWay}"
                     SelectionChanged="List_SelectionChanged"
                     SelectionMode="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToSelMode}}">
@@ -163,37 +161,21 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:VolumeInfo">
-                            <Grid x:Name="RowRoot">
-                                <VisualStateManager.VisualStateGroups>
-                                    <VisualStateGroup>
-                                        <VisualState x:Name="RowWide">
-                                            <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MinWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
-                                            </VisualState.StateTriggers>
-                                        </VisualState>
-                                        <VisualState x:Name="RowNarrow">
-                                            <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MaxWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
-                                            </VisualState.StateTriggers>
-                                            <VisualState.Setters>
-                                                <Setter Target="WideGrid.Visibility" Value="Collapsed" />
-                                                <Setter Target="NarrowPanel.Visibility" Value="Visible" />
-                                            </VisualState.Setters>
-                                        </VisualState>
-                                    </VisualStateGroup>
-                                </VisualStateManager.VisualStateGroups>
-
+                            <Grid x:Name="RowRoot" SizeChanged="RowRoot_SizeChanged">
                                 <Grid x:Name="WideGrid">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" MinWidth="160" />
-                                    <ColumnDefinition Width="110" />
-                                    <ColumnDefinition Width="1.4*" MinWidth="140" />
-                                    <ColumnDefinition Width="120" />
-                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="*" MinWidth="100" />
+                                    <ColumnDefinition Width="*" MinWidth="140" />
+                                    <ColumnDefinition Width="95" />
+                                    <ColumnDefinition Width="1.4*" MinWidth="120" />
+                                    <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="100" />
                                 </Grid.ColumnDefinitions>
 
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{x:Bind SessionName}"
+                                    TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind SessionName}" />
                                 <StackPanel
-                                    Grid.Column="0"
+                                    Grid.Column="1"
                                     Margin="0,0,8,0"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
@@ -206,13 +188,13 @@
                                         VerticalAlignment="Center"
                                         FontFamily="Consolas"
                                         FontSize="13"
-                                        Text="{x:Bind DisplayName}"
+                                        Text="{x:Bind DisplayName, Mode=OneWay}"
                                         ToolTipService.ToolTip="{x:Bind Name}"
                                         TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
 
                                 <Border
-                                    Grid.Column="1"
+                                    Grid.Column="2"
                                     Padding="8,2"
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center"
@@ -225,7 +207,7 @@
                                 </Border>
 
                                 <TextBlock
-                                    Grid.Column="2"
+                                    Grid.Column="3"
                                     Margin="0,0,8,0"
                                     VerticalAlignment="Center"
                                     FontSize="13"
@@ -234,14 +216,14 @@
                                     TextTrimming="CharacterEllipsis" />
 
                                 <TextBlock
-                                    Grid.Column="3"
+                                    Grid.Column="4"
                                     VerticalAlignment="Center"
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="{x:Bind CreatedAt, Converter={StaticResource RelativeTime}}" />
+                                    Text="{x:Bind CreatedAt, Mode=OneWay, Converter={StaticResource RelativeTime}}" />
 
                                 <StackPanel
-                                    Grid.Column="4"
+                                    Grid.Column="5"
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
@@ -249,13 +231,13 @@
                                     <Button x:Uid="Resource_Volumes_014" i18n:Localization.Uid="Resource_Volumes_014"
                                         Padding="7,5"
 
-                                        Click="InspectButton_Click">
+                                        Click="InspectButton_Click" Visibility="{x:Bind SessionActionsAvailable, Converter={StaticResource BoolToVis}}">
                                         <FontIcon FontSize="14" Glyph="&#xE946;" />
                                     </Button>
                                     <Button x:Uid="Resource_Volumes_015" i18n:Localization.Uid="Resource_Volumes_015"
                                         Padding="7,5"
 
-                                        Click="RemoveButton_Click">
+                                        Click="RemoveButton_Click" Visibility="{x:Bind SessionActionsAvailable, Converter={StaticResource BoolToVis}}">
                                         <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                     </Button>
                                 </StackPanel>
@@ -263,9 +245,11 @@
 
                                 <!-- Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
                                 <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                    <TextBlock Text="{x:Bind SessionName}" TextTrimming="CharacterEllipsis"
+                                        ToolTipService.ToolTip="{x:Bind SessionName}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE8B7;" />
-                                        <TextBlock VerticalAlignment="Center" FontFamily="Consolas" FontSize="13" Text="{x:Bind DisplayName}" ToolTipService.ToolTip="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock VerticalAlignment="Center" FontFamily="Consolas" FontSize="13" Text="{x:Bind DisplayName, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
 
                                     <Grid ColumnSpacing="8" RowSpacing="3">
@@ -285,14 +269,14 @@
                                         <TextBlock x:Uid="Resource_Volumes_017" i18n:Localization.Uid="Resource_Volumes_017" Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Row="1" Grid.Column="1" FontSize="13" Text="{x:Bind UsedByDisplay, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind UsageDescription, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock x:Uid="Resource_Volumes_018" i18n:Localization.Uid="Resource_Volumes_018" Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
-                                        <TextBlock Grid.Row="2" Grid.Column="1" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind CreatedAt, Converter={StaticResource RelativeTime}}" />
+                                        <TextBlock Grid.Row="2" Grid.Column="1" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind CreatedAt, Mode=OneWay, Converter={StaticResource RelativeTime}}" />
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Button x:Uid="Resource_Volumes_019" i18n:Localization.Uid="Resource_Volumes_019" Padding="7,5" Click="InspectButton_Click" >
+                                        <Button x:Uid="Resource_Volumes_019" i18n:Localization.Uid="Resource_Volumes_019" Padding="7,5" Click="InspectButton_Click" Visibility="{x:Bind SessionActionsAvailable, Converter={StaticResource BoolToVis}}" >
                                             <FontIcon FontSize="14" Glyph="&#xE946;" />
                                         </Button>
-                                        <Button x:Uid="Resource_Volumes_020" i18n:Localization.Uid="Resource_Volumes_020" Padding="7,5" Click="RemoveButton_Click" >
+                                        <Button x:Uid="Resource_Volumes_020" i18n:Localization.Uid="Resource_Volumes_020" Padding="7,5" Click="RemoveButton_Click" Visibility="{x:Bind SessionActionsAvailable, Converter={StaticResource BoolToVis}}" >
                                             <FontIcon FontSize="14" Glyph="&#xE74D;" />
                                         </Button>
                                     </StackPanel>
@@ -301,6 +285,11 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+
+                <TextBlock x:Uid="ResourceGrid_NoMatches" i18n:Localization.Uid="ResourceGrid_NoMatches"
+                    Margin="0,60,0,0" HorizontalAlignment="Center" VerticalAlignment="Top"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsHitTestVisible="False"
+                    Visibility="{x:Bind ViewModel.Grid.HasNoMatches, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
 
                 <StackPanel
                     Margin="0,60,0,0"

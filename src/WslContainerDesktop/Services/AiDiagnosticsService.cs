@@ -41,8 +41,10 @@ public sealed class AiDiagnosticsService(
     private const int MaxDiffEntries = 120;
 
     /// <inheritdoc/>
-    public async Task<AiDiagnosticPreview> BuildPreviewAsync(ContainerInfo container, CancellationToken ct = default)
+    public async Task<AiDiagnosticPreview> BuildPreviewAsync(ContainerInfo container, CancellationToken ct = default,
+        IWslcService? sessionClient = null, bool includeActivity = true, string? sessionName = null)
     {
+        var client = sessionClient ?? wslc;
         var evidence = new StringBuilder();
         Append(evidence, "Question", container.State is ContainerState.Stopped or ContainerState.Created
             ? "Why did this container exit? Diagnose the most likely cause and propose review-only fixes."
@@ -50,6 +52,7 @@ public sealed class AiDiagnosticsService(
 
         Append(evidence, "Container", $"""
             Name: {container.Name}
+            Session: {sessionName ?? "(selected session)"}
             Id: {container.Id}
             Image: {container.Image}
             State: {container.State}
@@ -61,15 +64,15 @@ public sealed class AiDiagnosticsService(
             StateChangedAtKnown: {container.StateChangedAtKnown}
             """);
 
-        await AddCommandSectionAsync(evidence, "Recent logs", () => wslc.GetLogsAsync(container.Id, LogTail, ct)).ConfigureAwait(false);
-        await AddCommandSectionAsync(evidence, "Inspect JSON", () => wslc.InspectContainerAsync(container.Id, ct)).ConfigureAwait(false);
+        await AddCommandSectionAsync(evidence, "Recent logs", () => client.GetLogsAsync(container.Id, LogTail, ct)).ConfigureAwait(false);
+        await AddCommandSectionAsync(evidence, "Inspect JSON", () => client.InspectContainerAsync(container.Id, ct)).ConfigureAwait(false);
         await AddSystemInfoSectionAsync(evidence, ct).ConfigureAwait(false);
 
         if (container.State == ContainerState.Running)
         {
             try
             {
-                var changes = await wslc.DiffContainerAsync(container.Id, container.Image, ct).ConfigureAwait(false);
+                var changes = await client.DiffContainerAsync(container.Id, container.Image, ct).ConfigureAwait(false);
                 Append(evidence, "Filesystem changes", string.Join('\n', changes.Take(MaxDiffEntries).Select(c => $"{c.KindGlyph} {c.Path}")));
             }
             catch (Exception ex)
@@ -79,7 +82,7 @@ public sealed class AiDiagnosticsService(
             }
         }
 
-        var recent = activity.Events
+        var recent = (includeActivity ? activity.Events : [])
             .Where(e => e.Category == ActivityCategory.Container
                 && (e.Title.Contains(container.Name, StringComparison.OrdinalIgnoreCase)
                     || (e.Detail?.Contains(container.ShortId, StringComparison.OrdinalIgnoreCase) ?? false)))

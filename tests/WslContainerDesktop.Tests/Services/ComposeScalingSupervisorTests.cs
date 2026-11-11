@@ -485,7 +485,7 @@ public sealed class ComposeScalingSupervisorTests
         var result = await fixture.Supervisor.UpAsync(fixture.Project);
         Assert.False(result.AllSucceeded);
         Assert.True(fixture.SavedProject!.AppliedServices["web#2"].ManuallyStopped);
-        Assert.True(fixture.Suppression.IsSuppressed("demo_web_2"));
+        Assert.True(fixture.Suppression.IsSuppressed("demo_web_2", fixture.CurrentOwner));
         Assert.DoesNotContain(fixture.Engine.Mutations, m => m is "stop:demo_web" or "remove:demo_web");
         Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
     }

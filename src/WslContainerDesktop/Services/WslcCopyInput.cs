@@ -30,17 +30,23 @@ internal static class WslcCopyInput
         string executable, IEnumerable<string> arguments, string archive)
     {
         var args = arguments.ToArray();
-        var targetIndex = args is ["container", "cp", "-", _] ? 3 :
-            args is ["container", "cp", "--quiet", "-", _] ? 4 : -1;
+        var session = args is ["--session", var name, ..] ? name : null;
+        var copyArgs = session is null ? args : args[2..];
+        var targetIndex = copyArgs is ["container", "cp", "-", _] ? 3 :
+            copyArgs is ["container", "cp", "--quiet", "-", _] ? 4 : -1;
         if (targetIndex < 0)
         {
             throw new ArgumentException("File-backed input is only supported for container cp.");
         }
-        var values = new[] { executable, args[targetIndex], archive };
+        var values = session is null
+            ? new[] { executable, copyArgs[targetIndex], archive }
+            : new[] { executable, copyArgs[targetIndex], archive, session };
         if (values.Any(value => string.IsNullOrEmpty(value) || value.IndexOfAny(['"', '\r', '\n', '\0']) >= 0) ||
+            session is not null && string.IsNullOrWhiteSpace(session) ||
             values.Sum(value => value.Length) > 7500)
         {
-            throw new ArgumentException("The native copy executable, target or staging path cannot be safely redirected.");
+            throw new ArgumentException(UiText.Get("WslcCopyInput_InvalidRedirect",
+                "The native copy executable, session, target or staging path cannot be safely redirected."));
         }
 
         var psi = new ProcessStartInfo
@@ -58,10 +64,14 @@ internal static class WslcCopyInput
         // Unlike RedirectStandardInput's anonymous pipe, '<' gives WSLC a real file handle.
         // cmd.exe does not use CRT argv quoting, so ArgumentList would escape these fixed
         // quotes incorrectly. No caller data is concatenated into this command line.
-        psi.Arguments = "/d /v:off /s /c \"\"%WCD_CP_EXE%\" container cp --quiet - \"%WCD_CP_TARGET%\" < \"%WCD_CP_ARCHIVE%\"\"";
+        psi.Arguments = session is null
+            ? "/d /v:off /s /c \"\"%WCD_CP_EXE%\" container cp --quiet - \"%WCD_CP_TARGET%\" < \"%WCD_CP_ARCHIVE%\"\""
+            : "/d /v:off /s /c \"\"%WCD_CP_EXE%\" --session \"%WCD_CP_SESSION%\" container cp --quiet - \"%WCD_CP_TARGET%\" < \"%WCD_CP_ARCHIVE%\"\"";
         psi.Environment["WCD_CP_EXE"] = executable;
-        psi.Environment["WCD_CP_TARGET"] = args[targetIndex];
+        psi.Environment["WCD_CP_TARGET"] = copyArgs[targetIndex];
         psi.Environment["WCD_CP_ARCHIVE"] = archive;
+        if (session is not null)
+            psi.Environment["WCD_CP_SESSION"] = session;
         return psi;
     }
 }

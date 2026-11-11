@@ -29,6 +29,62 @@ namespace WslContainerDesktop.Tests.ViewModels;
 public sealed class ComposeViewModelBusyTests
 {
     [Fact]
+    public async Task RefreshDiscardsInventoryWhenManagementSessionChanges()
+    {
+        var fixture = new Fixture();
+        fixture.Context.Select("first");
+        var inventory = fixture.AddInventory();
+        var refresh = fixture.ViewModel.RefreshAsync();
+        fixture.Context.Select("second");
+        inventory.SetResult([]);
+
+        await refresh;
+
+        Assert.Contains("session changed", fixture.ViewModel.StatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task OlderRefreshCannotReplaceNewerProjectStatus()
+    {
+        var fixture = new Fixture();
+        var project = fixture.Compose.Project;
+        fixture.Projects.Add(project);
+        var firstInventory = fixture.AddInventory();
+        var secondInventory = fixture.AddInventory();
+        var first = fixture.ViewModel.RefreshAsync();
+        var second = fixture.ViewModel.RefreshAsync();
+
+        secondInventory.SetResult([]);
+        await second;
+        Assert.Equal(0, Assert.Single(fixture.ViewModel.Projects).RunningCount);
+
+        firstInventory.SetResult([new ContainerInfo
+        {
+            Id = "old", Name = project.ContainerNameFor(project.Services[0].Name),
+            StateValue = (int)ContainerState.Running,
+        }]);
+        await first;
+
+        Assert.Equal(0, Assert.Single(fixture.ViewModel.Projects).RunningCount);
+        Assert.False(fixture.ViewModel.IsBusy);
+    }
+
+    [Fact]
+    public async Task TemplateImportPinsSessionDuringConflictResolution()
+    {
+        var fixture = new Fixture();
+        fixture.Context.Select("first");
+        var inventory = fixture.AddInventory();
+        var import = fixture.ViewModel.ImportAndUpAsync("services:\n  web:\n    image: nginx\n");
+
+        Assert.False(fixture.Context.TrySelect("another"));
+        Assert.False(fixture.Context.TryApplyIfUnlocked(() => { }));
+        inventory.SetException(new OperationCanceledException());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => import);
+        Assert.True(fixture.Context.TrySelect("another"));
+    }
+
+    [Fact]
     public async Task ScalingAndNavigationRefreshRetainIndependentBusyOwnership()
     {
         var fixture = new Fixture();
@@ -194,6 +250,34 @@ public sealed class ComposeViewModelBusyTests
         AssertBusy(fixture.ViewModel, false);
     }
 
+    [Fact]
+    public async Task RestartUsesTheChosenSessionAndNamesItInTheConfirmation()
+    {
+        var fixture = new Fixture();
+        fixture.Dialogs.DismissMessage.SetResult();
+        fixture.AddInventory().SetResult([]);
+
+        await fixture.ViewModel.RestartSessionCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, fixture.RestartCalls);
+        Assert.Contains("chosen", fixture.Dialogs.LastConfirmation);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RestartDoesNotMutateAfterCancellationOrSessionChange(bool cancel)
+    {
+        var fixture = new Fixture { CancelChoice = cancel };
+        fixture.Dialogs.DismissMessage.SetResult();
+        if (!cancel) fixture.Dialogs.OnConfirm = () => fixture.Changed = true;
+
+        await fixture.ViewModel.RestartSessionCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, fixture.RestartCalls);
+        Assert.Equal(cancel ? 0 : 1, fixture.Dialogs.ConfirmCount);
+    }
+
     private static void AssertBusy(ComposeViewModel viewModel, bool expected)
     {
         Assert.Equal(expected, viewModel.IsBusy);
@@ -209,8 +293,13 @@ public sealed class ComposeViewModelBusyTests
         private readonly Queue<TaskCompletionSource<IReadOnlyList<ContainerInfo>>> _inventories = new();
         public ComposeViewModel ViewModel { get; }
         public DialogService Dialogs { get; } = new();
+        public WslcSessionContext Context { get; } = new();
         public ComposeNetworkSupervisorTests.Fixture Compose { get; } = new();
         public Exception? StoreError { get; set; }
+        public bool CancelChoice { get; set; }
+        public bool Changed { get; set; }
+        public List<ComposeProject> Projects { get; } = [];
+        public int RestartCalls { get; private set; }
         public List<bool> BusyChanges { get; } = [];
         public List<bool> RefreshAvailability { get; } = [];
         public List<bool> ManageAvailability { get; } = [];
@@ -220,17 +309,26 @@ public sealed class ComposeViewModelBusyTests
             var wslc = NetworkTestProxy.Create<IWslcService>((method, _) => method.Name switch
             {
                 nameof(IWslcService.ListContainersAsync) => _inventories.Dequeue().Task,
-                nameof(IWslcService.RestartSessionAsync) =>
-                    Task.FromResult(new CommandResult { ExitCode = 1, StandardError = "Controlled restart failure." }),
+                nameof(IWslcService.RestartSessionAsync) => Restart(),
                 _ => throw new NotSupportedException(method.Name),
             });
             var store = NetworkTestProxy.Create<IComposeProjectStore>((method, _) => method.Name switch
             {
                 nameof(IComposeProjectStore.GetAll) => StoreError is { } error
-                    ? throw error : Array.Empty<ComposeProject>(),
+                    ? throw error : Projects.ToArray(),
                 _ => throw new NotSupportedException(method.Name),
             });
-            ViewModel = new ComposeViewModel(store, Compose.Supervisor, wslc, Dialogs);
+            var selector = NetworkTestProxy.Create<IWslcSessionSelectionService>((method, _) => method.Name switch
+            {
+                nameof(IWslcSessionSelectionService.ChooseActiveAsync) => Task.FromResult<WslcSessionSelection?>(
+                    CancelChoice ? null : new(new("chosen"), "engine", new WslcSessionInfo { Name = "chosen", ID = 1, CreatorPid = 1 }, "chosen")),
+                nameof(IWslcSessionSelectionService.VerifyAsync) => Changed
+                    ? Task.FromException(new InvalidOperationException("changed")) : Task.CompletedTask,
+                nameof(IWslcSessionSelectionService.CreateClient) => wslc,
+                _ => throw new NotSupportedException(method.Name),
+            });
+            ViewModel = new ComposeViewModel(store, Compose.Supervisor, wslc, Dialogs, Context,
+                sessionSelection: selector);
             ViewModel.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(ComposeViewModel.IsBusy))
@@ -248,6 +346,12 @@ public sealed class ComposeViewModelBusyTests
                 TaskCreationOptions.RunContinuationsAsynchronously);
             _inventories.Enqueue(inventory);
             return inventory;
+        }
+
+        private Task<CommandResult> Restart()
+        {
+            RestartCalls++;
+            return Task.FromResult(new CommandResult { ExitCode = 1, StandardError = "Controlled restart failure." });
         }
     }
 }

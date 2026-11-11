@@ -82,11 +82,50 @@ public sealed class DevContainerStore : IDevContainerStore
 
         lock (_gate)
         {
-            config.ComposeLifecycleProgress ??= _configs.FirstOrDefault(c =>
-                string.Equals(c.Id, config.Id, StringComparison.OrdinalIgnoreCase))?.ComposeLifecycleProgress;
-            _configs.RemoveAll(c => string.Equals(c.Id, config.Id, StringComparison.OrdinalIgnoreCase));
-            _configs.Add(config);
-            Persist();
+            var previous = _configs.FirstOrDefault(c =>
+                string.Equals(c.Id, config.Id, StringComparison.OrdinalIgnoreCase));
+            SaveCore(config, previous);
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryReplace(DevContainerConfig expected, DevContainerConfig replacement)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(replacement);
+        lock (_gate)
+        {
+            if (!string.Equals(expected.Id, replacement.Id, StringComparison.OrdinalIgnoreCase) ||
+                !_configs.Any(config => ReferenceEquals(config, expected)))
+                return false;
+            SaveCore(replacement, expected);
+            return true;
+        }
+    }
+
+    private void SaveCore(DevContainerConfig config, DevContainerConfig? previous)
+    {
+        config.ComposeLifecycleProgress ??= previous?.ComposeLifecycleProgress;
+        config.SessionOwner ??= previous?.SessionOwner;
+        var next = _configs.Where(c => !string.Equals(c.Id, config.Id, StringComparison.OrdinalIgnoreCase))
+            .Append(config).ToList();
+        Persist(next);
+        _configs.Clear();
+        _configs.AddRange(next);
+    }
+
+    /// <inheritdoc/>
+    public bool TryDelete(DevContainerConfig expected)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        lock (_gate)
+        {
+            if (!_configs.Any(config => ReferenceEquals(config, expected))) return false;
+            var next = _configs.Where(config => !ReferenceEquals(config, expected)).ToList();
+            Persist(next);
+            _configs.Clear();
+            _configs.AddRange(next);
+            return true;
         }
     }
 
@@ -100,9 +139,12 @@ public sealed class DevContainerStore : IDevContainerStore
 
         lock (_gate)
         {
-            if (_configs.RemoveAll(c => string.Equals(c.Id, id.Trim(), StringComparison.OrdinalIgnoreCase)) > 0)
+            var next = _configs.Where(c => !string.Equals(c.Id, id.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            if (next.Count != _configs.Count)
             {
-                Persist();
+                Persist(next);
+                _configs.Clear();
+                _configs.AddRange(next);
             }
         }
     }
@@ -153,7 +195,7 @@ public sealed class DevContainerStore : IDevContainerStore
     }
 
     /// <summary>Writes the store through a temporary file so a crash does not leave partial JSON.</summary>
-    private void Persist()
+    private void Persist(IReadOnlyList<DevContainerConfig> configs)
     {
         var temporary = _file + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -161,7 +203,7 @@ public sealed class DevContainerStore : IDevContainerStore
             Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
             File.WriteAllText(
                 temporary,
-                JsonSerializer.Serialize(_configs.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList(), SerializerOptions));
+                JsonSerializer.Serialize(configs.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList(), SerializerOptions));
             File.Move(temporary, _file, overwrite: true);
         }
         catch (Exception ex)

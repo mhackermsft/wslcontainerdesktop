@@ -31,6 +31,11 @@ public sealed class ComposePreviewViewModel(ComposeCompatibilityPreview preview)
     public string Title => UiText.Get("Workload_Text_Review_Compose_0_1_857679", "Review Compose {0}: {1}", UiText.Translate(preview.Operation.ToString()), preview.Project);
     /// <summary>Short planner summary displayed near the top of the dialog.</summary>
     public string Summary => UiText.Translate(preview.Summary);
+    /// <summary>Whether the reviewed action has an explicitly captured session.</summary>
+    public bool HasSessionScope => preview.HasSessionScope;
+    /// <summary>Localized session destination for the reviewed action.</summary>
+    public string SessionDisplay => UiText.Get("Compose_ReviewSession", "Session: {0}",
+        preview.SessionName ?? UiText.Get("WslEngine_Session_Default", "Default CLI session"));
     /// <summary>True when no blocking compatibility issue prevents applying the operation.</summary>
     public bool CanApply => preview.CanApply;
     /// <summary>True when the planner found non-blocking warnings.</summary>

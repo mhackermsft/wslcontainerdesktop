@@ -79,6 +79,7 @@
                         <TextBox
                             Grid.Column="0"
                             x:Uid="Settings_Engine_Path_Header" i18n:Localization.Uid="Settings_Engine_Path_Header"
+                            IsEnabled="{x:Bind ViewModel.CanEditWslcPath, Mode=OneWay}"
                             Text="{x:Bind ViewModel.WslcPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         <Button
                             Grid.Column="1"
@@ -86,6 +87,8 @@
                             Command="{x:Bind ViewModel.TestConnectionCommand}"
                             x:Uid="Settings_Engine_Test" i18n:Localization.Uid="Settings_Engine_Test" />
                     </Grid>
+                    <TextBlock x:Uid="Settings_Engine_PathLocked" i18n:Localization.Uid="Settings_Engine_PathLocked"
+                        TextWrapping="Wrap" Visibility="{x:Bind ViewModel.CanEditWslcPath, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -513,13 +516,9 @@
                         AutomationProperties.AutomationId="AiProviderComboBox"
                         x:Uid="Settings_Ai_Provider_Header" i18n:Localization.Uid="Settings_Ai_Provider_Header"
                         MinWidth="260"
-                        SelectedIndex="{x:Bind ViewModel.SelectedAiProviderIndex, Mode=TwoWay}">
-                        <ComboBoxItem x:Uid="Settings_Ai_Provider_None" i18n:Localization.Uid="Settings_Ai_Provider_None" />
-                        <ComboBoxItem x:Uid="Settings_Ai_Provider_Copilot" i18n:Localization.Uid="Settings_Ai_Provider_Copilot" />
-                        <ComboBoxItem x:Uid="Settings_Ai_Provider_Ollama" i18n:Localization.Uid="Settings_Ai_Provider_Ollama" />
-                        <ComboBoxItem x:Uid="Settings_Ai_Provider_Azure" i18n:Localization.Uid="Settings_Ai_Provider_Azure" />
-                        <ComboBoxItem x:Uid="Settings_Ai_Provider_OpenAI" i18n:Localization.Uid="Settings_Ai_Provider_OpenAI" />
-                    </ComboBox>
+                        ItemsSource="{x:Bind ViewModel.AiProviderOptions}"
+                        ItemTemplate="{StaticResource LocalizedOptionTemplate}"
+                        SelectedIndex="{x:Bind ViewModel.SelectedAiProviderIndex, Mode=TwoWay}" />
                     <Expander
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Stretch"

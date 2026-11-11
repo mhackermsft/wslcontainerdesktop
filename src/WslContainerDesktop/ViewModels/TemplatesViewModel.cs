@@ -18,6 +18,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -63,7 +64,6 @@ public partial class TemplatesViewModel : ObservableObject
 {
     private readonly ITemplateCatalog _catalog;
     private readonly IWslcService _wslc;
-    private readonly OpenWebUiPlanner _openWebUi;
     private readonly StatusMonitor _monitor;
     private readonly DialogService _dialogs;
     private readonly ISettingsService _settings;
@@ -74,6 +74,14 @@ public partial class TemplatesViewModel : ObservableObject
     private readonly ITemplateVisibilityStore _visibility;
     private readonly ComposeViewModel _compose;
     private readonly DispatcherQueue _dispatcher;
+    private readonly WslcSessionContext _sessionContext;
+    private readonly WslcSessionSelectionService _sessionSelection;
+    private readonly SessionAutomationCoordinator _sessionAutomation;
+    private readonly CombinedSessionViewModel _combined;
+    private readonly WslcSessionContainerActions _sessionActions;
+    private readonly WslcSessionResourceActions _sessionResources;
+    private readonly IComposeProjectStore _composeStore;
+    private readonly ILogger<TemplatesViewModel> _logger;
 
     /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
@@ -103,7 +111,12 @@ public partial class TemplatesViewModel : ObservableObject
         IUserTemplateStore userTemplates,
         ITemplateVisibilityStore visibility,
         ComposeViewModel compose,
-        IWslcCapabilitiesService capabilities)
+        IWslcCapabilitiesService capabilities,
+        WslcSessionContext sessionContext,
+        WslcSessionSelectionService sessionSelection,
+        SessionAutomationCoordinator sessionAutomation, CombinedSessionViewModel combined,
+        WslcSessionContainerActions sessionActions, WslcSessionResourceActions sessionResources,
+        IComposeProjectStore composeStore, ILogger<TemplatesViewModel> logger)
     {
         _catalog = catalog;
         _wslc = wslc;
@@ -116,12 +129,20 @@ public partial class TemplatesViewModel : ObservableObject
         _userTemplates = userTemplates;
         _visibility = visibility;
         _compose = compose;
-        _openWebUi = new OpenWebUiPlanner(wslc);
+        _sessionContext = sessionContext;
+        _sessionSelection = sessionSelection;
+        _sessionAutomation = sessionAutomation;
+        _combined = combined;
+        _sessionActions = sessionActions;
+        _sessionResources = sessionResources;
+        _composeStore = composeStore;
+        _logger = logger;
 
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         RebuildGroups();
 
         _monitor.StatusChanged += OnStatusChanged;
+        _combined.PropertyChanged += OnCombinedChanged;
         _catalog.Changed += OnCatalogOrVisibilityChanged;
         _visibility.Changed += OnCatalogOrVisibilityChanged;
     }
@@ -132,7 +153,14 @@ public partial class TemplatesViewModel : ObservableObject
         StatusMessage = UiText.Translate(StatusMessage);
         foreach (var template in _catalog.Templates) template.RefreshLanguage();
         foreach (var group in Groups) group.RefreshLanguage();
+        UpdateDeploymentState();
     }
+
+    /// <summary>Combined inventory and partial-failure state used by the gallery.</summary>
+    public CombinedSessionViewModel Combined => _combined;
+
+    /// <summary>Refreshes deployments in every active session.</summary>
+    public Task RefreshSessionsAsync() => _combined.RefreshAllAsync();
 
     /// <summary>Handles catalog or visibility changed changes and updates related view-model state.</summary>
     private void OnCatalogOrVisibilityChanged(object? sender, EventArgs e) => RunOnUi(RebuildGroups);
@@ -161,10 +189,7 @@ public partial class TemplatesViewModel : ObservableObject
             Groups.Add(new TemplateGroup(group.Key, group));
         }
 
-        if (_monitor.Latest is not null)
-        {
-            UpdateDeploymentState(_monitor.Latest);
-        }
+        UpdateDeploymentState();
     }
 
     /// <summary>Runs an action on the UI thread, marshaling via the captured dispatcher if needed.</summary>
@@ -183,28 +208,45 @@ public partial class TemplatesViewModel : ObservableObject
     /// <summary>Handles status changed changes and updates related view-model state.</summary>
     private void OnStatusChanged(object? sender, EngineStatusSnapshot e)
     {
-        if (_dispatcher.HasThreadAccess)
+        RunOnUi(() =>
         {
-            UpdateDeploymentState(e);
-        }
-        else
-        {
-            _dispatcher.TryEnqueue(() => UpdateDeploymentState(e));
-        }
+            if (e.Health is WslContainerDesktop.Tray.EngineHealth.Healthy or WslContainerDesktop.Tray.EngineHealth.Degraded)
+            {
+                try { _combined.UpdateManagedContainers(e.Session, e.ExecutablePath, e.Containers); }
+                catch (InvalidOperationException ex)
+                {
+                    _logger.LogWarning(ex, "Could not identify the default session for template status.");
+                    StatusMessage = ex.Message;
+                }
+            }
+        });
+    }
+
+    private void OnCombinedChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(CombinedSessionViewModel.ContainerRows) or nameof(CombinedSessionViewModel.Inventory))
+            RunOnUi(UpdateDeploymentState);
     }
 
     /// <summary>Recomputes each template's live deployment state from the snapshot.</summary>
-    private void UpdateDeploymentState(EngineStatusSnapshot snapshot)
+    private void UpdateDeploymentState()
     {
-        var containers = snapshot.Containers;
-        foreach (var group in Groups)
+        try
         {
-            foreach (var template in group)
+            foreach (var group in Groups)
             {
-                var deployments = FindDeployments(template, containers);
-                template.DeploymentCount = deployments.Count;
-                template.IsDeployed = deployments.Count > 0;
+                foreach (var template in group)
+                {
+                    var deployments = FindDeployments(template);
+                    template.DeploymentCount = deployments.Count;
+                    template.IsDeployed = deployments.Count > 0;
+                }
             }
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Could not identify template deployment sessions.");
+            StatusMessage = ex.Message;
         }
     }
 
@@ -215,64 +257,59 @@ public partial class TemplatesViewModel : ObservableObject
     /// </summary>
     /// <param name="Label">What the user sees, e.g. "sqlserver-2".</param>
     /// <param name="Target">Container name, or Compose project name.</param>
-    public sealed record TemplateDeployment(string Label, string Target, bool IsCompose);
+    public sealed record TemplateDeployment(
+        string Label, string Target, bool IsCompose, WslcSessionInfo Session, ContainerInfo? Container);
 
-    /// <summary>
-    /// Finds every deployment of a template: the configured name plus the <c>-N</c> variants the
-    /// conflict resolver assigns when the original name is taken.
-    /// </summary>
-    /// <summary>
-    /// Project names that actually own containers: the base name and any of its numbered repeats
-    /// that own at least one <c>{project}_</c> container. Derived by testing candidates against the
-    /// inventory rather than splitting container names, which mis-attributes services whose own
-    /// name contains an underscore.
-    /// </summary>
-    private static IEnumerable<string> CandidateProjectNames(string baseName, IReadOnlyList<string> containerNames)
-    {
-        for (var i = 1; i < 200; i++)
-        {
-            var candidate = i == 1 ? baseName : $"{baseName}-{i}";
-            if (containerNames.Any(n => n.StartsWith(candidate + "_", StringComparison.OrdinalIgnoreCase)))
-                yield return candidate;
-        }
-    }
-
-    /// <summary>True for the base name itself or a <c>base-N</c> repeat deployment.</summary>
-    private List<TemplateDeployment> FindDeployments(StackTemplate template, IReadOnlyList<ContainerInfo> containers)
+    /// <summary>Finds deployments without merging identities from different sessions.</summary>
+    private List<TemplateDeployment> FindDeployments(StackTemplate template)
     {
         var found = new List<TemplateDeployment>();
-        if (template.Kind == StackTemplateKind.Compose)
+        if (_combined.ContainerRows.Count == 0)
+            return found;
+        var defaultName = WslcSessionActionGuard.ResolveDefaultSessionName();
+        foreach (var group in _combined.ContainerRows.Where(row => row.Container is not null).GroupBy(row => row.Session))
         {
-            var (_, project) = ResolveComposeConfig(template);
-            if (string.IsNullOrWhiteSpace(project))
-                return found;
-
-            // Compose names containers "{project}_{service}"; a repeat launch uses "{project}-2".
-            // Match candidate project names against the prefix rather than splitting the container
-            // name: a service whose own name contains "_" would otherwise be attributed to the
-            // wrong project and its deployment would never appear on the card.
-            var names = containers.Select(c => c.Name.TrimStart('/')).ToArray();
-            foreach (var candidate in CandidateProjectNames(project!, names))
+            var session = group.Key;
+            var containers = group.Select(row => row.Container!).ToArray();
+            var target = string.Equals(session.Name, defaultName, StringComparison.Ordinal)
+                ? WslcSessionTarget.Default : new WslcSessionTarget(session.Name);
+            var label = target.Name is null ? UiText.Get("WslEngine_Session_Default", "Default CLI session") : session.Name;
+            if (template.Kind == StackTemplateKind.Compose)
             {
-                if (!found.Any(d => d.Target == candidate))
-                    found.Add(new(candidate, candidate, IsCompose: true));
+                var (_, projectName) = ResolveComposeConfig(template);
+                if (string.IsNullOrWhiteSpace(projectName))
+                    continue;
+                foreach (var project in _composeStore.GetAll().Where(project =>
+                             project.SessionOwner?.Matches(_settings.WslcPath, target) == true &&
+                             TemplateDeploymentNaming.IsBaseOrSuffixed(project.Name, projectName)))
+                {
+                    var ownsVisibleContainer = project.AppliedServices.Values.Any(applied =>
+                            ContainerIdentity.ResolveId(containers.Select(container => container.Id), applied.ContainerId) is not null) ||
+                        containers.Any(container => container.Name.TrimStart('/').StartsWith(
+                            project.Name + "_", StringComparison.OrdinalIgnoreCase));
+                    if (ownsVisibleContainer)
+                        found.Add(new(UiText.Get("Template_DeploymentSession", "{0} · {1}", project.Name, label),
+                            project.Name, IsCompose: true, session, null));
+                }
+            }
+            else
+            {
+                var configured = ResolveContainerOptions(template)?.Name;
+                if (string.IsNullOrWhiteSpace(configured))
+                    continue;
+                foreach (var container in containers)
+                {
+                    var name = container.Name.TrimStart('/');
+                    if (TemplateDeploymentNaming.IsBaseOrSuffixed(name, configured) &&
+                        !found.Any(d => d.Target == name && d.Session == session))
+                        found.Add(new(UiText.Get("Template_DeploymentSession", "{0} · {1}", name, label),
+                            name, IsCompose: false, session, container));
+                }
             }
         }
-        else
-        {
-            var configured = ResolveContainerOptions(template)?.Name;
-            if (string.IsNullOrWhiteSpace(configured))
-                return found;
 
-            foreach (var name in containers.Select(c => c.Name.TrimStart('/')))
-            {
-                if (TemplateDeploymentNaming.IsBaseOrSuffixed(name, configured) && !found.Any(d => d.Target == name))
-                    found.Add(new(name, name, IsCompose: false));
-            }
-        }
-
-        // Base name first, then numerically, so "name-10" does not sort above "name-2".
-        return [.. found.OrderBy(d => SuffixOf(d.Target, template))];
+        return [.. found.OrderBy(d => SuffixOf(d.Target, template))
+            .ThenBy(d => d.Session.Name, StringComparer.Ordinal)];
     }
 
     /// <summary>Helper for the suffix of workflow in this view model.</summary>
@@ -285,16 +322,8 @@ public partial class TemplatesViewModel : ObservableObject
     }
 
     /// <summary>
-    /// A compose template is deployed when any container is named <c>{project}_*</c> (the supervisor's
-    /// naming); a single-container template is deployed when a container with its configured name exists.
-    /// Repeat launches add <c>-N</c> variants, which count too.
-    /// </summary>
-    private bool IsTemplateDeployed(StackTemplate template, IReadOnlyList<ContainerInfo> containers) =>
-        FindDeployments(template, containers).Count > 0;
-
-    /// <summary>
     /// One-click launch: starts the template immediately using the user's saved configuration (from
-    /// the Settings button) if present, otherwise the catalog defaults. No dialog is shown.
+    /// the Settings button) if present, otherwise the catalog defaults.
     /// </summary>
     [RelayCommand]
     private async Task LaunchAsync(StackTemplate? template)
@@ -304,20 +333,29 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
+        using var selection = _sessionContext.LockSelection();
         template.IsLaunching = true;
         try
         {
             await ContainerInventoryOperation.RunAsync(async () =>
             {
+                var destination = await _sessionSelection.ChooseAsync();
+                if (destination is null)
+                    return;
                 if (template.Kind == StackTemplateKind.Compose)
                 {
-                    await LaunchComposeAsync(template);
+                    await LaunchComposeAsync(template, destination);
                 }
                 else
                 {
-                    await LaunchContainerAsync(template);
+                    await LaunchContainerAsync(template, destination);
                 }
             }, ReportLaunchFailureAsync);
+        }
+        catch (OperationCanceledException)
+        {
+            await ReportLaunchFailureAsync(new InvalidOperationException(UiText.Get("CombinedSession_ActionSessionChanged",
+                "The session changed or is no longer available; refresh before taking action.")));
         }
         finally
         {
@@ -337,17 +375,25 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        await ContainerInventoryOperation.RunAsync(async () =>
+        using var selection = _sessionContext.LockSelection();
+        try
         {
-            if (template.Kind == StackTemplateKind.Compose)
+            await ContainerInventoryOperation.RunAsync(async () =>
             {
-                await ConfigureComposeAsync(template);
-            }
-            else
-            {
-                await ConfigureContainerAsync(template);
-            }
-        }, ReportLaunchFailureAsync);
+                var destination = await _sessionSelection.ChooseAsync();
+                if (destination is null)
+                    return;
+                if (template.Kind == StackTemplateKind.Compose)
+                    await ConfigureComposeAsync(template, destination);
+                else
+                    await ConfigureContainerAsync(template, destination);
+            }, ReportLaunchFailureAsync);
+        }
+        catch (OperationCanceledException)
+        {
+            await ReportLaunchFailureAsync(new InvalidOperationException(UiText.Get("CombinedSession_ActionSessionChanged",
+                "The session changed or is no longer available; refresh before taking action.")));
+        }
     }
 
     /// <summary>Helper for the report launch failure workflow in this view model.</summary>
@@ -371,9 +417,19 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        var deployments = FindDeployments(template, _monitor.Latest?.Containers ?? []);
+        using var selection = _sessionContext.LockSelection();
+        await RefreshSessionsAsync();
+        if (_combined.HasRefreshFailure)
+        {
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Template_NoDeploymentsTitle", "No deployment found"),
+                _combined.StatusText);
+            return;
+        }
+        var deployments = FindDeployments(template);
         if (deployments.Count == 0)
         {
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Template_NoDeploymentsTitle", "No deployment found"),
+                UiText.Get("Template_NoDeployments", "No matching deployment is visible. Check session availability and refresh."));
             return;
         }
 
@@ -471,14 +527,18 @@ public partial class TemplatesViewModel : ObservableObject
                 await RemoveContainerAsync(target, removeVolumes);
             }
 
-            var volumeNote = removeVolumes ? UiText.Get("Workload_Text_and_its_data_volumes_fee57a", " and its data volumes") : string.Empty;
-            StatusMessage = UiText.Get("Workload_Text_0_1_removed_ae80f8", "{0}{1} removed.", target.Label, volumeNote);
+            StatusMessage = removeVolumes
+                ? UiText.Get("Template_RemovedWithCleanup", "{0} removed with the requested volume cleanup.", target.Label)
+                : UiText.Get("Workload_Text_0_1_removed_ae80f8", "{0}{1} removed.", target.Label, string.Empty);
             _monitor.RequestRefresh();
+            await _combined.RefreshAllAsync();
         }
         catch (Exception ex)
         {
             await _dialogs.ShowMessageAsync(UiText.Get("Workload_Final_7a91db72b7", "Remove failed"), ex.Message);
             StatusMessage = UiText.Get("Workload_Final_7a91db72b7", "Remove failed");
+            _monitor.RequestRefresh();
+            await _combined.RefreshAllAsync();
         }
         finally
         {
@@ -687,97 +747,74 @@ public partial class TemplatesViewModel : ObservableObject
         return candidate;
     }
 
-    /// <summary>
-    /// Reads the named volumes actually mounted by the container being removed, so a repeat
-    /// deployment deletes its own data rather than the template's configured volume names, which
-    /// may belong to a different deployment that is still running.
-    /// </summary>
-    private async Task<RunContainerOptions?> ResolveDeployedVolumesAsync(string containerId)
-    {
-        try
-        {
-            var inspect = await _wslc.InspectContainerAsync(containerId);
-            if (!inspect.Success)
-                return null;
-            var mounts = ContainerMounts.Parse(inspect.StandardOutput);
-            if (!mounts.IsComplete)
-                return null;
-            var options = new RunContainerOptions { Image = string.Empty };
-            foreach (var item in mounts.Items.Where(m => !string.IsNullOrWhiteSpace(m.VolumeName)))
-                options.Volumes.Add($"{item.VolumeName}:{item.Destination}");
-            return options;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Unknown mounts mean we cannot prove which volumes are this deployment's; keep them.
-            return null;
-        }
-    }
-
     /// <summary>Helper for the remove compose workflow in this view model.</summary>
-    private Task RemoveComposeAsync(TemplateDeployment deployment, bool removeVolumes) =>
-        _compose.RemoveProjectAsync(deployment.Target, removeVolumes);
+    private async Task RemoveComposeAsync(TemplateDeployment deployment, bool removeVolumes)
+    {
+        var destination = DestinationFor(deployment.Session);
+        using var scope = await _sessionAutomation.GetComposeScopeAsync(destination);
+        await _compose.RemoveProjectAsync(deployment.Target, removeVolumes, scope);
+    }
 
     /// <summary>Helper for the remove container workflow in this view model.</summary>
     private async Task RemoveContainerAsync(TemplateDeployment deployment, bool removeVolumes)
     {
-        var name = deployment.Target;
-        if (string.IsNullOrWhiteSpace(name))
+        var container = deployment.Container ??
+            throw new InvalidOperationException(UiText.Get("CombinedSession_UnstableContainer",
+                "The container identity is incomplete or ambiguous. Refresh before taking action."));
+        var target = WslcContainerActionTarget.Capture(deployment.Session, container);
+        var destination = DestinationFor(deployment.Session);
+        await _sessionSelection.VerifyAsync(destination);
+        var client = _sessionSelection.CreateClient(destination);
+        var namedTargets = new List<WslcResourceActionTarget>();
+        var removeAnonymous = false;
+        if (removeVolumes)
         {
-            return;
+            var inspector = new ContainerVolumeInspector(client);
+            var impact = await inspector.InspectAsync(container.Id);
+            if (!impact.IsComplete || impact.SharedAnonymous.Count > 0 || impact.SharedNamed.Count > 0)
+                throw new InvalidOperationException(UiText.Get("Template_VolumesNotSafe",
+                    "Volume usage is incomplete or shared with another container. Nothing was removed; review storage from the Containers page."));
+            foreach (var volume in impact.OrphanedNamed)
+                namedTargets.Add(await _sessionResources.PrepareVolumeRemovalAsync(deployment.Session, volume.Name));
+            var current = await inspector.InspectAsync(container.Id);
+            if (!current.IsComplete || current.Signature() != impact.Signature())
+                throw new InvalidOperationException(UiText.Get("Containers_StorageChanged",
+                    "The container's volume usage changed. Review it again before removing anything."));
+            removeAnonymous = impact.Anonymous.Count > 0;
         }
-
-        var existing = (await _wslc.ListContainersAsync(all: true))
-            .FirstOrDefault(c => string.Equals(
-                c.Name.TrimStart('/'), name, StringComparison.OrdinalIgnoreCase));
-        RunContainerOptions? options = null;
-        if (existing is not null)
+        var result = await _sessionActions.ExecuteAsync(target, WslcContainerAction.Remove,
+            removeAnonymousVolumes: removeAnonymous);
+        if (!result.Success)
+            throw new InvalidOperationException(result.ErrorText);
+        var failed = new List<string>();
+        foreach (var volume in namedTargets)
         {
-            // Read the mounts off the container actually being removed: a repeat deployment has its
-            // own "-N" volumes, and deleting the template's configured ones would destroy the data
-            // belonging to a different deployment that is still running.
-            options = await ResolveDeployedVolumesAsync(existing.Id);
-            await _wslc.RemoveContainerAsync(existing.Id, force: true);
-        }
-
-        if (removeVolumes && options is not null)
-        {
-            foreach (var volumeName in NamedVolumeSources(options.Volumes))
+            try
             {
-                try
-                {
-                    await _wslc.RemoveVolumeAsync(volumeName);
-                }
-                catch
-                {
-                    // Best-effort: a volume still in use or already gone must not fail the removal.
-                }
+                var removed = await _sessionResources.RemoveAsync(volume);
+                if (!removed.Success) failed.Add($"{volume.Name}: {removed.ErrorText}");
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or
+                                       System.Text.Json.JsonException or System.ComponentModel.Win32Exception or TimeoutException or
+                                       OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not delete template volume {Volume} in session {Session}.",
+                    volume.Name, deployment.Session.Name);
+                failed.Add($"{volume.Name}: {ex.Message}");
+                if (ex is OperationCanceledException)
+                    break;
             }
         }
+        if (failed.Count > 0)
+            throw new InvalidOperationException(UiText.Get("Template_VolumesKept",
+                "The container was removed, but some volumes could not be deleted: {0}", string.Join("; ", failed)));
     }
 
-    /// <summary>
-    /// Extracts named-volume sources from <c>source:target[:mode]</c> mount specs. Bind mounts (the
-    /// source is a path) and drive letters are skipped so only managed named volumes are removed.
-    /// </summary>
-    private static IEnumerable<string> NamedVolumeSources(IEnumerable<string> volumes)
+    private WslcSessionSelection DestinationFor(WslcSessionInfo session)
     {
-        foreach (var spec in volumes)
-        {
-            var colon = spec.IndexOf(':');
-            if (colon <= 0)
-            {
-                continue;
-            }
-
-            var source = spec[..colon];
-            if (source.Length <= 1 || source.Contains('/') || source.Contains('\\'))
-            {
-                continue;
-            }
-
-            yield return source;
-        }
+        var target = string.Equals(session.Name, WslcSessionActionGuard.ResolveDefaultSessionName(), StringComparison.Ordinal)
+            ? WslcSessionTarget.Default : new WslcSessionTarget(session.Name);
+        return new(target, _settings.WslcPath, session, session.Name);
     }
 
     /// <summary>Resolves the run options to use: the saved config if present, else catalog defaults.</summary>
@@ -788,7 +825,7 @@ public partial class TemplatesViewModel : ObservableObject
     }
 
     /// <summary>Helper for the launch container workflow in this view model.</summary>
-    private async Task LaunchContainerAsync(StackTemplate template)
+    private async Task LaunchContainerAsync(StackTemplate template, WslcSessionSelection destination)
     {
         var options = ResolveContainerOptions(template);
         if (options is null)
@@ -796,11 +833,11 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        await RunContainerDirectAsync(template, options);
+        await RunContainerDirectAsync(template, options, destination);
     }
 
     /// <summary>Helper for the configure container workflow in this view model.</summary>
-    private async Task ConfigureContainerAsync(StackTemplate template)
+    private async Task ConfigureContainerAsync(StackTemplate template, WslcSessionSelection destination)
     {
         var options = ResolveContainerOptions(template);
         if (options is null)
@@ -808,8 +845,9 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
+        await _sessionSelection.VerifyAsync(destination);
         var dialog = new RunContainerDialog(
-            _wslc,
+            _sessionSelection.CreateClient(destination),
             _settings.Registries,
             _profiles,
             prefillImage: options.Image,
@@ -827,16 +865,19 @@ public partial class TemplatesViewModel : ObservableObject
             RunOptions = dialog.Options.Clone(),
         });
 
-        await RunContainerDirectAsync(template, dialog.Options);
+        await RunContainerDirectAsync(template, dialog.Options, destination);
     }
 
     /// <summary>Runs a single-container template, stepping around anything already deployed.</summary>
-    private async Task RunContainerDirectAsync(StackTemplate template, RunContainerOptions options)
+    private async Task RunContainerDirectAsync(
+        StackTemplate template, RunContainerOptions options, WslcSessionSelection destination)
     {
+        await _sessionSelection.VerifyAsync(destination);
+        var client = _sessionSelection.CreateClient(destination);
         // A repeat launch used to offer to replace the existing container, which removed a running
         // deployment to make room. Deploying something new must never cost the user what is already
         // running, so the repeat moves onto a free name, free ports and its own named volumes.
-        var adjustment = await new DeploymentConflictResolver(_wslc).ResolveAsync(options);
+        var adjustment = await new DeploymentConflictResolver(client).ResolveAsync(options);
         if (adjustment.Adjusted)
         {
             var again = await _dialogs.ShowConfirmAsync(
@@ -855,9 +896,12 @@ public partial class TemplatesViewModel : ObservableObject
         try
         {
             // `wslc run` auto-pulls if the image is absent, so refresh Azure auth first.
-            await _authRefresher.EnsureFreshForReferenceAsync(options.Image);
+            await _sessionSelection.VerifyAsync(destination);
+            await _authRefresher.EnsureFreshForReferenceAsync(options.Image, sessionClient: client,
+                verifyTarget: token => _sessionSelection.VerifyAsync(destination, token));
+            await _sessionSelection.VerifyAsync(destination);
 
-            var result = await _wslc.RunContainerAsync(options);
+            var result = await client.RunContainerAsync(options);
             if (!result.Success)
             {
                 await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Launch_failed_1755d5", "Launch failed"), result.ErrorText);
@@ -871,6 +915,7 @@ public partial class TemplatesViewModel : ObservableObject
                 var started = adjustment.Adjusted ? UiText.Get("Workload_Text_0_started_as_1_d8356c", "{0} started as \"{1}\"", template.DisplayName, options.Name) : UiText.Get("Workload_Text_0_started_43003e", "{0} started", template.DisplayName);
                 StatusMessage = UiText.Get("Workload_Text_0_1_See_it_in_the_60c2ff", "{0}{1}. See it in the Containers view.", started, note);
                 _monitor.RequestRefresh();
+                await _combined.RefreshAllAsync();
             }
         }
         finally
@@ -902,7 +947,7 @@ public partial class TemplatesViewModel : ObservableObject
         plan is { UsesGpu: true } ? UiText.Get("Workload_Text_using_your_GPU_4b145b", " using your GPU") : string.Empty;
 
     /// <summary>Helper for the launch compose workflow in this view model.</summary>
-    private async Task LaunchComposeAsync(StackTemplate template)
+    private async Task LaunchComposeAsync(StackTemplate template, WslcSessionSelection destination)
     {
         var (yaml, name) = ResolveComposeConfig(template);
         if (string.IsNullOrWhiteSpace(yaml))
@@ -913,13 +958,15 @@ public partial class TemplatesViewModel : ObservableObject
         // Deploying a second Ollama would duplicate multi-GB models, so reuse an existing runtime
         // when one is present. Only applies to the built-in template with its default YAML: an
         // edited or user-saved configuration is deployed exactly as written.
+        using var scope = await _sessionAutomation.GetComposeScopeAsync(destination);
+        var planner = new OpenWebUiPlanner(scope.Client);
         OpenWebUiPlanner.Plan? plan = null;
         var model = string.Empty;
         if (template.Id == OpenWebUiPlanner.TemplateId
             && template.Source == TemplateSource.BuiltIn
             && yaml == OpenWebUiPlanner.BundledYaml)
         {
-            plan = await _openWebUi.PlanAsync();
+            plan = await planner.PlanAsync(scope.Lifetime);
             yaml = plan.Yaml;
             if (!plan.ReusesExistingRuntime)
             {
@@ -940,26 +987,33 @@ public partial class TemplatesViewModel : ObservableObject
         StatusMessage = UiText.Get("Workload_Text_Reviewing_0_no_images_or_services_2159fa", "Reviewing {0}… no images or services are changed before confirmation.", template.DisplayName);
         try
         {
-            if (!await _compose.ImportAndUpAsync(yaml, suggestedName: name))
+            var deployed = await _compose.ImportAndUpAsync(yaml, suggestedName: name, scope: scope);
+            if (deployed is null)
             {
                 StatusMessage = UiText.Get("Workload_Text_Compose_launch_was_cancelled_blocked_or_41a796", "Compose launch was cancelled, blocked, or incomplete. Check Compose details and refresh actual state before retrying.");
                 return;
             }
+            await _combined.RefreshAllAsync();
             var note = NoteClause(template);
             if (plan is { ReusesExistingRuntime: true })
             {
                 // The web UI resolves Ollama by alias, so the reused runtime joins this project's
                 // network after it exists. Report an attach failure instead of leaving a UI that
                 // silently lists no models.
-                var attach = await _openWebUi.AttachExistingAsync(plan.ExistingOllamaId!);
+                var network = deployed.Networks.Single().Name;
+                var attach = await planner.AttachExistingAsync(plan.ExistingOllamaId!, scope.Lifetime, network);
                 StatusMessage = attach.Success
                     ? UiText.Get("Workload_Text_0_launched_using_the_existing_1_ee72be", "{0} launched using the existing \"{1}\" runtime{2}.", template.DisplayName, plan.ExistingOllamaName, note)
-                    : UiText.Get("Workload_Text_0_started_but_1_could_not_6165d9", "{0} started, but \"{1}\" could not join the {2} network, so no models will appear. Connect it from the Networks page.", template.DisplayName, plan.ExistingOllamaName, OpenWebUiPlanner.NetworkName);
+                    : UiText.Get("Workload_Text_0_started_but_1_could_not_6165d9", "{0} started, but \"{1}\" could not join the {2} network, so no models will appear. Connect it from the Networks page.", template.DisplayName, plan.ExistingOllamaName, network);
             }
             else if (!string.IsNullOrEmpty(model))
             {
                 StatusMessage = UiText.Get("Workload_Text_Downloading_0_this_can_take_several_8294ec", "Downloading {0}… this can take several minutes.", model);
-                var pull = await _openWebUi.InstallModelAsync(model);
+                if (!deployed.AppliedServices.TryGetValue("ollama", out var runtime) ||
+                    string.IsNullOrWhiteSpace(runtime.ContainerId))
+                    throw new InvalidOperationException(UiText.Get("Deployment_OllamaIdentityMissing",
+                        "The new Ollama container could not be identified. No model was downloaded."));
+                var pull = await planner.InstallModelAsync(model, scope.Lifetime, runtime.ContainerId);
                 StatusMessage = pull.Success
                     ? UiText.Get("Workload_Text_0_is_ready_with_1_2_12e6ac", "{0} is ready with {1}{2}{3}.", template.DisplayName, model, Acceleration(plan), note)
                     : UiText.Get("Workload_Text_0_started_but_1_could_not_c04bc8", "{0} started, but {1} could not be downloaded. Open the web UI and pull a model there, or retry from the container's terminal.", template.DisplayName, model);
@@ -979,7 +1033,7 @@ public partial class TemplatesViewModel : ObservableObject
     }
 
     /// <summary>Helper for the configure compose workflow in this view model.</summary>
-    private async Task ConfigureComposeAsync(StackTemplate template)
+    private async Task ConfigureComposeAsync(StackTemplate template, WslcSessionSelection destination)
     {
         var (yaml, name) = ResolveComposeConfig(template);
         if (string.IsNullOrWhiteSpace(yaml))
@@ -993,13 +1047,15 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
+        using var scope = await _sessionAutomation.GetComposeScopeAsync(destination);
         IsBusy = true;
         StatusMessage = UiText.Get("Workload_Text_Launching_0_3dad1d", "Launching {0}…", template.DisplayName);
         try
         {
-            if (!await _compose.ImportAndUpAsync(
+            if (await _compose.ImportAndUpAsync(
                 dialog.Yaml,
-                suggestedName: string.IsNullOrWhiteSpace(dialog.ProjectName) ? template.ComposeProjectName : dialog.ProjectName))
+                suggestedName: string.IsNullOrWhiteSpace(dialog.ProjectName) ? template.ComposeProjectName : dialog.ProjectName,
+                scope: scope) is null)
             {
                 StatusMessage = UiText.Get("Workload_Text_Compose_launch_was_cancelled_blocked_or_e9222d", "Compose launch was cancelled, blocked, or incomplete. Saved template defaults were not changed; check Compose details.");
                 return;
@@ -1012,6 +1068,7 @@ public partial class TemplatesViewModel : ObservableObject
                 ComposeProjectName = string.IsNullOrWhiteSpace(dialog.ProjectName) ? null : dialog.ProjectName,
             });
             StatusMessage = UiText.Get("Workload_Text_0_launched_680a32", "{0} launched", template.DisplayName);
+            await _combined.RefreshAllAsync();
         }
         finally
         {

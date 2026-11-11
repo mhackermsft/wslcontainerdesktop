@@ -34,7 +34,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 {
     /// <summary>Text projected for the active UI language.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public string StatusMessageDisplay => UiText.Translate(StatusMessage);
+    public string StatusMessageDisplay => IsBusy ? UiText.Translate(StatusMessage)
+        : _combined.IsBusy || _combined.HasRefreshFailure || !_combined.HasLoadedSelection ? _combined.StatusText
+        : UiText.Get("Containers_CombinedSummary", "{0} containers across {1} active sessions.",
+            Containers.Count, _combined.Sessions.Count(session => session.IsAvailable && session.IsSelected));
 
     /// <summary>Text projected for the active UI language.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
@@ -54,7 +57,6 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     private const int MaxInlinePreviewBytes = 65_536;
     private readonly IWslcService _wslc;
-    private readonly ContainerVolumeInspector _volumeInspector;
     private readonly StatusMonitor _monitor;
     private readonly HealthWatchdog _watchdog;
     private readonly RestartPolicyWatchdog _restartWatchdog;
@@ -66,14 +68,33 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private readonly IAiDiagnosticsService _aiDiagnostics;
     private readonly IAiAvailabilityService _aiAvailability;
     private readonly IAiCapabilityService _aiCapabilities;
-    private readonly ILocalAiSetupService _localAi;
     private readonly IWindowVisibility _visibility;
     private readonly ILogger<ContainersViewModel> _logger;
     private readonly DispatcherQueue _dispatcher;
     private readonly LogStreamer _logStreamer;
+    private readonly WslcSessionContext _sessionContext;
+    private readonly LegacyPolicyOwnershipStore _legacyOwners;
+    private readonly CombinedSessionViewModel _combined;
+    private readonly WslcSessionContainerActions _sessionActions;
+    private readonly WslcSessionResourceActions _sessionResources;
+    private readonly WslcSessionClientFactory _sessionClients;
+    private readonly WslcSessionSelectionService _sessionSelection;
+    private readonly SessionAutomationCoordinator _sessionAutomation;
+    private bool _ambiguousContainers;
+    private bool _defaultIdentityUnavailable;
+    private bool _managementUnavailable;
+    private bool _containerPageVisible;
+    private long _sizeRefreshGeneration;
+    private CancellationTokenSource? _sizeRefreshCts;
+    private readonly List<string> _sizeFailureSessions = [];
+
+    /// <summary>Whether the container list has room for its table layout.</summary>
+    [ObservableProperty]
+    private bool _isWideLayout;
 
     /// <summary>Generated busy flag used by container commands that should not overlap.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusMessageDisplay))]
     private bool _isBusy;
 
     /// <summary>Status text displayed above the container list.</summary>
@@ -157,11 +178,6 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FilesBrowseAvailable))]
     private bool _filesBrowseUnavailable;
-
-    // Short image ID -> "repo:tag", used only to display names in place of IDs (see ApplyImageNames).
-    private Dictionary<string, string> _imageNames = new(StringComparer.Ordinal);
-    private DateTimeOffset _imageNamesLoadedAt = DateTimeOffset.MinValue;
-    private bool _imageNamesLoading;
 
     /// <summary>Inverse of <see cref="FilesBrowseUnavailable"/>; gates actions that need a listing shell (New folder).</summary>
     public bool FilesBrowseAvailable => !FilesBrowseUnavailable;
@@ -341,6 +357,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Container rows displayed by the list before grouping is applied.</summary>
     public ObservableCollection<ContainerRowViewModel> Containers { get; } = new();
 
+    /// <summary>Search and sort state for the container list.</summary>
+    public ResourceGridView<ContainerRowViewModel> Grid { get; }
+
     /// <summary>
     /// The Containers list grouped by compose project (with a trailing "Standalone" group for
     /// containers that aren't part of any project). Bound by the view via a grouped
@@ -349,7 +368,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     public ObservableCollection<ContainerGroup> Groups { get; } = new();
 
     /// <summary>Creates the Containers page model and subscribes to inventory, health, and AI availability updates.</summary>
-    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, IAiDiagnosticsService aiDiagnostics, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, ILocalAiSetupService localAi, IWindowVisibility visibility, ILogger<ContainersViewModel> logger)
+    public ContainersViewModel(IWslcService wslc, StatusMonitor monitor, HealthWatchdog watchdog, RestartPolicyWatchdog restartWatchdog, DialogService dialogs, ISettingsService settings, RegistryAuthRefresher authRefresher, IRunProfileStore profiles, IComposeProjectStore composeStore, IAiDiagnosticsService aiDiagnostics, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, IWindowVisibility visibility, ILogger<ContainersViewModel> logger, WslcSessionContext sessionContext, LegacyPolicyOwnershipStore legacyOwners, CombinedSessionViewModel combined, WslcSessionContainerActions sessionActions, WslcSessionResourceActions sessionResources, WslcSessionClientFactory sessionClients, WslcSessionSelectionService sessionSelection, SessionAutomationCoordinator sessionAutomation)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -363,26 +382,71 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         _aiDiagnostics = aiDiagnostics;
         _aiAvailability = aiAvailability;
         _aiCapabilities = aiCapabilities;
-        _localAi = localAi;
         _visibility = visibility;
         _logger = logger;
-        _volumeInspector = new ContainerVolumeInspector(wslc);
+        _sessionContext = sessionContext;
+        _legacyOwners = legacyOwners;
+        _combined = combined;
+        _sessionActions = sessionActions;
+        _sessionResources = sessionResources;
+        _sessionClients = sessionClients;
+        _sessionSelection = sessionSelection;
+        _sessionAutomation = sessionAutomation;
+        _detailReads = new(4, ReadVisibleDetailAsync,
+            ex => _logger.LogWarning(ex, "Unexpected visible container detail failure."));
+        Grid = new(Containers, row =>
+            [row.SessionName, row.Name, row.Id, row.Image, row.PortsDisplayText, row.NetworkDisplay,
+             row.SizeShortDisplay, row.Created.ToString(), FormatHelpers.RelativeTime(row.Created), row.Project,
+             row.State.ToString(), row.State.ToLocalizedDisplayString()],
+            new("session", "ResourceGrid_Session", "Session", row => row.SessionName),
+            new("name", "ResourceGrid_Name", "Name", row => row.Name),
+            new("state", "ResourceGrid_Status", "Status", row => row.State.ToLocalizedDisplayString()),
+            new("image", "ResourceGrid_Image", "Image", row => row.Image),
+            new("ports", "ResourceGrid_Ports", "Ports", row => row.Model.Ports.Count == 0
+                ? null : row.Model.Ports.Min(port => port.HostPort)),
+            new("network", "ResourceGrid_Network", "Network", row => row.NetworkDisplay),
+            new("size", "ResourceGrid_Size", "Size", row => row.Model.SizeRwBytes),
+            new("created", "ResourceGrid_Created", "Created", row => row.Created));
+        Grid.ProjectionUpdated += (_, _) => SyncGroups();
         _dispatcher = DispatcherQueue.GetForCurrentThread();
-        _logStreamer = new LogStreamer(settings, _dispatcher);
+        _logStreamer = new LogStreamer(settings, _dispatcher, sessionContext);
         _logStreamer.LineReceived += line => LogLineReceived?.Invoke(line);
 
         _monitor.StatusChanged += OnStatusChanged;
         _watchdog.HealthChanged += OnHealthChanged;
+        _sessionAutomation.HealthChanged += OnSessionHealthChanged;
+        _sessionAutomation.Changed += OnSessionHealthChanged;
         _aiAvailability.Changed += OnAiAvailabilityChanged;
+        _sessionContext.SelectionChanged += OnSessionContextChanged;
+        _sessionContext.EngineSettingChanged += OnSessionContextChanged;
+        _combined.PropertyChanged += OnCombinedChanged;
+        _visibility.Changed += OnWindowVisibilityChanged;
         IsAiAvailable = _aiAvailability.IsAvailable;
 
-        if (_monitor.Latest is not null)
-        {
-            Reconcile(_monitor.Latest.Containers);
-        }
+        ReconcileCombined();
     }
 
-    partial void OnShowAllChanged(bool value) => RequestRefresh();
+    partial void OnShowAllChanged(bool value) => ReconcileCombined();
+
+    private void OnSessionContextChanged(object? sender, EventArgs args)
+    {
+        void Clear()
+        {
+            StopStatsPolling();
+            _logStreamer.Stop();
+            var hadSelection = Selected is not null;
+            Selected = null;
+            ReconcileCombined();
+            OnPropertyChanged(nameof(ManagementDestination));
+            if (hadSelection)
+                SelectionCleared?.Invoke();
+        }
+
+        if (_dispatcher.HasThreadAccess)
+            Clear();
+        else
+            _dispatcher.TryEnqueue(Clear);
+    }
 
     partial void OnSelectedChanged(ContainerRowViewModel? value)
     {
@@ -404,26 +468,28 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         ResetChangesState(value);
         ResetAiState();
 
-        if (value is null)
+        if (value is null || !IsCurrentRow(value))
         {
             return;
         }
 
-        _logStreamer.Start(value.Id, timestamps: LogTimestamps);
-        _ = LoadDetailsAsync(value.Id);
+        UiSafe.Run(async () =>
+        {
+            await StartLogStreamAsync(value);
+            await LoadDetailsAsync(value.Id);
+        });
     }
 
     partial void OnLogTimestampsChanged(bool value) => RestartSelectedLogStream();
 
     private void RestartSelectedLogStream()
     {
-        if (Selected is null)
+        if (Selected is not { } selected || !IsCurrentRow(selected))
         {
             return;
         }
 
-        _logStreamer.Start(Selected.Id, timestamps: LogTimestamps);
-        LogCleared?.Invoke();
+        UiSafe.Run(() => StartLogStreamAsync(selected));
     }
 
     private void ResetAiState()
@@ -455,25 +521,29 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         _dragStagingTask = null;
         _dragStagingEntry = null;
 
-        if (value is { IsDirectory: false } && Selected is { } container)
+        if (value is { IsDirectory: false } && Selected is { } container && IsCurrentRow(container))
         {
             _dragStagingEntry = value;
-            _dragStagingTask = StageDragFileAsync(container.Id, value);
+            _dragStagingTask = StageDragFileAsync(container, value);
         }
     }
 
     private async Task LoadDetailsAsync(string id)
     {
+        var selected = Selected;
+        if (selected is null || selected.Id != id || !IsCurrentRow(selected))
+            return;
         try
         {
-            var result = await _wslc.InspectContainerAsync(id, includeSize: true);
+            var client = await ClientForRowAsync(selected);
+            var result = await client.InspectContainerAsync(id, includeSize: true);
             if (!result.Success)
             {
                 return;
             }
 
             // Guard against a selection change while awaiting.
-            if (Selected?.Id != id)
+            if (!ReferenceEquals(Selected, selected) || !IsCurrentRow(selected))
             {
                 return;
             }
@@ -543,8 +613,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     private async Task LoadChangesAsync()
     {
+        using var selection = _sessionContext.LockSelection();
         var selected = Selected;
-        if (selected is null)
+        if (selected is null || !await EnsureCurrentRowsAsync([selected]))
         {
             return;
         }
@@ -562,10 +633,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         ChangesStatusMessage = "Comparing the container against its image…";
         try
         {
-            var changes = await _wslc.DiffContainerAsync(selected.Id, selected.Image);
+            var client = await ClientForRowAsync(selected);
+            var changes = await client.DiffContainerAsync(selected.Id, selected.Image);
 
             // Guard against a selection change while awaiting.
-            if (Selected?.Id != selected.Id)
+            if (!ReferenceEquals(Selected, selected) || !IsCurrentRow(selected))
             {
                 return;
             }
@@ -582,7 +654,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            if (Selected?.Id == selected.Id)
+            if (ReferenceEquals(Selected, selected) && IsCurrentRow(selected))
             {
                 DetailChanges.Clear();
                 ChangesStatusMessage = ex.Message;
@@ -592,7 +664,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            if (Selected?.Id == selected.Id)
+            if (ReferenceEquals(Selected, selected) && IsCurrentRow(selected))
             {
                 IsChangesBusy = false;
             }
@@ -641,8 +713,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Copies a selected container file to the app cache and opens it with the default Windows handler.</summary>
     public async Task OpenFileAsync(ContainerFileEntry? entry = null)
     {
+        using var selection = _sessionContext.LockSelection();
         entry ??= SelectedFile;
-        if (entry is null || entry.IsDirectory || Selected is null)
+        var selected = Selected;
+        if (entry is null || entry.IsDirectory || selected is null || !await EnsureCurrentRowsAsync([selected]))
         {
             return;
         }
@@ -651,13 +725,16 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         FilesStatusMessage = $"Opening {entry.Name}…";
         try
         {
-            var tempDir = GetTempDir(Selected.Id);
-            var result = await _wslc.CopyFromContainerAsync(Selected.Id, entry.Path, tempDir, followSymlinks: FollowSymlinksOnDownload);
+            var tempDir = GetTempDir(selected, entry.Path);
+            var client = await ClientForRowAsync(selected);
+            var result = await client.CopyFromContainerAsync(selected.Id, entry.Path, tempDir, followSymlinks: FollowSymlinksOnDownload);
             if (!result.Success)
             {
                 FilesStatusMessage = DescribeFileCommandFailure(result, "Could not open this file.");
                 return;
             }
+            if (!ReferenceEquals(Selected, selected) || !IsCurrentRow(selected))
+                return;
 
             var localPath = ContainerDownloadPath.Create(entry.Path, tempDir).Target;
             ContainerDownloadPath.RequireUnlinkedAncestors(localPath, CancellationToken.None);
@@ -715,12 +792,15 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Prompts for a new name and renames a file or directory inside the container.</summary>
     public async Task RenameAsync(ContainerFileEntry? entry = null)
     {
+        using var selection = _sessionContext.LockSelection();
         entry ??= SelectedFile;
-        if (entry is null || Selected is null)
+        var selected = Selected;
+        if (entry is null || selected is null || !await EnsureCurrentRowsAsync([selected]))
         {
             return;
         }
 
+        var directory = FilesCurrentPath;
         var dialog = new Dialogs.SimpleInputDialog(UiText.Get("Resource_Text_d3f4cb898fbe", "Rename"), UiText.Get("Resource_Text_9e627c7b1aec", "New name"), entry.Name)
         {
             Value = entry.Name,
@@ -737,22 +817,26 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var newPath = CombineContainerPath(FilesCurrentPath, newName);
+        var newPath = CombineContainerPath(directory, newName);
         await ExecuteAsync($"Renaming {entry.Name}…",
-            () => _wslc.RenamePathAsync(Selected.Id, entry.Path, newPath));
+            async () => await (await ClientForRowAsync(selected)).RenamePathAsync(selected.Id, entry.Path, newPath));
 
-        await LoadFilesAsync(FilesCurrentPath);
+        if (ReferenceEquals(Selected, selected))
+            await LoadFilesAsync(FilesCurrentPath);
     }
 
     /// <summary>Prompts for a folder name and creates a new directory in the current path.</summary>
     /// <summary>Prompts for a folder name and creates it in the current container directory.</summary>
     public async Task CreateFolderAsync()
     {
-        if (Selected is null)
+        using var selection = _sessionContext.LockSelection();
+        var selected = Selected;
+        if (selected is null || !await EnsureCurrentRowsAsync([selected]))
         {
             return;
         }
 
+        var directory = FilesCurrentPath;
         var dialog = new Dialogs.SimpleInputDialog(UiText.Get("Resource_Text_a711999b72aa", "New folder"), UiText.Get("Resource_Text_b2ce023b4255", "Folder name"), "new-folder");
         var dialogResult = await _dialogs.ShowDialogAsync(dialog);
         if (dialogResult != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
@@ -766,11 +850,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var newPath = CombineContainerPath(FilesCurrentPath, name);
+        var newPath = CombineContainerPath(directory, name);
         await ExecuteAsync($"Creating folder {name}…",
-            () => _wslc.CreateDirectoryAsync(Selected.Id, newPath));
+            async () => await (await ClientForRowAsync(selected)).CreateDirectoryAsync(selected.Id, newPath));
 
-        if (Selected.IsRunning)
+        if (ReferenceEquals(Selected, selected) && selected.IsRunning)
         {
             await LoadFilesAsync(FilesCurrentPath);
         }
@@ -779,15 +863,18 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Uploads one host file or folder into the current container directory.</summary>
     public async Task CopyIntoCurrentDirectoryAsync(string hostPath)
     {
-        if (Selected is null || string.IsNullOrWhiteSpace(hostPath))
+        using var selection = _sessionContext.LockSelection();
+        var selected = Selected;
+        if (selected is null || string.IsNullOrWhiteSpace(hostPath) || !await EnsureCurrentRowsAsync([selected]))
         {
             return;
         }
 
-        await ExecuteAsync($"Copying {Path.GetFileName(hostPath)} into {Selected.Name}…",
-            () => _wslc.CopyToContainerAsync(Selected.Id, hostPath, FilesCurrentPath));
+        var directory = FilesCurrentPath;
+        await ExecuteAsync($"Copying {Path.GetFileName(hostPath)} into {selected.Name}…",
+            async () => await (await ClientForRowAsync(selected)).CopyToContainerAsync(selected.Id, hostPath, directory));
 
-        if (Selected.IsRunning)
+        if (ReferenceEquals(Selected, selected) && selected.IsRunning)
         {
             await LoadFilesAsync(FilesCurrentPath);
         }
@@ -797,7 +884,9 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Uploads multiple host paths into the current container directory.</summary>
     public async Task CopyMultipleIntoCurrentDirectoryAsync(IEnumerable<string> hostPaths)
     {
-        if (Selected is null)
+        using var selection = _sessionContext.LockSelection();
+        var selected = Selected;
+        if (selected is null || !await EnsureCurrentRowsAsync([selected]))
         {
             return;
         }
@@ -809,13 +898,15 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
 
         IsFilesBusy = true;
-        FilesStatusMessage = $"Uploading {paths.Count} item(s) to {Selected.Name}…";
+        var directory = FilesCurrentPath;
+        FilesStatusMessage = $"Uploading {paths.Count} item(s) to {selected.Name}…";
         var failed = new List<string>();
         try
         {
             foreach (var path in paths)
             {
-                var result = await _wslc.CopyToContainerAsync(Selected.Id, path, FilesCurrentPath);
+                var client = await ClientForRowAsync(selected);
+                var result = await client.CopyToContainerAsync(selected.Id, path, directory);
                 if (!result.Success)
                 {
                     failed.Add($"{Path.GetFileName(path)}: {result.ErrorText}");
@@ -828,12 +919,17 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                     UiText.Get("Resource_Text_f64e32064699", "The following items could not be copied:\n{0}", string.Join('\n', failed)));
             }
         }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            _logger.LogWarning(ex, "Container upload was interrupted for {Container} in {Session}.", selected.Name, selected.SessionName);
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_146781e43eff", "Upload incomplete"), ex.Message);
+        }
         finally
         {
             IsFilesBusy = false;
         }
 
-        if (Selected.IsRunning)
+        if (ReferenceEquals(Selected, selected) && selected.IsRunning)
         {
             await LoadFilesAsync(FilesCurrentPath);
         }
@@ -842,21 +938,26 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Downloads the selected container file or directory to a host directory.</summary>
     public async Task CopySelectedFileOutAsync(string hostDirectory)
     {
-        if (Selected is null || SelectedFile is null || string.IsNullOrWhiteSpace(hostDirectory))
+        using var selection = _sessionContext.LockSelection();
+        var selected = Selected;
+        var file = SelectedFile;
+        if (selected is null || file is null || string.IsNullOrWhiteSpace(hostDirectory) ||
+            !await EnsureCurrentRowsAsync([selected]))
         {
             return;
         }
 
-        await ExecuteAsync($"Copying {SelectedFile.Name} to the host…",
-            () => _wslc.CopyFromContainerAsync(Selected.Id, SelectedFile.Path, hostDirectory, followSymlinks: FollowSymlinksOnDownload));
+        await ExecuteAsync($"Copying {file.Name} to the host…",
+            async () => await (await ClientForRowAsync(selected)).CopyFromContainerAsync(selected.Id, file.Path, hostDirectory, followSymlinks: FollowSymlinksOnDownload));
     }
 
     /// <summary>Downloads a known path without requiring a shell-backed directory listing.</summary>
     /// <summary>Downloads an explicitly supplied container path to a host directory.</summary>
     public async Task CopyPathOutAsync(string hostDirectory)
     {
+        using var selection = _sessionContext.LockSelection();
         var selected = Selected;
-        if (selected is null)
+        if (selected is null || !await EnsureCurrentRowsAsync([selected]))
         {
             return;
         }
@@ -874,31 +975,34 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
         var path = dialog.Value;
         await ExecuteAsync($"Copying from {selected.Name}...",
-            () => _wslc.CopyFromContainerAsync(selected.Id, path, hostDirectory, followSymlinks: FollowSymlinksOnDownload));
+            async () => await (await ClientForRowAsync(selected)).CopyFromContainerAsync(selected.Id, path, hostDirectory, followSymlinks: FollowSymlinksOnDownload));
     }
 
     /// <summary>Confirms and deletes the selected file or directory inside the container.</summary>
     public async Task DeleteSelectedFileAsync()
     {
-        if (Selected is null || SelectedFile is null)
+        using var selection = _sessionContext.LockSelection();
+        var selected = Selected;
+        var file = SelectedFile;
+        if (selected is null || file is null || !await EnsureCurrentRowsAsync([selected]))
         {
             return;
         }
 
-        var kind = SelectedFile.IsDirectory ? UiText.Get("Resource_Text_afffdd08d81d", "folder") : UiText.Get("Resource_Text_971c419dd609", "file");
+        var kind = file.IsDirectory ? UiText.Get("Resource_Text_afffdd08d81d", "folder") : UiText.Get("Resource_Text_971c419dd609", "file");
         var ok = await _dialogs.ShowConfirmAsync(
             UiText.Get("Resource_Text_291562a2b23c", "Delete from container"),
-            UiText.Get("Resource_Text_26bcd52e50cf", "Delete {0} \"{1}\" from {2}? This cannot be undone.", kind, SelectedFile.Name, Selected.Name),
+            UiText.Get("Resource_Text_26bcd52e50cf", "Delete {0} \"{1}\" from {2}? This cannot be undone.", kind, file.Name, selected.Name),
             UiText.Get("Resource_Text_f6fdbe48dc54", "Delete"));
         if (!ok)
         {
             return;
         }
 
-        await ExecuteAsync($"Deleting {SelectedFile.Name}…",
-            () => _wslc.DeletePathAsync(Selected.Id, SelectedFile.Path));
+        await ExecuteAsync($"Deleting {file.Name}…",
+            async () => await (await ClientForRowAsync(selected)).DeletePathAsync(selected.Id, file.Path));
 
-        if (Selected.IsRunning)
+        if (ReferenceEquals(Selected, selected) && selected.IsRunning)
         {
             await LoadFilesAsync(FilesCurrentPath);
         }
@@ -907,7 +1011,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     private async Task LoadFilesAsync(string path)
     {
         var selected = Selected;
-        if (selected is null)
+        if (selected is null || !IsCurrentRow(selected))
         {
             return;
         }
@@ -933,10 +1037,11 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         FilesStatusMessage = $"Loading {requestedPath}…";
         try
         {
-            var result = await _wslc.ListFilesAsync(selected.Id, requestedPath);
+            var client = await ClientForRowAsync(selected);
+            var result = await client.ListFilesAsync(selected.Id, requestedPath);
 
             // Guard against stale responses: verify both the container and the path still match.
-            if (Selected?.Id != selected.Id || FilesCurrentPath != requestedPath)
+            if (!ReferenceEquals(Selected, selected) || !IsCurrentRow(selected) || FilesCurrentPath != requestedPath)
             {
                 return;
             }
@@ -967,21 +1072,27 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            FilesUnavailableReason = ex.Message;
-            FilesStatusMessage = string.Empty;
-            DetailFiles.Clear();
-            SelectedFile = null;
-            FilesBrowseUnavailable = true;
+            if (ReferenceEquals(Selected, selected) && IsCurrentRow(selected))
+            {
+                FilesUnavailableReason = ex.Message;
+                FilesStatusMessage = string.Empty;
+                DetailFiles.Clear();
+                SelectedFile = null;
+                FilesBrowseUnavailable = true;
+            }
+            _logger.LogDebug(ex, "Container file listing failed.");
         }
         finally
         {
-            IsFilesBusy = false;
+            if (ReferenceEquals(Selected, selected) && IsCurrentRow(selected))
+                IsFilesBusy = false;
         }
     }
 
     private void ResetFilesState(ContainerRowViewModel? selected)
     {
         _hasAttemptedFilesLoad = false;
+        IsFilesBusy = false;
         _dragStagingTask = null;
         _dragStagingEntry = null;
         DetailFiles.Clear();
@@ -995,13 +1106,24 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Background-copies the selected file to a temp folder for drag-out support.</summary>
-    private async Task<string?> StageDragFileAsync(string containerId, ContainerFileEntry entry)
+    private async Task<string?> StageDragFileAsync(ContainerRowViewModel selected, ContainerFileEntry entry)
     {
         try
         {
-            var tempDir = GetTempDir(containerId);
-            var result = await _wslc.CopyFromContainerAsync(containerId, entry.Path, tempDir, followSymlinks: FollowSymlinksOnDownload)
-                .ConfigureAwait(false);
+            WslcSessionContext.SelectionSnapshot snapshot;
+            string tempDir;
+            Task<CommandResult> transfer;
+            using (var selection = _sessionContext.LockSelection())
+            {
+                if (!ReferenceEquals(Selected, selected) || !IsCurrentRow(selected))
+                    return null;
+                snapshot = _sessionContext.CaptureSnapshot();
+                tempDir = GetTempDir(selected, entry.Path);
+                var client = await ClientForRowAsync(selected);
+                transfer = client.CopyFromContainerAsync(selected.Id, entry.Path, tempDir,
+                    followSymlinks: FollowSymlinksOnDownload);
+            }
+            var result = await transfer;
             if (!result.Success)
             {
                 _logger.LogWarning("Could not stage container file for dragging: {Error}", result.ErrorText);
@@ -1010,7 +1132,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
             var localPath = ContainerDownloadPath.Create(entry.Path, tempDir).Target;
             ContainerDownloadPath.RequireUnlinkedAncestors(localPath, CancellationToken.None);
-            return File.Exists(localPath) ? localPath : null;
+            return snapshot == _sessionContext.CaptureSnapshot() && ReferenceEquals(Selected, selected) &&
+                IsCurrentRow(selected) && File.Exists(localPath) ? localPath : null;
         }
         catch (Exception ex)
         {
@@ -1019,19 +1142,16 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Matches the "short ID" length displayed elsewhere in the UI and provides
-    // sufficient uniqueness for temp-directory names across containers on the same host.
-    private const int ShortIdLength = 12;
-
     private const string TempRootFolderName = "container-file-previews";
 
     /// <summary>Root of the temp tree used to stage files opened/downloaded from containers.</summary>
     private static string TempRoot => Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, TempRootFolderName);
 
-    private static string GetTempDir(string containerId)
+    private string GetTempDir(ContainerRowViewModel container, string path)
     {
-        // Use the first ShortIdLength hex characters of the container ID as the subfolder name.
-        var dir = Path.Combine(TempRoot, containerId.Length >= ShortIdLength ? containerId[..ShortIdLength] : containerId);
+        var target = container.SessionSource is { } source ? new WslcSessionTarget(source.SessionName) : _sessionContext.Capture();
+        var key = ContainerPreviewKey.Create(_settings.WslcPath, target, container.Id, path);
+        var dir = Path.Combine(TempRoot, key);
         Directory.CreateDirectory(dir);
         return dir;
     }
@@ -1128,10 +1248,27 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Restarts log streaming for the selected row when the log panel becomes visible.</summary>
     public void ResumeStreaming()
     {
-        if (Selected is not null && _logStreamer.CurrentContainerId != Selected.Id)
+        if (Selected is { } selected && IsCurrentRow(selected) && _logStreamer.CurrentContainerId != selected.Id)
         {
+            UiSafe.Run(() => StartLogStreamAsync(selected));
+        }
+    }
+
+    private async Task StartLogStreamAsync(ContainerRowViewModel selected)
+    {
+        try
+        {
+            await ClientForRowAsync(selected);
+            if (!ReferenceEquals(Selected, selected) || !IsCurrentRow(selected) || selected.SessionSource is not { } source)
+                return;
             LogCleared?.Invoke();
-            _logStreamer.Start(Selected.Id, timestamps: LogTimestamps);
+            _logStreamer.Start(selected.Id, timestamps: LogTimestamps,
+                session: new WslcSessionTarget(source.SessionName), executablePath: _combined.CurrentExecutablePath);
+        }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            _logger.LogWarning(ex, "Could not start logs for {Container} in {Session}.", selected.Name, selected.SessionName);
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("CombinedSession_ResourceActionFailed", "Resource action failed"), ex.Message);
         }
     }
 
@@ -1144,11 +1281,14 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         StopStatsPolling();
 
         var target = Selected;
-        if (target is null)
+        if (target is null || !IsCurrentRow(target))
         {
             return;
         }
 
+        var snapshot = _sessionContext.CaptureSnapshot();
+        var source = target.SessionSource!;
+        var captured = WslcContainerActionTarget.Capture(source.Session, target.Model);
         _statsCts = new CancellationTokenSource();
         var token = _statsCts.Token;
 
@@ -1156,41 +1296,45 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         {
             while (!token.IsCancellationRequested)
             {
+                VisibleRead? visible = null;
                 try
                 {
                     // Live stats only feed the visible page; skip them while nobody can see the window.
                     await _visibility.WhenViewableAsync(token).ConfigureAwait(false);
-                    var stats = await _wslc.GetStatsAsync(target.Id, token).ConfigureAwait(false);
-                    _dispatcher.TryEnqueue(() =>
+                    visible = new VisibleRead(_visibility, token);
+                    var readToken = visible.Token;
                     {
-                        if (Selected?.Id != target.Id)
+                        using var selection = _sessionContext.LockSelection();
+                        if (snapshot != _sessionContext.CaptureSnapshot())
+                            break;
+                        var stats = await _sessionActions.ReadStatsAsync(captured, readToken).ConfigureAwait(false);
+                        _dispatcher.TryEnqueue(() =>
                         {
-                            return;
-                        }
+                            if (readToken.IsCancellationRequested || !_visibility.IsViewable ||
+                                !ReferenceEquals(Selected, target) || !IsCurrentRow(target))
+                                return;
 
-                        if (stats is null)
-                        {
-                            StatCpu = "-";
-                            StatCpuValue = 0;
-                            StatMem = "-";
-                            StatMemValue = 0;
-                            StatMemUsage = "-";
-                            StatNetIO = "-";
-                            StatBlockIO = "-";
-                            StatPids = 0;
-                        }
-                        else
-                        {
-                            StatCpu = stats.CpuPercent;
-                            StatCpuValue = stats.CpuValue;
-                            StatMem = stats.MemPercent;
-                            StatMemValue = stats.MemValue;
-                            StatMemUsage = stats.MemUsage;
-                            StatNetIO = stats.NetIO;
-                            StatBlockIO = stats.BlockIO;
-                            StatPids = stats.Pids;
-                        }
-                    });
+                            if (stats is null)
+                            {
+                                ClearStats();
+                            }
+                            else
+                            {
+                                StatCpu = stats.CpuPercent;
+                                StatCpuValue = stats.CpuValue;
+                                StatMem = stats.MemPercent;
+                                StatMemValue = stats.MemValue;
+                                StatMemUsage = stats.MemUsage;
+                                StatNetIO = stats.NetIO;
+                                StatBlockIO = stats.BlockIO;
+                                StatPids = stats.Pids;
+                            }
+                        });
+                    }
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested && visible?.IsCancellationRequested == true)
+                {
+                    continue;
                 }
                 catch (OperationCanceledException)
                 {
@@ -1198,9 +1342,14 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    // ignore transient stats errors
                     _logger.LogDebug(ex, "Transient container stats poll error.");
+                    _dispatcher.TryEnqueue(() =>
+                    {
+                        if (!token.IsCancellationRequested && ReferenceEquals(Selected, target) && IsCurrentRow(target))
+                            ClearStats();
+                    });
                 }
+                finally { visible?.Dispose(); }
 
                 try
                 {
@@ -1212,6 +1361,18 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 }
             }
         }, token);
+    }
+
+    private void ClearStats()
+    {
+        StatCpu = "-";
+        StatCpuValue = 0;
+        StatMem = "-";
+        StatMemValue = 0;
+        StatMemUsage = "-";
+        StatNetIO = "-";
+        StatBlockIO = "-";
+        StatPids = 0;
     }
 
     /// <summary>Stops the live stats poller and clears its cancellation token.</summary>
@@ -1237,10 +1398,22 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Unsubscribes from shared services and stops background work owned by this view model.</summary>
     public void Dispose()
     {
+        _containerPageVisible = false;
         StopStatsPolling();
+        _sizeRefreshCts?.Cancel();
+        _detailLifetime?.Cancel();
+        _detailLifetime?.Dispose();
+        ClearVisibleDetailRows();
+        _detailReads.Dispose();
+        _visibility.Changed -= OnWindowVisibilityChanged;
         _monitor.StatusChanged -= OnStatusChanged;
         _watchdog.HealthChanged -= OnHealthChanged;
+        _sessionAutomation.HealthChanged -= OnSessionHealthChanged;
+        _sessionAutomation.Changed -= OnSessionHealthChanged;
         _aiAvailability.Changed -= OnAiAvailabilityChanged;
+        _sessionContext.SelectionChanged -= OnSessionContextChanged;
+        _sessionContext.EngineSettingChanged -= OnSessionContextChanged;
+        _combined.PropertyChanged -= OnCombinedChanged;
         _logStreamer.Dispose();
     }
 
@@ -1250,128 +1423,241 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     private void OnStatusChanged(object? sender, EngineStatusSnapshot e)
     {
-        Reconcile(e.Containers);
+        _managementUnavailable = e.Health == Tray.EngineHealth.Down;
+        if (e.Health is Tray.EngineHealth.Healthy or Tray.EngineHealth.Degraded)
+        {
+            try
+            {
+                _combined.UpdateManagedContainers(e.Session, e.ExecutablePath, e.Containers);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Could not identify the selected session for live container updates.");
+                _defaultIdentityUnavailable = true;
+            }
+        }
+        OnPropertyChanged(nameof(CombinedWarning));
         StatusMessage = e.Summary;
     }
 
-    private void Reconcile(IReadOnlyList<ContainerInfo> incoming)
+    private bool IsCurrentRow(ContainerRowViewModel row) =>
+        row.SessionActionsAvailable && row.SessionSource is { } source &&
+        Containers.Contains(row) && _combined.IsCurrentRow(source);
+
+    private async Task<bool> EnsureCurrentRowsAsync(IReadOnlyCollection<ContainerRowViewModel> rows)
     {
-        var filtered = ShowAll
-            ? incoming
-            : incoming.Where(c => c.State == ContainerState.Running).ToList();
-
-        var byId = filtered.ToDictionary(c => c.Id, StringComparer.Ordinal);
-
-        // Remove rows that no longer exist.
-        for (var i = Containers.Count - 1; i >= 0; i--)
+        if (_combined.IsBusy)
         {
-            if (!byId.ContainsKey(Containers[i].Id))
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("SessionInventory_RefreshRequiredTitle", "Refresh the inventory"),
+                UiText.Get("CombinedSession_RefreshBusy", "Another session refresh is already running."));
+            return false;
+        }
+        if (rows.All(IsCurrentRow))
+            return true;
+        await _dialogs.ShowLocalizedMessageAsync(
+            UiText.Get("SessionInventory_RefreshRequiredTitle", "Refresh the inventory"),
+            UiText.Get("SessionInventory_RefreshRequired",
+                "The session, engine, or displayed resources changed. Refresh before taking this action."));
+        return false;
+    }
+
+    /// <summary>Warnings about incomplete inventories and unsafe row identities.</summary>
+    public string CombinedWarning => string.Join(Environment.NewLine, new[]
+    {
+        _combined.WarningText,
+        _ambiguousContainers ? UiText.Get("Containers_AmbiguousInventory",
+            "Some containers have duplicate or missing identities; their actions are unavailable.") : string.Empty,
+        _defaultIdentityUnavailable ? UiText.Get("CombinedSession_IdentityUnavailable",
+            "The default session identity could not be determined; no action was started.") : string.Empty,
+        _managementUnavailable ? UiText.Get("Containers_ManagementUnavailable",
+            "The selected session is unavailable; its displayed containers may be out of date.") : string.Empty,
+        _sizeFailureSessions.Count > 0 ? UiText.Get("Containers_SizeUnavailable",
+            "Container sizes may be unavailable or out of date in: {0}", string.Join(", ", _sizeFailureSessions)) : string.Empty,
+    }.Where(text => !string.IsNullOrWhiteSpace(text)));
+
+    /// <summary>Session used by actions that are not tied to an existing row.</summary>
+    public string ManagementDestination => UiText.Get("Containers_ManagementDestination",
+        "Choose a session when pruning. Existing containers stay in their own session.");
+
+    /// <summary>Marks whether the combined container list is visible for user-requested enrichment.</summary>
+    public void SetContainerPageVisible(bool visible)
+    {
+        _containerPageVisible = visible;
+        _detailLifetime?.Cancel();
+        _detailLifetime?.Dispose();
+        _detailLifetime = visible ? new CancellationTokenSource() : null;
+        _detailReads.SetEnabled(visible && _visibility.IsViewable);
+        if (!visible)
+        {
+            _sizeRefreshCts?.Cancel();
+            ClearVisibleDetailRows();
+        }
+    }
+
+    private CancellationTokenSource? _detailLifetime;
+
+    private void OnWindowVisibilityChanged(object? sender, EventArgs args)
+    {
+        _dispatcher.TryEnqueue(() =>
+        {
+            _detailReads.SetEnabled(_containerPageVisible && _visibility.IsViewable);
+            if (!_containerPageVisible || !_visibility.IsViewable) return;
+            ReconcileCombined();
+        });
+    }
+
+    /// <summary>Updates the container list layout from its available width.</summary>
+    public void SetContainerListWidth(double width)
+    {
+        IsWideLayout = width >= 800;
+        foreach (var row in Containers)
+            row.IsWideLayout = IsWideLayout;
+    }
+
+    private void OnCombinedChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(CombinedSessionViewModel.ContainerRows))
+            ReconcileCombined();
+        if (args.PropertyName is nameof(CombinedSessionViewModel.WarningText) or nameof(CombinedSessionViewModel.StatusText))
+        {
+            OnPropertyChanged(nameof(CombinedWarning));
+            OnPropertyChanged(nameof(StatusMessageDisplay));
+        }
+    }
+
+    private bool IsManagedRow(ContainerRowViewModel row)
+    {
+        if (row.SessionSource is not { } source)
+            return false;
+        try
+        {
+            return WslcSessionActionGuard.IsManaged(_sessionContext, source.Session,
+                WslcSessionActionGuard.ResolveDefaultSessionName);
+        }
+        catch (InvalidOperationException ex)
+        {
+            if (!_defaultIdentityUnavailable)
+                _logger.LogWarning(ex, "Could not identify the default container session.");
+            _defaultIdentityUnavailable = true;
+            return false;
+        }
+    }
+
+    private void ReconcileCombined()
+    {
+        using (Grid.DeferRefresh())
+        {
+            var desired = ContainerSessionRows.Reconcile(Containers.ToArray(), _combined.ContainerRows, ShowAll,
+                out _ambiguousContainers);
+            foreach (var row in desired)
+                row.IsWideLayout = IsWideLayout;
+            if (!Containers.SequenceEqual(desired, ReferenceEqualityComparer.Instance))
+                CollectionSync.ReplaceAll(Containers, desired);
+            if (Selected is { } selected && !desired.Contains(selected, ReferenceEqualityComparer.Instance))
             {
-                Containers.RemoveAt(i);
+                Selected = null;
+                SelectionCleared?.Invoke();
             }
+            _defaultIdentityUnavailable = false;
+            ApplyImageNames();
+            AssignProjects();
+            Grid.Refresh();
+            RefreshHealth();
         }
+        foreach (var row in _visibleDetailRows.Where(row => !Containers.Contains(row)).ToArray())
+            SetContainerRowVisible(row, false);
+        foreach (var row in _visibleDetailRows.ToArray())
+            SetContainerRowVisible(row, true);
+        _detailReads.Refresh();
+        OnPropertyChanged(nameof(CombinedWarning));
+        OnPropertyChanged(nameof(StatusMessageDisplay));
+    }
 
-        // Update existing / add new, preserving incoming order.
-        var existing = Containers.ToDictionary(r => r.Id, StringComparer.Ordinal);
-        for (var i = 0; i < filtered.Count; i++)
+    private async Task<IWslcService> ClientForRowAsync(ContainerRowViewModel row, CancellationToken ct = default,
+        bool allowBusy = false)
+    {
+        if (_combined.IsBusy && !allowBusy)
+            throw new InvalidOperationException(UiText.Get("CombinedSession_RefreshBusy", "Another session refresh is already running."));
+        if (!IsCurrentRow(row) || row.SessionSource is not { } source)
+            throw new InvalidOperationException(UiText.Get("SessionInventory_RefreshRequired",
+                "The session, engine, or displayed resources changed. Refresh before taking this action."));
+        return await _sessionActions.CreateVerifiedClientAsync(
+            WslcContainerActionTarget.Capture(source.Session, row.Model), ct);
+    }
+
+    private static bool IsSessionActionFailure(Exception ex) =>
+        ex is InvalidOperationException or IOException or System.Text.Json.JsonException or
+            System.ComponentModel.Win32Exception or TimeoutException or OperationCanceledException or
+            UnauthorizedAccessException or ArgumentException;
+
+    private AutomationSessionOwner OwnerForRow(ContainerRowViewModel row)
+    {
+        if (row.SessionSource is not { } source)
+            throw new InvalidOperationException(UiText.Get("CombinedSession_UnstableContainer",
+                "The container identity is incomplete; refresh before taking action."));
+        var defaultName = WslcSessionActionGuard.ResolveDefaultSessionName();
+        if (string.Equals(source.SessionName, defaultName, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(source.SessionName, defaultName, StringComparison.Ordinal))
+            throw new InvalidOperationException(UiText.Get("CombinedSession_IdentityUnavailable",
+                "The default session identity could not be determined; no action was started."));
+        var target = string.Equals(source.SessionName, defaultName, StringComparison.Ordinal)
+            ? WslcSessionTarget.Default : new WslcSessionTarget(source.SessionName);
+        return AutomationSessionOwner.Capture(_settings.WslcPath, target);
+    }
+
+    private Task ShowSessionActionErrorAsync(Exception ex)
+    {
+        _logger.LogWarning(ex, "A session-qualified container action failed.");
+        return _dialogs.ShowLocalizedMessageAsync(UiText.Get("CombinedSession_ResourceActionFailed", "Resource action failed"),
+            ex is OperationCanceledException
+                ? UiText.Get("CombinedSession_ActionOutcomeUnknown",
+                    "The action was cancelled or timed out. Its outcome may be unknown; refresh before retrying.")
+                : ex.Message);
+    }
+
+    private async Task<CommandResult> ExecuteSessionLifecycleAsync(ContainerRowViewModel row, WslcContainerAction action,
+        bool removeAnonymousVolumes = false)
+    {
+        if (_combined.IsBusy)
+            throw new InvalidOperationException(UiText.Get("CombinedSession_RefreshBusy", "Another session refresh is already running."));
+        if (!IsCurrentRow(row) || row.SessionSource is not { } source)
+            throw new InvalidOperationException(UiText.Get("SessionInventory_RefreshRequired",
+                "The session, engine, or displayed resources changed. Refresh before taking this action."));
+        var target = WslcContainerActionTarget.Capture(source.Session, row.Model);
+        CommandResult result;
+        try
         {
-            var model = filtered[i];
-            if (existing.TryGetValue(model.Id, out var row))
-            {
-                row.Update(model);
-                var currentIndex = Containers.IndexOf(row);
-                if (currentIndex != i && i < Containers.Count)
-                {
-                    Containers.Move(currentIndex, i);
-                }
-            }
-            else
-            {
-                var newRow = new ContainerRowViewModel(model);
-                if (i <= Containers.Count)
-                {
-                    Containers.Insert(i, newRow);
-                }
-                else
-                {
-                    Containers.Add(newRow);
-                }
-            }
+            result = await _sessionActions.ExecuteAsync(target, action, removeAnonymousVolumes: removeAnonymousVolumes);
         }
-
-        ApplyImageNames();
-
-        // Resolve network names for rows that don't have one yet (via inspect, cached per row).
-        foreach (var row in Containers.Where(r => !r.NetworkResolved))
+        catch
         {
-            _ = ResolveNetworkAsync(row);
+            _combined.InvalidateSession(source.Session);
+            throw;
         }
-
-        // Assign each row's compose project (by matching its name against stored projects) and
-        // rebuild the grouped view used by the Containers list.
-        AssignProjects();
-        SyncGroups();
-
-        // Probe GPU passthrough once per running container (via a cheap exec check).
-        foreach (var row in Containers.Where(r => r.IsRunning && !r.GpuChecked))
-        {
-            _ = ResolveGpuAsync(row);
-        }
-
-        RefreshHealth();
+        if (!result.Success)
+            _combined.InvalidateSession(source.Session);
+        else
+            await _combined.RefreshSessionAsync(source.Session);
+        return result;
     }
 
     /// <summary>
     /// Shows an image name instead of a bare image ID in the list. Compose starts containers by
     /// exact image ID (so a project never silently picks up a different image), and the engine then
     /// reports that ID as the container's image. Display only: <see cref="ContainerRowViewModel.Model"/>
-    /// keeps the real value for commands. The image list is reloaded at most every 30 seconds, and
-    /// only when a row shows an ID that isn't known yet.
+    /// keeps the real value for commands. Names come only from the same session's snapshot.
     /// </summary>
     private void ApplyImageNames()
     {
-        var missing = false;
         foreach (var row in Containers)
         {
-            var key = ImageIdKey(row.Model.Image);
-            if (key is null)
+            if (row.SessionSource is not { } source || ImageIdKey(row.Model.Image) is not { } key)
                 continue;
-            if (_imageNames.TryGetValue(key, out var name))
-                row.Image = name;
-            else
-                missing = true;
-        }
-
-        if (missing && !_imageNamesLoading && DateTimeOffset.UtcNow - _imageNamesLoadedAt > TimeSpan.FromSeconds(30))
-            _ = LoadImageNamesAsync();
-    }
-
-    /// <summary>Loads image ID to name pairs, then re-applies them to the rows.</summary>
-    private async Task LoadImageNamesAsync()
-    {
-        _imageNamesLoading = true;
-        try
-        {
-            var map = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var image in await _wslc.ListImagesAsync())
-            {
-                var key = ImageIdKey(image.Id);
-                if (key is not null && !string.IsNullOrWhiteSpace(image.Repository) && image.Repository != "<none>")
-                    map.TryAdd(key, image.Reference);
-            }
-
-            _imageNames = map;
-            ApplyImageNames();
-        }
-        catch (Exception ex)
-        {
-            // Names are cosmetic; the list still shows the ID when they can't be loaded.
-            _logger.LogDebug(ex, "Could not load image names for the Containers list.");
-        }
-        finally
-        {
-            _imageNamesLoadedAt = DateTimeOffset.UtcNow;
-            _imageNamesLoading = false;
+            var image = _combined.Inventory.Images.FirstOrDefault(candidate => candidate.Session == source.Session &&
+                ImageIdKey(candidate.Value.Id) == key && !string.IsNullOrWhiteSpace(candidate.Value.Repository) &&
+                candidate.Value.Repository != "<none>");
+            if (image is not null)
+                row.Image = image.Value.Reference;
         }
     }
 
@@ -1393,19 +1679,28 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// </summary>
     private void AssignProjects()
     {
-        // Build containerName -> projectName once per reconcile.
-        var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var project in _composeStore.GetAll())
+        string? defaultName;
+        try { defaultName = WslcSessionActionGuard.ResolveDefaultSessionName(); }
+        catch (InvalidOperationException ex)
         {
-            foreach (var service in project.Services)
-            {
-                map[project.ContainerNameFor(service.Name)] = project.Name;
-            }
+            _logger.LogWarning(ex, "Could not identify the default session for Compose grouping.");
+            _defaultIdentityUnavailable = true;
+            defaultName = null;
         }
-
+        var projects = _composeStore.GetAll();
         foreach (var row in Containers)
         {
-            row.Project = map.TryGetValue(row.Name, out var projectName) ? projectName : null;
+            if (row.SessionSource is not { } source || defaultName is null &&
+                source.Session.Name.StartsWith("wslc-cli-", StringComparison.OrdinalIgnoreCase))
+            {
+                row.Project = null;
+                continue;
+            }
+            var target = string.Equals(source.Session.Name, defaultName, StringComparison.Ordinal)
+                ? WslcSessionTarget.Default : new WslcSessionTarget(source.Session.Name);
+            row.Project = projects.FirstOrDefault(project =>
+                project.SessionOwner?.Matches(_settings.WslcPath, target) == true &&
+                project.Services.Any(service => project.ContainerNameFor(service.Name) == row.Name))?.Name;
         }
     }
 
@@ -1421,7 +1716,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         // Desired: key -> ordered rows. Project groups keyed by project name; standalone last.
         var desired = new SortedDictionary<string, List<ContainerRowViewModel>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in Containers)
+        foreach (var row in Grid.Items)
         {
             var key = string.IsNullOrEmpty(row.Project) ? standaloneKey : row.Project!;
             if (!desired.TryGetValue(key, out var list))
@@ -1433,9 +1728,16 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             list.Add(row);
         }
 
-        foreach (var list in desired.Values)
+        if (Grid.SelectedSort is not { Key.Length: > 0 })
         {
-            list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            foreach (var list in desired.Values)
+            {
+                list.Sort((a, b) =>
+                {
+                    var name = string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+                    return name != 0 ? name : string.Compare(a.SessionName, b.SessionName, StringComparison.Ordinal);
+                });
+            }
         }
 
         // Remove groups no longer present.
@@ -1476,10 +1778,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Updates a single group's rows in place to match <paramref name="desired"/> order.</summary>
     private static void SyncGroupItems(ContainerGroup group, List<ContainerRowViewModel> desired)
     {
-        var desiredIds = new HashSet<string>(desired.Select(r => r.Id), StringComparer.Ordinal);
+        var desiredRows = desired.ToHashSet(ReferenceEqualityComparer.Instance);
         for (var i = group.Count - 1; i >= 0; i--)
         {
-            if (!desiredIds.Contains(group[i].Id))
+            if (!desiredRows.Contains(group[i]))
             {
                 group.RemoveAt(i);
             }
@@ -1517,25 +1819,47 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Applies configured-flag and the latest watchdog health state onto each row.</summary>
     private void RefreshHealth()
     {
-        var configured = _settings.HealthChecks
-            .Where(h => h.Enabled && h.IsValid && h.DesiredHealth?.IsDisabled != true)
-            .Select(h => h.ContainerName)
-            .ToHashSet(StringComparer.Ordinal);
-
-        var states = _watchdog.Latest.Containers
-            .ToDictionary(c => c.ContainerName, StringComparer.Ordinal);
-
         foreach (var row in Containers)
         {
-            row.HasHealthCheck = configured.Contains(row.Name) || states.ContainsKey(row.Name);
-            if (states.TryGetValue(row.Name, out var snapshot))
+            if (row.SessionSource is not { } source)
+            {
+                row.HasHealthCheck = false;
+                row.Health = ContainerHealthState.Unknown;
+                row.HealthRestartCount = 0;
+                row.HealthMaxRestarts = 0;
+                row.HealthDetail = string.Empty;
+                continue;
+            }
+            AutomationSessionOwner owner;
+            try { owner = OwnerForRow(row); }
+            catch (InvalidOperationException ex)
+            {
+                if (!_defaultIdentityUnavailable)
+                    _logger.LogWarning(ex, "Could not identify the container's session for health.");
+                _defaultIdentityUnavailable = true;
+                row.HasHealthCheck = false;
+                row.Health = ContainerHealthState.Unknown;
+                row.HealthDetail = string.Empty;
+                continue;
+            }
+            var states = IsManagedRow(row)
+                ? _watchdog.Latest
+                : _sessionAutomation.GetHealth(source.Session, owner.ExecutablePath);
+            var snapshot = states?.Containers.FirstOrDefault(item =>
+                string.Equals(item.ContainerName, row.Name, StringComparison.Ordinal) &&
+                ContainerIdentity.ResolveId([row.Id], item.ContainerId) is not null &&
+                item.ContainerGeneration == row.Model.StateChangedAt);
+            row.HasHealthCheck = _settings.HealthChecks.Any(h => h.Enabled && h.IsValid &&
+                h.DesiredHealth?.IsDisabled != true && string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal) &&
+                AutostartStateStore.SameOwner(_legacyOwners.OwnerFor(h), owner)) || snapshot is not null;
+            if (snapshot is not null)
             {
                 row.Health = snapshot.State;
                 row.HealthRestartCount = snapshot.RestartCount;
                 row.HealthMaxRestarts = snapshot.MaxRestarts;
                 row.HealthDetail = snapshot.Detail;
             }
-            else if (!row.HasHealthCheck)
+            else
             {
                 row.Health = ContainerHealthState.Unknown;
                 row.HealthRestartCount = 0;
@@ -1546,41 +1870,108 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     }
 
     private void OnHealthChanged(object? sender, HealthSnapshot e) => RefreshHealth();
+    private void OnSessionHealthChanged(object? sender, EventArgs e) => RefreshHealth();
 
-    private async Task ResolveGpuAsync(ContainerRowViewModel row)
+    private readonly HashSet<ContainerRowViewModel> _pendingGpu = [];
+    private readonly HashSet<ContainerRowViewModel> _pendingNetwork = [];
+    private readonly HashSet<ContainerRowViewModel> _visibleDetailRows = [];
+    private readonly VisibleReadQueue<(ContainerRowViewModel Row, bool Gpu)> _detailReads;
+
+    /// <summary>Limits optional detail work to rows actually intersecting the list viewport.</summary>
+    public void SetContainerRowVisible(ContainerRowViewModel row, bool visible)
     {
+        visible &= _containerPageVisible;
+        if (visible) _visibleDetailRows.Add(row);
+        else _visibleDetailRows.Remove(row);
+        _detailReads.SetVisible((row, false), visible && row.SessionActionsAvailable &&
+            (!row.NetworkResolved || _pendingNetwork.Contains(row)));
+        _detailReads.SetVisible((row, true), visible && row.SessionActionsAvailable && row.IsRunning &&
+            (!row.GpuChecked || _pendingGpu.Contains(row)));
+    }
+
+    private void ClearVisibleDetailRows()
+    {
+        _visibleDetailRows.Clear();
+        _detailReads.Clear();
+    }
+
+    private async Task ReadVisibleDetailAsync((ContainerRowViewModel Row, bool Gpu) item, CancellationToken ct)
+    {
+        if (item.Gpu && !item.Row.GpuChecked) await ResolveGpuAsync(item.Row, ct);
+        else if (!item.Gpu && !item.Row.NetworkResolved) await ResolveNetworkAsync(item.Row, ct);
+    }
+
+    private async Task ResolveGpuAsync(ContainerRowViewModel row, CancellationToken ct)
+    {
+        if (!_pendingGpu.Add(row)) return;
+        using var visible = new VisibleRead(_visibility, _detailLifetime?.Token ?? default, ct);
         row.GpuChecked = true;
         try
         {
-            var (hasGpu, gpuName) = await _wslc.GetGpuInfoAsync(row.Id);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(visible.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            await _visibility.WhenViewableAsync(timeout.Token);
+            if (!_containerPageVisible)
+            {
+                row.GpuChecked = false;
+                return;
+            }
+            timeout.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentRow(row) || row.SessionSource is not { } source) return;
+            var (hasGpu, gpuName) = await _sessionActions.ReadGpuInfoAsync(
+                WslcContainerActionTarget.Capture(source.Session, row.Model), timeout.Token,
+                row.Model.StateChangedAtKnown ? row.Model.StateChangedAt : 0);
+            timeout.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentRow(row)) return;
             row.HasGpu = hasGpu;
             row.GpuName = gpuName;
         }
-        catch
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.Text.Json.JsonException or
+                                   System.ComponentModel.Win32Exception or TimeoutException or OperationCanceledException)
         {
-            // leave GpuChecked true; a transient failure shouldn't hammer exec every poll
+            _logger.LogDebug(ex, "Could not resolve GPU details for {Container} in {Session}.", row.Name, row.SessionName);
+            row.GpuChecked = false;
         }
+        finally { _pendingGpu.Remove(row); }
     }
 
-    private async Task ResolveNetworkAsync(ContainerRowViewModel row)
+    private async Task ResolveNetworkAsync(ContainerRowViewModel row, CancellationToken ct)
     {
+        if (!_pendingNetwork.Add(row)) return;
+        using var visible = new VisibleRead(_visibility, _detailLifetime?.Token ?? default, ct);
         row.NetworkResolved = true;
         try
         {
-            var result = await _wslc.InspectContainerAsync(row.Id);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(visible.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            await _visibility.WhenViewableAsync(timeout.Token);
+            if (!_containerPageVisible)
+            {
+                row.NetworkResolved = false;
+                return;
+            }
+            timeout.Token.ThrowIfCancellationRequested();
+            var client = await ClientForRowAsync(row, timeout.Token, allowBusy: true);
+            var result = await client.InspectContainerAsync(row.Id, timeout.Token);
+            timeout.Token.ThrowIfCancellationRequested();
             if (!result.Success)
             {
+                _logger.LogDebug("Network detail inspect failed for {Container}: {Error}", row.Name, result.ErrorText);
                 row.NetworkResolved = false;
                 return;
             }
 
             var details = ContainerDetails.Parse(result.StandardOutput);
+            if (!IsCurrentRow(row)) return;
             row.Network = string.IsNullOrWhiteSpace(details.NetworkMode) ? "-" : details.NetworkMode;
         }
-        catch
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.Text.Json.JsonException or
+                                   System.ComponentModel.Win32Exception or TimeoutException or OperationCanceledException)
         {
+            _logger.LogDebug(ex, "Could not resolve network details for {Container} in {Session}.", row.Name, row.SessionName);
             row.NetworkResolved = false;
         }
+        finally { _pendingNetwork.Remove(row); }
     }
 
     private void RequestRefresh() => _monitor.RequestRefresh();
@@ -1589,28 +1980,137 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task Refresh()
     {
+        _sessionActions.InvalidateGpuInfo();
+        foreach (var row in Containers) row.GpuChecked = false;
         RequestRefresh();
-        await RefreshSizesAsync();
+        await RefreshCombinedAsync();
+    }
+
+    /// <summary>Reads all active sessions on user navigation or refresh.</summary>
+    public async Task RefreshCombinedAsync()
+    {
+        using var visible = new VisibleRead(_visibility, _detailLifetime?.Token ?? default);
+        try
+        {
+            await _combined.RefreshAllAsync(visible.Token);
+            if (!_combined.HasRefreshFailure && _containerPageVisible)
+                await RefreshSizesAsync();
+        }
+        catch (OperationCanceledException) when (visible.IsCancellationRequested)
+        {
+            _logger.LogDebug("Container inventory refresh paused because the page is no longer visible.");
+        }
+    }
+
+    /// <summary>Reuses recent inventories without starting an expensive size scan on navigation.</summary>
+    public async Task RefreshOnNavigationAsync()
+    {
+        using var visible = new VisibleRead(_visibility, _detailLifetime?.Token ?? default);
+        try
+        {
+            await _combined.RefreshForNavigationAsync(visible.Token);
+            ReconcileCombined();
+        }
+        catch (OperationCanceledException) when (visible.IsCancellationRequested)
+        {
+            _logger.LogDebug("Container inventory refresh paused because the page is no longer visible.");
+        }
+    }
+
+    /// <summary>Finds an unambiguous container for navigation without changing management scope.</summary>
+    public async Task<ContainerRowViewModel?> FindContainerForNavigationAsync(
+        string id, string? name, AutomationSessionOwner? owner = null,
+        WslcContainerActionTarget? expectedTarget = null)
+    {
+        var selection = _sessionContext.CaptureSnapshot();
+        await _combined.RefreshAllAsync();
+        if (_combined.HasRefreshFailure || owner is null && selection != _sessionContext.CaptureSnapshot())
+            return null;
+        var all = ContainerSessionRows.Reconcile([], _combined.ContainerRows, showAll: true, out _);
+        ContainerRowViewModel? match;
+        if (owner is null)
+            match = ContainerSessionRows.FindUniqueManaged(all, id, name, IsManagedRow);
+        else
+        {
+            string? defaultName;
+            try { defaultName = owner.SessionName is null ? WslcSessionActionGuard.ResolveDefaultSessionName() : null; }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Could not identify the notification's default session.");
+                return null;
+            }
+            match = ContainerSessionRows.FindForOwner(all, id, name, owner, _combined.CurrentExecutablePath, defaultName);
+        }
+        if (match?.SessionSource is not { } source)
+            return null;
+        if (expectedTarget is not null && !ContainerSessionRows.MatchesCapturedIdentity(match, expectedTarget))
+            return null;
+        if (!ShowAll && match.State != ContainerState.Running)
+            ShowAll = true;
+        return Containers.SingleOrDefault(row => IsCurrentRow(row) && row.SessionSource?.Session == source.Session &&
+            string.Equals(row.Id, match.Id, StringComparison.Ordinal));
     }
 
     /// <summary>Refreshes container size metadata without showing an error dialog on failure.</summary>
     public async Task RefreshSizesAsync()
     {
+        _sizeRefreshCts?.Cancel();
+        using var refresh = new CancellationTokenSource();
+        using var visible = new VisibleRead(_visibility, refresh.Token, _detailLifetime?.Token ?? default);
+        _sizeRefreshCts = refresh;
+        var generation = ++_sizeRefreshGeneration;
+        _sizeFailureSessions.Clear();
+        OnPropertyChanged(nameof(CombinedWarning));
+        var executable = _combined.CurrentExecutablePath;
         try
         {
-            // The --size listing is slow, so by the time it returns the monitor may have reported newer
-            // state. Merge only sizes into rows that still exist; never add, remove or restate rows.
-            var containers = await _wslc.ListContainersAsync(ShowAll, includeSize: true);
-            var rows = Containers.ToDictionary(r => r.Id, StringComparer.Ordinal);
-            foreach (var sized in containers)
+            foreach (var group in Containers.Where(row => row.SessionSource is not null)
+                         .GroupBy(row => row.SessionSource!.Session).ToArray())
             {
-                if (rows.TryGetValue(sized.Id, out var row))
-                    row.ApplySize(sized);
+                if (visible.IsCancellationRequested || !_containerPageVisible)
+                    break;
+                var session = group.Key;
+                try
+                {
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(visible.Token);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(45));
+                    await _visibility.WhenViewableAsync(timeout.Token);
+                    if (!_containerPageVisible)
+                        break;
+                    await WslcSessionActionGuard.VerifyAsync(_wslc, () => _combined.CurrentExecutablePath,
+                        session, executable, timeout.Token);
+                    var client = _sessionClients.Create(session, executable, managed: false);
+                    var sized = await client.ListContainersAsync(all: true, ct: timeout.Token, includeSize: true);
+                    await WslcSessionActionGuard.VerifyAsync(_wslc, () => _combined.CurrentExecutablePath,
+                        session, executable, timeout.Token);
+                    if (generation != _sizeRefreshGeneration)
+                        break;
+                    foreach (var row in group)
+                    {
+                        if (!IsCurrentRow(row) || row.SessionSource is not { } source)
+                            continue;
+                        var target = WslcContainerActionTarget.Capture(source.Session, row.Model);
+                        var matches = sized.Where(candidate => target.Matches(candidate)).Take(2).ToArray();
+                        if (matches.Length == 1)
+                            row.ApplySize(matches[0]);
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or IOException or System.Text.Json.JsonException or
+                                           System.ComponentModel.Win32Exception or TimeoutException or OperationCanceledException)
+                {
+                    _logger.LogDebug(ex, "Container size refresh failed for session {Session}.", session.Name);
+                    if (!visible.IsCancellationRequested && generation == _sizeRefreshGeneration)
+                        _sizeFailureSessions.Add(session.Name);
+                }
             }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogDebug(ex, "Container size refresh failed.");
+            if (ReferenceEquals(_sizeRefreshCts, refresh))
+            {
+                _sizeRefreshCts = null;
+                OnPropertyChanged(nameof(CombinedWarning));
+            }
         }
     }
 
@@ -1626,6 +2126,7 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task ImportDockerRunAsync()
     {
+        using var selection = _sessionContext.LockSelection();
         var import = new ImportDockerRunDialog();
         var result = await _dialogs.ShowDialogAsync(import);
         if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary || import.Options is null)
@@ -1638,70 +2139,92 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     private async Task ShowRunDialogAsync(RunContainerOptions? prefillOptions, IReadOnlyList<string>? importWarnings)
     {
+        using var selection = _sessionContext.LockSelection();
+        WslcSessionSelection? destination;
+        try
+        {
+            destination = await _sessionSelection.ChooseAsync();
+            if (destination is null)
+                return;
+            await _sessionSelection.VerifyAsync(destination);
+        }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            await ShowSessionActionErrorAsync(ex);
+            return;
+        }
+        var client = _sessionSelection.CreateClient(destination);
         var dialog = new RunContainerDialog(
-            _wslc, _settings.Registries, _profiles,
-            prefillOptions: prefillOptions, importWarnings: importWarnings);
+            client, _settings.Registries, _profiles,
+            prefillOptions: prefillOptions, importWarnings: importWarnings)
+        {
+            Title = UiText.Get("Containers_RunInManagementSession", "Run container in {0}", destination.DisplayName),
+        };
         var result = await _dialogs.ShowDialogAsync(dialog);
         if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary || dialog.Options is null)
         {
             return;
         }
 
-        await ExecuteAsync($"Creating container from {dialog.Options.Image}…",
+        if (await ExecuteAsync($"Creating container from {dialog.Options.Image}…",
             async () =>
             {
                 // `wslc run` auto-pulls if needed — refresh Azure auth just-in-time.
-                await _authRefresher.EnsureFreshForReferenceAsync(dialog.Options.Image);
-                return await _wslc.RunContainerAsync(dialog.Options);
-            });
+                await _sessionSelection.VerifyAsync(destination);
+                await _authRefresher.EnsureFreshForReferenceAsync(dialog.Options.Image, sessionClient: client,
+                    verifyTarget: token => _sessionSelection.VerifyAsync(destination, token));
+                await _sessionSelection.VerifyAsync(destination);
+                return await client.RunContainerAsync(dialog.Options);
+            }))
+            await _combined.RefreshAllAsync();
     }
 
     /// <summary>Starts the selected container.</summary>
     [RelayCommand]
-    private Task StartAsync(ContainerRowViewModel? row) =>
-        row is null ? Task.CompletedTask :
-        ExecuteAsync($"Starting {row.Name}…", () => _wslc.StartContainerAsync(row.Id));
+    private async Task StartAsync(ContainerRowViewModel? row)
+    {
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
+            return;
+        await ExecuteAsync($"Starting {row.Name}…", () => ExecuteSessionLifecycleAsync(row, WslcContainerAction.Start));
+    }
 
     /// <summary>Stops the selected container after confirmation when appropriate.</summary>
     [RelayCommand]
-    private Task StopAsync(ContainerRowViewModel? row)
+    private async Task StopAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
-            return Task.CompletedTask;
-        }
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
+            return;
 
-        _monitor.SuppressExitNotification(row.Id);
-        _restartWatchdog.SuppressRestart(row.Name);
-        return ExecuteAsync($"Stopping {row.Name}…", () => _wslc.StopContainerAsync(row.Id));
+        await ExecuteAsync($"Stopping {row.Name}…", () => ExecuteSessionLifecycleAsync(row, WslcContainerAction.Stop));
     }
 
     /// <summary>Restarts the selected container.</summary>
     [RelayCommand]
-    private Task RestartAsync(ContainerRowViewModel? row)
+    private async Task RestartAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
-            return Task.CompletedTask;
-        }
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
+            return;
 
-        _monitor.SuppressExitNotification(row.Id);
-        return ExecuteAsync($"Restarting {row.Name}…", () => _wslc.RestartContainerAsync(row.Id));
+        await ExecuteAsync($"Restarting {row.Name}…", () => ExecuteSessionLifecycleAsync(row, WslcContainerAction.Restart));
     }
 
     /// <summary>Prompts for a network and connects the selected container to it.</summary>
     [RelayCommand]
     private async Task ConnectNetworkAsync()
     {
-        if (Selected is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        var selected = Selected;
+        if (selected is null || !await EnsureCurrentRowsAsync([selected]))
             return;
-        }
 
         IReadOnlyList<NetworkInfo> networks;
         try
         {
-            networks = NetworkDisplayList.Create(await _wslc.ListNetworksAsync());
+            var client = await ClientForRowAsync(selected);
+            networks = NetworkDisplayList.Create(await client.ListNetworksAsync());
         }
         catch (Exception ex)
         {
@@ -1716,10 +2239,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var id = Selected.Id;
-        await ExecuteAsync($"Connecting {Selected.Name} to {dialog.Attachment.Network}…",
-            () => _wslc.ConnectNetworkAsync(dialog.Attachment, id));
-        if (Selected?.Id == id)
+        var id = selected.Id;
+        await ExecuteAsync($"Connecting {selected.Name} to {dialog.Attachment.Network}…",
+            async () => await (await ClientForRowAsync(selected)).ConnectNetworkAsync(dialog.Attachment, id));
+        if (ReferenceEquals(Selected, selected))
         {
             await LoadDetailsAsync(id);
         }
@@ -1729,16 +2252,16 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task DisconnectNetworkAsync(NetworkAttachment? network)
     {
-        if (Selected is null || network is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        var selected = Selected;
+        if (selected is null || network is null || !await EnsureCurrentRowsAsync([selected]))
             return;
-        }
 
         if (DetailNetworks.Count <= 1)
         {
             var ok = await _dialogs.ShowConfirmAsync(
                 UiText.Get("Resource_Text_d8fcde886f51", "Disconnect last network"),
-                UiText.Get("Resource_Text_4d11e46048eb", "Disconnect \"{0}\" from its only network \"{1}\"? The container will have no network attachments.", Selected.Name, network.Network),
+                UiText.Get("Resource_Text_4d11e46048eb", "Disconnect \"{0}\" from its only network \"{1}\"? The container will have no network attachments.", selected.Name, network.Network),
                 UiText.Get("Resource_Text_ed28e0686e12", "Disconnect"));
             if (!ok)
             {
@@ -1746,10 +2269,10 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             }
         }
 
-        var id = Selected.Id;
-        await ExecuteAsync($"Disconnecting {Selected.Name} from {network.Network}…",
-            () => _wslc.DisconnectNetworkAsync(network.Network, id));
-        if (Selected?.Id == id)
+        var id = selected.Id;
+        await ExecuteAsync($"Disconnecting {selected.Name} from {network.Network}…",
+            async () => await (await ClientForRowAsync(selected)).DisconnectNetworkAsync(network.Network, id));
+        if (ReferenceEquals(Selected, selected))
         {
             await LoadDetailsAsync(id);
         }
@@ -1757,29 +2280,27 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>Force-stops the selected container after confirmation.</summary>
     [RelayCommand]
-    private Task KillAsync(ContainerRowViewModel? row)
+    private async Task KillAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
-            return Task.CompletedTask;
-        }
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
+            return;
 
-        _monitor.SuppressExitNotification(row.Id);
-        return ExecuteAsync($"Killing {row.Name}…", () => _wslc.KillContainerAsync(row.Id));
+        await ExecuteAsync($"Killing {row.Name}…", () => ExecuteSessionLifecycleAsync(row, WslcContainerAction.Kill));
     }
 
     /// <summary>Removes the selected container after confirmation.</summary>
     [RelayCommand]
     private async Task RemoveAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
             return;
-        }
 
         var ok = await _dialogs.ShowConfirmAsync(
             UiText.Get("Resource_Text_15404127f80d", "Remove container"),
-            UiText.Get("Resource_Text_b89fa9b868b3", "Remove container \"{0}\" ({1})? This cannot be undone.", row.Name, row.ShortId),
+            UiText.Get("Containers_RemoveInSession",
+                "Remove container \"{0}\" ({1}) from session \"{2}\"? This cannot be undone.", row.Name, row.ShortId, row.SessionName),
             UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
@@ -1788,10 +2309,27 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         // Show exactly which volumes are at stake. A generic warning invites either careless
         // deletion or needless retention of data the user actually wanted gone.
-        var impact = await _volumeInspector.InspectAsync(row.Id);
+        ContainerVolumeImpact impact;
+        try
+        {
+            var client = await ClientForRowAsync(row);
+            impact = await new ContainerVolumeInspector(client).InspectAsync(row.Id);
+        }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            await ShowSessionActionErrorAsync(ex);
+            return;
+        }
         var removeAnonymous = false;
-        var namedToDelete = Array.Empty<ContainerVolumeUsage>();
-        if (impact.HasDeletableData)
+        var namedTargets = new List<WslcResourceActionTarget>();
+        if (!impact.IsComplete)
+        {
+            await _dialogs.ShowLocalizedMessageAsync(
+                UiText.Get("Containers_StorageUnknownTitle", "Volume usage is incomplete"),
+                UiText.Get("Containers_StorageUnknown",
+                    "Volume usage could not be verified. The container can be removed, but its volumes will be kept."));
+        }
+        else if (impact.HasDeletableData && row.SessionSource is { } source)
         {
             var deletable = impact.Anonymous.Concat(impact.OrphanedNamed).ToArray();
             var lines = deletable.Select(v => $"• {Shorten(v.Name)} → {v.Destination}");
@@ -1802,24 +2340,46 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             var caution = impact.SharedAnonymous.Count > 0
                 ? UiText.Get("Resource_Text_06cf19039cfe", "\n\n⚠ Some of these are mounted by other containers and would lose data too.")
                 : string.Empty;
-            var partial = impact.IsComplete
-                ? string.Empty
-                : UiText.Get("Resource_Text_281eabe4676a", "\n\nNote: volume usage could not be fully determined, so this list may be incomplete.");
+            try
+            {
+                foreach (var volume in impact.OrphanedNamed)
+                    namedTargets.Add(await _sessionResources.PrepareVolumeRemovalAsync(source.Session, volume.Name));
+            }
+            catch (Exception ex) when (IsSessionActionFailure(ex))
+            {
+                await ShowSessionActionErrorAsync(ex);
+                return;
+            }
             if (await _dialogs.ShowConfirmAsync(
                     UiText.Get("Resource_Text_d73c0bb0fa10", "Also delete this container's volumes?"),
                     UiText.Get("Resource_Text_8c3c6433325f", "Removing \"{0}\" leaves this storage behind. Its data would be permanently deleted:\n\n", row.Name) +
-                    string.Join('\n', lines) + kept + caution + partial +
+                    string.Join('\n', lines) + kept + caution +
                     UiText.Get("Resource_Text_7e892fbf5dd3", "\n\nIf you are unsure, keep them — you can delete volumes later from the Volumes page."),
                     primaryText: UiText.Get("Resource_Text_3121cab8f91c", "Delete these volumes"),
                     closeText: UiText.Get("Resource_Text_f82ef289fb04", "Keep volumes")))
             {
                 removeAnonymous = impact.Anonymous.Count > 0;
-                namedToDelete = impact.OrphanedNamed.ToArray();
+                try
+                {
+                    var client = await ClientForRowAsync(row);
+                    var current = await new ContainerVolumeInspector(client).InspectAsync(row.Id);
+                    if (!current.IsComplete || current.Signature() != impact.Signature())
+                        throw new InvalidOperationException(UiText.Get("Containers_StorageChanged",
+                            "The container's volume usage changed. Review it again before removing anything."));
+                }
+                catch (Exception ex) when (IsSessionActionFailure(ex))
+                {
+                    await ShowSessionActionErrorAsync(ex);
+                    return;
+                }
             }
+            else
+                namedTargets.Clear();
         }
 
-        await ExecuteAsync($"Removing {row.Name}…",
-            () => _wslc.RemoveContainerAsync(row.Id, force: true, default, removeAnonymous));
+        if (!await ExecuteAsync($"Removing {row.Name}…",
+            () => ExecuteSessionLifecycleAsync(row, WslcContainerAction.Remove, removeAnonymous)))
+            return;
 
         // A cached "tools supported" proof outlives the runtime that earned it, which would keep the
         // assistant offered after its backing container is gone. Re-observe instead of trusting it.
@@ -1827,20 +2387,35 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
         // Named volumes are not covered by `remove --volumes`, so delete the approved ones after the
         // container is gone and report any that could not be removed instead of failing silently.
-        if (namedToDelete.Length > 0)
+        if (namedTargets.Count > 0)
         {
             var failed = new List<string>();
-            foreach (var volume in namedToDelete)
+            for (var index = 0; index < namedTargets.Count; index++)
             {
-                var result = await _wslc.RemoveVolumeAsync(volume.Name);
-                if (!result.Success)
+                var target = namedTargets[index];
+                try
                 {
-                    failed.Add(volume.Name);
+                    var result = await _sessionResources.RemoveAsync(target);
+                    if (!result.Success)
+                        failed.Add($"{target.Name}: {result.ErrorText}");
+                }
+                catch (Exception ex) when (IsSessionActionFailure(ex))
+                {
+                    _logger.LogWarning(ex, "Could not remove volume {Volume} in session {Session}.", target.Name, target.Session.Name);
+                    failed.Add($"{target.Name}: {ex.Message}");
+                    if (ex is OperationCanceledException)
+                    {
+                        failed.Add(UiText.Get("ResourceSession_BulkInterrupted",
+                            "The current action's outcome may be unknown; {0} later item(s) were not attempted.",
+                            namedTargets.Count - index - 1));
+                        break;
+                    }
                 }
             }
+            await _combined.RefreshSessionAsync(namedTargets[0].Session);
             if (failed.Count > 0)
             {
-                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_606d1a1317c3", "Some volumes were kept"),
+                await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_606d1a1317c3", "Some volumes were kept"),
                     UiText.Get("Resource_Text_a7652bb6962c", "The container was removed, but these volumes could not be deleted: {0}. ", string.Join(", ", failed)) +
                     UiText.Get("Resource_Text_a28caef66f74", "You can retry from the Volumes page."));
             }
@@ -1850,22 +2425,27 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             name.Length == 64 ? name[..12] + UiText.Get("Resource_Text_c05fe6c2ab87", "… (unnamed)") : name;
 
         // If we removed the currently-selected container, notify the detail page to navigate back.
-        if (Selected?.Id == row.Id)
+        if (ReferenceEquals(Selected, row))
         {
             SelectionCleared?.Invoke();
         }
+
     }
 
     /// <summary>Exports a container to the chosen archive path.</summary>
     public async Task ExportContainerAsync(ContainerRowViewModel? row, string outputPath)
     {
+        using var selection = _sessionContext.LockSelection();
         row ??= Selected;
         if (row is null || string.IsNullOrWhiteSpace(outputPath))
         {
             return;
         }
+        if (!await EnsureCurrentRowsAsync([row]))
+            return;
 
-        await ExecuteAsync($"Exporting {row.Name} filesystem…", () => _wslc.ExportContainerAsync(row.Id, outputPath));
+        await ExecuteAsync($"Exporting {row.Name} filesystem…",
+            async () => await (await ClientForRowAsync(row)).ExportContainerAsync(row.Id, outputPath));
         if (StatusMessage == "Done")
         {
             StatusMessage = $"Exported {row.Name} to {Path.GetFileName(outputPath)}. To make an image from it, use Images → Import → Create image from exported files….";
@@ -1884,62 +2464,66 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     /// <summary>Starts every selected stopped container.</summary>
     public async Task BulkStartAsync(IReadOnlyList<ContainerRowViewModel> rows)
     {
+        using var selection = _sessionContext.LockSelection();
         var items = (rows ?? Array.Empty<ContainerRowViewModel>()).Where(r => r is not null && !r.IsRunning).ToList();
         if (items.Count == 0)
         {
             IsSelectionMode = false;
             return;
         }
+        if (!await EnsureCurrentRowsAsync(items))
+            return;
 
-        await RunBulkAsync(UiText.Get("Resource_Text_259af9c750d4", "Starting {0} container(s)…", items.Count), items, r => _wslc.StartContainerAsync(r.Id));
+        await RunBulkAsync(UiText.Get("Resource_Text_259af9c750d4", "Starting {0} container(s)…", items.Count), items,
+            r => ExecuteSessionLifecycleAsync(r, WslcContainerAction.Start));
     }
 
     /// <summary>Stops every selected running container (suppressing exit toasts/restarts), then exits selection mode.</summary>
     /// <summary>Stops every selected running container.</summary>
     public async Task BulkStopAsync(IReadOnlyList<ContainerRowViewModel> rows)
     {
+        using var selection = _sessionContext.LockSelection();
         var items = (rows ?? Array.Empty<ContainerRowViewModel>()).Where(r => r is not null && r.IsRunning).ToList();
         if (items.Count == 0)
         {
             IsSelectionMode = false;
             return;
         }
+        if (!await EnsureCurrentRowsAsync(items))
+            return;
 
-        foreach (var r in items)
-        {
-            _monitor.SuppressExitNotification(r.Id);
-            _restartWatchdog.SuppressRestart(r.Name);
-        }
-
-        await RunBulkAsync(UiText.Get("Resource_Text_558c85c42670", "Stopping {0} container(s)…", items.Count), items, r => _wslc.StopContainerAsync(r.Id));
+        await RunBulkAsync(UiText.Get("Resource_Text_558c85c42670", "Stopping {0} container(s)…", items.Count), items,
+            r => ExecuteSessionLifecycleAsync(r, WslcContainerAction.Stop));
     }
 
     /// <summary>Removes every selected container after one confirmation, then exits selection mode.</summary>
     /// <summary>Removes selected containers after a single confirmation.</summary>
     public async Task BulkRemoveAsync(IReadOnlyList<ContainerRowViewModel> rows)
     {
+        using var selection = _sessionContext.LockSelection();
         var items = (rows ?? Array.Empty<ContainerRowViewModel>()).Where(r => r is not null).ToList();
         if (items.Count == 0)
         {
             return;
         }
+        if (!await EnsureCurrentRowsAsync(items))
+            return;
 
         var ok = await _dialogs.ShowConfirmAsync(
             UiText.Get("Resource_Text_18ff715ccce4", "Remove containers"),
-            UiText.Get("Resource_Text_eb8b73e789bb", "Remove {0} container(s)? This cannot be undone.\n\n{1}", items.Count, BulkNames(items.Select(r => r.Name))),
+            UiText.Get("Containers_CombinedRemoveConfirmation",
+                "Remove {0} container(s) from their listed sessions? This cannot be undone. Some removals may fail independently.\n\n{1}",
+                items.Count, BulkNames(items.Select(r => $"{r.SessionName}: {r.Name}"))),
             UiText.Get("Resource_Text_e963907dac5c", "Remove"));
         if (!ok)
         {
             return;
         }
 
-        var removingSelected = Selected is not null && items.Any(r => r.Id == Selected.Id);
-        foreach (var r in items)
-        {
-            _monitor.SuppressExitNotification(r.Id);
-        }
+        var removingSelected = Selected is not null && items.Any(r => ReferenceEquals(r, Selected));
 
-        await RunBulkAsync(UiText.Get("Resource_Text_5e90eeae3d81", "Removing {0} container(s)…", items.Count), items, r => _wslc.RemoveContainerAsync(r.Id), showConfirm: false);
+        await RunBulkAsync(UiText.Get("Resource_Text_5e90eeae3d81", "Removing {0} container(s)…", items.Count), items,
+            r => ExecuteSessionLifecycleAsync(r, WslcContainerAction.Remove), showConfirm: false);
         await InvalidateAiCapabilitiesAsync();
 
         if (removingSelected)
@@ -1955,19 +2539,29 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         var failures = new List<string>();
         try
         {
-            foreach (var r in items)
+            for (var index = 0; index < items.Count; index++)
             {
+                var r = items[index];
                 try
                 {
                     var result = await op(r);
                     if (!result.Success)
                     {
-                        failures.Add(r.Name);
+                        failures.Add($"{r.SessionName}: {r.Name}: {result.ErrorText}");
                     }
                 }
-                catch
+                catch (OperationCanceledException ex)
                 {
-                    failures.Add(r.Name);
+                    _logger.LogWarning(ex, "Bulk container action was interrupted for {Container} in {Session}.", r.Name, r.SessionName);
+                    failures.Add(UiText.Get("ResourceSession_BulkInterrupted",
+                        "The current action's outcome may be unknown; {0} later item(s) were not attempted.",
+                        items.Count - index - 1));
+                    break;
+                }
+                catch (Exception ex) when (IsSessionActionFailure(ex))
+                {
+                    _logger.LogWarning(ex, "Bulk container action failed for {Container} in {Session}.", r.Name, r.SessionName);
+                    failures.Add($"{r.SessionName}: {r.Name}: {ex.Message}");
                 }
             }
         }
@@ -1996,17 +2590,6 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     {
         try
         {
-            // If the configured provider was the local Ollama runtime and that runtime is now gone,
-            // leaving it selected only produces connection errors on every AI surface.
-            if (_settings.AiProvider == AiProviderKind.Ollama
-                && IsLoopbackEndpoint(_settings.AiOllamaEndpoint)
-                && !await _localAi.IsRuntimePresentAsync())
-            {
-                _settings.AiProvider = AiProviderKind.None;
-                _settings.AiOllamaModel = string.Empty;
-                _settings.Save();
-            }
-
             _aiCapabilities.Invalidate();
             await _aiAvailability.RefreshAsync();
         }
@@ -2016,12 +2599,6 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             _logger.LogDebug(ex, "AI capability refresh after container removal was unavailable.");
         }
     }
-
-    /// <summary>True when the endpoint points at this machine, so a removed local runtime explains it.
-    /// A remote Ollama must never be deselected because a local container was removed.</summary>
-    private static bool IsLoopbackEndpoint(string? endpoint) =>
-        Uri.TryCreate(endpoint?.Trim(), UriKind.Absolute, out var uri)
-        && (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase));
 
     private static string BulkNames(IEnumerable<string> names)
     {
@@ -2035,21 +2612,26 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task LogsAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
             return;
-        }
 
         IsBusy = true;
         StatusMessage = $"Fetching logs for {row.Name}…";
         try
         {
-            var result = await _wslc.GetLogsAsync(row.Id);
+            var client = await ClientForRowAsync(row);
+            var result = await client.GetLogsAsync(row.Id);
             var text = string.IsNullOrWhiteSpace(result.StandardOutput)
                 ? (string.IsNullOrWhiteSpace(result.StandardError) ? UiText.Get("Resource_Text_800c9b197e97", "(no output)") : result.StandardError)
                 : result.StandardOutput;
-            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_361423979de2", "Logs · {0}", row.Name), text);
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("CombinedSession_LogsTitle",
+                "Logs · {0} · {1}", row.Name, row.SessionName), text);
             StatusMessage = "Ready";
+        }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            await ShowSessionActionErrorAsync(ex);
         }
         finally
         {
@@ -2059,25 +2641,31 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>Opens an interactive shell in the selected running container.</summary>
     [RelayCommand]
-    private void Terminal(ContainerRowViewModel? row)
+    private async Task TerminalAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
             return;
-        }
 
-        _wslc.OpenTerminal(row.Id);
-        StatusMessage = $"Opened terminal for {row.Name}";
+        try
+        {
+            var client = await ClientForRowAsync(row);
+            await client.OpenTerminal(row.Id);
+            StatusMessage = $"Opened terminal for {row.Name}";
+        }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            await ShowSessionActionErrorAsync(ex);
+        }
     }
 
     /// <summary>Attaches to the selected container's console through <c>wslc</c>.</summary>
     [RelayCommand]
     private async Task AttachAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
             return;
-        }
 
         var ok = await _dialogs.ShowConfirmAsync(
             UiText.Get("Resource_Text_e2dfda5ec309", "Attach to container"),
@@ -2089,42 +2677,71 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _wslc.AttachContainer(row.Id);
-        StatusMessage = $"Attached to {row.Name}";
+        try
+        {
+            var client = await ClientForRowAsync(row);
+            await client.AttachContainer(row.Id);
+            StatusMessage = $"Attached to {row.Name}";
+        }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            await ShowSessionActionErrorAsync(ex);
+        }
     }
 
     /// <summary>Runs or displays the selected container's health check result.</summary>
     [RelayCommand]
     private async Task HealthCheckAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
+            return;
+
+        AutomationSessionOwner owner;
+        try { owner = OwnerForRow(row); }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
         {
+            await ShowSessionActionErrorAsync(ex);
             return;
         }
-
+        var target = new WslcSessionTarget(owner.SessionName);
         var existing = _settings.HealthChecks
-            .FirstOrDefault(h => string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal));
+            .FirstOrDefault(h => string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal) &&
+                _legacyOwners.OwnerFor(h)?.Matches(owner.ExecutablePath, target) == true);
         var hostPorts = row.Model.Ports
             .Where(p => p.HostPort > 0)
             .Select(p => p.HostPort)
             .Distinct()
             .ToList();
 
-        var dialog = new HealthCheckDialog(row.Name, hostPorts, existing);
+        var dialog = new HealthCheckDialog(row.Name, hostPorts, existing)
+        {
+            Title = UiText.Get("Containers_HealthInSession", "Health check in {0}", row.SessionName),
+        };
         var result = await _dialogs.ShowDialogAsync(dialog);
         if (result != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
         {
+            return;
+        }
+        if (!await EnsureCurrentRowsAsync([row]))
+            return;
+        try { await ClientForRowAsync(row); }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            await ShowSessionActionErrorAsync(ex);
             return;
         }
 
         // Replace any existing policy for this container. Build a new list and swap the reference
         // atomically so the watchdog's background loop never observes a mid-mutation list.
         var updated = _settings.HealthChecks
-            .Where(h => !string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal))
+            .Where(h => !string.Equals(h.ContainerName, row.Name, StringComparison.Ordinal) ||
+                _legacyOwners.OwnerFor(h)?.Matches(owner.ExecutablePath, target) != true)
             .ToList();
 
         if (dialog.Result is { IsValid: true } config)
         {
+            config.SessionOwner = owner;
             updated.Add(config);
             StatusMessage = config.Enabled
                 ? $"Health check configured for {row.Name}"
@@ -2144,32 +2761,43 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>Starts streaming logs for the selected container.</summary>
     [RelayCommand]
-    private void FollowLogs(ContainerRowViewModel? row)
+    private async Task FollowLogsAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
             return;
-        }
 
-        _wslc.FollowLogs(row.Id, timestamps: LogTimestamps);
-        StatusMessage = $"Streaming logs for {row.Name}";
+        try
+        {
+            var client = await ClientForRowAsync(row);
+            await client.FollowLogs(row.Id, timestamps: LogTimestamps);
+            StatusMessage = $"Streaming logs for {row.Name}";
+        }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            await ShowSessionActionErrorAsync(ex);
+        }
     }
 
     /// <summary>Shows raw inspect output for the selected container.</summary>
     [RelayCommand]
     private async Task InspectAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
             return;
-        }
 
         IsBusy = true;
         try
         {
-            var result = await _wslc.InspectContainerAsync(row.Id);
-            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_f306c4f01fc3", "Inspect · {0}", row.Name),
+            var client = await ClientForRowAsync(row);
+            var result = await client.InspectContainerAsync(row.Id);
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("CombinedSession_InspectTitle", "Inspect {0} · {1}", row.Name, row.SessionName),
                 result.Success ? result.StandardOutput : result.ErrorText);
+        }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            await ShowSessionActionErrorAsync(ex);
         }
         finally
         {
@@ -2186,15 +2814,15 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task SaveAsProfileAsync(ContainerRowViewModel? row)
     {
-        if (row is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
             return;
-        }
 
         IsBusy = true;
         try
         {
-            var containerResult = await _wslc.InspectContainerAsync(row.Id);
+            var client = await ClientForRowAsync(row);
+            var containerResult = await client.InspectContainerAsync(row.Id);
             if (!containerResult.Success || string.IsNullOrWhiteSpace(containerResult.StandardOutput))
             {
                 await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_d2078b7339a5", "Save as run profile"),
@@ -2203,21 +2831,22 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             }
 
             string? imageJson = null;
+            await ClientForRowAsync(row);
             try
             {
                 var imageRef = string.IsNullOrWhiteSpace(row.Model.Image) ? null : row.Model.Image;
                 if (imageRef is not null)
                 {
-                    var imageResult = await _wslc.InspectImageAsync(imageRef);
+                    var imageResult = await client.InspectImageAsync(imageRef);
                     if (imageResult.Success)
                     {
                         imageJson = imageResult.StandardOutput;
                     }
                 }
             }
-            catch
+            catch (Exception ex) when (IsSessionActionFailure(ex))
             {
-                // Non-fatal: without the image diff we keep image-baked env/cmd too.
+                _logger.LogDebug(ex, "Could not inspect image settings for {Container} in {Session}.", row.Name, row.SessionName);
             }
 
             var options = ContainerConfigImporter.FromInspect(containerResult.StandardOutput, out var warnings, imageJson);
@@ -2239,8 +2868,13 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
                 return;
             }
 
+            await ClientForRowAsync(row);
             _profiles.Save(new RunProfile { Name = dialog.ProfileName, Options = options });
             StatusMessage = $"Saved run profile \"{dialog.ProfileName}\" from {row.Name}";
+        }
+        catch (Exception ex) when (IsSessionActionFailure(ex))
+        {
+            await ShowSessionActionErrorAsync(ex);
         }
         finally
         {
@@ -2250,25 +2884,34 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
 
     /// <summary>Opens the selected container's primary published port in the browser.</summary>
     [RelayCommand]
-    private void OpenPort(ContainerRowViewModel? row)
+    private async Task OpenPortAsync(ContainerRowViewModel? row)
     {
-        var port = row?.PrimaryHttpPort;
-        if (port is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        if (row is null || !await EnsureCurrentRowsAsync([row]))
             return;
-        }
+        var port = row.PrimaryHttpPort;
+        if (port is null)
+            return;
 
         try
         {
+            if (row.SessionSource is not { } source)
+                throw new InvalidOperationException(UiText.Get("CombinedSession_NotContainer", "The selected row is not a container."));
+            var endpoint = CombinedSessionRow.FromEndpoint(new WslcCombinedInventory.Endpoint(source.Session, row.Model, port));
+            var uri = endpoint.GetEndpointUri() ?? throw new InvalidOperationException(UiText.Get("CombinedSession_InvalidEndpoint",
+                "The endpoint does not have a usable TCP address."));
+            await _sessionActions.VerifyEndpointAsync(WslcContainerActionTarget.Capture(source.Session, row.Model), port);
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                FileName = port.HostUrl,
+                FileName = uri.AbsoluteUri,
                 UseShellExecute = true,
             });
         }
-        catch
+        catch (Exception ex) when (IsSessionActionFailure(ex))
         {
-            // ignore browser launch failures
+            _logger.LogWarning(ex, "Could not open the container endpoint.");
+            await _dialogs.ShowLocalizedMessageAsync(
+                UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"), ex.Message);
         }
     }
 
@@ -2302,17 +2945,22 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task PrepareAiDiagnosisAsync()
     {
-        if (Selected is null)
-        {
+        using var selection = _sessionContext.LockSelection();
+        var selected = Selected;
+        if (selected is null || !await EnsureCurrentRowsAsync([selected]))
             return;
-        }
 
         IsAiBusy = true;
         DiagnosisFeedback = AiFeedback.Informational("Preparing diagnosis", "Collecting and redacting evidence…");
         AiHasDiagnosis = false;
         try
         {
-            var preview = await _aiDiagnostics.BuildPreviewAsync(Selected.Model);
+            var client = await ClientForRowAsync(selected);
+            var preview = await _aiDiagnostics.BuildPreviewAsync(selected.Model, sessionClient: client,
+                includeActivity: IsManagedRow(selected), sessionName: selected.SessionName);
+            if (!ReferenceEquals(Selected, selected) || !IsCurrentRow(selected))
+                return;
+            await ClientForRowAsync(selected);
             _pendingAiRequest = preview.Request;
             AiPreviewPayload = preview.Payload;
             AiHasPreview = true;
@@ -2321,11 +2969,13 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning("AI diagnosis preview failed: {Detail}", AiTextSanitizer.Sanitize(ex.Message));
-            DiagnosisFeedback = AiErrorClassifier.Classify(ex, DiagnosisContext("Build diagnosis preview"));
+            if (ReferenceEquals(Selected, selected) && IsCurrentRow(selected))
+                DiagnosisFeedback = AiErrorClassifier.Classify(ex, DiagnosisContext("Build diagnosis preview"));
         }
         finally
         {
-            IsAiBusy = false;
+            if (ReferenceEquals(Selected, selected) && IsCurrentRow(selected))
+                IsAiBusy = false;
         }
     }
 
@@ -2338,16 +2988,19 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             await PrepareAiDiagnosisAsync();
         }
 
-        if (_pendingAiRequest is null)
-        {
+        var selected = Selected;
+        var request = _pendingAiRequest;
+        if (selected is null || request is null || !await EnsureCurrentRowsAsync([selected]))
             return;
-        }
 
         IsAiBusy = true;
         DiagnosisFeedback = AiFeedback.Informational("Sending diagnosis", "Sending redacted evidence to the selected provider…");
         try
         {
-            var diagnosis = await _aiDiagnostics.DiagnoseAsync(_pendingAiRequest);
+            await ClientForRowAsync(selected);
+            var diagnosis = await _aiDiagnostics.DiagnoseAsync(request);
+            if (!ReferenceEquals(Selected, selected) || !IsCurrentRow(selected))
+                return;
             AiSummary = diagnosis.Summary;
             AiLikelyCause = diagnosis.LikelyCause;
             AiSuggestedFixDescription = diagnosis.SuggestedFix.Description;
@@ -2377,11 +3030,13 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning("AI diagnosis failed: {Detail}", AiTextSanitizer.Sanitize(ex.Message));
-            DiagnosisFeedback = AiErrorClassifier.Classify(ex, DiagnosisContext("Send diagnosis"));
+            if (ReferenceEquals(Selected, selected) && IsCurrentRow(selected))
+                DiagnosisFeedback = AiErrorClassifier.Classify(ex, DiagnosisContext("Send diagnosis"));
         }
         finally
         {
-            IsAiBusy = false;
+            if (ReferenceEquals(Selected, selected) && IsCurrentRow(selected))
+                IsAiBusy = false;
         }
     }
 
@@ -2415,19 +3070,27 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task PruneAsync()
     {
-        var ok = await _dialogs.ShowConfirmAsync(
+        using var selection = _sessionContext.LockSelection();
+        var target = await SessionOperationTarget.ChooseAsync(_sessionSelection, _dialogs, _logger, startDefault: false);
+        if (target is null) return;
+        var ok = await _dialogs.ShowLocalizedConfirmAsync(() => (
             UiText.Get("Resource_Text_658d1f8b6e57", "Prune containers"),
-            UiText.Get("Resource_Text_0a855f042e1d", "Remove all stopped containers?"),
-            UiText.Get("Resource_Text_2f24ebaee0aa", "Prune"));
+            UiText.Get("Containers_PruneInSession", "Remove all stopped containers in {0}?", target.DisplayName),
+            UiText.Get("Resource_Text_2f24ebaee0aa", "Prune"), UiText.Get("Workload_Text_Cancel_19766e", "Cancel")));
         if (!ok)
         {
             return;
         }
 
-        await ExecuteAsync("Pruning stopped containers…", () => _wslc.PruneContainersAsync());
+        if (await ExecuteAsync("Pruning stopped containers…", async () =>
+            {
+                await target.VerifyAsync();
+                return await target.Client.PruneContainersAsync();
+            }))
+            await _combined.RefreshAllAsync();
     }
 
-    private async Task ExecuteAsync(string message, Func<Task<CommandResult>> action)
+    private async Task<bool> ExecuteAsync(string message, Func<Task<CommandResult>> action)
     {
         IsBusy = true;
         StatusMessage = message;
@@ -2436,18 +3099,26 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
             var result = await action();
             if (!result.Success)
             {
-                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"), result.ErrorText);
+                await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"), result.ErrorText);
                 StatusMessage = "Operation failed";
+                return false;
             }
             else
             {
                 StatusMessage = "Done";
+                return true;
             }
         }
         catch (Exception ex)
         {
-            await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"), ex.Message);
+            _logger.LogWarning(ex, "Container operation failed.");
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"),
+                ex is OperationCanceledException
+                    ? UiText.Get("CombinedSession_ActionOutcomeUnknown",
+                        "The action was cancelled or timed out. Its outcome may be unknown; refresh before retrying.")
+                    : ex.Message);
             StatusMessage = "Operation failed";
+            return false;
         }
         finally
         {
@@ -2460,7 +3131,8 @@ public partial class ContainersViewModel : ObservableObject, IDisposable
     internal void RefreshLocalizedText()
     {
         OnPropertyChanged(string.Empty);
-        foreach (var item in Containers) item.RefreshLocalizedText();
+        using (Grid.DeferRefresh())
+            foreach (var item in Containers) item.RefreshLocalizedText();
         foreach (var item in Groups) item.RefreshLocalizedText();
         foreach (var item in DetailFiles) item.RefreshLocalizedText();
     }

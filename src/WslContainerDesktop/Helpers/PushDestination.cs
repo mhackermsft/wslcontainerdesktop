@@ -122,6 +122,20 @@ public static class PushDestination
     public static string Display(string name, RegistryEntry registry) =>
         registry.IsDefault ? $"docker.io/{name.Trim()}" : Resolve(name, registry);
 
+    /// <summary>Canonicalizes equivalent local tags for collision checks without changing tag case.</summary>
+    internal static string NormalizeLocalReference(string reference)
+    {
+        var value = reference.Trim();
+        var host = HostIn(value);
+        var path = host is null ? value : StripHost(value);
+        host ??= "docker.io";
+        if (host.Equals("docker.io", StringComparison.OrdinalIgnoreCase) && !path.Contains('/'))
+            path = $"library/{path}";
+        if (ExtractTag(path) is null && !path.Contains('@'))
+            path += ":latest";
+        return $"{host.ToLowerInvariant()}/{path}";
+    }
+
     /// <summary>
     /// Returns the explicit tag of a reference, or null. A registry <c>host:port</c> and an
     /// <c>@sha256:…</c> digest are ignored.

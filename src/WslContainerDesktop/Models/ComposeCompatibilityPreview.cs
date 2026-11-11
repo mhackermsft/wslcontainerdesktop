@@ -85,6 +85,12 @@ public sealed record ComposeCompatibilityPreview(
     string Project, ComposeLifecycleOperation Operation,
     IReadOnlyList<ComposeCompatibilitySetting> Settings)
 {
+    /// <summary>Whether this review has an explicitly captured session.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasSessionScope { get; init; }
+    /// <summary>Named target, or null for the default CLI session.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? SessionName { get; init; }
     /// <summary>Gets a value indicating whether this value can apply.</summary>
     public bool CanApply => Settings.All(s => s.Disposition != ComposeSettingDisposition.Blocked);
     /// <summary>Gets a value indicating whether this value has warnings.</summary>

@@ -24,7 +24,7 @@ namespace WslContainerDesktop.Services;
 /// adds missing endpoints; it never rewrites or removes pre-existing endpoint configuration.
 /// </summary>
 public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger,
-    RestartSuppressionState? suppression = null)
+    RestartSuppressionState? suppression = null, Func<AutomationSessionOwner?>? currentOwner = null)
 {
     private const string OperationLabel = "com.wsldesktop.network-operation";
 
@@ -54,7 +54,7 @@ public sealed class ComposeNetworkOrchestrator(IWslcService wslc, ILogger logger
         long maximumStopVersion = long.MaxValue)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Name);
-        var resume = suppression?.CaptureExplicitStart(options.Name, maximumStopVersion);
+        var resume = suppression?.CaptureExplicitStart(options.Name, maximumStopVersion, currentOwner?.Invoke());
         var request = options.Clone();
         var operation = Guid.NewGuid().ToString("N");
         request.Labels[OperationLabel] = operation;

@@ -17,6 +17,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 using WslContainerDesktop.Helpers;
@@ -113,8 +114,10 @@ public partial class WslEngineViewModel : ObservableObject
     private readonly IWslcSettingsFileService _wslcSettings;
     private readonly IEngineEventStream _events;
     private readonly WslcSessionContext _sessionContext;
-    private bool _refreshingSessions;
-    private static readonly WslcSessionChoice DefaultWslcSessionChoice = new(null, "Default CLI session");
+    private readonly IWslcSessionSelectionService _sessionSelection;
+    private readonly ILogger<WslEngineViewModel> _logger;
+    private long _sessionRefreshVersion;
+    private Exception? _sessionError;
 
     /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
@@ -222,6 +225,7 @@ public partial class WslEngineViewModel : ObservableObject
 
     /// <summary>Bindable state for storage edit available used by the view.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanChangeStorage))]
     private bool _storageEditAvailable;
 
     /// <summary>Bindable state for storage edit note used by the view.</summary>
@@ -257,20 +261,23 @@ public partial class WslEngineViewModel : ObservableObject
     /// <summary>Registered distros and their run state.</summary>
     public ObservableCollection<WslDistroStatus> Distros { get; } = new();
 
-    /// <summary>Sessions the user can target with WSLC operations.</summary>
-    public ObservableCollection<WslcSessionChoice> WslcSessions { get; } =
-    [
-        DefaultWslcSessionChoice,
-    ];
+    /// <summary>Independent destination choices for assigning automatic actions.</summary>
+    public ObservableCollection<WslcSessionChoice> AssignmentSessions { get; } = [];
 
-    /// <summary>Selected WSLC session; null targets the CLI's default session.</summary>
-    [ObservableProperty]
-    private WslcSessionChoice? _selectedWslcSession = DefaultWslcSessionChoice;
+    /// <summary>App-created and externally owned sessions shown in session management.</summary>
+    public ObservableCollection<SessionListItem> SessionItems { get; } = [];
+    /// <summary>Tracks session removal independently of the rebuilt session list.</summary>
+    public SessionRemovalProgress Removal { get; }
+    /// <summary>Tracks stopping and starting sessions across session-list refreshes.</summary>
+    public SessionStopProgress StopProgress { get; }
+    public bool CanManageSessions => Removal.CanEdit && StopProgress.CanEdit;
+    public bool CanChangeStorage => CanManageSessions && StorageEditAvailable;
+    public bool CanRestartSelectedSession => CanManageSessions &&
+        SessionItems.Any(item => item.Generation is not null && !item.CanResumeDefault);
 
-    /// <summary>Explains why named session choices could not be refreshed.</summary>
+    /// <summary>Explicitly chosen destination for an automatic-action assignment.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SessionWarningDisplay))]
-    private string _sessionWarning = string.Empty;
+    private WslcSessionChoice? _selectedAssignmentSession;
 
     /// <summary>Whether the session discovery warning is visible.</summary>
     [ObservableProperty]
@@ -278,7 +285,20 @@ public partial class WslEngineViewModel : ObservableObject
 
     /// <summary>Session discovery warning projected for the active UI language.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public string SessionWarningDisplay => UiText.Translate(SessionWarning);
+    public string SessionWarningDisplay => _sessionError is not null
+            ? StopProgress.IsBusy
+                ? UiText.Get("ManagedSession_StopListFailure",
+                    "The session list could not be refreshed while the session action is running. Wait for it to finish, then select Refresh if the problem remains. {0}",
+                    WslcSessionInventoryErrors.Describe(_sessionError))
+                : UiText.Get("WslEngine_SessionLoadFailed", "Could not load WSLC sessions: {0}",
+                    WslcSessionInventoryErrors.Describe(_sessionError))
+            : string.Empty;
+
+    private void RefreshSessionWarning()
+    {
+        HasSessionWarning = _sessionError is not null;
+        OnPropertyChanged(nameof(SessionWarningDisplay));
+    }
 
     /// <summary>True while <c>wsl --update</c> runs, so the administrator-prompt guidance shows.</summary>
     [ObservableProperty]
@@ -312,7 +332,7 @@ public partial class WslEngineViewModel : ObservableObject
     private CancellationTokenSource? _updateCts;
 
     /// <summary>Creates the WslEngine view model and stores its injected services.</summary>
-    public WslEngineViewModel(IWslSystemService system, IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, IWslcSettingsFileService wslcSettings, IEngineEventStream events, WslcSessionContext sessionContext)
+    public WslEngineViewModel(IWslSystemService system, IWslcService wslc, StatusMonitor monitor, DialogService dialogs, ISettingsService settings, IWslcSettingsFileService wslcSettings, IEngineEventStream events, WslcSessionContext sessionContext, ManagedSessionService managedSessions, SessionRemovalProgress removal, SessionStopProgress stopProgress, IWslcSessionSelectionService sessionSelection, ILogger<WslEngineViewModel> logger)
     {
         _system = system;
         _wslc = wslc;
@@ -322,54 +342,76 @@ public partial class WslEngineViewModel : ObservableObject
         _wslcSettings = wslcSettings;
         _events = events;
         _sessionContext = sessionContext;
+        _sessionSelection = sessionSelection;
+        _logger = logger;
+        SessionItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CanRestartSelectedSession));
+        ManagedSessions = managedSessions;
+        Removal = removal;
+        StopProgress = stopProgress;
+        Removal.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(SessionRemovalProgress.CanEdit))
+            {
+                OnPropertyChanged(nameof(CanManageSessions));
+                OnPropertyChanged(nameof(CanChangeStorage));
+                OnPropertyChanged(nameof(CanRestartSelectedSession));
+            }
+        };
+        StopProgress.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(SessionStopProgress.CanEdit))
+            {
+                OnPropertyChanged(nameof(CanManageSessions));
+                OnPropertyChanged(nameof(CanChangeStorage));
+                OnPropertyChanged(nameof(CanRestartSelectedSession));
+            }
+            if (args.PropertyName == nameof(SessionStopProgress.IsBusy))
+                OnPropertyChanged(nameof(SessionWarningDisplay));
+        };
+        _sessionContext.DefaultSessionStopChanged += (_, _) =>
+            _monitor.Dispatcher.TryEnqueue(() => OnPropertyChanged(nameof(CanRestartSelectedSession)));
+        _sessionContext.EngineSettingChanged += (_, _) =>
+            _monitor.Dispatcher.TryEnqueue(() => OnPropertyChanged(nameof(CanRestartSelectedSession)));
         _includePreRelease = settings.WslUpdatePreRelease;
-        RefreshLocalizedSessionChoices();
+        RefreshLocalizedAssignmentChoices();
+        RebuildAssignmentChoices([]);
         UiText.LanguageChanged += (_, _) =>
         {
-            RefreshLocalizedSessionChoices();
+            RefreshLocalizedAssignmentChoices();
             OnPropertyChanged(nameof(SessionWarningDisplay));
         };
     }
 
-    private void RefreshLocalizedSessionChoices()
+    /// <summary>Owns sessions created by the app.</summary>
+    public ManagedSessionService ManagedSessions { get; }
+    /// <summary>Whether session restoration failed before all saved entries were checked.</summary>
+    public bool HasSessionRestoreFailure => ManagedSessions.RestoreFailure is not null;
+    /// <summary>Details of an unexpected session restoration failure.</summary>
+    public string SessionRestoreFailure => UiText.Get("ManagedSession_RestoreFailure",
+        "Saved sessions could not all be restored: {0}", ManagedSessions.RestoreFailure ?? string.Empty);
+
+    private void RefreshLocalizedAssignmentChoices()
     {
-        var selectedName = SelectedWslcSession?.Name;
-        var sessionNames = WslcSessions
+        var assignmentNames = AssignmentSessions
             .Where(session => session.Name is not null)
             .Select(session => session.Name!)
             .ToArray();
 
-        _refreshingSessions = true;
-        try
-        {
-            WslcSessions.Clear();
-            WslcSessions.Add(new WslcSessionChoice(
-                null, UiText.Get("WslEngine_Session_Default", "Default CLI session")));
-            foreach (var name in sessionNames)
-            {
-                WslcSessions.Add(new WslcSessionChoice(name, name));
-            }
-
-            SelectedWslcSession = WslcSessions.FirstOrDefault(session =>
-                string.Equals(session.Name, selectedName, StringComparison.OrdinalIgnoreCase))
-                ?? WslcSessions[0];
-        }
-        finally
-        {
-            _refreshingSessions = false;
-        }
+        RebuildAssignmentChoices(assignmentNames);
     }
 
-    partial void OnSelectedWslcSessionChanged(WslcSessionChoice? value)
+    private void RebuildAssignmentChoices(IEnumerable<string> activeNames)
     {
-        if (_refreshingSessions)
-        {
-            return;
-        }
-
-        _sessionContext.Select(value?.Name);
-        _events.Restart();
-        _monitor.RequestRefresh();
+        var hadSelection = SelectedAssignmentSession is not null;
+        var selectedName = SelectedAssignmentSession?.Name;
+        AssignmentSessions.Clear();
+        AssignmentSessions.Add(new WslcSessionChoice(
+            null, UiText.Get("WslEngine_Session_Default", "Default CLI session")));
+        foreach (var name in activeNames)
+            AssignmentSessions.Add(new WslcSessionChoice(name, name));
+        SelectedAssignmentSession = hadSelection
+            ? AssignmentSessions.FirstOrDefault(choice => string.Equals(choice.Name, selectedName, StringComparison.Ordinal))
+            : null;
     }
 
     /// <summary>Command handler for refresh actions triggered from the view.</summary>
@@ -427,57 +469,72 @@ public partial class WslEngineViewModel : ObservableObject
 
     private async Task RefreshWslcSessionsAsync()
     {
+        var refreshVersion = ++_sessionRefreshVersion;
         try
         {
             var systemInfo = await _wslc.GetSystemInfoAsync();
-            var previousSelection = SelectedWslcSession;
-            var previousSessionName = _sessionContext.SelectedSessionName;
-            var names = systemInfo.Server.Sessions
-                .Select(session => session.Name)
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase);
+            if (refreshVersion != _sessionRefreshVersion)
+                return;
+            var defaultName = WslcSessionActionGuard.ResolveDefaultSessionName();
+            var activeNames = systemInfo.Server.Sessions.Select(session => session.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name) &&
+                    !string.Equals(name, defaultName, StringComparison.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            RebuildAssignmentChoices(activeNames);
+            RebuildSessionItems(systemInfo.Server.Sessions, defaultName);
 
-            _refreshingSessions = true;
-            try
-            {
-                WslcSessions.Clear();
-                WslcSessions.Add(new WslcSessionChoice(
-                    null, UiText.Get("WslEngine_Session_Default", "Default CLI session")));
-                foreach (var name in names)
-                {
-                    WslcSessions.Add(new WslcSessionChoice(name, name));
-                }
-
-                SelectedWslcSession = WslcSessions.FirstOrDefault(session =>
-                    string.Equals(session.Name, previousSelection?.Name, StringComparison.OrdinalIgnoreCase))
-                    ?? WslcSessions[0];
-            }
-            finally
-            {
-                _refreshingSessions = false;
-            }
-
-            if (!string.Equals(previousSessionName, SelectedWslcSession?.Name, StringComparison.OrdinalIgnoreCase))
-            {
-                _sessionContext.Select(SelectedWslcSession?.Name);
-                _events.Restart();
-                _monitor.RequestRefresh();
-            }
-
-            SessionWarning = string.Empty;
-            HasSessionWarning = false;
+            _sessionError = null;
+            RefreshSessionWarning();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SessionWarning = $"Could not load WSLC sessions: {ex.Message}";
-            HasSessionWarning = true;
-            if (WslcSessions.Count == 0)
-            {
-                WslcSessions.Add(new WslcSessionChoice(
-                    null, UiText.Get("WslEngine_Session_Default", "Default CLI session")));
-            }
+            if (refreshVersion != _sessionRefreshVersion)
+                return;
+            _sessionError = ex;
+            SessionItems.Clear();
+            foreach (var definition in ManagedSessions.Sessions.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+                SessionItems.Add(new SessionListItem(definition.Name, definition, null, false, false,
+                    ManagedSessions.FailureFor(definition.Id), false, inventoryUnavailable: true,
+                    removing: ManagedSessions.IsRemoving(definition)));
+            if (_sessionContext.IsDefaultSessionStopped(_settings.WslcPath, WslcSessionTarget.Default))
+                SessionItems.Add(new SessionListItem(WslcSessionActionGuard.ResolveDefaultSessionName(), null, null,
+                    false, false, null, true, inventoryUnavailable: true, defaultStoppedByUser: true));
+            RefreshSessionWarning();
         }
+    }
+
+    private void RebuildSessionItems(IReadOnlyList<WslcSessionInfo> active, string defaultName)
+    {
+        var saved = ManagedSessions.Sessions;
+        SessionItems.Clear();
+        foreach (var definition in saved.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var matches = active.Where(item => item.Name == definition.Name).ToArray();
+            var ownedGeneration = matches.SingleOrDefault(item => ManagedSessions.Owns(definition, item));
+            var running = ownedGeneration is not null;
+            SessionItems.Add(new SessionListItem(definition.Name, definition,
+                ownedGeneration, running, matches.Length > 0,
+                ManagedSessions.FailureFor(definition.Id), false, removing: ManagedSessions.IsRemoving(definition)));
+        }
+        var defaultStopped = _sessionContext.IsDefaultSessionStopped(_settings.WslcPath, WslcSessionTarget.Default);
+        foreach (var session in active.Where(item => !saved.Any(definition =>
+                     ManagedSessions.Owns(definition, item)))
+                     .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+            SessionItems.Add(new SessionListItem(session.Name, null, session, false, false, null,
+                session.Name == defaultName, defaultStoppedByUser: defaultStopped && session.Name == defaultName));
+        if (defaultStopped && !active.Any(session => session.Name == defaultName))
+            SessionItems.Add(new SessionListItem(defaultName, null, null, false, false, null,
+                true, defaultStoppedByUser: true));
+    }
+
+    /// <summary>Refreshes the session list after a create, remove, or start operation.</summary>
+    public Task RefreshSessionListAsync()
+    {
+        OnPropertyChanged(nameof(HasSessionRestoreFailure));
+        OnPropertyChanged(nameof(SessionRestoreFailure));
+        return RefreshWslcSessionsAsync();
     }
 
     /// <summary>Refreshes container environment state for the view model.</summary>
@@ -670,44 +727,74 @@ public partial class WslEngineViewModel : ObservableObject
     [RelayCommand]
     private async Task RestartSessionAsync()
     {
-        var sessionName = SelectedWslcSession?.Name is null
-            ? UiText.Get("WslEngine_Session_Default", "Default CLI session")
-            : SelectedWslcSession.DisplayName;
-        var ok = await _dialogs.ShowConfirmAsync(
+        var choice = await SessionOperationTarget.ChooseActiveAsync(_sessionSelection, _dialogs, _logger);
+        if (choice is null) return;
+        if (choice.Generation is null)
+        {
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c52ad8ebd665", "Restart failed"),
+                UiText.Get("WslEngine_RestartNoActiveSession", "There is no active session to restart."));
+            return;
+        }
+        if (_sessionContext.IsDefaultSessionStopped(choice.ExecutablePath, choice.Target))
+        {
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c52ad8ebd665", "Restart failed"),
+                UiText.Get("ManagedSession_DefaultStartRequired",
+                    "The default CLI session was stopped in this app. Open WSL engine and select Start for that session."));
+            return;
+        }
+        var ok = await _dialogs.ShowLocalizedConfirmAsync(() => (
             UiText.Get("Resource_Text_c981dceb2438", "Restart WSL session"),
             UiText.Get(
                 "WslEngine_RestartSessionConfirmation",
                 "Restart the {0}? This stops all running containers and releases the engine's per-session bind-mount slots. Containers can be started again afterwards.",
-                sessionName),
-            UiText.Get("Resource_Text_b134bd555a2f", "Restart"));
+                choice.Target.Name ?? UiText.Get("WslEngine_Session_Default", "Default CLI session")),
+            UiText.Get("Resource_Text_b134bd555a2f", "Restart"), UiText.Get("Workload_Text_Cancel_19766e", "Cancel")));
         if (!ok)
         {
             return;
         }
 
-        await RestartSessionCoreAsync();
+        try
+        {
+            await _sessionSelection.VerifyAsync(choice);
+            await RestartSessionCoreAsync(target: new(choice, _sessionSelection.CreateClient(choice), _sessionSelection));
+        }
+        catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+        {
+            _logger.LogWarning(ex, "Could not restart the chosen session.");
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c52ad8ebd665", "Restart failed"), ex.Message);
+        }
     }
 
     /// <summary>Helper for the restart session core workflow in this view model.</summary>
-    private async Task RestartSessionCoreAsync(bool selectedSession = true)
+    private async Task RestartSessionCoreAsync(bool selectedSession = true, SessionOperationTarget? target = null)
     {
         IsBusy = true;
         StatusMessage = "Restarting the wslc session…";
         try
         {
-            if (selectedSession)
+            if (selectedSession && (target is null ||
+                string.Equals(target.Selection.Target.Name, _sessionContext.Capture().Name, StringComparison.Ordinal)))
             {
                 _events.Restart();
             }
 
+            if (target is not null) await target.VerifyAsync();
             var result = selectedSession
-                ? await _wslc.RestartSessionAsync()
+                ? await (target?.Client ?? _wslc).RestartSessionAsync()
                 : await _wslc.RestartDefaultSessionAsync();
             _monitor.RequestRefresh();
             if (result.Success)
             {
-                await _dialogs.ShowMessageAsync(UiText.Get("Resource_Text_67036bb84e14", "Session restarted"),
-                    UiText.Get("Resource_Text_c77cb4166afa", "The wslc session was terminated. It restarts automatically on the next container action."));
+                var message = target?.Selection.Target.Name is null
+                    ? UiText.Get("Resource_Text_c77cb4166afa", "The wslc session was terminated. It restarts automatically on the next container action.")
+                    : UiText.Get("WslEngine_NamedSessionTerminated",
+                        "The session {0} was terminated. Start it again from the session list if available, or from the app that created it.",
+                        target.Selection.DisplayName);
+                var title = target?.Selection.Target.Name is null
+                    ? UiText.Get("Resource_Text_67036bb84e14", "Session restarted")
+                    : UiText.Get("WslEngine_SessionTerminatedTitle", "Session stopped");
+                await _dialogs.ShowLocalizedMessageAsync(title, message);
             }
             else
             {
@@ -867,5 +954,8 @@ public partial class WslEngineViewModel : ObservableObject
     internal void RefreshLocalizedText()
     {
         OnPropertyChanged(string.Empty);
+        Removal.RefreshLanguage();
+        StopProgress.RefreshLanguage();
+        foreach (var item in SessionItems) item.RefreshLanguage();
     }
 }

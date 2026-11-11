@@ -30,6 +30,8 @@ namespace WslContainerDesktop.Views;
 public sealed partial class ContainersPage : Page
 {
     private readonly CollectionViewSource _groupedContainers = new() { IsSourceGrouped = true };
+    private ResourceGridSelection<ContainerRowViewModel>? _gridSelection;
+    private readonly Dictionary<FrameworkElement, (ContainerRowViewModel Row, bool Visible)> _viewportRows = [];
 
     /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public ContainersPage()
@@ -44,9 +46,12 @@ public sealed partial class ContainersPage : Page
         {
             _groupedContainers.Source = ViewModel.Groups;
             ContainersList.ItemsSource = _groupedContainers.View;
+            _gridSelection = new(ViewModel.Grid, ContainersList, UpdateSelectedCount);
         };
         Unloaded += (_, _) =>
         {
+            _gridSelection?.Dispose();
+            _gridSelection = null;
             ContainersList.ItemsSource = null;
             _groupedContainers.Source = null;
         };
@@ -55,33 +60,82 @@ public sealed partial class ContainersPage : Page
     /// <summary>Container list/detail view model bound by the page.</summary>
     public ContainersViewModel ViewModel { get; }
 
+    private void TableRoot_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        ViewModel.SetContainerListWidth(e.NewSize.Width);
+
+    private void Row_EffectiveViewportChanged(FrameworkElement sender, EffectiveViewportChangedEventArgs e)
+    {
+        var viewport = e.EffectiveViewport;
+        SetViewportRow(sender, viewport.Width > 0 && viewport.Height > 0 &&
+            viewport.Right > 0 && viewport.Bottom > 0 &&
+            viewport.Left < sender.ActualWidth && viewport.Top < sender.ActualHeight);
+    }
+
+    private void Row_DataContextChanged(FrameworkElement sender, DataContextChangedEventArgs e)
+    {
+        if (_viewportRows.TryGetValue(sender, out var previous))
+            SetViewportRow(sender, previous.Visible);
+    }
+
+    private void SetViewportRow(FrameworkElement element, bool visible)
+    {
+        if (_viewportRows.TryGetValue(element, out var previous) && previous.Row != element.DataContext)
+            ViewModel.SetContainerRowVisible(previous.Row, false);
+        if (element.DataContext is ContainerRowViewModel row)
+        {
+            _viewportRows[element] = (row, visible);
+            ViewModel.SetContainerRowVisible(row, visible);
+        }
+        else
+            _viewportRows.Remove(element);
+    }
+
+    private void Row_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && _viewportRows.Remove(element, out var previous))
+            ViewModel.SetContainerRowVisible(previous.Row, false);
+    }
+
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         UiText.LanguageChanged += OnUiLanguageChanged;
         ViewModel.RefreshLocalizedText();
-        _ = ViewModel.RefreshSizesAsync();
+        ViewModel.SetContainerPageVisible(true);
+        UiSafe.Run(ViewModel.RefreshOnNavigationAsync);
     }
 
     private void ContainersList_ItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is ContainerRowViewModel row)
         {
+            if (!row.SessionActionsAvailable)
+            {
+                UiSafe.Run(() => App.Current.Services.GetRequiredService<DialogService>().ShowLocalizedMessageAsync(
+                    UiText.Get("SessionInventory_RefreshRequiredTitle", "Refresh the inventory"),
+                    UiText.Get("CombinedSession_UnstableContainer",
+                        "The container identity is incomplete; refresh before taking action.")));
+                return;
+            }
             ViewModel.Selected = row;
             Frame.NavigateWithPreference(typeof(ContainerDetailPage));
         }
     }
 
     private void ContainersList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        => UpdateSelectedCount();
+
+    private void UpdateSelectedCount()
     {
         if (ViewModel.IsSelectionMode)
         {
-            ViewModel.SelectedCount = ContainersList.SelectedItems.Count;
+            ViewModel.SelectedCount = SelectedRows().Count;
         }
     }
 
     private System.Collections.Generic.List<ContainerRowViewModel> SelectedRows() =>
-        ContainersList.SelectedItems.OfType<ContainerRowViewModel>().ToList();
+        ContainersList.SelectedItems.OfType<ContainerRowViewModel>()
+            .Where(ViewModel.Grid.Items.Contains).ToList();
 
     private async void BulkStart_Click(object sender, RoutedEventArgs e) =>
         await ViewModel.BulkStartAsync(SelectedRows());
@@ -202,6 +256,7 @@ public sealed partial class ContainersPage : Page
         Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id);
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
+        ViewModel.SetContainerPageVisible(false);
         UiText.LanguageChanged -= OnUiLanguageChanged;
         base.OnNavigatedFrom(e);
     }

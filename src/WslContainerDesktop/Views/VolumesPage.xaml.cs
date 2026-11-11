@@ -28,22 +28,32 @@ namespace WslContainerDesktop.Views;
 /// <summary>Page that lists container volumes and supports inspect, bulk remove, and refresh operations.</summary>
 public sealed partial class VolumesPage : Page
 {
+    private ResourceGridSelection<VolumeInfo>? _gridSelection;
+
     /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public VolumesPage()
     {
         ViewModel = App.Current.Services.GetRequiredService<VolumesViewModel>();
         InitializeComponent();
+        Loaded += (_, _) => _gridSelection = new(ViewModel.Grid, VolumesList, UpdateSelectedCount);
+        Unloaded += (_, _) => { _gridSelection?.Dispose(); _gridSelection = null; };
     }
 
     /// <summary>Volume inventory view model bound by the page.</summary>
     public VolumesViewModel ViewModel { get; }
+
+    private void TableRoot_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        ResourceGridLayout.UpdateTable(HeaderBorder, VolumesList, e.NewSize.Width, 720);
+
+    private void RowRoot_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        ResourceGridLayout.UpdateRow((Grid)sender, TableRoot.ActualWidth >= 720);
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         UiText.LanguageChanged += OnUiLanguageChanged;
         ViewModel.RefreshLocalizedText();
-        UiSafe.Run(() => ViewModel.RefreshAsync());
+        UiSafe.Run(ViewModel.RefreshOnNavigationAsync);
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
@@ -73,16 +83,19 @@ public sealed partial class VolumesPage : Page
     }
 
     private void List_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        => UpdateSelectedCount();
+
+    private void UpdateSelectedCount()
     {
         if (ViewModel.IsSelectionMode)
         {
-            ViewModel.SelectedCount = VolumesList.SelectedItems.Count;
+            ViewModel.SelectedCount = SelectedRows().Count;
         }
     }
 
     private async void BulkRemove_Click(object sender, RoutedEventArgs e)
     {
-        var selected = VolumesList.SelectedItems.OfType<VolumeInfo>().ToList();
+        var selected = SelectedRows();
         await ViewModel.BulkRemoveAsync(selected);
     }
 
@@ -90,6 +103,9 @@ public sealed partial class VolumesPage : Page
     {
         ViewModel.IsSelectionMode = false;
     }
+
+    private List<VolumeInfo> SelectedRows() => VolumesList.SelectedItems.OfType<VolumeInfo>()
+        .Where(ViewModel.Grid.Items.Contains).ToList();
     private void OnUiLanguageChanged(object? sender, EventArgs e)
     {
         ViewModel.RefreshLocalizedText();

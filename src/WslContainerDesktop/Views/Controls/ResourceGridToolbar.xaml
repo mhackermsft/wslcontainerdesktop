@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="WslContainerDesktop.Views.Controls.ResourceGridToolbar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:i18n="using:WslContainerDesktop.Helpers"
+    xmlns:helpers="using:WslContainerDesktop.Helpers">
+    <UserControl.Resources>
+        <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
+    <DropDownButton x:Name="FilterButton"
+        AutomationProperties.Name="{x:Bind State.FilterButtonName, Mode=OneWay}"
+        ToolTipService.ToolTip="{x:Bind State.FilterButtonName, Mode=OneWay}">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <FontIcon FontSize="14" Glyph="&#xE71C;" />
+            <TextBlock Text="{x:Bind State.FilterButtonCaption, Mode=OneWay}"
+                Visibility="{x:Bind State.HasFilter, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+        </StackPanel>
+        <DropDownButton.Flyout>
+            <Flyout Placement="BottomEdgeAlignedRight" Opened="Flyout_Opened">
+                <StackPanel Width="260" Spacing="12">
+                    <TextBox
+                        x:Uid="ResourceGrid_Search"
+                        i18n:Localization.Uid="ResourceGrid_Search"
+                        x:Name="SearchBox"
+                        Text="{x:Bind State.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <Button x:Uid="ResourceGrid_ClearFilter" i18n:Localization.Uid="ResourceGrid_ClearFilter"
+                        HorizontalAlignment="Left" IsEnabled="{x:Bind State.HasFilter, Mode=OneWay}" Click="ClearFilter_Click" />
+                    <TextBlock x:Uid="ResourceGrid_SortLabel" i18n:Localization.Uid="ResourceGrid_SortLabel" />
+                    <ComboBox x:Uid="ResourceGrid_Sort" i18n:Localization.Uid="ResourceGrid_Sort"
+                        HorizontalAlignment="Stretch" ItemsSource="{x:Bind State.SortOptions, Mode=OneWay}"
+                        SelectedItem="{x:Bind State.SelectedSort, Mode=TwoWay}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="helpers:ResourceSortOption">
+                                <TextBlock Text="{x:Bind Label, Mode=OneWay}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button x:Uid="ResourceGrid_Direction" i18n:Localization.Uid="ResourceGrid_Direction"
+                        HorizontalAlignment="Left" IsEnabled="{x:Bind State.CanReverse, Mode=OneWay}"
+                        Content="{x:Bind State.DirectionLabel, Mode=OneWay}" Click="Direction_Click" />
+                </StackPanel>
+            </Flyout>
+        </DropDownButton.Flyout>
+    </DropDownButton>
+</UserControl>

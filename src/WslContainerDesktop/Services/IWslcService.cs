@@ -75,7 +75,12 @@ public interface IWslcService
     /// <summary>
     /// Lists container service resources used by WSL Container Desktop.
     /// </summary>
-    Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(bool all = true, CancellationToken ct = default, bool includeSize = false);
+    Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(
+        bool all = true, CancellationToken ct = default, bool includeSize = false, bool resolvePorts = true);
+    /// <summary>Lists containers using a captured session and executable for the entire observation.</summary>
+    Task<IReadOnlyList<ContainerInfo>> ListContainersForSessionAsync(
+        WslcSessionTarget target, string executable, bool all = true, CancellationToken ct = default,
+        bool includeSize = false, bool resolvePorts = true);
     /// <summary>
     /// Starts container work requested by the UI or a background supervisor.
     /// </summary>
@@ -169,15 +174,15 @@ public interface IWslcService
     /// <summary>
     /// Opens terminal for the user.
     /// </summary>
-    void OpenTerminal(string id);
+    Task OpenTerminal(string id);
     /// <summary>
     /// Starts following container logs through the service layer.
     /// </summary>
-    void FollowLogs(string id, bool details = false, bool timestamps = false);
+    Task FollowLogs(string id, bool details = false, bool timestamps = false);
     /// <summary>
     /// Attaches an interactive session to a running container.
     /// </summary>
-    void AttachContainer(string id);
+    Task AttachContainer(string id);
 
     /// <summary>Runs a shell command inside a container (`wslc exec &lt;id&gt; sh -c &lt;command&gt;`) and returns its result.</summary>
     Task<CommandResult> ExecAsync(string id, string command, CancellationToken ct = default);

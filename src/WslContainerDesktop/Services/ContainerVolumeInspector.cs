@@ -40,6 +40,26 @@ public sealed record ContainerVolumeImpact(
 
     /// <summary>True when removing the container can delete anonymous volumes or orphaned named volumes.</summary>
     public bool HasDeletableData => Anonymous.Count > 0 || OrphanedNamed.Count > 0;
+
+    /// <summary>Stable identity of the observed volume impact for confirmation revalidation.</summary>
+    public string Signature()
+    {
+        static object[] Normalize(IEnumerable<ContainerVolumeUsage> volumes) => volumes
+            .OrderBy(volume => volume.Name, StringComparer.Ordinal)
+            .ThenBy(volume => volume.Destination, StringComparer.Ordinal)
+            .Select(volume => (object)new
+            {
+                volume.Name, volume.Destination,
+                OtherContainers = volume.OtherContainers.OrderBy(name => name, StringComparer.Ordinal).ToArray(),
+            }).ToArray();
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            IsComplete,
+            Anonymous = Normalize(Anonymous),
+            Named = Normalize(Named),
+            SharedAnonymous = Normalize(SharedAnonymous),
+        });
+    }
 }
 
 /// <param name="Name">Volume name as the engine reports it.</param>
@@ -102,6 +122,7 @@ public sealed class ContainerVolumeInspector(IWslcService wslc)
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Usage detail is advisory; an unreadable inventory must not block the removal flow.
+            System.Diagnostics.Debug.WriteLine($"Volume usage could not be fully inspected: {ex.Message}");
             complete = false;
         }
 

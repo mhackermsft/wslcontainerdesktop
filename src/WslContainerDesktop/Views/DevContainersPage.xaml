@@ -88,9 +88,12 @@
                                             </Border>
                                         </StackPanel>
                                         <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind WorkspacePath}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ImageSummary, Converter={StaticResource UiTextConverter}}" />
-                                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind PortsSummary, Converter={StaticResource UiTextConverter}}" />
-                                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="{x:Bind WarningsSummary, Converter={StaticResource UiTextConverter}}" />
+                                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind SessionDisplay, Mode=OneWay}"
+                                            Visibility="{x:Bind local:DevContainersPage.BoolToVisibility(HasAssignedSession), Mode=OneWay}" />
+                                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ImageSummary, Mode=OneWay, Converter={StaticResource UiTextConverter}}" />
+                                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind PortsSummary, Mode=OneWay, Converter={StaticResource UiTextConverter}}" />
+                                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="{x:Bind WarningsSummary, Mode=OneWay, Converter={StaticResource UiTextConverter}}" />
                                         <Expander x:Uid="Workload_DevContainersPage_004" i18n:Localization.Uid="Workload_DevContainersPage_004" >
                                             <ScrollViewer MaxHeight="160">
                                                 <TextBlock FontFamily="Consolas" FontSize="12" IsTextSelectionEnabled="True" Text="{x:Bind LifecycleLog, Mode=OneWay}" TextWrapping="Wrap" />

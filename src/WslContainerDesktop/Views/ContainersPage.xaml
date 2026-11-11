@@ -38,11 +38,20 @@
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
                 Text="{x:Bind ViewModel.StatusMessageDisplay, Mode=OneWay}" />
+            <TextBlock Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                Text="{x:Bind ViewModel.CombinedWarning, Mode=OneWay}" TextWrapping="Wrap" />
+            <TextBlock x:Uid="ResourceSessionWakeNotice" i18n:Localization.Uid="ResourceSessionWakeNotice"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+            <TextBlock Text="{x:Bind ViewModel.ManagementDestination, Mode=OneWay}" TextWrapping="Wrap" />
         </StackPanel>
 
         <!-- Toolbar  -->
-        <Grid Grid.Row="1">
-            <Grid Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid Grid.Column="0" Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -100,9 +109,10 @@
             </Grid>
 
             <!-- Bulk-action bar (shown while selecting)  -->
-            <StackPanel
-                Orientation="Horizontal"
-                Spacing="8"
+            <converters:WrapPanel
+                Grid.Column="0"
+                HorizontalSpacing="8"
+                VerticalSpacing="8"
                 Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <TextBlock
                     VerticalAlignment="Center"
@@ -132,33 +142,17 @@
                         <TextBlock x:Uid="Resource_Containers_013" i18n:Localization.Uid="Resource_Containers_013" />
                     </StackPanel>
                 </Button>
-            </StackPanel>
+            </converters:WrapPanel>
+            <controls:ResourceGridToolbar Grid.Column="1" VerticalAlignment="Top"
+                State="{x:Bind ViewModel.Grid, Mode=OneWay}" />
         </Grid>
 
         <!-- Table: column header (wide only) + list  -->
-        <Grid Grid.Row="2">
+        <Grid x:Name="TableRoot" Grid.Row="2" SizeChanged="TableRoot_SizeChanged">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
-
-            <VisualStateManager.VisualStateGroups>
-                <VisualStateGroup>
-                    <VisualState x:Name="HeaderWide">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MinWidth="680" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                    </VisualState>
-                    <VisualState x:Name="HeaderNarrow">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MaxWidth="680" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                        <VisualState.Setters>
-                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
-                        </VisualState.Setters>
-                    </VisualState>
-                </VisualStateGroup>
-            </VisualStateManager.VisualStateGroups>
 
                 <!-- Column header  -->
                 <Border
@@ -168,32 +162,35 @@
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                     BorderThickness="1"
-                    CornerRadius="6,6,0,0">
+                    CornerRadius="6,6,0,0"
+                    Visibility="{x:Bind ViewModel.IsWideLayout, Mode=OneWay, Converter={StaticResource BoolToVis}}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="14" />
-                    <ColumnDefinition Width="1.8*" MinWidth="110" />
-                    <ColumnDefinition Width="1.9*" MinWidth="110" />
-                    <ColumnDefinition Width="1.2*" MinWidth="80" />
-                    <ColumnDefinition Width="1.1*" MinWidth="80" />
+                    <ColumnDefinition Width="*" MinWidth="80" />
+                    <ColumnDefinition Width="1.8*" MinWidth="90" />
+                    <ColumnDefinition Width="1.9*" MinWidth="90" />
+                    <ColumnDefinition Width="1.2*" MinWidth="64" />
+                    <ColumnDefinition Width="1.1*" MinWidth="64" />
                     <ColumnDefinition Width="80" />
                     <ColumnDefinition Width="84" />
                     <ColumnDefinition Width="156" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Uid="Resource_Containers_014" i18n:Localization.Uid="Resource_Containers_014" Grid.Column="1" Margin="10,0,0,0" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Containers_015" i18n:Localization.Uid="Resource_Containers_015" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Containers_016" i18n:Localization.Uid="Resource_Containers_016" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Containers_017" i18n:Localization.Uid="Resource_Containers_017" Grid.Column="4" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4">
-                    <TextBlock x:Uid="Resource_Containers_018" i18n:Localization.Uid="Resource_Containers_018" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <controls:ResourceSortHeader Grid.Column="1" Margin="10,0,0,0" State="{x:Bind ViewModel.Grid}" SortKey="session"><controls:ResourceSortHeader.Header><TextBlock x:Uid="ResourceSessionColumn" i18n:Localization.Uid="ResourceSessionColumn" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="2" Margin="10,0,0,0" State="{x:Bind ViewModel.Grid}" SortKey="name"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Containers_014" i18n:Localization.Uid="Resource_Containers_014" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="3" State="{x:Bind ViewModel.Grid}" SortKey="image"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Containers_015" i18n:Localization.Uid="Resource_Containers_015" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="4" State="{x:Bind ViewModel.Grid}" SortKey="ports"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Containers_016" i18n:Localization.Uid="Resource_Containers_016" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="5" State="{x:Bind ViewModel.Grid}" SortKey="network"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Containers_017" i18n:Localization.Uid="Resource_Containers_017" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="4">
+                    <controls:ResourceSortHeader State="{x:Bind ViewModel.Grid}" SortKey="size"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Containers_018" i18n:Localization.Uid="Resource_Containers_018" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
                     <controls:InfoTip
                         Title="{x:Bind helpers:FlagHelp.ContainersSize.Title}"
                         Flag="{x:Bind helpers:FlagHelp.ContainersSize.Flag}"
                         Text="{x:Bind helpers:FlagHelp.ContainersSize.Text}" />
                 </StackPanel>
-                <TextBlock x:Uid="Resource_Containers_019" i18n:Localization.Uid="Resource_Containers_019" Grid.Column="6" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <controls:ResourceSortHeader Grid.Column="7" State="{x:Bind ViewModel.Grid}" SortKey="created"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Containers_019" i18n:Localization.Uid="Resource_Containers_019" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
                 <TextBlock x:Uid="Resource_Containers_020" i18n:Localization.Uid="Resource_Containers_020"
-                    Grid.Column="7"
+                    Grid.Column="8"
                     HorizontalAlignment="Right"
                     Style="{ThemeResource CaptionTextBlockStyle}" />
             </Grid>
@@ -232,7 +229,7 @@
                                                 <TextBlock
                                                     FontSize="11"
                                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                    Text="{x:Bind Count}" />
+                                                    Text="{x:Bind Count, Mode=OneWay}" />
                                             </Border>
                                         </StackPanel>
                                     </Border>
@@ -249,33 +246,19 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:ContainerRowViewModel">
-                            <Grid x:Name="RowRoot">
-                                <VisualStateManager.VisualStateGroups>
-                                    <VisualStateGroup>
-                                        <VisualState x:Name="RowWide">
-                                            <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MinWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
-                                            </VisualState.StateTriggers>
-                                        </VisualState>
-                                        <VisualState x:Name="RowNarrow">
-                                            <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MaxWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
-                                            </VisualState.StateTriggers>
-                                            <VisualState.Setters>
-                                                <Setter Target="WideGrid.Visibility" Value="Collapsed" />
-                                                <Setter Target="NarrowPanel.Visibility" Value="Visible" />
-                                            </VisualState.Setters>
-                                        </VisualState>
-                                    </VisualStateGroup>
-                                </VisualStateManager.VisualStateGroups>
-
-                                <Grid x:Name="WideGrid">
+                            <Grid x:Name="RowRoot"
+                                EffectiveViewportChanged="Row_EffectiveViewportChanged"
+                                DataContextChanged="Row_DataContextChanged"
+                                Unloaded="Row_Unloaded">
+                                <Grid x:Name="WideGrid"
+                                    Visibility="{Binding IsWideLayout, Converter={StaticResource BoolToVis}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="14" />
-                                    <ColumnDefinition Width="1.8*" MinWidth="110" />
-                                    <ColumnDefinition Width="1.9*" MinWidth="110" />
-                                    <ColumnDefinition Width="1.2*" MinWidth="80" />
-                                    <ColumnDefinition Width="1.1*" MinWidth="80" />
+                                    <ColumnDefinition Width="*" MinWidth="80" />
+                                    <ColumnDefinition Width="1.8*" MinWidth="90" />
+                                    <ColumnDefinition Width="1.9*" MinWidth="90" />
+                                    <ColumnDefinition Width="1.2*" MinWidth="64" />
+                                    <ColumnDefinition Width="1.1*" MinWidth="64" />
                                     <ColumnDefinition Width="80" />
                                     <ColumnDefinition Width="84" />
                                     <ColumnDefinition Width="156" />
@@ -289,8 +272,11 @@
                                     Fill="{Binding State, Converter={StaticResource StateToBrush}}"
                                     ToolTipService.ToolTip="{Binding State, Converter={StaticResource StateToString}}" />
 
+                                <TextBlock Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center"
+                                    Text="{Binding SessionName}" TextTrimming="CharacterEllipsis"
+                                    ToolTipService.ToolTip="{Binding SessionName}" />
                                 <StackPanel
-                                    Grid.Column="1"
+                                    Grid.Column="2"
                                     Margin="10,0,8,0"
                                     VerticalAlignment="Center"
                                     Spacing="2">
@@ -341,7 +327,7 @@
                                 </StackPanel>
 
                                 <TextBlock
-                                    Grid.Column="2"
+                                    Grid.Column="3"
                                     Margin="0,0,8,0"
                                     VerticalAlignment="Center"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -349,7 +335,7 @@
                                     TextTrimming="CharacterEllipsis" />
 
                                 <TextBlock
-                                    Grid.Column="3"
+                                    Grid.Column="4"
                                     Margin="0,0,8,0"
                                     VerticalAlignment="Center"
                                     FontSize="12"
@@ -357,16 +343,16 @@
                                     TextTrimming="CharacterEllipsis" />
 
                                 <TextBlock
-                                    Grid.Column="4"
+                                    Grid.Column="5"
                                     Margin="0,0,8,0"
                                     VerticalAlignment="Center"
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="{Binding Network}"
+                                    Text="{Binding NetworkDisplay}"
                                     TextTrimming="CharacterEllipsis" />
 
                                 <TextBlock
-                                    Grid.Column="5"
+                                    Grid.Column="6"
                                     Margin="0,0,8,0"
                                     VerticalAlignment="Center"
                                     FontSize="12"
@@ -375,18 +361,19 @@
                                     ToolTipService.ToolTip="{Binding SizeDisplayText}" />
 
                                 <TextBlock
-                                    Grid.Column="6"
+                                    Grid.Column="7"
                                     VerticalAlignment="Center"
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     Text="{Binding Created, Converter={StaticResource RelativeTime}}" />
 
                                 <StackPanel
-                                    Grid.Column="7"
+                                    Grid.Column="8"
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
-                                    Spacing="2">
+                                    Spacing="2"
+                                    Visibility="{Binding SessionActionsAvailable, Converter={StaticResource BoolToVis}}">
                                     <Button x:Uid="Resource_Containers_022" i18n:Localization.Uid="Resource_Containers_022"
                                         Width="34"
                                         Height="34"
@@ -476,7 +463,10 @@
                                 </Grid>
 
                                 <!-- Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
-                                <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                <StackPanel x:Name="NarrowPanel" Spacing="8"
+                                    Visibility="{Binding IsWideLayout, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+                                    <TextBlock Text="{Binding SessionName}" TextTrimming="CharacterEllipsis"
+                                        ToolTipService.ToolTip="{Binding SessionName}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Ellipse
                                             Width="12"
@@ -553,7 +543,7 @@
                                             Grid.Column="1"
                                             FontSize="12"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Text="{Binding Network}"
+                                            Text="{Binding NetworkDisplay}"
                                             TextTrimming="CharacterEllipsis" />
                                         <TextBlock x:Uid="Resource_Containers_038" i18n:Localization.Uid="Resource_Containers_038" Grid.Row="3" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock
@@ -572,7 +562,8 @@
                                             ToolTipService.ToolTip="{Binding SizeDisplayText}" />
                                     </Grid>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                    <StackPanel Orientation="Horizontal" Spacing="2"
+                                        Visibility="{Binding SessionActionsAvailable, Converter={StaticResource BoolToVis}}">
                                         <Button x:Uid="Resource_Containers_040" i18n:Localization.Uid="Resource_Containers_040"
                                             Width="34"
                                             Height="34"
@@ -664,6 +655,11 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+
+                <TextBlock x:Uid="ResourceGrid_NoMatches" i18n:Localization.Uid="ResourceGrid_NoMatches"
+                    Margin="0,70,0,0" HorizontalAlignment="Center" VerticalAlignment="Top"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsHitTestVisible="False"
+                    Visibility="{x:Bind ViewModel.Grid.HasNoMatches, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
 
                 <!-- Empty state  -->
                 <StackPanel

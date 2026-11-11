@@ -17,6 +17,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Dialogs;
 using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
@@ -32,13 +33,26 @@ public partial class RegistriesViewModel : ObservableObject
 {
     /// <summary>Text projected for the active UI language.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public string StatusMessageDisplay => UiText.Translate(StatusMessage);
+    public string StatusMessageDisplay
+    {
+        get
+        {
+            var message = _statusFailure is { } failure
+                ? UiText.Get("Registry_StatusCheckFailed", "Registry login status could not be checked: {0}",
+                    WslcSessionInventoryErrors.Describe(failure))
+                : _keyedStatus is { } status
+                    ? UiText.Get(status.Key, status.Fallback, status.Arguments)
+                    : UiText.Translate(StatusMessage);
+            return !_hasStatusSession ? message :
+                UiText.Get("Registry_StatusWithSession", "{0} · Last session: {1}",
+                    message, _statusSessionName ?? UiText.Get("WslEngine_Session_Default", "Default CLI session"));
+        }
+    }
 
     /// <summary>Text projected for the active UI language.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string PolicyInfoMessageDisplay => UiText.Translate(PolicyInfoMessage);
 
-    private readonly IWslcService _wslc;
     private readonly IAzureCliService _azure;
     private readonly ISettingsService _settings;
     private readonly DialogService _dialogs;
@@ -46,6 +60,15 @@ public partial class RegistriesViewModel : ObservableObject
     private readonly IRegistryCredentialStore _credentials;
     private readonly RegistryLogoutService _registryLogout;
     private readonly IWslPolicyService _policy;
+    private readonly IWslcSessionSelectionService _sessionSelection;
+    private readonly ILogger<RegistriesViewModel> _logger;
+    private readonly IWslcSettingsFileService _wslcSettings;
+    private bool _hasStatusSession;
+    private string? _statusSessionName;
+    private int _statusRefreshGeneration;
+    private (string Key, string Fallback, object?[] Arguments)? _keyedStatus;
+    private Exception? _statusFailure;
+    private CancellationTokenSource? _statusLifetime;
 
     /// <summary>Whether busy for view binding.</summary>
     [ObservableProperty]
@@ -55,6 +78,20 @@ public partial class RegistriesViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusMessageDisplay))]
     private string _statusMessage = "Manage the registries available when running or pulling images.";
+
+    partial void OnStatusMessageChanged(string value)
+    {
+        _keyedStatus = null;
+        _statusFailure = null;
+    }
+
+    private void SetKeyedStatus(string key, string fallback, params object?[] arguments)
+    {
+        StatusMessage = fallback;
+        _statusFailure = null;
+        _keyedStatus = (key, fallback, arguments);
+        OnPropertyChanged(nameof(StatusMessageDisplay));
+    }
 
     /// <summary>Whether policy info visible for view binding.</summary>
     [ObservableProperty]
@@ -69,9 +106,8 @@ public partial class RegistriesViewModel : ObservableObject
     public ObservableCollection<RegistryEntry> Registries { get; } = new();
 
     /// <summary>Creates the Registries view model and stores its injected services.</summary>
-    public RegistriesViewModel(IWslcService wslc, IAzureCliService azure, ISettingsService settings, DialogService dialogs, RegistryAuthRefresher authRefresher, IRegistryCredentialStore credentials, IWslPolicyService policy, RegistryLogoutService registryLogout)
+    public RegistriesViewModel(IAzureCliService azure, ISettingsService settings, DialogService dialogs, RegistryAuthRefresher authRefresher, IRegistryCredentialStore credentials, IWslPolicyService policy, RegistryLogoutService registryLogout, IWslcSessionSelectionService sessionSelection, ILogger<RegistriesViewModel> logger, IWslcSettingsFileService wslcSettings)
     {
-        _wslc = wslc;
         _azure = azure;
         _settings = settings;
         _dialogs = dialogs;
@@ -79,19 +115,29 @@ public partial class RegistriesViewModel : ObservableObject
         _credentials = credentials;
         _registryLogout = registryLogout;
         _policy = policy;
+        _sessionSelection = sessionSelection;
+        _logger = logger;
+        _wslcSettings = wslcSettings;
     }
 
     /// <summary>Refreshes load state for the view model.</summary>
-    public void Load()
+    public Task LoadAsync()
     {
+        StopStatusRefresh();
+        _statusLifetime = new CancellationTokenSource();
         RefreshPolicyInfo();
         Registries.Clear();
         foreach (var r in _settings.Registries)
         {
+            r.LoginState = RegistryLoginState.Unknown;
             Registries.Add(r);
         }
 
-        _ = RefreshLoginStatesAsync();
+        _hasStatusSession = false;
+        SetKeyedStatus("Registry_StatusNotChecked",
+            "Registry login status has not been checked. Select Refresh to try again.");
+        OnPropertyChanged(nameof(StatusMessageDisplay));
+        return Task.CompletedTask;
     }
 
     /// <summary>Refreshes policy info state for the view model.</summary>
@@ -114,11 +160,68 @@ public partial class RegistriesViewModel : ObservableObject
     /// Azure-backed registries that have lapsed are silently re-authenticated when possible. The
     /// built-in Docker Hub entry reflects the engine's stored credential (logged in vs anonymous).</summary>
     [RelayCommand]
-    private async Task RefreshLoginStatesAsync()
+    internal async Task RefreshLoginStatesAsync()
     {
-        // Docker Hub: read the engine's stored credential directly (an anonymous pull can't be
-        // distinguished from an authenticated one, so probing wouldn't reveal the login state).
-        ReconcileDockerHubState();
+        var ct = _statusLifetime?.Token ?? default;
+        try { await RefreshLoginStatesCoreAsync(ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+    }
+
+    /// <summary>Cancels page-owned status checks and dismisses any pending session chooser.</summary>
+    public void StopStatusRefresh()
+    {
+        _statusLifetime?.Cancel();
+        _statusLifetime?.Dispose();
+        _statusLifetime = null;
+        InvalidatePendingStatus();
+    }
+
+    private async Task RefreshLoginStatesCoreAsync(CancellationToken ct)
+    {
+        var version = Interlocked.Increment(ref _statusRefreshGeneration);
+        bool IsLatest() => version == Volatile.Read(ref _statusRefreshGeneration);
+        try
+        {
+            var choice = await _sessionSelection.ChooseActiveAsync(ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsLatest()) return;
+            if (choice is null)
+            {
+                MarkStatusNotChecked();
+                return;
+            }
+            await _sessionSelection.VerifyAsync(choice, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsLatest()) return;
+            var target = new SessionOperationTarget(choice, _sessionSelection.CreateClient(choice), _sessionSelection);
+            await RefreshLoginStatesForAsync(target, IsLatest, IsLatest, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+        {
+            _logger.LogWarning(ex, "Registry status session selection failed.");
+            if (IsLatest()) MarkStatusFailure(ex);
+        }
+    }
+
+    private async Task RefreshLoginStatesForAsync(
+        SessionOperationTarget target, Func<bool> isCurrent, Func<bool> isLatest, CancellationToken ct)
+    {
+        if (!isCurrent()) { if (isLatest()) MarkStatusUnavailable(); return; }
+        try
+        {
+            await target.VerifyAsync(ct);
+            await ReconcileDockerHubStateAsync(isCurrent);
+            await target.VerifyAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+        {
+            _logger.LogWarning(ex, "Registry status could not be checked for the chosen session.");
+            if (isLatest()) MarkStatusUnavailable();
+            return;
+        }
+        if (!isCurrent()) { if (isLatest()) MarkStatusUnavailable(); return; }
 
         foreach (var r in Registries.Where(x => x.HasHost))
         {
@@ -127,27 +230,41 @@ public partial class RegistriesViewModel : ObservableObject
 
         foreach (var r in Registries.Where(x => x.HasHost).ToList())
         {
-            var state = await _wslc.ProbeRegistryLoginAsync(r.Host, "wslcd-login-probe");
-
-            // Auto-refresh Azure registries whose token has expired, using the cached az
-            // session (no prompt). If that succeeds the row shows Logged in again.
-            if (state != Models.RegistryLoginState.LoggedIn && r.IsAzure)
+            try
             {
-                if (await TryAzureRefreshAsync(r))
+                async Task VerifyAsync(CancellationToken ct)
                 {
-                    state = Models.RegistryLoginState.LoggedIn;
+                    if (!isCurrent())
+                        throw new InvalidOperationException(UiText.Get("CombinedSession_ActionSessionChanged",
+                            "The session changed or is no longer available; refresh before taking action."));
+                    await target.VerifyAsync(ct);
                 }
+                await VerifyAsync(ct);
+                var state = await target.Client.ProbeRegistryLoginAsync(r.Host, "wslcd-login-probe", ct);
+                if (state != Models.RegistryLoginState.LoggedIn && r.IsAzure &&
+                    await _authRefresher.RefreshAsync(r, ct, sessionClient: target.Client, verifyTarget: VerifyAsync))
+                    state = Models.RegistryLoginState.LoggedIn;
+                await VerifyAsync(ct);
+                r.LoginState = state;
             }
-
-            r.LoginState = state;
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+            {
+                _logger.LogWarning(ex, "Registry status could not be checked for the chosen session.");
+                if (isLatest()) MarkStatusUnavailable();
+                return;
+            }
         }
+        if (!isCurrent()) { if (isLatest()) MarkStatusUnavailable(); return; }
+        SetKeyedStatus("Registry_StatusUpdated", "Registry login status updated.");
+        SetStatusSession(target.Selection);
     }
 
     /// <summary>
     /// Sets the Docker Hub row to "Logged in" (with the stored username) or "Anonymous" based on
     /// whether the engine has a stored credential for it.
     /// </summary>
-    private void ReconcileDockerHubState()
+    private async Task ReconcileDockerHubStateAsync(Func<bool> isCurrent)
     {
         var dockerHub = Registries.FirstOrDefault(r => r.IsDefault);
         if (dockerHub is null)
@@ -155,24 +272,83 @@ public partial class RegistriesViewModel : ObservableObject
             return;
         }
 
-        if (_credentials.IsLoggedIn(dockerHub.LoginServer, out var user))
+        string? backend;
+        try { backend = (await _wslcSettings.ReadAsync()).CredentialStore?.Trim(); }
+        catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+        {
+            _logger.LogWarning(ex, "Could not determine the registry credential backend.");
+            if (isCurrent()) dockerHub.LoginState = RegistryLoginState.Unknown;
+            return;
+        }
+        if (!isCurrent()) return;
+        if (!string.IsNullOrWhiteSpace(backend) &&
+            !backend.Equals("default", StringComparison.OrdinalIgnoreCase) &&
+            !backend.Equals("wincred", StringComparison.OrdinalIgnoreCase))
+        {
+            dockerHub.LoginState = RegistryLoginState.Unknown;
+            return;
+        }
+        var status = _credentials.GetLoginStatus(dockerHub.LoginServer, out var user);
+        if (status == RegistryCredentialStatus.Present)
         {
             dockerHub.Username = user;
             dockerHub.LoginState = Models.RegistryLoginState.LoggedIn;
         }
-        else
+        else if (status == RegistryCredentialStatus.Missing)
         {
             dockerHub.Username = null;
             dockerHub.LoginState = Models.RegistryLoginState.Anonymous;
         }
+        else dockerHub.LoginState = RegistryLoginState.Unknown;
     }
 
-    /// <summary>
-    /// Silently re-mints an ACR token from the cached Azure CLI session and logs the engine
-    /// back in. Returns false if the Azure session itself is gone (interactive sign-in needed).
-    /// </summary>
-    private Task<bool> TryAzureRefreshAsync(RegistryEntry registry) =>
-        _authRefresher.RefreshAsync(registry);
+    private void InvalidatePendingStatus()
+    {
+        Interlocked.Increment(ref _statusRefreshGeneration);
+        foreach (var registry in Registries.Where(item => item.LoginState == RegistryLoginState.Checking))
+            registry.LoginState = RegistryLoginState.Unknown;
+    }
+
+    private void SetStatusSession(WslcSessionSelection selection, bool clearOtherSessionStatus = false)
+    {
+        if (clearOtherSessionStatus && (!_hasStatusSession ||
+            !string.Equals(_statusSessionName, selection.Target.Name, StringComparison.Ordinal)))
+            foreach (var registry in Registries)
+                registry.LoginState = RegistryLoginState.Unknown;
+        _hasStatusSession = true;
+        _statusSessionName = selection.Target.Name;
+        OnPropertyChanged(nameof(StatusMessageDisplay));
+    }
+
+    private void MarkStatusUnavailable()
+    {
+        foreach (var registry in Registries)
+            registry.LoginState = Models.RegistryLoginState.Unknown;
+        _hasStatusSession = false;
+        SetKeyedStatus("Registry_StatusUnavailable",
+            "Registry login status could not be checked. Choose an active session and refresh.");
+        OnPropertyChanged(nameof(StatusMessageDisplay));
+    }
+
+    private void MarkStatusNotChecked()
+    {
+        foreach (var registry in Registries)
+            registry.LoginState = RegistryLoginState.Unknown;
+        _hasStatusSession = false;
+        SetKeyedStatus("Registry_StatusNotChecked",
+            "Registry login status has not been checked. Select Refresh to try again.");
+        OnPropertyChanged(nameof(StatusMessageDisplay));
+    }
+
+    private void MarkStatusFailure(Exception error)
+    {
+        foreach (var registry in Registries)
+            registry.LoginState = RegistryLoginState.Unknown;
+        _hasStatusSession = false;
+        _keyedStatus = null;
+        _statusFailure = error;
+        OnPropertyChanged(nameof(StatusMessageDisplay));
+    }
 
     /// <summary>Command handler for add actions triggered from the view.</summary>
     [RelayCommand]
@@ -200,7 +376,14 @@ public partial class RegistriesViewModel : ObservableObject
 
         if (dialog.LoginNow && !string.IsNullOrEmpty(dialog.Password))
         {
-            await LoginCoreAsync(entry, entry.Username ?? string.Empty, dialog.Password);
+            var target = await SessionOperationTarget.ChooseAsync(_sessionSelection, _dialogs, _logger);
+            if (target is null)
+            {
+                SetKeyedStatus("Registry_AddedWithoutSignIn",
+                    "Registry {0} was added, but sign-in did not start.", entry.Name);
+                return;
+            }
+            await LoginCoreAsync(entry, entry.Username ?? string.Empty, dialog.Password, target);
         }
         else
         {
@@ -243,7 +426,14 @@ public partial class RegistriesViewModel : ObservableObject
         // Log in with the Azure token so the registry is immediately usable.
         if (!string.IsNullOrEmpty(dialog.Token))
         {
-            await LoginCoreAsync(existing, dialog.TokenUsername, dialog.Token);
+            var target = await SessionOperationTarget.ChooseAsync(_sessionSelection, _dialogs, _logger);
+            if (target is null)
+            {
+                SetKeyedStatus("Registry_AddedWithoutSignIn",
+                    "Registry {0} was added, but sign-in did not start.", existing.Name);
+                return;
+            }
+            await LoginCoreAsync(existing, dialog.TokenUsername, dialog.Token, target);
         }
     }
 
@@ -256,6 +446,11 @@ public partial class RegistriesViewModel : ObservableObject
             return;
         }
 
+        var target = await SessionOperationTarget.ChooseAsync(_sessionSelection, _dialogs, _logger);
+        if (target is null) return;
+        InvalidatePendingStatus();
+        SetStatusSession(target.Selection, clearOtherSessionStatus: true);
+
         // Azure-backed registries re-authenticate through Azure, not a username/password prompt.
         if (registry.IsAzure)
         {
@@ -263,12 +458,28 @@ public partial class RegistriesViewModel : ObservableObject
             StatusMessage = $"Refreshing Azure sign-in for {registry.Name}…";
             try
             {
-                if (await TryAzureRefreshAsync(registry))
+                await target.VerifyAsync();
+                var refreshed = await _authRefresher.RefreshAsync(registry, sessionClient: target.Client,
+                    verifyTarget: token => target.VerifyAsync(token));
+                await target.VerifyAsync();
+                if (refreshed)
                 {
                     registry.LoginState = Models.RegistryLoginState.LoggedIn;
+                    SetStatusSession(target.Selection);
                     StatusMessage = $"Logged in to {registry.Name} using Azure.";
                     return;
                 }
+            }
+            catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+            {
+                _logger.LogWarning("Azure registry sign-in did not complete for the chosen session; details withheld.");
+                await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c00f6627f603", "Login failed"),
+                    ex is OperationCanceledException
+                        ? UiText.Get("CombinedSession_ActionOutcomeUnknown",
+                            "The action was cancelled or timed out. Its outcome may be unknown; refresh before retrying.")
+                        : UiText.Get("Registry_SessionLoginFailed",
+                            "Sign-in could not be completed for the chosen session. Refresh the session list and try again."));
+                return;
             }
             finally
             {
@@ -280,11 +491,20 @@ public partial class RegistriesViewModel : ObservableObject
             if (await _dialogs.ShowDialogAsync(azDialog) == Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary &&
                 azDialog.Registry is not null && !string.IsNullOrEmpty(azDialog.Token))
             {
+                try { await target.VerifyAsync(); }
+                catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+                {
+                    _logger.LogWarning("The chosen session changed before Azure registry sign-in.");
+                    await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c00f6627f603", "Login failed"),
+                        UiText.Get("Registry_SessionLoginFailed",
+                            "Sign-in could not be completed for the chosen session. Refresh the session list and try again."));
+                    return;
+                }
                 registry.IsAzure = true;
                 registry.SubscriptionId = azDialog.Registry.SubscriptionId;
                 registry.AzureAcrName = azDialog.Registry.AzureAcrName;
                 _settings.Save();
-                await LoginCoreAsync(registry, azDialog.TokenUsername, azDialog.Token);
+                await LoginCoreAsync(registry, azDialog.TokenUsername, azDialog.Token, target);
             }
 
             return;
@@ -292,23 +512,27 @@ public partial class RegistriesViewModel : ObservableObject
 
         var dialog = new RegistryLoginDialog(
             registry.Name, registry.Username, RegistryUsername.IsDockerHub(registry.LoginServer));
+        dialog.SetSession(target.Selection);
         if (await _dialogs.ShowDialogAsync(dialog) != Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
         {
             return;
         }
 
-        await LoginCoreAsync(registry, dialog.Username, dialog.Password);
+        await LoginCoreAsync(registry, dialog.Username, dialog.Password, target);
     }
 
     /// <summary>Helper for the login core workflow in this view model.</summary>
-    private async Task LoginCoreAsync(RegistryEntry registry, string username, string password)
+    private async Task LoginCoreAsync(RegistryEntry registry, string username, string password, SessionOperationTarget target)
     {
         username = RegistryUsername.Normalize(username, RegistryUsername.IsDockerHub(registry.LoginServer));
+        InvalidatePendingStatus();
+        SetStatusSession(target.Selection, clearOtherSessionStatus: true);
         IsBusy = true;
         StatusMessage = $"Logging in to {registry.Name}…";
         try
         {
-            var result = await _wslc.LoginRegistryAsync(registry.LoginServer, username, password);
+            await target.VerifyAsync();
+            var result = await target.Client.LoginRegistryAsync(registry.LoginServer, username, password);
             if (result.Success)
             {
                 // Remember the username for convenience (never the password).
@@ -320,6 +544,7 @@ public partial class RegistriesViewModel : ObservableObject
 
                 StatusMessage = $"Logged in to {registry.Name}.";
                 registry.LoginState = Models.RegistryLoginState.LoggedIn;
+                SetStatusSession(target.Selection);
             }
             else
             {
@@ -327,6 +552,17 @@ public partial class RegistriesViewModel : ObservableObject
                 StatusMessage = $"Login to {registry.Name} failed.";
                 registry.LoginState = Models.RegistryLoginState.LoggedOut;
             }
+        }
+        catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+        {
+            _logger.LogWarning("Registry sign-in did not complete for the chosen session; details withheld.");
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c00f6627f603", "Login failed"),
+                ex is OperationCanceledException
+                    ? UiText.Get("CombinedSession_ActionOutcomeUnknown",
+                        "The action was cancelled or timed out. Its outcome may be unknown; refresh before retrying.")
+                    : UiText.Get("Registry_SessionLoginFailed",
+                        "Sign-in could not be completed for the chosen session. Refresh the session list and try again."));
+            StatusMessage = $"Login to {registry.Name} failed.";
         }
         finally
         {
@@ -343,11 +579,14 @@ public partial class RegistriesViewModel : ObservableObject
             return;
         }
 
+        var target = await SessionOperationTarget.ChooseAsync(_sessionSelection, _dialogs, _logger, startDefault: false);
+        if (target is null) return;
+        if (!await ConfirmLogoutAsync(registry, target, removing: false)) return;
         IsBusy = true;
         StatusMessage = $"Logging out of {registry.Name}…";
         try
         {
-            var error = await TryLogoutAsync(registry);
+            var error = await TryLogoutAsync(registry, target);
             if (error is null)
             {
                 _settings.Save();
@@ -368,15 +607,25 @@ public partial class RegistriesViewModel : ObservableObject
     /// Logs out through the shared service and clears the row's login state only once completion is
     /// confirmed. Returns null on success, otherwise the localized reason the logout did not complete.
     /// </summary>
-    private async Task<string?> TryLogoutAsync(RegistryEntry registry)
+    private async Task<string?> TryLogoutAsync(RegistryEntry registry, SessionOperationTarget target)
     {
+        InvalidatePendingStatus();
+        SetStatusSession(target.Selection, clearOtherSessionStatus: true);
         RegistryLogoutResult result;
         try
         {
-            result = await _registryLogout.LogoutAsync(registry.LoginServer);
+            result = await _registryLogout.LogoutAsync(registry.LoginServer, sessionClient: target.Client,
+                verifyTarget: token => target.VerifyAsync(token));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
+            _logger.LogWarning(ex, "Registry logout was interrupted; its outcome may be unknown.");
+            return UiText.Get("CombinedSession_ActionOutcomeUnknown",
+                "The action was cancelled or timed out. Its outcome may be unknown; refresh before retrying.");
+        }
+        catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+        {
+            _logger.LogWarning(ex, "Registry logout failed for the chosen session.");
             return string.IsNullOrWhiteSpace(ex.Message)
                 ? UiText.Get("Resource_Text_441c9ae8b3cd", "Logout did not complete.")
                 : ex.Message;
@@ -401,6 +650,7 @@ public partial class RegistriesViewModel : ObservableObject
             ? Models.RegistryLoginState.Anonymous
             : Models.RegistryLoginState.LoggedOut;
         registry.Username = null;
+        SetStatusSession(target.Selection);
         StatusMessage = $"Logged out of {registry.Name}.";
         return null;
     }
@@ -414,46 +664,43 @@ public partial class RegistriesViewModel : ObservableObject
             return;
         }
 
-        var ok = await _dialogs.ShowConfirmAsync(
+        var confirmed = await _dialogs.ShowLocalizedConfirmAsync(() => (
             UiText.Get("Resource_Text_a5d663720ca0", "Remove registry"),
-            UiText.Get("Resource_Text_5641e0c6613e", "Remove \"{0}\" ({1})? This also logs out of it.", registry.Name, registry.Host),
-            UiText.Get("Resource_Text_e963907dac5c", "Remove"));
-        if (!ok)
-        {
-            return;
-        }
+            UiText.Get("Registry_RemoveListOnlyConfirmation",
+                "Remove \"{0}\" ({1}) from the shared list? Stored credentials will remain. To remove them, sign out before removing this entry.",
+                registry.Name, registry.Host),
+            UiText.Get("Resource_Text_e963907dac5c", "Remove"),
+            UiText.Get("Workload_Text_Cancel_19766e", "Cancel")));
+        if (!confirmed) return;
 
         IsBusy = true;
         try
         {
-            var error = await TryLogoutAsync(registry);
-            if (error is not null)
-            {
-                var removeAnyway = await _dialogs.ShowConfirmAsync(
-                    UiText.Get("Resource_Text_d2313d7e8a46", "Logout failed"),
-                    UiText.Get("Resource_Text_fb681c03faa9",
-                        "Logout did not complete, so a stored login may remain.\n\n{0}\n\nRemove \"{1}\" from the list anyway?",
-                        error, registry.Name),
-                    UiText.Get("Resource_Text_7365035604d7", "Remove anyway"));
-                if (!removeAnyway)
-                {
-                    StatusMessage = $"Logout of {registry.Name} failed.";
-                    return;
-                }
-            }
-
             _settings.Registries.Remove(registry);
             _settings.Save();
             Registries.Remove(registry);
-            StatusMessage = error is null
-                ? $"Removed {registry.Name}."
-                : $"{registry.Name} was removed, but its stored login may remain.";
+            SetKeyedStatus("Registry_RemovedListOnly", "Removed {0} from the list. Stored credentials were not changed.", registry.Name);
         }
         finally
         {
             IsBusy = false;
         }
     }
+
+    private Task<bool> ConfirmLogoutAsync(RegistryEntry registry, SessionOperationTarget target, bool removing) =>
+        _dialogs.ShowLocalizedConfirmAsync(() => (
+            removing ? UiText.Get("Resource_Text_a5d663720ca0", "Remove registry") :
+                UiText.Get("Registry_LogoutTitle", "Sign out of registry"),
+            removing
+                ? UiText.Get("Registry_RemoveSessionConfirmation",
+                    "Remove \"{0}\" ({1}) and sign out using session {2}? Registry credentials may be shared with other sessions.",
+                    registry.Name, registry.Host, target.DisplayName)
+                : UiText.Get("Registry_LogoutSessionConfirmation",
+                    "Sign out of \"{0}\" using session {1}? Registry credentials may be shared with other sessions.",
+                    registry.Name, target.DisplayName),
+            removing ? UiText.Get("Resource_Text_e963907dac5c", "Remove") :
+                UiText.Get("Registry_LogoutAction", "Sign out"),
+            UiText.Get("Workload_Text_Cancel_19766e", "Cancel")));
 
     /// <summary>Refreshes display projections after a UI language change.</summary>
     internal void RefreshLocalizedText()

@@ -12,6 +12,139 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+### Added
+
+- **Resource pages show active sessions together.** Containers, Images, Volumes, Networks, and
+  Endpoints include a Session column; opening or refreshing a page may wake an idle session.
+  Row actions target their resource's owning session.
+- **Manage app-created sessions** on the WSL Engine page, including stopping or restarting them
+  and choosing whether to keep their data when removing them. App-created sessions reopen when
+  the app starts. Sessions created elsewhere can be stopped without deleting their data.
+- **Choose a session for new containers, images, volumes, networks, new or unassigned Compose projects, registry actions, local AI setup, and cleanup**
+  when multiple sessions are active. A single active session is used automatically; a new workload
+  starts Default CLI if none are active. Cleanup and sign-out require a running session, and saving
+  a Compose import does not start one.
+- **Dev Containers remember their owning session.** Existing unassigned workspaces choose a session
+  before their first action; an existing container must be verified before it can be changed.
+- **Assistant actions choose a session when needed.**
+  Saved Compose projects continue to use their assigned session.
+- **Filter and sort resource lists** on Containers, Images, Volumes, Networks, and Endpoints.
+  The compact filter button opens search and sort options; sortable headings remain available in
+  table views. An active filter is indicated on the button.
+- **Automatic actions identify their owning session.** Older health and restart rules, Compose
+  projects, and automatic-start history stay paused until assigned on the WSL Engine page.
+  A persistent warning and Windows notification call attention to actions that need a choice
+  or are waiting; the in-app warning remains if notifications are disabled.
+
+### Changed
+
+- **The shell status indicator now covers all observed sessions**, not just the Default CLI session.
+  Hover for per-session status, container counts and check times, or click for a persistent details
+  panel with a link to the WSL engine page. Paused and stale sessions are distinguished from failures.
+  The indicator reuses existing observations without extra polling or waking sessions.
+  Removing a session is shown as normal progress, not a new problem; completed removals update
+  the indicator immediately instead of waiting for the next background scan.
+- **Stopping a session pauses its automatic actions without an attention warning.**
+  Starting it again retries remembered automatic-start work and resumes supervision without
+  requiring a manual retry. Real failures and unassigned older actions still appear when needed.
+  Attention-banner buttons now use the standard inline action layout.
+  Normal restarts also wait for a fresh observation before reporting availability problems,
+  avoiding a brief false warning and Windows notification while supervision reconnects.
+
+- **Lower multi-session monitoring overhead.** Sessions tracked only for automatic startup use
+  batched container lists without health inspections or idle health/restart watchdogs. Startup scans
+  have a five-second budget and rotate deferred sessions, preventing a slow startup-only session
+  from indefinitely delaying the next supervision sweep.
+- **Dashboard refreshes do less work.** Container inventories still refresh about every 15 seconds,
+  while image, volume and network inventories are reused for up to a minute. Statistics wait two
+  to five seconds between batches depending on the number of reporting sessions; an empty dashboard
+  waits 15 seconds. Refresh still requests a full current inventory.
+- **Returning to resource pages reuses complete inventory up to 15 seconds old.** Container sizes
+  are scanned only on Refresh, not when opening or showing the page. GPU/network checks load only
+  for rows on screen, with at most four active checks; scrolling away cancels their work. Bounded,
+  identity-qualified GPU results are shared between pages. Container detail and size checks cancel
+  when hidden or when leaving the page.
+
+- **Disk usage opens with all active sessions** instead of asking for a session. Partial scans are
+  labeled; cleanup still chooses and confirms one session at a time.
+- **Registries opens its shared list without a session prompt.** Choose a session when checking
+  login status or performing a session-specific sign-in or sign-out.
+- **There is no global management-session selector.** Choose a session when an action needs one;
+  existing resources and projects keep their owner. Registry status checks and Compose session
+  restarts also select their target at the point of use.
+- **Activity includes recent events from active sessions** while the page is visible, identifies
+  their session, and reports incomplete reads. Checking sessions can wake idle session VMs.
+- **Default CLI status and availability notifications identify that session**, rather than implying
+  that every active session has gone down.
+- **The dashboard now summarizes all active sessions**, including session-qualified live
+  performance. It identifies incomplete data and can wake idle sessions while visible.
+- **Automatic actions follow their containers across available sessions.**
+  Restart-on-launch tracks running containers across sessions when enabled.
+  Background observation can wake idle sessions and use additional power and resources.
+- **Containers remain in a table at narrower window widths**, with cards reserved for smaller layouts.
+- **Compact image, volume, network, and endpoint views keep their row actions visible** instead of
+  clipping the right side of the table.
+- **Older activity events and stopped-container notifications without a recorded session no longer
+  open logs automatically.** Choose the container from the combined list to avoid opening another
+  session's logs. New engine events and stopped-container notifications remember their session.
+
+### Fixed
+
+- Live container updates no longer attach a recreated session's containers to its previous
+  session identity. Refresh the resource page to load the replacement session safely.
+- Dashboard inventory scans stop when leaving the dashboard or hiding the window, unless
+  another page still needs the same scan.
+- Dashboard statistics and GPU checks cancel active and queued reads when the window is hidden,
+  minimized, or the display turns off, avoiding unnecessary session activity until it is visible again.
+
+- **Automatic start no longer starts a different container with the same name.** A missing or
+  unidentifiable saved container stays pending for review rather than transferring its restart intent.
+- **Cleanup and sign-out offer only active sessions**, and actions reject sessions whose identity
+  cannot be verified. Shared registry entries can be removed without starting a session; unlike
+  before, removing an entry leaves credentials in place, so sign out first to remove them.
+- **Disk usage no longer counts unknown image usage or unknown and paused container states as
+  reclaimable.** Image tags that may have moved are treated as unknown, not as proof that an image
+  is unused. Leaving Disk usage cancels its pending scan.
+- **Navigation status messages no longer run off the sidebar.** The sidebar is narrower, and long
+  status details wrap with the full message available on hover.
+- **Local AI settings no longer claim Ollama is selected as the provider** merely because a
+  same-named container exists; ownership is checked before the app manages that container.
+- **The selected AI provider label updates when the display language changes**, without changing
+  the provider selection.
+- **Compose project status no longer reverts to an older result** when page refreshes overlap.
+- **Local AI availability no longer reverts to an older scan** after another scan or setup/removal.
+- **Stopping the default CLI session now shows progress and recovery guidance** instead of
+  treating the intentional stop as an engine outage. Its data and automatic-start history are kept;
+  while the app stays open, use Start or Resume in the session list to let it use that session again.
+- **Dashboard performance stays in a table while navigation is expanded**, and stable readings no
+  longer flash back to “Reading live statistics” on every inventory refresh.
+- **Creating a container in a newly observed session no longer triggers a false automatic-action
+  warning** while automatic-start tracking initializes. Real session and recovery failures still
+  need attention.
+- **Removing a session no longer raises misleading warnings while it is being removed.**
+  Existing and unrelated problems remain visible, and interrupted removal still needs attention.
+- **Session removal shows progress and clears its automatic-start tracking.** Removing a session
+  clears its tracking when its owner can be identified. For sessions removed earlier, you can explicitly
+  forget their tracking without deleting container data or other settings.
+- **Uploading files to containers in named sessions works correctly.** The upload keeps its
+  original session target while the archive is prepared.
+- **Session changes no longer publish stale container status or reuse another session's event
+  cursor.** A chosen session is rechecked before an action, rather than silently switching to
+  Default CLI if it disappears.
+- **Local AI provider selection is now retained after removing an app-managed runtime**, rather
+  than being cleared based on only one session. Start another runtime or select another provider
+  if the retained provider no longer connects.
+- **Reclaim Space and template operations keep their original session throughout multi-step work.**
+  Reclaim Space scans the chosen session before confirmation and refuses stale session data.
+- **Volumes and Networks reject rows from an earlier session or engine** and keep multi-step
+  operations targeted to their original selection.
+- **Image and container operations reject stale rows after a session change.** Container log
+  streams now follow the container's owning session, and staged file previews are kept separate by session.
+- **Automatic-start history and manual-stop intent no longer leak between sessions.** Assigned
+  automatic-start work waits for its session instead of creating a replacement, and failed settings
+  saves are visible. Unreadable settings are preserved, with automatic actions paused and a warning
+  explaining that the settings need repair.
+
 ## [2.4.0] — 2026-10-22
 
 ### Added

@@ -30,7 +30,8 @@ public sealed class RegistryAuthRefresher(IWslcService wslc, IAzureCliService az
     /// token from the cached az session and re-logs the engine in. No-ops for non-Azure
     /// references or when the az session has expired. Best-effort — never throws.
     /// </summary>
-    public async Task EnsureFreshForReferenceAsync(string reference, CancellationToken ct = default)
+    public async Task EnsureFreshForReferenceAsync(string reference, CancellationToken ct = default,
+        IWslcService? sessionClient = null, Func<CancellationToken, Task>? verifyTarget = null)
     {
         if (string.IsNullOrWhiteSpace(reference))
         {
@@ -49,12 +50,13 @@ public sealed class RegistryAuthRefresher(IWslcService wslc, IAzureCliService az
             r.IsAzure && string.Equals(r.Host, host, StringComparison.OrdinalIgnoreCase));
         if (registry is not null)
         {
-            await RefreshAsync(registry, ct).ConfigureAwait(false);
+            await RefreshAsync(registry, ct, sessionClient, verifyTarget).ConfigureAwait(false);
         }
     }
 
     /// <summary>Silently re-authenticates one Azure registry. Returns true on success.</summary>
-    public async Task<bool> RefreshAsync(RegistryEntry registry, CancellationToken ct = default)
+    public async Task<bool> RefreshAsync(RegistryEntry registry, CancellationToken ct = default,
+        IWslcService? sessionClient = null, Func<CancellationToken, Task>? verifyTarget = null)
     {
         if (!registry.IsAzure || string.IsNullOrWhiteSpace(registry.AzureAcrName) ||
             string.IsNullOrWhiteSpace(registry.SubscriptionId))
@@ -62,6 +64,7 @@ public sealed class RegistryAuthRefresher(IWslcService wslc, IAzureCliService az
             return false;
         }
 
+        (string LoginServer, string Token)? token;
         try
         {
             if (string.IsNullOrWhiteSpace(await azure.GetSignedInUserAsync(ct).ConfigureAwait(false)))
@@ -69,17 +72,30 @@ public sealed class RegistryAuthRefresher(IWslcService wslc, IAzureCliService az
                 return false; // az session gone; needs interactive sign-in.
             }
 
-            var token = await azure.GetAcrTokenAsync(registry.AzureAcrName, registry.SubscriptionId, ct)
+            token = await azure.GetAcrTokenAsync(registry.AzureAcrName, registry.SubscriptionId, ct)
                 .ConfigureAwait(false);
             if (token is null)
             {
                 return false;
             }
 
-            var login = await wslc.LoginRegistryAsync(registry.Host, registry.Username ?? string.Empty, token.Value.Token, ct)
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to refresh Azure registry login for {Host}.", registry.Host);
+            return false;
+        }
+
+        if (verifyTarget is not null)
+            await verifyTarget(ct).ConfigureAwait(false);
+        try
+        {
+            var login = await (sessionClient ?? wslc).LoginRegistryAsync(registry.Host, registry.Username ?? string.Empty, token.Value.Token, ct)
                 .ConfigureAwait(false);
             return login.Success;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to refresh Azure registry login for {Host}.", registry.Host);
@@ -87,4 +103,3 @@ public sealed class RegistryAuthRefresher(IWslcService wslc, IAzureCliService az
         }
     }
 }
-

@@ -18,6 +18,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Services;
 using WslContainerDesktop.ViewModels;
 
 namespace WslContainerDesktop.Dialogs;
@@ -38,7 +39,11 @@ public sealed partial class ComposePreviewDialog : ContentDialog
         ViewModel = new(preview);
         InitializeComponent();
         PrimaryButtonClick += (_, args) => args.Cancel = !ViewModel.CanApply;
+        Loaded += (_, _) => UiText.LanguageChanged += OnLanguageChanged;
+        Unloaded += (_, _) => UiText.LanguageChanged -= OnLanguageChanged;
     }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => Bindings.Update();
 
     protected override void OnApplyTemplate()
     {

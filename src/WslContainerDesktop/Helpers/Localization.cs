@@ -55,6 +55,8 @@ public static class Localization
         {
             if (property.EndsWith("AutomationProperties.Name", StringComparison.Ordinal))
                 AutomationProperties.SetName(element, value);
+            else if (property.EndsWith("AutomationProperties.HelpText", StringComparison.Ordinal))
+                AutomationProperties.SetHelpText(element, value);
             else if (property.EndsWith("ToolTipService.ToolTip", StringComparison.Ordinal))
                 ToolTipService.SetToolTip(element, value);
             else

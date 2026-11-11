@@ -45,6 +45,8 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Templates gallery** — a catalog of curated stacks: databases, web tools, **Azure emulators** (Azurite, Cosmos DB, Service Bus, Event Hubs), developer sandboxes, and multi-service Compose projects. **Launch** uses sensible defaults; Compose stacks show a compatibility review before deployment. A template can be launched more than once — each repeat gets its own name, ports and volumes — and Remove asks which deployment to remove. A per-card **Settings** button lets you configure first, and your choices are remembered for next time.
 - **Image update badges** — **Check for updates** compares your local image digests against the registry and flags out-of-date images with an **↓ Update** badge; click it to pull the newer version.
 - **Endpoints dashboard** — every published port across all running containers in one list, with clickable `localhost` links that open in your browser or copy to the clipboard.
+- **Combined resource lists** — Containers, Images, Volumes, Networks, and Endpoints show active
+  WSLC sessions together, with a Session column and actions targeted to each row's session.
 - **Bulk actions** — a **Select** mode on the Containers, Images, Volumes, and Networks lists lets you multi-select rows and start, stop, or remove many at once.
 - **Activity feed** — a persisted, filterable timeline of engine, container, network, and image events, fed live by `wslc events` (start/stop/create/destroy, network connect/disconnect, pull/build, engine up/down) so you can see what happened and when. Live events also refresh the UI immediately instead of waiting for the next poll.
 - **Built-in Kubernetes** — install a single-node **k3s** cluster into WSL and manage nodes, deployments, pods, services, and more, with port-forwarding and "Apply YAML".
@@ -55,7 +57,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 - **Live everywhere** — a background monitor drives per-container performance meters, the tray icon, and the status indicators without you lifting a finger.
 - **Options explained in place** — options whose effect isn't obvious explain what the engine flag does and when to use it: checkboxes, switches and fields (for example **All tags**, **--rm**, **Stop timeout**, **Internal network**) have an (i) to hover or click, and buttons (for example **Restart**, **Kill**, **Export filesystem**) explain themselves on hover.
 - **Lives in the tray** — minimize to a system-tray icon whose color reflects engine health, with a live running-container count and quick start/stop actions.
-- **Toast notifications** — actionable Windows toasts for pull/build, container-stopped, and engine down/recovered events; user-toggleable and globally mutable.
+- **Toast notifications** — actionable Windows toasts for pull/build, container-stopped, and Default CLI session availability events; user-toggleable and globally mutable.
 - **Disk-usage & cleanup center** — see what images, containers, and volumes consume, what's reclaimable, and prune it all with one click.
 
 ---
@@ -64,7 +66,7 @@ A native **WinUI 3 / .NET 10** desktop application for managing **WSL containers
 
 <p align="center">
   <img src="docs/screenshots/dashboard.png" alt="Dashboard" width="960"><br>
-  <sub><b>Dashboard</b> — summary cards, a total-CPU meter, and a live per-container performance table.</sub>
+  <sub><b>Dashboard</b> — summary cards, combined container CPU, and a live per-container performance table.</sub>
 </p>
 
 <table>
@@ -314,7 +316,7 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 
 ### First run
 
-1. Launch the app — the **Dashboard** shows your engine status and any running containers.
+1. Launch the app — the **Dashboard** summarizes active sessions and their running containers.
 2. Head to **Images → Pull image** to fetch something (e.g. `nginx:alpine`).
 3. Go to **Containers → Run a container**, pick the image, map a port, and click **Run**.
 4. *(Optional)* Open **Kubernetes** and click **Install** to spin up a local k3s cluster.
@@ -326,10 +328,23 @@ Or open `WslContainerDesktop.slnx` in Visual Studio 2022/2026, select the **x64*
 ## Feature tour
 
 ### Dashboard
-- Summary cards: **running / total containers**, **image count**, **volume count**, and **engine status** with version.
-- A **Total CPU usage** meter across all containers.
-- A **live performance table** of every running container — CPU %, memory, network I/O, and block I/O — refreshing continuously with inline progress bars. Click a row to open that container's detail page.
-- Status indicators for the container engine and the Kubernetes cluster, both in the nav footer and the bottom status bar.
+- Summary cards cover running / total containers, images, volumes, and the number of active sessions.
+  The dashboard also
+  reports active sessions, network and endpoint counts, inventory age, and incomplete reads.
+- **Combined container CPU** is the sum of reported container percentages. It can exceed 100% and
+  is not host CPU usage; incomplete statistics are shown as unavailable rather than zero.
+- The **live performance table** identifies each container's session and shows CPU, memory, network
+  I/O, and block I/O. It stays in table form while the navigation pane is expanded; narrow views
+  use cards. Click a row to open that container in its owning session. The last valid reading and
+  its update time remain visible during an inventory refresh when the container identities match.
+- While the dashboard is visible, it refreshes the inventory and live statistics across active
+  sessions. These reads may wake idle session VMs and keep them active; polling pauses when the
+  window is hidden, minimized, or the display is off.
+  Container inventories refresh about every 15 seconds; images, volumes and networks may be up to
+  a minute old. Statistics wait two to five seconds between batches as session count increases.
+  An empty dashboard waits 15 seconds. Use Refresh for a full current inventory.
+- Status indicators for the **Default CLI session** and the Kubernetes cluster appear in the nav
+  footer and bottom status bar; the session list on WSL engine shows the other active sessions.
 
 ### Containers
 - Live list with color-coded state (green = running) and inline row actions.
@@ -401,13 +416,98 @@ directory. Workspaces without host initialization commands are unaffected.
 ### Endpoints
 - A unified, at-a-glance view of **every published port across all running containers** in one place, reachable from the **Endpoints** entry in the navigation pane.
 - Each row shows the container, host port, container port/protocol, and a clickable **`localhost:<port>`** address that **opens in your browser** (for TCP endpoints) or can be **copied** to the clipboard.
-- Updates live from the same engine poll as the dashboard and tray.
+- The Default CLI session updates from the same engine poll as the tray; other
+  sessions are read when the page opens or you refresh it.
+
+### Viewing active sessions
+- The sidebar status dot and footer summarize all observed sessions. Hover for names, status,
+  running-container counts and last-check times, or click the sidebar indicator to keep details
+  open and navigate to the WSL engine page. Green means responding, not that every container is
+  healthy; amber means attention, red means a failed observation, and gray means paused or not
+  recently checked. Opening details does not issue engine commands or wake sessions.
+- Containers, Images, Volumes, Networks, and Endpoints load all active sessions when opened or
+  refreshed and show each resource's session in the existing list. Changing the engine path clears
+  the snapshot. The dashboard refreshes its all-session totals while visible and shows the oldest
+  read time and any incomplete results. Background automatic actions observe the
+  sessions they need, independently of whether a resource page is open.
+- Returning to a resource page can reuse a complete inventory up to 15 seconds old. Container sizes
+  are scanned on Refresh, not on navigation or window activation. GPU/network details load for rows
+  on screen with at most four active checks, and scrolling away cancels them. GPU display results
+  are shared between pages for up to five minutes when the running-instance identity is known.
+  Sessions needed only for startup history do not run health/restart watchdogs. Their scans have a
+  five-second budget per sweep; slow or deferred sessions rotate into later sweeps.
+- Use the filter button beside the actions on Containers, Images, Volumes, Networks, and Endpoints
+  to search their displayed information. The button says **Filtered** while a search is active.
+  Sort using column headings or the button's sort controls, including in compact layouts. Container
+  sorting stays within each Compose or Standalone group. Bulk actions apply only to selected rows
+  still visible after filtering.
+- Container rows offer start, stop, restart, removal, inspection, logs, statistics, terminal access,
+  file upload, and file or folder download. Image, volume, and network rows can be inspected or
+  removed; built-in networks are protected, and volume removal confirms its current creation time
+  before revalidating it. TCP endpoints with a valid host address can be opened in a browser after
+  rechecking the running container and port. Each operation targets the row's session.
+- Loading or acting on an active but idle session may wake its VM. Errors, unavailable sessions,
+  unknown ports, and incomplete totals are shown instead of treating them as empty. A session or resource that
+  changes while an action is prepared must be refreshed before retrying. Session revalidation is
+  not an atomic transaction with a CLI command, and actions across sessions are not rolled back.
+- New containers, image pulls/builds/imports, resource creation and cleanup, registry sign-in,
+  local AI setup, new or unassigned Compose projects, and template launches use the only active
+  session automatically or ask which session to use when more than one is active. If none are
+  active, a new workload starts the Default CLI session. Cleanup, sign-out, and stopping existing
+  work require a running session instead of starting one just for a confirmation. Saving a Compose
+  import without applying it does not start a session. Existing resources and assigned projects use
+  their owning session when known.
+  Assistant actions also choose a session when needed; if the selected session is not running,
+  start it separately before requesting the action again. If an action's chosen session disappears,
+  the action stops instead of silently switching to another session. Rows require a fresh scan after changing the
+  engine path or when their session changes. Kubernetes remains separate.
+- Opening Settings checks active sessions for the app-managed local AI runtime; this one-time check
+  can wake an idle session. Removing that runtime keeps the selected AI provider, because another
+  session or an external runtime might still be using it.
+- **Automatic actions need a session.** Existing health and restart rules, Compose projects, and
+  automatic-start work pause normally when you stop their session, without an attention warning.
+  Starting the session again resumes them and retries remembered starts automatically.
+  The attention section appears only for issues that need help, not ordinary session stops.
+  Older rules, projects, and automatic-start history without an owner stay paused until you assign them on the WSL Engine
+  page. Choices are saved across restarts. Health checks, restart policies, and Compose recovery
+  run in each available owning session.
+  When restart-on-launch is enabled, running containers are tracked across available sessions.
+  Monitoring can wake idle session VMs and increase power and resource use. If a session cannot
+  be observed or an observation becomes stale, its actions pause and the app reports the problem.
+  Assigned automatic-start work waits for its own session and retries when it becomes available,
+  without creating an unavailable named session. A remembered container is restarted only when
+  its saved ID still matches; a same-named replacement or an entry without an ID is not started.
+  Review the warning on WSL Engine and, if appropriate, forget that session's tracking and start
+  the replacement yourself. The app shows a persistent warning and sends a
+  Windows notification when attention is needed; if notifications are disabled, the warning
+  remains in the app. A failed settings save is also shown instead of silently losing changes.
+  If saved settings cannot be read, automatic actions pause and the original settings file is
+  preserved until it is repaired and the app is restarted. For an unavailable session you no longer
+  need, **Forget tracking** removes only that session's automatic-start history after confirmation;
+  it does not delete container data or other settings. If the session becomes active again and
+  automatic start is enabled, the app may begin tracking it again.
+- **Manage sessions on WSL Engine.** Create, start, stop, and remove sessions made by the app;
+  they start again when the app opens. Removing one shows progress and lets you delete its data or
+  keep it on disk. Its automatic-start history is forgotten when its owner can be identified;
+  a remaining warning can be reviewed and cleared explicitly if ownership is uncertain.
+  Expected session-unavailable messages do not appear during removal; existing and unrelated
+  problems remain visible, and interrupted removal is reported.
+  Kept data is no longer reopened automatically, and the app's local data may be removed on uninstall.
+  You can also stop sessions made by another app after a warning, without deleting their data.
+  WSL does not support renaming sessions. Session names are visible to other users of the PC.
 
 ### Activity
 - A persisted **timeline of engine, container, network, and image events**, reachable from the **Activity** entry in the navigation pane.
-- Fed **live by `wslc events`**: container create/start/stop/kill/destroy (with exit codes) and network create/connect/disconnect/destroy arrive as they happen, alongside **engine up/down** from the background monitor and **image pull/build** outcomes (successes and failures) recorded directly — independent of your toast-notification settings. When first opened it loads the last hour of engine events so the page isn't empty.
-- A connection indicator shows whether the live stream is connected; if it drops, the app reconnects automatically without missing events, and the regular background poll keeps everything up to date meanwhile.
-- **Filter** by category (All / Engine / Container / Network / Image) or free text, **Pause** the live view, and click a container event to open that container. Each entry shows an icon, title, optional detail, a category chip, and an **absolute date &amp; time**.
+- Recent **container, network, image, and engine events** are read from all active sessions when
+  the page is visible and refreshed approximately every 30 seconds; each event identifies its
+  session when known. The first read covers up to one hour. Inactive sessions and older gaps may
+  not appear. Partial failures are shown, and reads may wake idle sessions.
+- The Default CLI session also has a background live event stream. Image pull/build outcomes and
+  engine status changes are recorded independently of toast-notification settings.
+- **Filter** by category (All / Engine / Container / Network / Image) or free text and **Pause** the
+  live view. New engine events and stopped-container notifications remember their session;
+  for older entries without one, choose the container from the list when opening logs. Each entry shows an icon,
+  title, optional detail, a category chip, and an **absolute date &amp; time**.
 - Events **persist to disk** (a rolling 500-event log) so the timeline survives restarts; **Clear** empties it.
 
 ### Bulk actions
@@ -417,10 +517,24 @@ directory. Workspaces without host initialization commands are unaffected.
 ### Disk usage
 - A holistic **disk-usage & cleanup center**, reachable from the **Disk usage** entry at the bottom of the navigation pane (next to Settings), that summarizes how much space **images**, **containers**, and **volumes** consume and how much is reclaimable.
 - Lists the **largest images**, **dangling images**, and **confirmed-unused volumes** from the current inventory/inspect snapshot. Missing metadata and estimates are not counted as unused.
-- **One-click prune** for dangling images, stopped containers, and unused volumes — or **Reclaim all** at once — each with an explicit confirmation and before/after freed-space feedback. Reuses the existing per-resource prune commands.
-- Space held by stopped containers is the engine's exact writable-layer size, and the page shows where container storage lives, with a link to change it on the WSL engine page.
+- Opening or refreshing the page scans all active sessions without asking for a destination.
+  Lists identify their owning sessions, and incomplete scans are identified; these reads may wake idle sessions.
+  Leaving the page cancels its scan. Missing image usage or container state is reported as unknown
+  rather than counted as reclaimable. A container's image tag alone cannot prove usage, since tags
+  can move; the app needs an image ID to determine which image is held.
+- **One-click prune** for dangling images, stopped containers, and unused volumes — or **Reclaim all** at once. Choose a session when needed; the page scans that session before confirmation and reports before/after freed space.
+- Space held by stopped containers uses the engine's writable-layer sizes when available; missing
+  sizes are shown as unknown. The page also shows the default CLI session's storage location,
+  with a link to change it on the WSL engine page.
 
 ### Registries
+- Registry login-status checks, sign-in, and sign-out choose the session for the engine command.
+  The shared registry list opens without choosing a session; status remains unknown until checked.
+  Status is labeled with the last session checked. Credentials may be
+  shared across sessions, depending on the configured credential store; signing out can affect
+  other sessions as well.
+- **Remove registry** removes only its shared list entry and leaves stored credentials unchanged.
+  To remove credentials, sign out before removing the entry.
 - A managed list of container registries used by the Run / Pull / Build / Push dialogs, with **Docker Hub** built in as the default.
 - **Add registry** — register any public or private registry by host, with optional sign-in.
 - **Add from Azure** — a guided wizard that verifies the Azure CLI, signs you in, lists your subscriptions and Azure Container Registries, and adds the one you pick. It authenticates using your **Azure identity** (a short-lived token via `az acr login --expose-token`), so **no admin username, password, or key is required**.
@@ -447,8 +561,13 @@ directory. Workspaces without host initialization commands are unaffected.
 
 ### WSL engine
 - A dedicated **WSL engine** page for the platform underneath the containers.
-- **Container session selector** — switch between the default CLI session and named sessions created by apps using the WSL Containers API. Container, image, volume and network operations follow the selected session; sessions remain isolated from one another.
-- **Restart WSL session** and **Shut down WSL** — the quickest recovery when the engine gets into a bad state.
+- **Session list** — see and manage active sessions. Actions choose a session when needed;
+  resources stay with their owning session. The Default CLI status card describes only that session.
+- **Stopping the default CLI session** keeps its data and pauses this app's operations and
+  automatic actions for that session. Use **Start** or **Resume** in the session
+  list to let the app use it again. Other apps can start it independently; reopening this app may
+  also start it and containers configured for automatic start.
+- **Restart WSL session** chooses an active session when needed and confirms which one will stop. **Shut down WSL** stops all WSL distributions.
 - **WSL updates** — shows your installed version against the latest available, with **Update now**. Installing an update needs administrator permission; the app says so up front and, while the update runs, shows how to find the Windows prompt if it only appears as a flashing shield on the taskbar. Updates come from the stable channel, which carries WSL containers since 3.0.1; an **Include early-access (pre-release) WSL builds** toggle (off by default) opts into preview builds. If you had turned on pre-release updates for the container preview, the app switches you back to the stable channel once; turn it on again if you want it.
 - **Container storage** — where the default session keeps images, containers, and volumes, and how large its disk is. **Change location…** points `session.storagePath` at an empty folder you choose (for example on a larger drive); **Reset to default** returns to `%LOCALAPPDATA%\wslc\sessions`. Existing images, containers, and volumes are **not moved** — they stay in the old location until you delete them — and the session restarts before the new location is used. Under **Container session settings**, the session's CPU, memory, maximum disk size, default port-binding address, and credential store are shown read-only; **Edit settings file** opens `settings.yaml` to change them.
 - **Platform info** — WSL version and kernel, plus the memory and processor limits currently in effect from `.wslconfig`.
@@ -494,7 +613,7 @@ Raw approved values stay in execution memory and may be passed to workload servi
 </details>
 
 ### Notifications
-- **Windows toast notifications** for noteworthy events: image pull/build completed or failed, a container that stopped running (at most one per container per minute, and not for containers you stopped yourself), and the engine going down or recovering.
+- **Windows toast notifications** for noteworthy events: image pull/build completed or failed, a container that stopped running (at most one per container per minute, and not for containers you stopped yourself), and the Default CLI session becoming unavailable or recovering.
 - **Clicking a toast** activates the app and opens the relevant page.
 - **App updates** — when a newer release is available, a toast with an **Update now** button (see [Updating](#option-a-install-a-release-recommended-for-users)).
 - **User-toggleable** in Settings — a master *Show notifications* switch plus per-category switches (images, containers, engine) — and globally mutable from the tray menu.

@@ -231,6 +231,8 @@ public sealed class ComposeNetworkOrchestratorTests
         public Dictionary<string, List<PortMapping>> PublishedPorts { get; } = new();
         public Dictionary<string, string> NetworkInspectionOverrides { get; } = new();
         public List<ImageInfo> Images { get; } = [new() { Id = "sha256:fixture-v1", Repository = "fixture", Tag = "latest" }];
+        public IReadOnlyList<WslcSessionInfo> ActiveSessions { get; set; } =
+            [new() { ID = 1, CreatorPid = 100, Name = "first" }];
         public List<string> Mutations { get; } = new();
         public List<string> Reads { get; } = new();
         public string? FailNetwork { get; init; }
@@ -274,6 +276,8 @@ public sealed class ComposeNetworkOrchestratorTests
                 ct.ThrowIfCancellationRequested();
                 switch (method.Name)
                 {
+                    case nameof(IWslcService.GetSystemInfoAsync):
+                        return Task.FromResult(new WslcSystemInfo { Server = new WslcServerInfo { Sessions = ActiveSessions } });
                     case nameof(IWslcService.VerifyBindMountAsync):
                         return Task.FromResult(VerifyBindMount?.Invoke((string)args[0]!) ?? BindMountProbeResult.MountsAsFile);
                     case nameof(IWslcService.ListContainersAsync):

@@ -39,6 +39,13 @@ public sealed partial class AssistantToolset
             "down_compose_project" => ComposeLifecycleOperation.Down,
             _ => throw new InvalidOperationException("Unsupported project operation."),
         };
+        if (project.SessionOwner?.IsValid != true && operationDestination is not null &&
+            operation == ComposeLifecycleOperation.Up)
+        {
+            project = ComposeProjectSupervisor.SnapshotProject(project);
+            project.SessionOwner = AutomationSessionOwner.Capture(
+                operationDestination.ExecutablePath, operationDestination.Target);
+        }
         var review = await composeSupervisor.PrepareReviewAsync(project,
             new ComposeOperationRequest { Operation = operation }, ct).ConfigureAwait(false);
         return await BindComposeReviewAsync(call, review, () =>

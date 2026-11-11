@@ -40,7 +40,10 @@ public sealed partial class AssistantToolset(
     IRegistryCatalogService registryCatalog,
     IWslcCapabilitiesService? engineCapabilities = null,
     IHealthObservationSource? healthObservations = null,
-    IAppHealthObservationSource? appHealthObservations = null) : IAssistantToolset
+    IAppHealthObservationSource? appHealthObservations = null,
+    WslcSessionContext? sessionContext = null,
+    IAssistantSessionResolver? sessionResolver = null,
+    WslcSessionSelection? operationDestination = null) : IAssistantToolset
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -154,7 +157,13 @@ public sealed partial class AssistantToolset(
     {
         ct.ThrowIfCancellationRequested();
         var args = ValidateArgs(call);
-        return call.Name switch
+        if (sessionResolver is not null && IsSessionScoped(call.Name))
+            return await sessionResolver.ResolveAsync(this, call, ct).ConfigureAwait(false);
+        var scoped = sessionContext is not null && IsSessionScoped(call.Name);
+        using var selection = scoped ? sessionContext!.LockSelection() : null;
+        var snapshot = scoped ? sessionContext!.CaptureSnapshot() : (WslcSessionContext.SelectionSnapshot?)null;
+        var executable = scoped ? settings.WslcPath : null;
+        var resolved = call.Name switch
         {
             "list_containers" => Resolved(call, AssistantPermissionCategory.ReadOnly, "List containers", "", token => ListContainersAsync(token)),
             "inspect_container" => Resolved(call, AssistantPermissionCategory.ReadOnly, $"Inspect {StringArg(args, "id")}", call.ArgumentsJson, token => InspectContainerAsync(StringArg(args, "id"), token)),
@@ -195,7 +204,41 @@ public sealed partial class AssistantToolset(
             "cluster_stop" => Resolved(call, AssistantPermissionCategory.Kubernetes, "Stop k3s", "", ClusterStopAsync),
             _ => throw new InvalidOperationException($"Tool '{call.Name}' is not allowed."),
         };
+        if (snapshot is not { } captured || sessionContext is null)
+            return resolved;
+        var sessionLabel = captured.Target.Name ?? UiText.Get("WslEngine_Session_Default", "Default CLI session");
+        return resolved with
+        {
+            Summary = AiTextSanitizer.Sanitize(UiText.Get("Assistant_SessionScope",
+                "{0}\nSession: {1}", resolved.Summary, sessionLabel)),
+            ExecuteAsync = async token =>
+            {
+                using var executionSelection = sessionContext.LockSelection();
+                if (!sessionContext.TryApply(captured, static () => { }))
+                    return UiText.Get("Assistant_SessionChanged",
+                        "The session changed after approval; no action was started. Review again.");
+                if (!string.Equals(executable, settings.WslcPath, StringComparison.OrdinalIgnoreCase))
+                    return UiText.Get("Assistant_ExecutableChanged",
+                        "The WSLC executable changed after approval; no action was started. Review again.");
+                return await resolved.ExecuteAsync(token).ConfigureAwait(false);
+            },
+        };
     }
+
+    internal static bool IsSessionScoped(string tool) => tool is
+        "list_containers" or "inspect_container" or "get_container_logs" or "list_images" or
+        "list_volumes" or "list_networks" or "get_health_observations" or "get_volume_usage" or
+        "run_container" or "pull_image" or "start_container" or "stop_container" or
+        "restart_container" or "remove_container" or "stop_all_containers" or "remove_all_containers" or
+        "create_volume" or "remove_volume" or "create_network" or "remove_network" or
+        "deploy_template" or "deploy_compose" or "start_compose_project" or "stop_compose_project" or
+        "restart_compose_project" or "down_compose_project";
+
+    internal AssistantToolset ForSession(IWslcService client, WslcSessionContext context,
+        ComposeProjectSupervisor supervisor, bool useManagementHealth, WslcSessionSelection destination) =>
+        new(client, kubernetes, templates, composeStore, supervisor, settings, registryCatalog,
+            engineCapabilities, useManagementHealth ? healthObservations : null,
+            useManagementHealth ? appHealthObservations : null, context, operationDestination: destination);
 
     /// <summary>Lists all containers as sanitized JSON for the assistant.</summary>
     [Description("Read-only: list containers, including stopped containers.")]

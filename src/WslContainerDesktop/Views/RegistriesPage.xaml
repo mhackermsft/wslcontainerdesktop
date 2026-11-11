@@ -31,6 +31,9 @@
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
                 Text="{x:Bind ViewModel.StatusMessageDisplay, Mode=OneWay}" />
+            <TextBlock x:Uid="Registry_CredentialNote" i18n:Localization.Uid="Registry_CredentialNote"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
         </StackPanel>
 
         <!-- Toolbar  -->

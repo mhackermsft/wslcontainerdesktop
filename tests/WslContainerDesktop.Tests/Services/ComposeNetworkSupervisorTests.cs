@@ -81,7 +81,7 @@ public sealed class ComposeNetworkSupervisorTests
     {
         var fixture = new Fixture();
         if (previouslyStopped)
-            fixture.Suppression.Suppress("demo_web");
+            fixture.Suppression.Suppress("demo_web", fixture.CurrentOwner);
         var requestEpoch = fixture.Suppression.Version;
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -95,12 +95,12 @@ public sealed class ComposeNetworkSupervisorTests
 
         var start = restart ? fixture.Supervisor.RestartAsync("demo") : fixture.Supervisor.UpAsync(fixture.Project);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        fixture.Suppression.Suppress("demo_web");
+        fixture.Suppression.Suppress("demo_web", fixture.CurrentOwner);
         unblock.SetResult();
         var result = await start.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.True(result.AllSucceeded);
-        Assert.True(fixture.Suppression.IsSuppressed("demo_web"));
+        Assert.True(fixture.Suppression.IsSuppressed("demo_web", fixture.CurrentOwner));
         Assert.False(fixture.Engine.LastStartWasExplicit);
     }
 
@@ -393,6 +393,23 @@ public sealed class ComposeNetworkSupervisorTests
     }
 
     [Fact]
+    public async Task ImportOnlyProjectIsNotAdoptedOrSupervisedUntilApplied()
+    {
+        var fixture = new Fixture();
+        fixture.Project.ImportedOnly = true;
+        fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
+        fixture.Engine.Add(Options(), allEndpoints: true);
+
+        await fixture.Supervisor.ReconcileAsync();
+        Assert.Empty(fixture.RestartPolicies);
+        Assert.Empty(fixture.Engine.Mutations);
+
+        fixture.Project.ImportedOnly = false;
+        await fixture.Supervisor.ReconcileAsync();
+        Assert.Single(fixture.RestartPolicies);
+    }
+
+    [Fact]
     public async Task ReconcileMismatchIsVisibleAndNotEnrolled()
     {
         var fixture = new Fixture();
@@ -445,6 +462,9 @@ public sealed class ComposeNetworkSupervisorTests
         public HealthWatchdog Health { get; } = new();
         public StatusMonitor Monitor { get; } = new();
         public RestartSuppressionState Suppression { get; } = new();
+        private readonly WslcSessionContext? _sessionContext;
+        public AutomationSessionOwner CurrentOwner =>
+            AutomationSessionOwner.Capture("wslc", _sessionContext?.Capture() ?? WslcSessionTarget.Default);
         public WslcCapabilities Snapshot { get; set; }
         public Exception? CapabilityError { get; set; }
         public Func<Task>? BeforeCapabilities { get; set; }
@@ -461,14 +481,19 @@ public sealed class ComposeNetworkSupervisorTests
         public Fixture(WslcCapabilitySupport support = WslcCapabilitySupport.Supported, Engine? engine = null,
             ComposeProject? persisted = null, TimeProvider? clock = null,
             ILogger<ComposeProjectSupervisor>? logger = null, bool presenterAvailable = true, string? stagingRoot = null,
-            IComposeProjectStore? storeOverride = null)
+            IComposeProjectStore? storeOverride = null, WslcSessionContext? sessionContext = null)
         {
+            _sessionContext = sessionContext;
             Engine = engine ?? new();
             if (persisted is not null)
             {
                 Project = Clone(persisted);
                 SavedProject = Clone(persisted);
             }
+            var owner = AutomationSessionOwner.Capture("wslc", sessionContext?.Capture() ?? WslcSessionTarget.Default);
+            Project.SessionOwner ??= owner;
+            if (SavedProject is not null)
+                SavedProject.SessionOwner ??= owner;
             Snapshot = Capabilities(support);
             var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) =>
             {
@@ -494,6 +519,7 @@ public sealed class ComposeNetworkSupervisorTests
                 {
                     case "get_HealthChecks": return HealthChecks;
                     case "get_RestartPolicies": return RestartPolicies;
+                    case "get_WslcPath": return "wslc";
                     case "set_HealthChecks": HealthChecks = (List<HealthCheckConfig>)args[0]!; return null;
                     case "set_RestartPolicies": RestartPolicies = (List<RestartPolicyConfig>)args[0]!; return null;
                     case nameof(ISettingsService.Save): BeforeSettingsSave?.Invoke(); return null;
@@ -507,7 +533,7 @@ public sealed class ComposeNetworkSupervisorTests
                     var review = (ComposeCompatibilityPreview)args[0]!;
                     Reviews.Add(review);
                     return ConfirmReviewAsync(review);
-                }) : null, clock, stagingRoot: stagingRoot);
+                }) : null, clock, stagingRoot: stagingRoot, sessionContext: sessionContext);
         }
 
         private object? Save(ComposeProject project)

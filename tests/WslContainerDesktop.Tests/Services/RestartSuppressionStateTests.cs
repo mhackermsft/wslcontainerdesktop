@@ -24,6 +24,24 @@ namespace WslContainerDesktop.Tests.Services;
 public sealed class RestartSuppressionStateTests
 {
     [Fact]
+    public void StopIntentAndResumeTokensAreScopedByEngineAndSession()
+    {
+        var state = new RestartSuppressionState();
+        var first = AutomationSessionOwner.Capture(@"C:\WSL\wslc.exe", new("first"));
+        var otherCase = AutomationSessionOwner.Capture(@"c:\wsl\WSLC.exe", new("FIRST"));
+        var otherEngine = AutomationSessionOwner.Capture(@"C:\Other\wslc.exe", new("first"));
+        state.Suppress("web", first);
+
+        Assert.True(state.IsSuppressed("/web", first));
+        Assert.False(state.IsSuppressed("web", otherCase));
+        Assert.False(state.IsSuppressed("web", otherEngine));
+        Assert.False(state.IsSuppressed("web"));
+        Assert.False(state.CompleteExplicitStart(state.CaptureExplicitStart("web", owner: otherCase), true));
+        Assert.True(state.IsSuppressed("web", first));
+        Assert.True(state.CompleteExplicitStart(state.CaptureExplicitStart("web", owner: first), true));
+    }
+
+    [Fact]
     public void StopDuringIdentityResolutionWins()
     {
         var state = new RestartSuppressionState();

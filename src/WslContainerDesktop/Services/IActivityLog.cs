@@ -37,13 +37,16 @@ public interface IActivityLog
     void Record(ActivityEvent evt);
 
     /// <summary>Records an image pull outcome.</summary>
-    void RecordImagePull(string reference, bool success, string? error = null);
+    void RecordImagePull(string reference, bool success, string? error = null, AutomationSessionOwner? owner = null);
 
     /// <summary>Records an image build outcome.</summary>
-    void RecordImageBuild(string tag, bool success, string? error = null);
+    void RecordImageBuild(string tag, bool success, string? error = null, AutomationSessionOwner? owner = null);
 
     /// <summary>Records one exact engine event from <c>wslc events</c>.</summary>
     void RecordEngineEvent(EngineEvent evt);
+
+    /// <summary>Records a batch of engine events with one durable write.</summary>
+    void RecordEngineEvents(IReadOnlyList<EngineEvent> events);
 
     /// <summary>Clears the entire timeline (and the persisted file).</summary>
     void Clear();

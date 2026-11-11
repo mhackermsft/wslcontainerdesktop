@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
 using WslContainerDesktop.Services;
 
@@ -36,12 +37,18 @@ public sealed partial class EndpointsPage : Page
     /// <summary>Endpoint/port view model bound by the page.</summary>
     public PortsViewModel ViewModel { get; }
 
+    private void TableRoot_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        ResourceGridLayout.UpdateTable(HeaderBorder, EndpointsList, e.NewSize.Width, 720);
+
+    private void RowRoot_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        ResourceGridLayout.UpdateRow((Grid)sender, TableRoot.ActualWidth >= 720);
+
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         UiText.LanguageChanged += OnUiLanguageChanged;
         ViewModel.RefreshLocalizedText();
-        ViewModel.RefreshCommand.Execute(null);
+        UiSafe.Run(ViewModel.RefreshOnNavigationAsync);
     }
 
     private static PortEndpointRow? RowOf(object sender) =>

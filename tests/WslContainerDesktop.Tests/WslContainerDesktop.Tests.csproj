@@ -57,7 +57,26 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\ActivityEvent.cs" Link="Models\ActivityEvent.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\EngineEvent.cs" Link="Models\EngineEvent.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\WslcSystemInfo.cs" Link="Models\WslcSystemInfo.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcSessionInventory.cs" Link="Models\WslcSessionInventory.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcCombinedInventory.cs" Link="Models\WslcCombinedInventory.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcContainerActionTarget.cs" Link="Models\WslcContainerActionTarget.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\DashboardStatsIdentity.cs" Link="Models\DashboardStatsIdentity.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\SessionStatusTracker.cs" Link="Models\SessionStatusTracker.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\VisibleRead.cs" Link="Helpers\VisibleRead.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\VisibleReadQueue.cs" Link="Helpers\VisibleReadQueue.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcContainerAction.cs" Link="Models\WslcContainerAction.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\WslcResourceActionTarget.cs" Link="Models\WslcResourceActionTarget.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\CombinedSessionChoice.cs" Link="ViewModels\CombinedSessionChoice.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\CombinedSessionRow.cs" Link="ViewModels\CombinedSessionRow.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\SessionListItem.cs" Link="ViewModels\SessionListItem.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\SessionRemovalProgress.cs" Link="ViewModels\SessionRemovalProgress.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\SessionStopProgress.cs" Link="ViewModels\SessionStopProgress.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\AutomationTrackingIssue.cs" Link="ViewModels\AutomationTrackingIssue.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\CombinedSessionViewModel.cs" Link="ViewModels\CombinedSessionViewModel.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IAssistantToolset.cs" Link="Services\IAssistantToolset.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IAssistantSessionResolver.cs" Link="Services\IAssistantSessionResolver.cs"
+             Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AutomationSessionObservationScheduler.cs" Link="Services\AutomationSessionObservationScheduler.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantResolvedToolCall.cs" Link="Services\AssistantResolvedToolCall.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerAssistantService.cs" Link="Services\ContainerAssistantService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IContainerAssistant.cs" Link="Services\IContainerAssistant.cs" />
@@ -102,10 +121,12 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\RunProfile.cs" Link="Models\RunProfile.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\NetworkDisplayList.cs" Link="Helpers\NetworkDisplayList.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\CollectionSync.cs" Link="Helpers\CollectionSync.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\ResourceGridView.cs" Link="Helpers\ResourceGridView.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Helpers\ContainerInventoryOperation.cs" Link="Helpers\ContainerInventoryOperation.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ImageInfo.cs" Link="Models\ImageInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerInfo.cs" Link="Models\ContainerInfo.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ContainerRowViewModel.cs" Link="ViewModels\ContainerRowViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ContainerSessionRows.cs" Link="ViewModels\ContainerSessionRows.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerIdentity.cs" Link="Models\ContainerIdentity.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerInfoJsonConverter.cs" Link="Models\ContainerInfoJsonConverter.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ContainerPortParser.cs" Link="Models\ContainerPortParser.cs" />
@@ -123,6 +144,9 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\AiDiagnosis.cs" Link="Models\AiDiagnosis.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RegistryEntry.cs" Link="Models\RegistryEntry.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\HealthCheck.cs" Link="Models\HealthCheck.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\AutomationSessionOwner.cs" Link="Models\AutomationSessionOwner.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\ManagedSessionDefinition.cs" Link="Models\ManagedSessionDefinition.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Models\AutostartEntry.cs" Link="Models\AutostartEntry.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\RestartPolicyConfig.cs" Link="Models\RestartPolicyConfig.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeProject.cs" Link="Models\ComposeProject.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\ComposeReconciliationPlan.cs" Link="Models\ComposeReconciliationPlan.cs" />
@@ -137,6 +161,40 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\RunContainerMount.cs" Link="Models\RunContainerMount.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\ISettingsService.cs" Link="Services\ISettingsService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSessionContext.cs" Link="Services\WslcSessionContext.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSessionChoices.cs" Link="Services\WslcSessionChoices.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcSessionSelectionService.cs" Link="Services\IWslcSessionSelectionService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\SessionOperationTarget.cs" Link="Services\SessionOperationTarget.cs"
+             Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantSessionResolver.cs" Link="Services\AssistantSessionResolver.cs"
+             Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\RegistriesViewModel.cs" Link="ViewModels\RegistriesViewModel.cs"
+             Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\DevContainerSessionCoordinator.cs" Link="Services\DevContainerSessionCoordinator.cs"
+             Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\LocalAiSessionCoordinator.cs" Link="Services\LocalAiSessionCoordinator.cs"
+             Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IDevContainerHostCommandPresenter.cs" Link="Services\IDevContainerHostCommandPresenter.cs"
+             Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\DevContainersViewModel.cs" Link="ViewModels\DevContainersViewModel.cs"
+             Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AutomationSessionScopePlanner.cs" Link="Services\AutomationSessionScopePlanner.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ComposeSessionScope.cs" Link="Services\ComposeSessionScope.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\SessionAutomationCoordinator.cs" Link="Services\SessionAutomationCoordinator.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\SessionInventoryGuard.cs" Link="Services\SessionInventoryGuard.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\LegacyPolicyOwnershipStore.cs" Link="Services\LegacyPolicyOwnershipStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AutostartStateStore.cs" Link="Services\AutostartStateStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ManagedSessionStore.cs" Link="Services\ManagedSessionStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\SessionRemovalGuard.cs" Link="Services\SessionRemovalGuard.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ManagedSessionService.cs" Link="Services\ManagedSessionService.cs" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerPreviewKey.cs" Link="Services\ContainerPreviewKey.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSessionTarget.cs" Link="Services\WslcSessionTarget.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSessionInventoryReader.cs" Link="Services\WslcSessionInventoryReader.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ActivitySessionReader.cs" Link="Services\ActivitySessionReader.cs"
+             Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSessionInventoryErrors.cs" Link="Services\WslcSessionInventoryErrors.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSessionContainerActions.cs" Link="Services\WslcSessionContainerActions.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSessionActionGuard.cs" Link="Services\WslcSessionActionGuard.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\WslcSessionResourceActions.cs" Link="Services\WslcSessionResourceActions.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\SettingsService.cs" Link="Services\SettingsService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AppConstants.cs" Link="Services\AppConstants.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AppLanguage.cs" Link="Services\AppLanguage.cs" />
@@ -199,6 +257,7 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\IWslcSettingsFileService.cs" Link="Services\IWslcSettingsFileService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcEventParser.cs" Link="Services\WslcEventParser.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\EngineEventActivity.cs" Link="Services\EngineEventActivity.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ActivityEventBatch.cs" Link="Services\ActivityEventBatch.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslDistroListParser.cs" Link="Services\WslDistroListParser.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\KubernetesHostCheck.cs" Link="Services\KubernetesHostCheck.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\KubernetesHostProblem.cs" Link="Models\KubernetesHostProblem.cs" />
@@ -229,9 +288,27 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\MsixPackageInspector.cs" Link="Services\MsixPackageInspector.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'">
+    <Compile Include="..\..\src\WslContainerDesktop\Services\DashboardStatsReader.cs" Link="Services\DashboardStatsReader.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\DashboardViewModel.cs" Link="ViewModels\DashboardViewModel.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslcService.cs" Link="Services\WslcService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\WslRootShell.cs" Link="Services\WslRootShell.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ComposeViewModel.cs" Link="ViewModels\ComposeViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ReclaimSpaceViewModel.cs" Link="ViewModels\ReclaimSpaceViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\VolumesViewModel.cs" Link="ViewModels\VolumesViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\NetworksViewModel.cs" Link="ViewModels\NetworksViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\ImagesViewModel.cs" Link="ViewModels\ImagesViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\CombinedSessionActionsViewModel.cs" Link="ViewModels\CombinedSessionActionsViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\PortsViewModel.cs" Link="ViewModels\PortsViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\AutomationReviewItem.cs" Link="ViewModels\AutomationReviewItem.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\ViewModels\AutomationReviewViewModel.cs" Link="ViewModels\AutomationReviewViewModel.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Helpers\FormatHelpers.cs" Link="Helpers\FormatHelpers.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\IRunProfileStore.cs" Link="Services\IRunProfileStore.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ImageUpdateService.cs" Link="Services\ImageUpdateService.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\RegistryAuthRefresher.cs" Link="Services\RegistryAuthRefresher.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\LogStreamer.cs" Link="Services\LogStreamer.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\RestartPolicyWatchdog.cs" Link="Services\RestartPolicyWatchdog.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\HealthWatchdog.cs" Link="Services\HealthWatchdog.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\ContainerAutostartService.cs" Link="Services\ContainerAutostartService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\DevContainerSupervisor.cs" Link="Services\DevContainerSupervisor.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\DevContainerHostCommandReview.cs" Link="Models\DevContainerHostCommandReview.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\DevContainerStore.cs" Link="Services\DevContainerStore.cs" />
@@ -254,10 +331,37 @@
     <Compile Include="..\..\src\WslContainerDesktop\Models\PortForward.cs" Link="Models\PortForward.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Models\AzureModels.cs" Link="Models\AzureModels.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\WslContainerDesktop\Services\INotificationService.cs" Link="Services\INotificationService.cs" />
+  </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <Compile Remove="Runtime\*.cs" />
     <Compile Remove="Services\ComposeRuntime*.cs" />
     <Compile Remove="ViewModels\ComposeViewModelBusyTests.cs" />
+    <Compile Remove="ViewModels\ReclaimSpaceSessionTests.cs" />
+    <Compile Remove="ViewModels\ReclaimSpaceCombinedTests.cs" />
+    <Compile Remove="Services\AssistantSessionResolverTests.cs" />
+    <Compile Remove="ViewModels\RegistriesSessionChoiceTests.cs" />
+    <Compile Remove="ViewModels\DevContainerSessionChoiceTests.cs" />
+    <Compile Remove="Services\LocalAiSessionCoordinatorTests.cs" />
+    <Compile Remove="ViewModels\VolumesSessionTests.cs" />
+    <Compile Remove="ViewModels\VolumesCombinedSessionTests.cs" />
+    <Compile Remove="ViewModels\NetworksSessionTests.cs" />
+    <Compile Remove="ViewModels\NetworksCombinedSessionTests.cs" />
+    <Compile Remove="ViewModels\ImagesSessionTests.cs" />
+    <Compile Remove="ViewModels\ImagesCombinedSessionTests.cs" />
+    <Compile Remove="ViewModels\RegistryAuthSessionTests.cs" />
+    <Compile Remove="ViewModels\PortsSessionTests.cs" />
+    <Compile Remove="ViewModels\DashboardRefreshLifetimeTests.cs" />
+    <Compile Remove="ViewModels\DashboardVisibilityTests.cs" />
+    <Compile Remove="ViewModels\CombinedActionsSessionTests.cs" />
+    <Compile Remove="ViewModels\AutomationReviewTests.cs" />
+    <Compile Remove="ViewModels\ImagesAppDouble.cs" />
+    <Compile Remove="Services\LogStreamerSessionTests.cs" />
+    <Compile Remove="Services\RestartPolicySessionTests.cs" />
+    <Compile Remove="Services\HealthWatchdogSessionTests.cs" />
+    <Compile Remove="Services\ContainerAutostartSessionTests.cs" />
+    <Compile Remove="Services\TrayHealthDouble.cs" />
     <Compile Remove="ViewModels\TemplateCardStateTests.cs" />
     <Compile Remove="ViewModels\ComposeDialogDoubles.cs" />
     <Compile Remove="Services\AssistantToolsetContractTests.cs" />

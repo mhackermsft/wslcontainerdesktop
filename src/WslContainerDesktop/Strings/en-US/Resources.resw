@@ -233,10 +233,10 @@
     <value>Notify when a running container exits or crashes.</value>
   </data>
   <data name="Settings_Notify_Engine_Label.Text" xml:space="preserve">
-    <value>Engine availability</value>
+    <value>Default CLI session availability</value>
   </data>
   <data name="Settings_Notify_Engine_Help.Text" xml:space="preserve">
-    <value>Notify when the container engine goes down or recovers.</value>
+    <value>Notify when the Default CLI session becomes unavailable or recovers. Check other sessions on the WSL engine page.</value>
   </data>
   <data name="Settings_Ai_Header.Text" xml:space="preserve">
     <value>AI diagnostics</value>
@@ -5381,7 +5381,7 @@ Remove "{1}" from the list anyway?</value>
     <value>Reclaimable (dangling images and stopped containers)</value>
   </data>
   <data name="Resource_ReclaimSpace_005.Text" xml:space="preserve">
-    <value>Container storage:</value>
+    <value>Default CLI storage:</value>
   </data>
   <data name="Resource_ReclaimSpace_006.Content" xml:space="preserve">
     <value>Open WSL Engine storage settings</value>
@@ -5399,7 +5399,7 @@ Remove "{1}" from the list anyway?</value>
     <value>Reclaimable:</value>
   </data>
   <data name="Resource_ReclaimSpace_012.Text" xml:space="preserve">
-    <value>dangling</value>
+    <value>known candidates</value>
   </data>
   <data name="Resource_ReclaimSpace_013.Content" xml:space="preserve">
     <value>Remove dangling images</value>
@@ -5414,7 +5414,7 @@ Remove "{1}" from the list anyway?</value>
     <value>Stopped:</value>
   </data>
   <data name="Resource_ReclaimSpace_017.Text" xml:space="preserve">
-    <value>reclaimable</value>
+    <value>known reclaimable</value>
   </data>
   <data name="Resource_ReclaimSpace_018.Text" xml:space="preserve">
     <value>Reclaimable:</value>
@@ -6042,15 +6042,6 @@ Some steps reported errors:
   <data name="Resource_WslEngine_Extra2.Title" xml:space="preserve">
     <value>Couldn't check for updates</value>
   </data>
-  <data name="Resource_WslEngine_Extra3.Text" xml:space="preserve">
-    <value>Container session</value>
-  </data>
-  <data name="Resource_WslEngine_Extra4.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
-    <value>Container session</value>
-  </data>
-  <data name="Resource_WslEngine_Extra5.Text" xml:space="preserve">
-    <value>Container, image, volume and network commands use this session. SDK-created sessions are separate from the default CLI session.</value>
-  </data>
   <data name="WslEngine_RestartSessionConfirmation" xml:space="preserve">
     <value>Restart the {0}? This stops all running containers and releases the engine's per-session bind-mount slots. Containers can be started again afterwards.</value>
   </data>
@@ -6073,7 +6064,7 @@ Some steps reported errors:
     <value>Unknown</value>
   </data>
   <data name="Common_Text0004" xml:space="preserve">
-    <value>Ollama is set up and selected as your provider.</value>
+    <value>A container named wslcd-ollama was found. The app checks ownership before managing it.</value>
   </data>
   <data name="Common_Text0005" xml:space="preserve">
     <value>Run a model on this machine, or use Provider below to configure a service yourself.</value>
@@ -6959,7 +6950,7 @@ Use Test capabilities in Settings &gt; AI diagnostics.</value>
     <value>Writes the image to a .tar file, with its names, tags, layers and start command, for example to copy it to another PC or keep as a backup. To bring it back, use Import → Restore saved images… on the Images page.</value>
   </data>
   <data name="Common_Text0299" xml:space="preserve">
-    <value>wslc list --size reports two sizes. The writable size is what the container has written itself; the virtual size also counts the read-only image layers. Image layers can be shared by several containers, so virtual sizes do not add up to disk use. Hover a size in the list to see both.</value>
+    <value>Select Refresh to load current sizes; opening the page does not scan sizes. wslc list --size reports two sizes. The writable size is what the container has written itself; the virtual size also counts the read-only image layers. Image layers can be shared by several containers, so virtual sizes do not add up to disk use. Hover a size in the list to see both.</value>
   </data>
   <data name="Common_Text0300" xml:space="preserve">
     <value>Show all</value>
@@ -6998,7 +6989,7 @@ Use Test capabilities in Settings &gt; AI diagnostics.</value>
     <value>Restart WSL session</value>
   </data>
   <data name="Common_Text0316" xml:space="preserve">
-    <value>wslc [--session &lt;name&gt;] system session terminate ends the selected WSL container session (or the default CLI session). Every running container in it stops; the session starts again automatically on the next container command, and containers must be started again.</value>
+    <value>wslc [--session &lt;name&gt;] system session terminate ends the chosen WSL container session. Every running container in it stops. The default CLI session can restart on the next container command; named sessions may need to be started from the session list or their owning app.</value>
   </data>
   <data name="Common_Text0317" xml:space="preserve">
     <value>Shut down WSL</value>
@@ -10840,4 +10831,1101 @@ Setup needs the network. Cancelling partway does not undo what already completed
   <data name="Root_Static_Settings_RefreshOpenAiModels.Content" xml:space="preserve">
     <value>Refresh</value>
   </data>
+  <data name="WslcCopyInput_InvalidRedirect" xml:space="preserve">
+    <value>The native copy executable, session, target or staging path cannot be safely redirected.</value>
+  </data>
+  <data name="WslcFileTransfer_CopyFailed" xml:space="preserve">
+    <value>Could not copy files: {0}</value>
+  </data>
+  <data name="WslcSystemInfo_InvalidSessions" xml:space="preserve">
+    <value>WSLC system information did not contain a valid session list.</value>
+  </data>
+  <data name="WslcSessionInventory_ExecutableChanged" xml:space="preserve">
+    <value>The WSLC executable changed while session inventory was being read.</value>
+  </data>
+  <data name="WslcSessionInventory_InvalidSessions" xml:space="preserve">
+    <value>WSLC returned invalid or ambiguous active session identities.</value>
+  </data>
+  <data name="WslcSession_SelectionBusy" xml:space="preserve">
+    <value>The session cannot be changed while a session operation is running.</value>
+  </data>
+  <data name="WslEngine_SessionLoadFailed" xml:space="preserve">
+    <value>Could not load WSLC sessions: {0}</value>
+  </data>
+  <data name="WslcSession_StatusSwitching" xml:space="preserve">
+    <value>Engine: switching session…</value>
+  </data>
+  <data name="Settings_Engine_PathLocked.Text" xml:space="preserve">
+    <value>The engine path cannot be changed while a session operation is running.</value>
+  </data>
+  <data name="Assistant_SessionScope" xml:space="preserve">
+    <value>{0}
+Session: {1}</value>
+  </data>
+  <data name="Assistant_SessionChanged" xml:space="preserve">
+    <value>The session changed after approval; no action was started. Review again.</value>
+  </data>
+  <data name="Assistant_ExecutableChanged" xml:space="preserve">
+    <value>The WSLC executable changed after approval; no action was started. Review again.</value>
+  </data>
+  <data name="CombinedSession_Unavailable" xml:space="preserve">
+    <value>Unavailable; refresh after the session returns.</value>
+  </data>
+  <data name="CombinedSession_Loading" xml:space="preserve">
+    <value>Reading session information…</value>
+  </data>
+  <data name="CombinedSession_Error" xml:space="preserve">
+    <value>Session refresh failed: {0}</value>
+  </data>
+  <data name="CombinedSession_Initial" xml:space="preserve">
+    <value>Open a resource page to load all active sessions.</value>
+  </data>
+  <data name="CombinedSession_Select" xml:space="preserve">
+    <value>Select sessions and load their resources.</value>
+  </data>
+  <data name="CombinedSession_NoActive" xml:space="preserve">
+    <value>No active WSLC sessions were found.</value>
+  </data>
+  <data name="CombinedSession_Summary" xml:space="preserve">
+    <value>{0} of {1} containers running · {2} images · {3} volumes · {4} networks · {5} endpoints</value>
+  </data>
+  <data name="CombinedSession_OldestRead" xml:space="preserve">
+    <value>{0}
+Oldest read: {1}</value>
+  </data>
+  <data name="CombinedSession_NotLoaded" xml:space="preserve">
+    <value>{0} selected session(s) have not been loaded.</value>
+  </data>
+  <data name="CombinedSession_Partial" xml:space="preserve">
+    <value>Some session inventories are unavailable; displayed totals may be incomplete.</value>
+  </data>
+  <data name="CombinedSession_UnknownPorts" xml:space="preserve">
+    <value>Some running containers have unknown published ports; endpoints may be incomplete.</value>
+  </data>
+  <data name="CombinedSession_Cancelled" xml:space="preserve">
+    <value>Refresh cancelled; displayed resources may be stale.</value>
+  </data>
+  <data name="CombinedSession_UnexpectedCancellation" xml:space="preserve">
+    <value>The engine cancelled the request unexpectedly.</value>
+  </data>
+  <data name="CombinedSession_SessionChanged" xml:space="preserve">
+    <value>{0}: the session changed or is no longer available.</value>
+  </data>
+  <data name="CombinedSession_KindContainers" xml:space="preserve">
+    <value>containers</value>
+  </data>
+  <data name="CombinedSession_KindImages" xml:space="preserve">
+    <value>images</value>
+  </data>
+  <data name="CombinedSession_KindVolumes" xml:space="preserve">
+    <value>volumes</value>
+  </data>
+  <data name="CombinedSession_KindNetworks" xml:space="preserve">
+    <value>networks</value>
+  </data>
+  <data name="CombinedSession_UnknownFailure" xml:space="preserve">
+    <value>The session inventory failure type is unknown.</value>
+  </data>
+  <data name="CombinedSession_PartTimedOut" xml:space="preserve">
+    <value>{0}: {1} timed out.</value>
+  </data>
+  <data name="CombinedSession_PartUnavailable" xml:space="preserve">
+    <value>{0}: {1} unavailable.</value>
+  </data>
+  <data name="CombinedSession_PartFailed" xml:space="preserve">
+    <value>{0}: {1} unavailable: {2}</value>
+  </data>
+  <data name="CombinedSession_IdentityUnavailable" xml:space="preserve">
+    <value>The default session identity could not be determined; no action was started.</value>
+  </data>
+  <data name="CombinedSession_UnstableContainer" xml:space="preserve">
+    <value>The container identity is incomplete; refresh before taking action.</value>
+  </data>
+  <data name="CombinedSession_ContainerChanged" xml:space="preserve">
+    <value>The container changed or is no longer available; refresh before taking action.</value>
+  </data>
+  <data name="CombinedSession_ActionSessionChanged" xml:space="preserve">
+    <value>The session changed or is no longer available; refresh before taking action.</value>
+  </data>
+  <data name="Nav_Sessions.Content" xml:space="preserve">
+    <value>Combined sessions</value>
+  </data>
+  <data name="Dashboard_CombinedTitle.Text" xml:space="preserve">
+    <value>All-session snapshot</value>
+  </data>
+  <data name="Dashboard_OpenCombined.Content" xml:space="preserve">
+    <value>Open containers</value>
+  </data>
+  <data name="Images_PushTagConflict" xml:space="preserve">
+    <value>The destination tag already belongs to a different local image. Choose a different tag.</value>
+  </data>
+  <data name="Images_AliasUnverified" xml:space="preserve">
+    <value>A temporary tag for "{0}" may remain in {1}. Review it before retrying.</value>
+  </data>
+  <data name="Containers_NavigationUnavailableTitle" xml:space="preserve">
+    <value>Container not opened</value>
+  </data>
+  <data name="Containers_NavigationUnavailable" xml:space="preserve">
+    <value>The container could not be identified uniquely in its expected session. Choose it from the list.</value>
+  </data>
+  <data name="Containers_EventSessionUnknown" xml:space="preserve">
+    <value>This event does not identify a session. Choose the container from the list to view its logs.</value>
+  </data>
+  <data name="ContainerDetail_SessionLabel.Text" xml:space="preserve">
+    <value>Session:</value>
+  </data>
+  <data name="SessionPicker_Title" xml:space="preserve">
+    <value>Choose a session</value>
+  </data>
+  <data name="SessionPicker_Continue" xml:space="preserve">
+    <value>Continue</value>
+  </data>
+  <data name="SessionPicker_Field" xml:space="preserve">
+    <value>Session</value>
+  </data>
+  <data name="SessionPicker_Placeholder" xml:space="preserve">
+    <value>Choose a session</value>
+  </data>
+  <data name="SessionPicker_Explanation" xml:space="preserve">
+    <value>Images and storage belong to their session. Saved projects and workspaces remember their session.</value>
+  </data>
+  <data name="ManagedSession_Duplicate" xml:space="preserve">
+    <value>A session with this name already exists.</value>
+  </data>
+  <data name="ManagedSession_Changed" xml:space="preserve">
+    <value>The session changed. Refresh and try again.</value>
+  </data>
+  <data name="ManagedSession_ReadFailed" xml:space="preserve">
+    <value>Saved sessions could not be read. They were not changed.</value>
+  </data>
+  <data name="ManagedSession_NameRequired" xml:space="preserve">
+    <value>Enter a valid session name.</value>
+  </data>
+  <data name="ManagedSession_SavedButNotStarted" xml:space="preserve">
+    <value>The session was saved but could not start. You can retry it from the session list. {0}</value>
+  </data>
+  <data name="ManagedSession_NameInUse" xml:space="preserve">
+    <value>Another process is already using this session name. Stop it before starting this saved session.</value>
+  </data>
+  <data name="ManagedSession_DeletePending" xml:space="preserve">
+    <value>Session removal was interrupted. Remove it again to finish or keep its data.</value>
+  </data>
+  <data name="ManagedSession_DataInUse" xml:space="preserve">
+    <value>Another process is using this session name. Its saved data was not deleted.</value>
+  </data>
+  <data name="ManagedSession_UnsafeStorage" xml:space="preserve">
+    <value>The session data contains a link and was not deleted.</value>
+  </data>
+  <data name="ManagedSession_StoppedUnexpectedly" xml:space="preserve">
+    <value>The session stopped unexpectedly. Start it again from the session list.</value>
+  </data>
+  <data name="ManagedSession_Title.Text" xml:space="preserve">
+    <value>Sessions</value>
+  </data>
+  <data name="ManagedSession_Explanation.Text" xml:space="preserve">
+    <value>Sessions created here start when the app opens. Their data is stored in the app's local data and may be removed when the app is uninstalled. You can stop sessions created by other apps, but their owners may start them again. Monitoring automatic actions across sessions may wake idle sessions and use power. WSL does not support renaming sessions.</value>
+  </data>
+  <data name="ManagedSession_StoreFailure.Message" xml:space="preserve">
+    <value>Saved sessions could not be read, so they cannot be started or changed. Their existing data has not been deleted.</value>
+  </data>
+  <data name="ManagedSession_StorageMissing" xml:space="preserve">
+    <value>This session's saved data folder is missing. It was not replaced with an empty session.</value>
+  </data>
+  <data name="ManagedSession_SettingsReadFailed" xml:space="preserve">
+    <value>Saved settings could not be read. Repair them and restart the app before managing sessions.</value>
+  </data>
+  <data name="Automation_SessionNotificationTitle" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="Automation_OtherSessionsUnavailable" xml:space="preserve"><value>Automatic actions in other sessions cannot be observed: {0}</value></data>
+  <data name="Automation_SessionObservationFailed" xml:space="preserve"><value>Could not safely observe these sessions: {0}</value></data>
+  <data name="Automation_ComposeSessionFailure" xml:space="preserve"><value>Compose recovery for {0} needs attention: {1}</value></data>
+  <data name="Automation_ScopeUnavailable" xml:space="preserve"><value>This session is not ready for Compose. Check the session and try again.</value></data>
+  <data name="Automation_ObservationStale" xml:space="preserve"><value>The session's automatic-action observation is stale. No action was started.</value></data>
+  <data name="Automation_ObservationTimedOut" xml:space="preserve"><value>Session monitoring timed out. Automatic actions are waiting for fresh observations.</value></data>
+  <data name="Automation_EngineUnavailable" xml:space="preserve"><value>The engine or its settings are unavailable.</value></data>
+  <data name="Deployment_NoAvailableName" xml:space="preserve"><value>No available deployment name could be found. Nothing was started.</value></data>
+  <data name="Deployment_ProjectNameTaken" xml:space="preserve"><value>A saved Compose project already uses this name. Review the deployment again.</value></data>
+  <data name="Deployment_ProjectMissing" xml:space="preserve"><value>The deployed project could not be found in saved projects. Refresh before retrying.</value></data>
+  <data name="Deployment_ProjectChanged" xml:space="preserve"><value>The saved project changed during removal. Its definition was kept; refresh before retrying.</value></data>
+  <data name="Deployment_OllamaIdentityMissing" xml:space="preserve"><value>The new Ollama container could not be identified. No model was downloaded.</value></data>
+  <data name="Deployment_OllamaStopped" xml:space="preserve"><value>The existing Ollama container {0} is not running. Start it before launching Open WebUI.</value></data>
+  <data name="Template_DeploymentSession" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="Compose_ReviewSession" xml:space="preserve"><value>Session: {0}</value></data>
+  <data name="Compose_ConfirmInSession" xml:space="preserve"><value>{0}&#10;&#10;Session: {1}</value></data>
+  <data name="Compose_ProjectAccessible" xml:space="preserve"><value>{0}, session {1}</value></data>
+  <data name="Compose_SessionUnassigned" xml:space="preserve"><value>Not assigned</value></data>
+  <data name="Compose_SessionHeader.Text" xml:space="preserve"><value>Session</value></data>
+  <data name="Template_SessionScope.Text" xml:space="preserve"><value>Deployments from active sessions are shown together. Loading them may wake an idle session.</value></data>
+  <data name="Template_NoDeploymentsTitle" xml:space="preserve"><value>No deployment found</value></data>
+  <data name="Template_NoDeployments" xml:space="preserve"><value>No matching deployment is visible. Check session availability and refresh.</value></data>
+  <data name="Template_RemovedWithCleanup" xml:space="preserve"><value>{0} removed with the requested volume cleanup.</value></data>
+  <data name="Template_VolumesNotSafe" xml:space="preserve"><value>Volume usage is incomplete or shared with another container. Nothing was removed; review storage from the Containers page.</value></data>
+  <data name="Template_VolumesKept" xml:space="preserve"><value>The container was removed, but some volumes could not be deleted: {0}</value></data>
+  <data name="Automation_ScopedMountLimit" xml:space="preserve"><value>Some services could not mount their files because session {0} reached its bind-mount limit. Restarting that session stops its running containers. Restart it now?</value></data>
+  <data name="Automation_RestartExhaustedTitle" xml:space="preserve"><value>{0} not restarted</value></data>
+  <data name="Automation_RestartExhausted" xml:space="preserve"><value>Container is not running after {0} restart attempt(s); giving up.</value></data>
+  <data name="Automation_RestartingTitle" xml:space="preserve"><value>Restarting {0}</value></data>
+  <data name="Automation_Restarting" xml:space="preserve"><value>Container exited; restarting (attempt {0} of {1}).</value></data>
+  <data name="Automation_HealthDownTitle" xml:space="preserve"><value>{0} is down</value></data>
+  <data name="Automation_HealthDown" xml:space="preserve"><value>Container is not running after {0} restart attempt(s).</value></data>
+  <data name="Automation_HealthUnhealthyTitle" xml:space="preserve"><value>{0} is unhealthy</value></data>
+  <data name="Automation_HealthRestarting" xml:space="preserve"><value>Health check failed. Auto-restarting (attempt {0} of {1}).</value></data>
+  <data name="Automation_HealthStopping" xml:space="preserve"><value>Still unhealthy after {0} restart attempt(s). Stopping the container.</value></data>
+  <data name="Automation_HealthFailing" xml:space="preserve"><value>Health check is failing.</value></data>
+  <data name="ManagedSession_RestoreFailure" xml:space="preserve">
+    <value>Saved sessions could not all be restored: {0}</value>
+  </data>
+  <data name="ManagedSession_StatusUnavailable" xml:space="preserve">
+    <value>Session status is unavailable. Check the engine and refresh.</value>
+  </data>
+  <data name="SessionPicker_DefaultUnavailable" xml:space="preserve">
+    <value>The default CLI session could not be started or identified. No action was started.</value>
+  </data>
+  <data name="ManagedSession_Create.Content" xml:space="preserve">
+    <value>Create session</value>
+  </data>
+  <data name="ManagedSession_Start.Content" xml:space="preserve">
+    <value>Start</value>
+  </data>
+  <data name="ManagedSession_Remove.Content" xml:space="preserve">
+    <value>Remove</value>
+  </data>
+  <data name="ManagedSession_Stop.Content" xml:space="preserve">
+    <value>Stop</value>
+  </data>
+  <data name="ManagedSession_StartName" xml:space="preserve">
+    <value>Start session {0}</value>
+  </data>
+  <data name="ManagedSession_RemoveName" xml:space="preserve">
+    <value>Remove session {0}</value>
+  </data>
+  <data name="ManagedSession_StopName" xml:space="preserve">
+    <value>Stop session {0}</value>
+  </data>
+  <data name="ManagedSession_ExternalStatus" xml:space="preserve">
+    <value>Created outside this app · active</value>
+  </data>
+  <data name="ManagedSession_OwnedActive" xml:space="preserve">
+    <value>Created by this app · active</value>
+  </data>
+  <data name="ManagedSession_OwnedStopped" xml:space="preserve">
+    <value>Created by this app · stopped</value>
+  </data>
+  <data name="ManagedSession_Failure" xml:space="preserve">
+    <value>Could not start: {0}</value>
+  </data>
+  <data name="ManagedSession_CreateTitle" xml:space="preserve">
+    <value>Create a session</value>
+  </data>
+  <data name="ManagedSession_NameLabel" xml:space="preserve">
+    <value>Session name (visible to others on this PC; do not include secrets)</value>
+  </data>
+  <data name="ManagedSession_NamePlaceholder" xml:space="preserve">
+    <value>For example, development</value>
+  </data>
+  <data name="ManagedSession_StopTitle" xml:space="preserve">
+    <value>Stop session</value>
+  </data>
+  <data name="ManagedSession_StopExternalConfirmation" xml:space="preserve">
+    <value>Stop {0}? Its containers will stop, and another app may be relying on it or start it again. Its data is kept.</value>
+  </data>
+  <data name="ManagedSession_StopOwnedConfirmation" xml:space="preserve">
+    <value>Stop {0}? Its containers will stop and its data will be kept. The session starts again when the app opens.</value>
+  </data>
+  <data name="ManagedSession_StopButton" xml:space="preserve">
+    <value>Stop session</value>
+  </data>
+  <data name="ManagedSession_RemoveTitle" xml:space="preserve">
+    <value>Remove session</value>
+  </data>
+  <data name="ManagedSession_RemoveConfirmation" xml:space="preserve">
+    <value>Remove {0}? Its app-owned instance will stop if running; a session created by another app will not be stopped. Delete data permanently removes its containers, images, volumes, and stored files; keep data leaves them on disk. Automatic-start history for this session will be forgotten when its owner can be identified.</value>
+  </data>
+  <data name="ManagedSession_DeleteData" xml:space="preserve">
+    <value>Delete data</value>
+  </data>
+  <data name="ManagedSession_KeepData" xml:space="preserve">
+    <value>Keep data</value>
+  </data>
+  <data name="ManagedSession_DataKeptTitle" xml:space="preserve">
+    <value>Session data kept</value>
+  </data>
+  <data name="ManagedSession_DataKept" xml:space="preserve">
+    <value>The session data remains at {0}. The app will not reopen it automatically, and uninstalling the app may remove it.</value>
+  </data>
+  <data name="ManagedSession_ActionFailed" xml:space="preserve">
+    <value>Session action failed</value>
+  </data>
+  <data name="ManagedSession_Attention" xml:space="preserve">
+    <value>Some saved sessions could not start or need cleanup. Review them on the WSL engine page.</value>
+  </data>
+  <data name="ManagedSession_Review.Content" xml:space="preserve">
+    <value>Review sessions</value>
+  </data>
+  <data name="CombinedSessions_Title.Text" xml:space="preserve">
+    <value>Combined sessions</value>
+  </data>
+  <data name="CombinedSessions_Explanation.Text" xml:space="preserve">
+    <value>View resources from selected active sessions together. Row actions target their owning sessions. Create, deploy, and prune actions on other pages use the single WSL Engine session selection.</value>
+  </data>
+  <data name="CombinedSessions_Discover.Content" xml:space="preserve">
+    <value>Discover sessions</value>
+  </data>
+  <data name="CombinedSessions_SelectAll.Content" xml:space="preserve">
+    <value>Select all</value>
+  </data>
+  <data name="CombinedSessions_ClearSelection.Content" xml:space="preserve">
+    <value>Clear selection</value>
+  </data>
+  <data name="CombinedSessions_Load.Content" xml:space="preserve">
+    <value>Load selected</value>
+  </data>
+  <data name="CombinedSessions_Cancel.Content" xml:space="preserve">
+    <value>Cancel loading</value>
+  </data>
+  <data name="CombinedSessions_WakeWarning.Text" xml:space="preserve">
+    <value>Loading resources or taking an action may wake an idle session VM. Selecting sessions does not change background management.</value>
+  </data>
+  <data name="CombinedSessions_Containers.Header" xml:space="preserve">
+    <value>Containers</value>
+  </data>
+  <data name="CombinedSessions_Images.Header" xml:space="preserve">
+    <value>Images</value>
+  </data>
+  <data name="CombinedSessions_Volumes.Header" xml:space="preserve">
+    <value>Volumes</value>
+  </data>
+  <data name="CombinedSessions_Networks.Header" xml:space="preserve">
+    <value>Networks</value>
+  </data>
+  <data name="CombinedSessions_Endpoints.Header" xml:space="preserve">
+    <value>Endpoints</value>
+  </data>
+  <data name="CombinedSessions_Remove.Content" xml:space="preserve">
+    <value>Remove</value>
+  </data>
+  <data name="CombinedSessions_Inspect.Content" xml:space="preserve">
+    <value>Inspect</value>
+  </data>
+  <data name="CombinedSessions_Open.Content" xml:space="preserve">
+    <value>Open</value>
+  </data>
+  <data name="CombinedSession_UnknownContainerIdentity" xml:space="preserve">
+    <value>Some actions are unavailable because session or resource identity is unknown.</value>
+  </data>
+  <data name="CombinedSession_RefreshBusy" xml:space="preserve">
+    <value>Another session refresh is already running.</value>
+  </data>
+  <data name="CombinedSession_NotContainer" xml:space="preserve">
+    <value>The selected row is not a container.</value>
+  </data>
+  <data name="CombinedSession_RemoveTitle" xml:space="preserve">
+    <value>Remove container</value>
+  </data>
+  <data name="CombinedSession_RemoveConfirmation" xml:space="preserve">
+    <value>Remove container "{0}" from session "{1}"? This cannot be undone. Volumes are kept.</value>
+  </data>
+  <data name="CombinedSession_ActionFailed" xml:space="preserve">
+    <value>Container action failed</value>
+  </data>
+  <data name="CombinedSession_ActionInterrupted" xml:space="preserve">
+    <value>Container action interrupted</value>
+  </data>
+  <data name="CombinedSession_ActionOutcomeUnknown" xml:space="preserve">
+    <value>The action was cancelled or timed out. Its outcome may be unknown; refresh before retrying.</value>
+  </data>
+  <data name="CombinedSession_BuiltInNetwork" xml:space="preserve">
+    <value>Built-in networks cannot be removed.</value>
+  </data>
+  <data name="CombinedSession_VolumeIdentityUnknown" xml:space="preserve">
+    <value>The volume's creation identity could not be verified; no removal was attempted.</value>
+  </data>
+  <data name="CombinedSession_ResourceChanged" xml:space="preserve">
+    <value>The resource changed or is no longer available; refresh before taking action.</value>
+  </data>
+  <data name="CombinedSession_InspectTitle" xml:space="preserve">
+    <value>Inspect {0} · {1}</value>
+  </data>
+  <data name="CombinedSession_RemoveImageConfirmation" xml:space="preserve">
+    <value>Remove image "{0}" from session "{1}"? Other tags for the same image may also be affected.</value>
+  </data>
+  <data name="CombinedSession_RemoveVolumeConfirmation" xml:space="preserve">
+    <value>Remove volume "{0}" from session "{1}"? All data in the volume will be lost.
+
+The volume currently has creation time {2}; it may differ from the loaded snapshot.</value>
+  </data>
+  <data name="CombinedSession_RemoveNetworkConfirmation" xml:space="preserve">
+    <value>Remove network "{0}" from session "{1}"?</value>
+  </data>
+  <data name="CombinedSession_NotResource" xml:space="preserve">
+    <value>The selected row is not a removable resource.</value>
+  </data>
+  <data name="CombinedSession_RemoveResourceTitle" xml:space="preserve">
+    <value>Remove resource</value>
+  </data>
+  <data name="CombinedSession_ResourceActionFailed" xml:space="preserve">
+    <value>Resource action failed</value>
+  </data>
+  <data name="CombinedSession_ResourceActionInterrupted" xml:space="preserve">
+    <value>Resource action interrupted</value>
+  </data>
+  <data name="CombinedSession_InvalidEndpoint" xml:space="preserve">
+    <value>The endpoint does not have a usable TCP address.</value>
+  </data>
+  <data name="CombinedSessions_Actions.Content" xml:space="preserve">
+    <value>Actions</value>
+  </data>
+  <data name="CombinedMenu_Inspect.Text" xml:space="preserve">
+    <value>Inspect</value>
+  </data>
+  <data name="CombinedMenu_Logs.Text" xml:space="preserve">
+    <value>Logs</value>
+  </data>
+  <data name="CombinedMenu_Stats.Text" xml:space="preserve">
+    <value>Statistics</value>
+  </data>
+  <data name="CombinedMenu_Terminal.Text" xml:space="preserve">
+    <value>Terminal</value>
+  </data>
+  <data name="CombinedMenu_Start.Text" xml:space="preserve">
+    <value>Start</value>
+  </data>
+  <data name="CombinedMenu_Stop.Text" xml:space="preserve">
+    <value>Stop</value>
+  </data>
+  <data name="CombinedMenu_Restart.Text" xml:space="preserve">
+    <value>Restart</value>
+  </data>
+  <data name="CombinedMenu_Remove.Text" xml:space="preserve">
+    <value>Remove</value>
+  </data>
+  <data name="CombinedSession_ContainerNotRunning" xml:space="preserve">
+    <value>The container is not running; refresh before taking action.</value>
+  </data>
+  <data name="CombinedSession_LogsTitle" xml:space="preserve">
+    <value>Logs · {0} · {1}</value>
+  </data>
+  <data name="CombinedSession_StatsTitle" xml:space="preserve">
+    <value>Statistics · {0} · {1}</value>
+  </data>
+  <data name="CombinedSession_StatsUnavailable" xml:space="preserve">
+    <value>Container statistics are unavailable.</value>
+  </data>
+  <data name="CombinedSession_StatsDetails" xml:space="preserve">
+    <value>CPU: {0}
+Memory: {1}
+Network I/O: {2}
+Disk I/O: {3}
+Processes: {4}</value>
+  </data>
+  <data name="CombinedMenu_CopyIn.Text" xml:space="preserve">
+    <value>Copy file in</value>
+  </data>
+  <data name="CombinedMenu_CopyOut.Text" xml:space="preserve">
+    <value>Copy file or folder out</value>
+  </data>
+  <data name="CombinedSession_CopyInTitle" xml:space="preserve">
+    <value>Copy into container</value>
+  </data>
+  <data name="CombinedSession_CopyInDirectory" xml:space="preserve">
+    <value>Container destination directory</value>
+  </data>
+  <data name="CombinedSession_CopyInConfirmation" xml:space="preserve">
+    <value>Copy "{0}" into "{1}" in container "{2}" (session "{3}")? Existing files may be overwritten.</value>
+  </data>
+  <data name="CombinedSession_CopyOutTitle" xml:space="preserve">
+    <value>Copy from container</value>
+  </data>
+  <data name="CombinedSession_CopyOutPath" xml:space="preserve">
+    <value>Absolute container file or directory path</value>
+  </data>
+  <data name="CombinedSession_CopyRootRefused" xml:space="preserve">
+    <value>Choose a file or directory below the container root.</value>
+  </data>
+  <data name="CombinedSession_CopyOutConfirmation" xml:space="preserve">
+    <value>Copy "{0}" from container "{1}" (session "{2}") into "{3}"? Existing files may be overwritten.</value>
+  </data>
+  <data name="CombinedSession_CopyButton" xml:space="preserve">
+    <value>Copy</value>
+  </data>
+  <data name="CombinedSession_CopyComplete" xml:space="preserve">
+    <value>Copy complete</value>
+  </data>
+  <data name="CombinedSession_CopyCompleteMessage" xml:space="preserve">
+    <value>The copy completed.</value>
+  </data>
+  <data name="CombinedSession_ActionsFor" xml:space="preserve">
+    <value>Actions for {0} in {1}</value>
+  </data>
+  <data name="CombinedSession_InspectFor" xml:space="preserve">
+    <value>Inspect {0} in {1}</value>
+  </data>
+  <data name="CombinedSession_RemoveFor" xml:space="preserve">
+    <value>Remove {0} in {1}</value>
+  </data>
+  <data name="CombinedSession_OpenFor" xml:space="preserve">
+    <value>Open endpoint {0} for {1} in {2}</value>
+  </data>
+  <data name="WslEngine_SessionUnavailable" xml:space="preserve">
+    <value>The selected session {0} is no longer active. It remains selected; choose another session before operating there.</value>
+  </data>
+  <data name="CombinedSession_EndpointChanged" xml:space="preserve">
+    <value>The endpoint changed or is no longer available; refresh before opening it.</value>
+  </data>
+  <data name="CombinedSession_EndpointInspectFailed" xml:space="preserve">
+    <value>Could not verify the endpoint: {0}</value>
+  </data>
+  <data name="Reclaim_SnapshotStaleTitle" xml:space="preserve">
+    <value>Refresh disk usage</value>
+  </data>
+  <data name="Reclaim_SnapshotStale" xml:space="preserve">
+    <value>The session or engine changed, or the disk usage scan did not finish. Refresh before reclaiming space.</value>
+  </data>
+  <data name="WslcSession_EngineChanged" xml:space="preserve">
+    <value>Engine: configuration changed…</value>
+  </data>
+  <data name="SessionInventory_RefreshRequiredTitle" xml:space="preserve">
+    <value>Refresh the inventory</value>
+  </data>
+  <data name="SessionInventory_RefreshRequired" xml:space="preserve">
+    <value>The session, engine, or displayed resources changed. Refresh before taking this action.</value>
+  </data>
+  <data name="SessionInventory_RefreshCancelled" xml:space="preserve">
+    <value>Inventory refresh cancelled or timed out; displayed data may be stale.</value>
+  </data>
+  <data name="WslcSessionInventory_DiscoveryTimedOut" xml:space="preserve">
+    <value>WSLC session discovery timed out.</value>
+  </data>
+  <data name="Automation_AssignmentAlreadyOwned" xml:space="preserve">
+    <value>This setting already has a session. Refresh before changing it.</value>
+  </data>
+  <data name="Automation_InvalidOwner" xml:space="preserve">
+    <value>Choose a valid engine and session before continuing.</value>
+  </data>
+  <data name="Automation_OwnershipReadFailed" xml:space="preserve">
+    <value>Saved session assignments could not be read. They were not changed.</value>
+  </data>
+  <data name="Automation_AutostartReadFailed" xml:space="preserve">
+    <value>Saved automatic-start history could not be read. It was not changed.</value>
+  </data>
+  <data name="Automation_EntryChanged" xml:space="preserve">
+    <value>This setting changed. Refresh before assigning a session.</value>
+  </data>
+  <data name="Automation_AmbiguousInventory" xml:space="preserve">
+    <value>The container inventory is incomplete or ambiguous. Refresh before retrying.</value>
+  </data>
+  <data name="Automation_NotStartable" xml:space="preserve">
+    <value>Automatic start for {0} is waiting because these containers cannot be started in their current state: {1}</value>
+  </data>
+  <data name="Automation_SettingsSaveFailed" xml:space="preserve">
+    <value>Settings could not be saved. Recent changes may be lost when the app closes.</value>
+  </data>
+  <data name="Automation_SettingsReadFailed" xml:space="preserve">
+    <value>Saved settings are unreadable or incomplete. Automatic actions are paused and changes cannot be saved. Repair or restore settings.json and restart the app.</value>
+  </data>
+  <data name="ResourceSessionColumn.Text" xml:space="preserve">
+    <value>Session</value>
+  </data>
+  <data name="ResourceSessionWakeNotice.Text" xml:space="preserve">
+    <value>Opening or refreshing this page may wake an idle session. It does not change background management.</value>
+  </data>
+  <data name="Endpoints_EmptyCombined" xml:space="preserve">
+    <value>No published endpoints were found in the active sessions.</value>
+  </data>
+  <data name="Endpoints_ManagementUnavailable" xml:space="preserve">
+    <value>The selected session is unavailable; its displayed endpoints may be out of date.</value>
+  </data>
+  <data name="Endpoints_InvalidAddress" xml:space="preserve">
+    <value>Some endpoints have invalid host addresses and cannot be copied or opened.</value>
+  </data>
+  <data name="Volumes_SessionDetailsUnavailable" xml:space="preserve">
+    <value>{0}: volume details may be incomplete: {1}</value>
+  </data>
+  <data name="Volumes_CombinedRemoveConfirmation" xml:space="preserve">
+    <value>Remove {0} volume(s) from their listed sessions? Data will be lost. Some removals may fail independently.&#xA;&#xA;{1}</value>
+  </data>
+  <data name="Volumes_CreateForSession" xml:space="preserve">
+    <value>Create volume in {0}</value>
+  </data>
+  <data name="Volumes_PruneForSession" xml:space="preserve">
+    <value>Remove all unused volumes in {0}?</value>
+  </data>
+  <data name="Networks_SessionDetailsUnavailable" xml:space="preserve">
+    <value>{0}: network usage may be incomplete: {1}</value>
+  </data>
+  <data name="Networks_CombinedRemoveConfirmation" xml:space="preserve">
+    <value>Remove {0} network(s) from their listed sessions? Some removals may fail independently.&#xA;&#xA;{1}</value>
+  </data>
+  <data name="Networks_CreateForSession" xml:space="preserve">
+    <value>Create network in {0}</value>
+  </data>
+  <data name="Networks_PruneForSession" xml:space="preserve">
+    <value>Remove all unused networks in {0}?</value>
+  </data>
+  <data name="Volumes_CombinedSummary" xml:space="preserve">
+    <value>{0} volumes across {1} active sessions.</value>
+  </data>
+  <data name="Networks_CombinedSummary" xml:space="preserve">
+    <value>{0} networks across {1} active sessions.</value>
+  </data>
+  <data name="Endpoints_CombinedSummary" xml:space="preserve">
+    <value>{0} endpoints across {1} active sessions.</value>
+  </data>
+  <data name="ResourceSessionDestination" xml:space="preserve">
+    <value>Choose a session when creating or pruning. Existing resources stay in their own session.</value>
+  </data>
+  <data name="ResourceSession_BulkInterrupted" xml:space="preserve">
+    <value>The current action's outcome may be unknown; {0} later item(s) were not attempted.</value>
+  </data>
+  <data name="Images_ManagementDestination" xml:space="preserve">
+    <value>Choose a session when pulling, building, importing or pruning. Existing images stay in their own session.</value>
+  </data>
+  <data name="Images_CombinedSummary" xml:space="preserve">
+    <value>{0} images across {1} active sessions.</value>
+  </data>
+  <data name="Images_SessionDetailsUnavailable" xml:space="preserve">
+    <value>{0}: image usage may be incomplete: {1}</value>
+  </data>
+  <data name="Images_CombinedRemoveConfirmation" xml:space="preserve">
+    <value>Remove {0} image(s) from their listed sessions? Some removals may fail independently.&#xA;&#xA;{1}</value>
+  </data>
+  <data name="Images_SaveOneSession" xml:space="preserve">
+    <value>Select images from one session at a time to save them in an archive.</value>
+  </data>
+  <data name="Images_RunInSession" xml:space="preserve">
+    <value>Run image in {0}</value>
+  </data>
+  <data name="Images_PushFromSession" xml:space="preserve">
+    <value>Push image from {0}</value>
+  </data>
+  <data name="Images_AliasCleanupFailedTitle" xml:space="preserve">
+    <value>Temporary image tag remains</value>
+  </data>
+  <data name="Images_AliasCleanupFailed" xml:space="preserve">
+    <value>The temporary tag "{0}" could not be removed from {1}. Review it before retrying. {2}</value>
+  </data>
+  <data name="Images_AliasChanged" xml:space="preserve">
+    <value>The temporary tag now points to a different image.</value>
+  </data>
+  <data name="Images_PullIntoSession" xml:space="preserve">
+    <value>Pull image into {0}</value>
+  </data>
+  <data name="Images_ProfileChanged" xml:space="preserve">
+    <value>The saved profile no longer targets this image. Refresh before trying again.</value>
+  </data>
+  <data name="Images_TagInSession" xml:space="preserve">
+    <value>Tag image in {0}</value>
+  </data>
+  <data name="Images_ImportIntoSession" xml:space="preserve">
+    <value>Create image in {0}</value>
+  </data>
+  <data name="Images_BuildInSession" xml:space="preserve">
+    <value>Build image in {0}</value>
+  </data>
+  <data name="Images_PruneInSession" xml:space="preserve">
+    <value>Remove all dangling (unused) images in {0}?</value>
+  </data>
+  <data name="Containers_CombinedSummary" xml:space="preserve">
+    <value>{0} containers across {1} active sessions.</value>
+  </data>
+  <data name="Containers_ManagementDestination" xml:space="preserve">
+    <value>Choose a session when pruning. Existing containers stay in their own session.</value>
+  </data>
+  <data name="Containers_AmbiguousInventory" xml:space="preserve">
+    <value>Some containers have duplicate or missing identities; their actions are unavailable.</value>
+  </data>
+  <data name="Containers_ManagementUnavailable" xml:space="preserve">
+    <value>The selected session is unavailable; its displayed containers may be out of date.</value>
+  </data>
+  <data name="Containers_SizeUnavailable" xml:space="preserve">
+    <value>Container sizes may be unavailable or out of date in: {0}</value>
+  </data>
+  <data name="Containers_HealthInSession" xml:space="preserve">
+    <value>Health check in {0}</value>
+  </data>
+  <data name="Containers_CombinedRemoveConfirmation" xml:space="preserve">
+    <value>Remove {0} container(s) from their listed sessions? This cannot be undone. Some removals may fail independently.&#xA;&#xA;{1}</value>
+  </data>
+  <data name="Containers_RemoveInSession" xml:space="preserve">
+    <value>Remove container "{0}" ({1}) from session "{2}"? This cannot be undone.</value>
+  </data>
+  <data name="Containers_StorageUnknownTitle" xml:space="preserve">
+    <value>Volume usage is incomplete</value>
+  </data>
+  <data name="Containers_StorageUnknown" xml:space="preserve">
+    <value>Volume usage could not be verified. The container can be removed, but its volumes will be kept.</value>
+  </data>
+  <data name="Containers_StorageChanged" xml:space="preserve">
+    <value>The container's volume usage changed. Review it again before removing anything.</value>
+  </data>
+  <data name="Containers_RunInManagementSession" xml:space="preserve">
+    <value>Run container in {0}</value>
+  </data>
+  <data name="Containers_PruneInSession" xml:space="preserve">
+    <value>Remove all stopped containers in {0}?</value>
+  </data>
+  <data name="Automation_NotificationTitle" xml:space="preserve">
+    <value>Automatic actions need your attention</value>
+  </data>
+  <data name="Automation_NotificationBody" xml:space="preserve">
+    <value>Some automatic actions are paused or waiting. Review them in WSL Container Desktop.</value>
+  </data>
+  <data name="Automation_ReviewButton" xml:space="preserve">
+    <value>Review</value>
+  </data>
+  <data name="Automation_KindAutostart" xml:space="preserve">
+    <value>Automatic start</value>
+  </data>
+  <data name="Automation_KindHealth" xml:space="preserve">
+    <value>Health check</value>
+  </data>
+  <data name="Automation_KindRestart" xml:space="preserve">
+    <value>Restart policy</value>
+  </data>
+  <data name="Automation_AssignFor" xml:space="preserve">
+    <value>Assign {0} for {1}</value>
+  </data>
+  <data name="Automation_PendingSummary" xml:space="preserve">
+    <value>{0} saved automatic action(s) need a session before they can run.</value>
+  </data>
+  <data name="Automation_WaitingSummary" xml:space="preserve">
+    <value>Some automatic actions are waiting or need attention.</value>
+  </data>
+  <data name="Automation_ChooseSessionTitle" xml:space="preserve">
+    <value>Choose a session</value>
+  </data>
+  <data name="Automation_ChooseSession" xml:space="preserve">
+    <value>Choose a session before assigning this action.</value>
+  </data>
+  <data name="Automation_AssignTitle" xml:space="preserve">
+    <value>Assign an automatic action</value>
+  </data>
+  <data name="Automation_AssignConfirmation" xml:space="preserve">
+    <value>Assign {0} for "{1}" to "{2}"? This may start or restart containers in that session.</value>
+  </data>
+  <data name="Automation_AssignButton" xml:space="preserve">
+    <value>Assign</value>
+  </data>
+  <data name="Automation_AssignmentFailedTitle" xml:space="preserve">
+    <value>Could not save the session choice</value>
+  </data>
+  <data name="Automation_AssignmentFailed" xml:space="preserve">
+    <value>The action is still paused. {0}</value>
+  </data>
+  <data name="Automation_TrackingTitle" xml:space="preserve">
+    <value>Automatic start</value>
+  </data>
+  <data name="Automation_AlreadyTracking" xml:space="preserve">
+    <value>Automatic-start tracking is already enabled for {0}.</value>
+  </data>
+  <data name="Automation_TrackingConfirmation" xml:space="preserve">
+    <value>Remember running containers in "{0}" and start them after the app restarts? Tracking updates while this session is selected in WSL Engine.</value>
+  </data>
+  <data name="Automation_EnableTracking" xml:space="preserve">
+    <value>Enable automatic start</value>
+  </data>
+  <data name="Automation_RetryFailedTitle" xml:space="preserve">
+    <value>Could not retry automatic actions</value>
+  </data>
+  <data name="Automation_SessionUnavailable" xml:space="preserve">
+    <value>That session is no longer available. Refresh the session list and try again.</value>
+  </data>
+  <data name="Automation_AutostartDisabled" xml:space="preserve">
+    <value>Automatic start is turned off in Settings. Assigned containers will not start automatically.</value>
+  </data>
+  <data name="Automation_InactivePolicy" xml:space="preserve">
+    <value>Health and restart actions for {0} ({1}) are waiting because that session or engine is unavailable.</value>
+  </data>
+  <data name="Automation_InactiveTracking" xml:space="preserve">
+    <value>Automatic-start tracking for {0} ({1}) is waiting because that session or engine is unavailable.</value>
+  </data>
+  <data name="Automation_CurrentPoliciesUnavailable" xml:space="preserve">
+    <value>Health and restart actions are waiting because the selected session or engine is unavailable.</value>
+  </data>
+  <data name="Automation_CurrentTrackingUnavailable" xml:space="preserve">
+    <value>Automatic-start tracking is waiting because the selected session or engine is unavailable.</value>
+  </data>
+  <data name="Automation_EngineChanged" xml:space="preserve">
+    <value>Automatic start for {0} is waiting because its engine path changed.</value>
+  </data>
+  <data name="Automation_WaitingSession" xml:space="preserve">
+    <value>Automatic start for {0} is waiting for that session to become available.</value>
+  </data>
+  <data name="Automation_WaitingEngine" xml:space="preserve">
+    <value>Automatic start for {0} is waiting for its engine.</value>
+  </data>
+  <data name="Automation_MissingContainers" xml:space="preserve">
+    <value>Automatic start for {0} could not verify the saved container ID for: {1}. Review its tracking before starting a replacement.</value>
+  </data>
+  <data name="Automation_StartFailed" xml:space="preserve">
+    <value>Automatic start for {0} could not finish: {1}</value>
+  </data>
+  <data name="Automation_StorageFailed" xml:space="preserve">
+    <value>Automatic-start history could not be saved: {0}</value>
+  </data>
+  <data name="Automation_Review.Content" xml:space="preserve">
+    <value>Review automatic actions</value>
+  </data>
+  <data name="Automation_SectionTitle.Text" xml:space="preserve">
+    <value>Automatic actions need attention</value>
+  </data>
+  <data name="Automation_SectionExplanation.Text" xml:space="preserve">
+    <value>Stopping a session pauses its automatic actions. Starting it again resumes them automatically; no manual retry is needed. This section appears only when something needs your help, such as an older action without an assigned session. Assigning automatic start may start its container now.</value>
+  </data>
+  <data name="Automation_NotificationsOff.Text" xml:space="preserve">
+    <value>Windows notifications are unavailable. This reminder is shown in the app; check app and Windows notification settings.</value>
+  </data>
+  <data name="Automation_AssignmentSession.PlaceholderText" xml:space="preserve">
+    <value>Choose a session for automatic actions</value>
+  </data>
+  <data name="Automation_AssignmentSession.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Session for automatic actions</value>
+  </data>
+  <data name="Automation_AssignItem.Content" xml:space="preserve">
+    <value>Assign</value>
+  </data>
+  <data name="Automation_Enable.Content" xml:space="preserve">
+    <value>Enable automatic start for this session</value>
+  </data>
+  <data name="Automation_Retry.Content" xml:space="preserve">
+    <value>Retry waiting actions</value>
+  </data>
+  <data name="Automation_ProjectNeedsSession" xml:space="preserve">
+    <value>This saved Compose project needs a session assignment before it can be managed.</value>
+  </data>
+  <data name="Automation_ProjectDifferentSession" xml:space="preserve">
+    <value>This Compose project belongs to a different session or engine. Select its assigned session before continuing.</value>
+  </data>
+  <data name="Automation_KindCompose" xml:space="preserve">
+    <value>Compose project</value>
+  </data>
+  <data name="Automation_InactiveCompose" xml:space="preserve">
+    <value>Compose recovery for {0} ({1}) is waiting because that session or engine is unavailable.</value>
+  </data>
+  <data name="Automation_ComposeWarning" xml:space="preserve">
+    <value>Compose recovery needs attention: {0}</value>
+  </data>
+  <data name="ManagedSession_OperationInProgress" xml:space="preserve"><value>A session action is already in progress.</value></data>
+  <data name="ManagedSession_Removing" xml:space="preserve"><value>Removing session {0}…</value></data>
+  <data name="ManagedSession_Removed" xml:space="preserve"><value>Session {0} was removed.</value></data>
+  <data name="ManagedSession_RemoveFailed" xml:space="preserve"><value>Could not remove session {0}: {1}</value></data>
+  <data name="Automation_TrackingOwner" xml:space="preserve"><value>{0} ({1})</value></data>
+  <data name="Automation_ForgetTrackingName" xml:space="preserve"><value>Forget automatic-start tracking for {0}</value></data>
+  <data name="Automation_ForgetTracking.Content" xml:space="preserve"><value>Forget tracking</value></data>
+  <data name="Automation_ForgetTrackingTitle" xml:space="preserve"><value>Forget automatic-start tracking</value></data>
+  <data name="Automation_ForgetTrackingConfirmation" xml:space="preserve"><value>Forget automatic-start tracking for {0}? Its remembered restart history will be removed. Container data and other settings will be kept. If the session becomes active again, automatic-start tracking may resume.</value></data>
+  <data name="Automation_ForgetTrackingButton" xml:space="preserve"><value>Forget tracking</value></data>
+  <data name="Automation_ForgetTrackingFailed" xml:space="preserve"><value>Could not forget automatic-start tracking</value></data>
+  <data name="ResourceGrid_Search.PlaceholderText" xml:space="preserve"><value>Filter resources</value></data>
+  <data name="ResourceGrid_Filter" xml:space="preserve"><value>Filter</value></data>
+  <data name="ResourceGrid_Filtered" xml:space="preserve"><value>Filtered</value></data>
+  <data name="ResourceGrid_FilterButton" xml:space="preserve"><value>Filter and sort</value></data>
+  <data name="ResourceGrid_FilterButtonActive" xml:space="preserve"><value>Filter and sort; filter active: {0}</value></data>
+  <data name="ResourceGrid_ClearFilter.Content" xml:space="preserve"><value>Clear filter</value></data>
+  <data name="ResourceGrid_Search.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Filter resources</value></data>
+  <data name="ResourceGrid_SortLabel.Text" xml:space="preserve"><value>Sort by</value></data>
+  <data name="ResourceGrid_Sort.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Sort by</value></data>
+  <data name="ResourceGrid_Direction.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Change the sort direction.</value></data>
+  <data name="ResourceGrid_NoMatches.Text" xml:space="preserve"><value>No resources match the filter.</value></data>
+  <data name="ResourceGrid_OriginalOrder" xml:space="preserve"><value>Original order</value></data>
+  <data name="ResourceGrid_Ascending" xml:space="preserve"><value>Ascending</value></data>
+  <data name="ResourceGrid_Descending" xml:space="preserve"><value>Descending</value></data>
+  <data name="ResourceGrid_Session" xml:space="preserve"><value>Session</value></data>
+  <data name="ResourceGrid_Name" xml:space="preserve"><value>Name</value></data>
+  <data name="ResourceGrid_Status" xml:space="preserve"><value>Status</value></data>
+  <data name="ResourceGrid_Image" xml:space="preserve"><value>Image</value></data>
+  <data name="ResourceGrid_Ports" xml:space="preserve"><value>Ports</value></data>
+  <data name="ResourceGrid_Network" xml:space="preserve"><value>Network</value></data>
+  <data name="ResourceGrid_Size" xml:space="preserve"><value>Size</value></data>
+  <data name="ResourceGrid_Created" xml:space="preserve"><value>Created</value></data>
+  <data name="ResourceGrid_Repository" xml:space="preserve"><value>Repository</value></data>
+  <data name="ResourceGrid_Tag" xml:space="preserve"><value>Tag</value></data>
+  <data name="ResourceGrid_ImageId" xml:space="preserve"><value>Image ID</value></data>
+  <data name="ResourceGrid_Type" xml:space="preserve"><value>Type</value></data>
+  <data name="ResourceGrid_UsedBy" xml:space="preserve"><value>Used by</value></data>
+  <data name="ResourceGrid_Driver" xml:space="preserve"><value>Driver</value></data>
+  <data name="ResourceGrid_Id" xml:space="preserve"><value>ID</value></data>
+  <data name="ResourceGrid_IdHeader.Text" xml:space="preserve"><value>ID</value></data>
+  <data name="ResourceGrid_Container" xml:space="preserve"><value>Container</value></data>
+  <data name="ResourceGrid_HostPort" xml:space="preserve"><value>Host port</value></data>
+  <data name="ResourceGrid_ContainerPort" xml:space="preserve"><value>Container port</value></data>
+  <data name="ResourceGrid_Address" xml:space="preserve"><value>Address</value></data>
+  <data name="ResourceGrid_HeaderInactive" xml:space="preserve"><value>Activate to sort ascending.</value></data>
+  <data name="ResourceGrid_HeaderAscending" xml:space="preserve"><value>Sorted ascending. Activate to sort descending.</value></data>
+  <data name="ResourceGrid_HeaderDescending" xml:space="preserve"><value>Sorted descending. Activate to sort ascending.</value></data>
+  <data name="Dashboard_Refresh.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Refresh dashboard</value></data>
+  <data name="Dashboard_Refresh.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Refresh dashboard</value></data>
+  <data name="Dashboard_AllSessionsNotice.Text" xml:space="preserve"><value>Totals and live performance cover all active sessions. Reading them may wake idle sessions; live statistics keep sessions active while the dashboard is visible.</value></data>
+  <data name="Dashboard_ActiveSessions.Text" xml:space="preserve"><value>Active sessions</value></data>
+  <data name="Shell_DefaultSessionStatus" xml:space="preserve"><value>Default CLI session · {0}</value></data>
+  <data name="Root_DefaultSessionHealthy" xml:space="preserve"><value>WSL Container Desktop — Default CLI session: {0}</value></data>
+  <data name="Root_DefaultSessionUnreachable" xml:space="preserve"><value>WSL Container Desktop — Default CLI session unreachable</value></data>
+  <data name="Notification_DefaultSessionUnavailable" xml:space="preserve"><value>Default CLI session unavailable</value></data>
+  <data name="Notification_DefaultSessionUnavailableBody" xml:space="preserve"><value>The default CLI session could not be reached. Check the WSL engine page for details.</value></data>
+  <data name="Notification_DefaultSessionRecovered" xml:space="preserve"><value>Default CLI session recovered</value></data>
+  <data name="Notification_DefaultSessionRecoveredBody" xml:space="preserve"><value>The default CLI session is reachable again.</value></data>
+  <data name="Activity_DefaultSessionDown" xml:space="preserve"><value>Default CLI session became unreachable</value></data>
+  <data name="Activity_DefaultSessionUp" xml:space="preserve"><value>Default CLI session is reachable</value></data>
+  <data name="WslEngine_DefaultCliStatus.Text" xml:space="preserve"><value>Default CLI session status</value></data>
+  <data name="Activity_AllSessionsNotice.Text" xml:space="preserve"><value>Recent activity from active sessions is refreshed while this page is visible. The first read covers up to one hour and may wake idle sessions; inactive sessions and older gaps may not appear.</value></data>
+  <data name="Activity_Refresh.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Refresh activity</value></data>
+  <data name="Activity_Refresh.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Refresh activity across active sessions</value></data>
+  <data name="Activity_EventSession" xml:space="preserve"><value>Session: {0}</value></data>
+  <data name="Activity_ReadFailed" xml:space="preserve"><value>Activity could not be refreshed: {0}</value></data>
+  <data name="Activity_PollStopped" xml:space="preserve"><value>Activity updates stopped: {0}. Select Refresh to try again.</value></data>
+  <data name="Activity_LoadingSessions" xml:space="preserve"><value>Loading activity from active sessions…</value></data>
+  <data name="Activity_NoActiveSessions" xml:space="preserve"><value>No active sessions to read.</value></data>
+  <data name="Activity_AllSessionsUpdated" xml:space="preserve"><value>Activity updated for {0} active session(s) at {1}.</value></data>
+  <data name="Activity_PartialSessions" xml:space="preserve"><value>Activity is incomplete for {0}: {1}</value></data>
+  <data name="Activity_ReadTimedOut" xml:space="preserve"><value>Read timed out</value></data>
+  <data name="Activity_ReadUnavailable" xml:space="preserve"><value>Read unavailable</value></data>
+  <data name="Activity_ListPaused" xml:space="preserve"><value>{0} · list paused</value></data>
+  <data name="Compose_RestartSessionConfirmation" xml:space="preserve"><value>Restart {0} to release its bind-mount slots? This stops all containers in that session.</value></data>
+  <data name="Compose_RestartOwnerUnavailable" xml:space="preserve"><value>The project's session could not be verified. No session was restarted; check the session in WSL engine.</value></data>
+  <data name="Compose_SessionStatusIncomplete" xml:space="preserve"><value> - Some project sessions could not be read; their status is unavailable.</value></data>
+  <data name="SessionPicker_NoActive" xml:space="preserve"><value>There are no active sessions. Start a session in WSL engine, then try again.</value></data>
+  <data name="Registry_StatusNotChecked" xml:space="preserve"><value>Registry login status has not been checked. Select Refresh to try again.</value></data>
+  <data name="Registry_StatusCheckFailed" xml:space="preserve"><value>Registry login status could not be checked: {0}</value></data>
+  <data name="Dashboard_CombinedCpu.Text" xml:space="preserve"><value>Combined container CPU</value></data>
+  <data name="Dashboard_CombinedCpuHelp.Text" xml:space="preserve"><value>Sum of container CPU percentages; it can exceed 100% and is not host CPU usage.</value></data>
+  <data name="Dashboard_AllSessionsFreshness" xml:space="preserve"><value>{0} active sessions · {1} networks · {2} endpoints · Oldest inventory read: {3}</value></data>
+  <data name="Dashboard_AllSessionsCount" xml:space="preserve"><value>{0} active sessions · {1} networks · {2} endpoints</value></data>
+  <data name="Dashboard_VersionUnavailable" xml:space="preserve"><value>The engine version could not be read: {0}</value></data>
+  <data name="Dashboard_StatsReadFailed" xml:space="preserve"><value>Live statistics could not be read: {0}</value></data>
+  <data name="Dashboard_PollStopped" xml:space="preserve"><value>Live dashboard updates stopped: {0}. Refresh to retry.</value></data>
+  <data name="Dashboard_StatsSessionFailure" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="Dashboard_StatsLoading" xml:space="preserve"><value>Reading live statistics…</value></data>
+  <data name="Dashboard_StatsFreshness" xml:space="preserve"><value>Statistics updated: {0}</value></data>
+  <data name="Dashboard_StatsUnavailable" xml:space="preserve"><value>Running containers or their statistics are not available yet.</value></data>
+  <data name="Dashboard_NoRunning" xml:space="preserve"><value>No running containers to report statistics for.</value></data>
+  <data name="Dashboard_StatsSessionChanged" xml:space="preserve"><value>The session changed or is no longer available.</value></data>
+  <data name="Dashboard_StatsIdentityUnknown" xml:space="preserve"><value>Container identities are incomplete or ambiguous.</value></data>
+  <data name="Dashboard_StatsMissing" xml:space="preserve"><value>Some running containers did not report statistics.</value></data>
+  <data name="Dashboard_StatsInvalid" xml:space="preserve"><value>The engine returned invalid statistics.</value></data>
+  <data name="Dashboard_StatsTimedOut" xml:space="preserve"><value>The statistics request timed out.</value></data>
+  <data name="Dashboard_IdentityUnavailable" xml:space="preserve"><value>This container's session or identity is incomplete. Refresh before opening it.</value></data>
+  <data name="ManagedSession_StartingProgress" xml:space="preserve"><value>Starting or resuming session {0}…</value></data>
+  <data name="ManagedSession_StoppingProgress" xml:space="preserve"><value>Stopping session {0}…</value></data>
+  <data name="ManagedSession_StopStartFailed" xml:space="preserve"><value>The session action for {0} failed: {1}. Check the session status and try again.</value></data>
+  <data name="ManagedSession_DefaultActionFailed" xml:space="preserve"><value>The action for {0} failed: {1}. Check its status below; if paused, use Start or Resume to let this app use it again.</value></data>
+  <data name="ManagedSession_DefaultResumed" xml:space="preserve"><value>The default CLI session is available again.</value></data>
+  <data name="ManagedSession_DefaultStopped" xml:space="preserve"><value>The stop request for the default CLI session finished. Its data is kept. Use Start or Resume to let this app use it again. Another app may start it independently. Reopening this app may also start it and containers configured for automatic start.</value></data>
+  <data name="ManagedSession_StoppedProgress" xml:space="preserve"><value>Stop requested for {0}. Its data is kept. Another app may start it again.</value></data>
+  <data name="ManagedSession_StopDefaultConfirmation" xml:space="preserve"><value>Stop the default CLI session? Its containers stop and its data is kept. This app pauses its automatic actions for that session until you select Start. Another app may start it independently. Reopening this app may also start it and containers configured for automatic start.</value></data>
+  <data name="ManagedSession_DefaultStatus" xml:space="preserve"><value>Default CLI session paused in this app. Start or resume it on the WSL engine page.</value></data>
+  <data name="ManagedSession_TrayPaused" xml:space="preserve"><value>WSL Container Desktop — default CLI session paused</value></data>
+  <data name="ManagedSession_Paused" xml:space="preserve"><value>Paused</value></data>
+  <data name="ManagedSession_StartLabel" xml:space="preserve"><value>Start</value></data>
+  <data name="ManagedSession_ResumeLabel" xml:space="preserve"><value>Resume</value></data>
+  <data name="ManagedSession_ResumeDefaultName" xml:space="preserve"><value>Start or resume the default CLI session</value></data>
+  <data name="ManagedSession_DefaultStoppedRow" xml:space="preserve"><value>Stopped by you · data kept. Select Start to use it again.</value></data>
+  <data name="ManagedSession_DefaultStartedElsewhere" xml:space="preserve"><value>The session is active, but this app's operations and automatic actions are paused. Select Resume to continue.</value></data>
+  <data name="ManagedSession_DefaultStartRequired" xml:space="preserve"><value>The default CLI session was stopped in this app. Open WSL engine and select Start for that session.</value></data>
+  <data name="ManagedSession_StopListFailure" xml:space="preserve"><value>The session list could not be refreshed while the session action is running. Wait for it to finish, then select Refresh if the problem remains. {0}</value></data>
+  <data name="ManagedSession_StopWaitTimedOut" xml:space="preserve"><value>Other session work did not finish in time. Wait for it to finish, then try stopping the session again.</value></data>
+  <data name="ManagedSession_StopCommandTimedOut" xml:space="preserve"><value>The stop request timed out, so the session's current state is unknown. Refresh the session list before trying again.</value></data>
+  <data name="SessionOperation_SelectionUnavailable" xml:space="preserve"><value>Session selection is unavailable. No action was started.</value></data>
+  <data name="Reclaim_InventorySession" xml:space="preserve"><value>Disk usage for: {0}</value></data>
+  <data name="Reclaim_ConfirmSession" xml:space="preserve"><value>Session: {0}&#xA;&#xA;{1}</value></data>
+  <data name="WslEngine_RestartNoActiveSession" xml:space="preserve"><value>There is no active session to restart.</value></data>
+  <data name="WslEngine_NamedSessionTerminated" xml:space="preserve"><value>The session {0} was terminated. Start it again from the session list if available, or from the app that created it.</value></data>
+  <data name="WslEngine_SessionTerminatedTitle" xml:space="preserve"><value>Session stopped</value></data>
+  <data name="Assistant_SessionUiUnavailable" xml:space="preserve"><value>The session chooser is unavailable. Open the app and try again.</value></data>
+  <data name="Assistant_DestructiveDisabled" xml:space="preserve"><value>Destructive assistant actions are turned off. Nothing was changed.</value></data>
+  <data name="Assistant_ProjectUnavailable" xml:space="preserve"><value>The saved Compose project is missing or ambiguous. Nothing was changed.</value></data>
+  <data name="Assistant_SessionChoiceCancelled" xml:space="preserve"><value>Session choice cancelled. No action was started; do not retry automatically.</value></data>
+  <data name="Assistant_NoActiveSession" xml:space="preserve"><value>The chosen session is not running. Start it in WSL engine, then request the action again.</value></data>
+  <data name="Registry_LogoutTitle" xml:space="preserve"><value>Sign out of registry</value></data>
+  <data name="Registry_LogoutAction" xml:space="preserve"><value>Sign out</value></data>
+  <data name="Registry_LogoutSessionConfirmation" xml:space="preserve"><value>Sign out of "{0}" using session {1}? Registry credentials may be shared with other sessions.</value></data>
+  <data name="Registry_RemoveSessionConfirmation" xml:space="preserve"><value>Remove "{0}" ({1}) and sign out using session {2}? Registry credentials may be shared with other sessions.</value></data>
+  <data name="Registry_CredentialNote.Text" xml:space="preserve"><value>Credentials may be shared across sessions. Login status reflects the last session checked or used for sign-in.</value></data>
+  <data name="Registry_SessionLoginFailed" xml:space="preserve"><value>Sign-in could not be completed for the chosen session. Refresh the session list and try again.</value></data>
+  <data name="Registry_LoginInSession" xml:space="preserve"><value>Sign in to {0} using session {1}</value></data>
+  <data name="DevContainer_SessionLabel" xml:space="preserve"><value>Session: {0}</value></data>
+  <data name="DevContainer_SessionNotAssigned" xml:space="preserve"><value>Session not assigned</value></data>
+  <data name="DevContainer_StatusUnavailable" xml:space="preserve"><value>Session status unavailable</value></data>
+  <data name="DevContainer_SessionUnassigned" xml:space="preserve"><value>This Dev Container has no assigned session. Start it and choose a session first.</value></data>
+  <data name="DevContainer_NoOwnedContainer" xml:space="preserve"><value>No matching Dev Container was found in the chosen session. Nothing was changed.</value></data>
+  <data name="DevContainer_IdentityUnavailable" xml:space="preserve"><value>The dev container's identity could not be verified. No action was started.</value></data>
+  <data name="DevContainer_DifferentEngine" xml:space="preserve"><value>This Dev Container belongs to a different engine. Restore that engine before continuing.</value></data>
+  <data name="DevContainer_RemoveConfirmation" xml:space="preserve"><value>Stop, remove, and forget "{0}" in session {1}?</value></data>
+  <data name="LocalAi_RemoveInSession" xml:space="preserve"><value>This removes the app's '{0}' container in session {1}.&#xA;&#xA;</value></data>
+  <data name="LocalAi_OtherSessionsUnknown" xml:space="preserve"><value>The container was removed, but other sessions could not be checked. The selected provider was not changed.</value></data>
+  <data name="LocalAi_ProviderRetained" xml:space="preserve"><value>The selected provider was kept. If it used this runtime, start a runtime or choose another provider.</value></data>
+  <data name="LocalAi_PresenceIncomplete" xml:space="preserve"><value>Local AI could not be checked in every active session. Check sessions in WSL engine, then return to Settings.</value></data>
+  <data name="LocalAi_PresenceTitle" xml:space="preserve"><value>Local AI status unavailable</value></data>
+  <data name="SessionOperation_NotRunning" xml:space="preserve"><value>The chosen session is not running. Start it in WSL engine, then try again.</value></data>
+  <data name="Reclaim_StatusCalculating" xml:space="preserve"><value>Calculating disk usage…</value></data>
+  <data name="Reclaim_StatusReclaimable" xml:space="preserve"><value>Up to {0} reclaimable from dangling images and stopped containers</value></data>
+  <data name="Reclaim_StatusNothing" xml:space="preserve"><value>Nothing obvious to reclaim</value></data>
+  <data name="Reclaim_StatusCancelled" xml:space="preserve"><value>Disk usage refresh cancelled or timed out; displayed data may be stale</value></data>
+  <data name="Reclaim_StatusError" xml:space="preserve"><value>Error</value></data>
+  <data name="Reclaim_StatusPruneFailed" xml:space="preserve"><value>Prune failed</value></data>
+  <data name="Reclaim_StatusIncomplete" xml:space="preserve"><value>{0} · volume usage is incomplete; unknown volumes are not counted as unused</value></data>
+  <data name="Registry_StatusWithSession" xml:space="preserve"><value>{0} · Last session: {1}</value></data>
+  <data name="Registry_StatusUnavailable" xml:space="preserve"><value>Registry login status could not be checked. Choose an active session and refresh.</value></data>
+  <data name="Registry_StatusUpdated" xml:space="preserve"><value>Registry login status updated.</value></data>
+  <data name="Images_StdinDockerfileError" xml:space="preserve"><value>'-' reads the Dockerfile from standard input, which the app cannot supply. Enter a Dockerfile path instead.</value></data>
+  <data name="Catalog_BrowseUnsupported" xml:space="preserve"><value>Browsing isn't supported for this registry. Enter the image reference manually.</value></data>
+  <data name="Catalog_AzureCliMissing" xml:space="preserve"><value>The Azure CLI (az) is required to browse this registry but isn't installed.</value></data>
+  <data name="Catalog_TagsUnsupported" xml:space="preserve"><value>Browsing isn't supported for this registry.</value></data>
+  <data name="Catalog_CredentialsRejected" xml:space="preserve"><value>The stored credentials were rejected by the registry. Log in again from the Registries page.</value></data>
+  <data name="Catalog_LoginRequired" xml:space="preserve"><value>You need to log in to this registry first. Open the Registries page and log in.</value></data>
+  <data name="Catalog_RequestRejected" xml:space="preserve"><value>The registry rejected the request. Log in to this registry from the Registries page.</value></data>
+  <data name="Catalog_CatalogUnsupported" xml:space="preserve"><value>This registry doesn't support browsing its catalog.</value></data>
+  <data name="Catalog_HttpError" xml:space="preserve"><value>The registry returned an error ({0}).</value></data>
+  <data name="Catalog_Unreachable" xml:space="preserve"><value>Could not reach the registry. Check your network connection and that the host is correct.</value></data>
+  <data name="NetworkAddressing_SubnetRequired" xml:space="preserve"><value>Enter a subnet to set a gateway or IP range.</value></data>
+  <data name="NetworkAddressing_InvalidSubnet" xml:space="preserve"><value>'{0}' is not a valid subnet. Use CIDR notation, for example 172.28.0.0/16.</value></data>
+  <data name="NetworkAddressing_InvalidGateway" xml:space="preserve"><value>'{0}' is not a valid gateway address.</value></data>
+  <data name="NetworkAddressing_GatewayOutside" xml:space="preserve"><value>The gateway {0} is not inside the subnet {1}.</value></data>
+  <data name="NetworkAddressing_InvalidRange" xml:space="preserve"><value>'{0}' is not a valid IP range. Use CIDR notation, for example 172.28.5.0/24.</value></data>
+  <data name="NetworkAddressing_RangeOutside" xml:space="preserve"><value>The IP range {0} must be inside the subnet {1}.</value></data>
+  <data name="DevContainer_OwnerUnavailable" xml:space="preserve"><value>The Dev Container's session is not running. Start it in WSL engine or in the app that created it, then try again.</value></data>
+  <data name="Registry_AddedWithoutSignIn" xml:space="preserve"><value>Registry {0} was added, but sign-in did not start.</value></data>
+  <data name="Reclaim_DanglingCountOne" xml:space="preserve"><value>{0} dangling image</value></data>
+  <data name="Reclaim_DanglingCountMany" xml:space="preserve"><value>{0} dangling images</value></data>
+  <data name="DevContainer_DefinitionChanged" xml:space="preserve"><value>Removal may have completed, but the saved Dev Container definition changed and was kept. Refresh before retrying.</value></data>
+  <data name="DevContainer_RemovalOutcomeUnknown" xml:space="preserve"><value>Removal may have completed, but the session could not be verified. The saved definition was kept; refresh before retrying.</value></data>
+  <data name="Reclaim_DefaultStorage" xml:space="preserve"><value>Default ({0})</value></data>
+  <data name="Reclaim_AllSessionsNotice.Text" xml:space="preserve"><value>Usage covers active sessions and may wake idle sessions. Image sizes are upper bounds because layers can be shared. Cleanup targets one session at a time.</value></data>
+  <data name="Reclaim_NoActiveSessions" xml:space="preserve"><value>No active sessions. Start a session to see its disk usage.</value></data>
+  <data name="Reclaim_AllSessions" xml:space="preserve"><value>Active sessions scanned: {0} of {1}</value></data>
+  <data name="Reclaim_PartialSessions" xml:space="preserve"><value>Disk usage is incomplete. These sessions could not be scanned: {0}</value></data>
+  <data name="Reclaim_ScanTimedOut" xml:space="preserve"><value>Disk usage scan timed out.</value></data>
+  <data name="Reclaim_ScanUnavailable" xml:space="preserve"><value>Disk usage scan</value></data>
+  <data name="Reclaim_SessionLabel" xml:space="preserve"><value>Session: {0}</value></data>
+  <data name="Reclaim_StatusNoKnown" xml:space="preserve"><value>No reclaimable space found in the sessions scanned.</value></data>
+  <data name="Reclaim_StatusSizeIncomplete" xml:space="preserve"><value>Some stopped containers have no writable-layer size; reclaimable totals are unavailable.</value></data>
+  <data name="Reclaim_ConfirmUnknownContainerSize" xml:space="preserve"><value>Remove all stopped containers ({0} candidate(s))? Some writable-layer sizes are unknown.</value></data>
+  <data name="Reclaim_RemovedUnknownSize" xml:space="preserve"><value>Removed {0}. Writable-layer space reclaimed is unknown.</value></data>
+  <data name="Reclaim_AllUnknownContainerSize" xml:space="preserve"><value>Removed {0} and {1}. Writable-layer space reclaimed is unknown.</value></data>
+  <data name="Registry_RemoveListOnlyConfirmation" xml:space="preserve"><value>Remove "{0}" ({1}) from the shared list? Stored credentials will remain. To remove them, sign out before removing this entry.</value></data>
+  <data name="Registry_RemovedListOnly" xml:space="preserve"><value>Removed {0} from the list. Stored credentials were not changed.</value></data>
+  <data name="Reclaim_ImageUsageUnknown" xml:space="preserve"><value>Image usage is unknown.</value></data>
+  <data name="Reclaim_StatusUsageIncomplete" xml:space="preserve"><value>Some image usage or container cleanup eligibility is unknown; reclaimable totals are unavailable.</value></data>
+  <data name="Reclaim_ConfirmUnknownImageUsage" xml:space="preserve"><value>Some image usage is unknown. The engine will decide which dangling images can be removed.</value></data>
+  <data name="Reclaim_ConfirmUnknownContainerState" xml:space="preserve"><value>Some container states or cleanup eligibility are unknown. The engine will decide which containers can be removed.</value></data>
+  <data name="Shell_SessionsHeading.Text" xml:space="preserve"><value>Session status</value></data>
+  <data name="Shell_ReviewSessions.Content" xml:space="preserve"><value>Review sessions on the WSL engine page</value></data>
+  <data name="Shell_OneSessionActive" xml:space="preserve"><value>1 session active</value></data>
+  <data name="Shell_SessionsActive" xml:space="preserve"><value>{0} sessions active</value></data>
+  <data name="Shell_SessionsAttention" xml:space="preserve"><value>{0} sessions · needs attention</value></data>
+  <data name="Shell_SessionsUnconfirmed" xml:space="preserve"><value>{0} sessions · status not confirmed</value></data>
+  <data name="Shell_SessionsPaused" xml:space="preserve"><value>{0} sessions · paused</value></data>
+  <data name="Shell_SessionActive" xml:space="preserve"><value>Active</value></data>
+  <data name="Shell_SessionAttention" xml:space="preserve"><value>Needs attention</value></data>
+  <data name="Shell_SessionFailed" xml:space="preserve"><value>Failed</value></data>
+  <data name="Shell_SessionPaused" xml:space="preserve"><value>Paused</value></data>
+  <data name="Shell_SessionRemoving" xml:space="preserve"><value>Removing</value></data>
+  <data name="Shell_SessionsRemoving" xml:space="preserve"><value>{0} sessions · removing</value></data>
+  <data name="Shell_SessionUnknown" xml:space="preserve"><value>Not recently checked</value></data>
+  <data name="Shell_SessionCounts" xml:space="preserve"><value>{0}/{1} containers running</value></data>
+  <data name="Shell_SessionCountsUnknown" xml:space="preserve"><value>Container count unavailable</value></data>
+  <data name="Shell_SessionChecked" xml:space="preserve"><value>Last checked: {0}</value></data>
+  <data name="Shell_SessionNeverChecked" xml:space="preserve"><value>No recent observation</value></data>
+  <data name="Shell_SessionDetail" xml:space="preserve"><value>{0} · {1}
+{2} · {3}</value></data>
+  <data name="Shell_SessionsEmpty" xml:space="preserve"><value>No sessions have been observed yet.</value></data>
+  <data name="Shell_SessionsNote" xml:space="preserve"><value>Active means the session responded, not that every container is healthy. Details use existing observations; opening this panel does not wake sessions.</value></data>
 </root>

@@ -20,6 +20,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Helpers;
+using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 using WslContainerDesktop.Views;
 using WslContainerDesktop.ViewModels;
@@ -67,6 +68,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         Shell = App.Current.Services.GetRequiredService<ShellViewModel>();
+        Automation = App.Current.Services.GetRequiredService<AutomationReviewViewModel>();
         Updates = App.Current.Services.GetRequiredService<AppUpdateViewModel>();
         _settings = App.Current.Services.GetRequiredService<ISettingsService>();
         _dialogs = App.Current.Services.GetRequiredService<DialogService>();
@@ -115,6 +117,9 @@ public sealed partial class MainWindow : Window
     /// <summary>View model for status indicators and shell-level state shown outside individual pages.</summary>
     public ShellViewModel Shell { get; }
 
+    /// <summary>Automatic actions that need session assignment or other attention.</summary>
+    public AutomationReviewViewModel Automation { get; }
+
     /// <summary>View model for the in-app update banner and update actions in the shell.</summary>
     public AppUpdateViewModel Updates { get; }
 
@@ -134,6 +139,22 @@ public sealed partial class MainWindow : Window
     public static Visibility ToVisibility(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
 
     private void UpdateBar_CloseButtonClick(InfoBar sender, object args) => Updates.DismissBar();
+
+    private void ReviewAutomation_Click(object sender, RoutedEventArgs e) => NavigateTo("wsl");
+
+    private void SessionStatus_PointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) =>
+        Shell.RefreshSessionStatus();
+
+    private void SessionStatusFlyout_Opening(object sender, object e) => Shell.RefreshSessionStatus();
+
+    private void FooterSessionStatus_Click(object sender, RoutedEventArgs e) =>
+        SessionStatusButton.Flyout.ShowAt((FrameworkElement)sender);
+
+    private void ReviewSessions_Click(object sender, RoutedEventArgs e)
+    {
+        SessionStatusButton.Flyout.Hide();
+        NavigateTo("wsl");
+    }
 
     private void OnRootLoaded(object sender, RoutedEventArgs e)
     {
@@ -422,7 +443,9 @@ public sealed partial class MainWindow : Window
     /// user clicks the "View logs" button on a container-stopped toast. Falls back to the
     /// Containers list if the container is no longer listed.
     /// </summary>
-    public void OpenContainerLogs(string containerId, string? containerName = null)
+    public void OpenContainerLogs(string containerId, string? containerName = null,
+        bool requireManualSelection = false, AutomationSessionOwner? owner = null,
+        WslcContainerActionTarget? expectedTarget = null)
     {
         // Route to the Containers page first so the detail page has a valid back stack.
         NavigateTo("containers");
@@ -432,24 +455,31 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var vm = App.Current.Services.GetRequiredService<ContainersViewModel>();
-        var row = vm.Containers.FirstOrDefault(c =>
-            !string.IsNullOrEmpty(containerId) &&
-            (c.Id.StartsWith(containerId, StringComparison.OrdinalIgnoreCase) ||
-             containerId.StartsWith(c.Id, StringComparison.OrdinalIgnoreCase)));
-        if (row is null && !string.IsNullOrWhiteSpace(containerName))
+        UiSafe.Run(async () =>
         {
-            row = vm.Containers.FirstOrDefault(c =>
-                string.Equals(c.Name, containerName.TrimStart('/'), StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (row is null)
-        {
-            return;
-        }
-
-        vm.Selected = row;
-        NavFrame.NavigateWithPreference(typeof(ContainerDetailPage));
+            if (requireManualSelection)
+            {
+                await App.Current.Services.GetRequiredService<DialogService>().ShowLocalizedMessageAsync(
+                    UiText.Get("Containers_NavigationUnavailableTitle", "Container not opened"),
+                    UiText.Get("Containers_EventSessionUnknown",
+                        "This event does not identify a session. Choose the container from the list to view its logs."));
+                return;
+            }
+            var vm = App.Current.Services.GetRequiredService<ContainersViewModel>();
+            var row = await vm.FindContainerForNavigationAsync(containerId, containerName, owner, expectedTarget);
+            if (_currentTag != "containers")
+                return;
+            if (row is null)
+            {
+                await App.Current.Services.GetRequiredService<DialogService>().ShowLocalizedMessageAsync(
+                    UiText.Get("Containers_NavigationUnavailableTitle", "Container not opened"),
+                    UiText.Get("Containers_NavigationUnavailable",
+                        "The container could not be identified uniquely in its expected session. Choose it from the list."));
+                return;
+            }
+            vm.Selected = row;
+            NavFrame.NavigateWithPreference(typeof(ContainerDetailPage));
+        });
     }
 
     /// <summary>Restores and foregrounds the window after the user opens the tray icon.</summary>

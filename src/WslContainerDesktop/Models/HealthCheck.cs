@@ -63,6 +63,9 @@ public sealed class HealthCheckConfig
     /// <summary>Gets or sets the container name.</summary>
     public string ContainerName { get; set; } = string.Empty;
 
+    /// <summary>Explicit ownership; null preserves a legacy policy awaiting assignment.</summary>
+    public AutomationSessionOwner? SessionOwner { get; set; }
+
     /// <summary>Gets or sets the kind.</summary>
     public HealthProbeKind Kind { get; set; } = HealthProbeKind.Command;
 
@@ -88,7 +91,7 @@ public sealed class HealthCheckConfig
     /// <returns>The requested value for the caller.</returns>
     public HealthCheckConfig Clone() => new()
     {
-        ContainerName = ContainerName, Kind = Kind, Command = Command, TcpPort = TcpPort,
+        ContainerName = ContainerName, SessionOwner = SessionOwner, Kind = Kind, Command = Command, TcpPort = TcpPort,
         IntervalSeconds = IntervalSeconds, MaxRestarts = MaxRestarts, Enabled = Enabled,
         DesiredHealth = DesiredHealth?.Clone(),
     };

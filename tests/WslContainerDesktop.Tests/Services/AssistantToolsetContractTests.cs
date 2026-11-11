@@ -430,6 +430,68 @@ public sealed class AssistantToolsetContractTests
     }
 
     [Fact]
+    public async Task SessionChangeAfterAssistantApprovalPreventsExecution()
+    {
+        var fixture = new Fixture();
+        var context = new WslcSessionContext();
+        context.Select("first");
+        var tools = fixture.CreateTools(NetworkTestProxy.Create<ISettingsService>((method, _) =>
+            method.Name == "get_WslcPath" ? "engine" : throw new InvalidOperationException(method.Name)), context);
+        var plan = await tools.ResolveAsync(AiContractHarness.Call("restart_container", """{"id":"immutable-one"}"""), default);
+        Assert.Contains("first", plan.Summary);
+        context.Select("second");
+        context.Select("first");
+
+        var result = await plan.ExecuteAsync(default);
+
+        Assert.False(string.IsNullOrWhiteSpace(result));
+        Assert.Equal(["list"], fixture.Calls);
+    }
+
+    [Fact]
+    public async Task AssistantActionKeepsTheApprovedSessionUntilExecutionFinishes()
+    {
+        var fixture = new Fixture();
+        var context = new WslcSessionContext();
+        context.Select("first");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Mutate = async (_, ct) =>
+        {
+            started.TrySetResult();
+            await release.Task.WaitAsync(ct);
+            return new CommandResult();
+        };
+        var tools = fixture.CreateTools(NetworkTestProxy.Create<ISettingsService>((method, _) =>
+            method.Name == "get_WslcPath" ? "engine" : throw new InvalidOperationException(method.Name)), context);
+        var plan = await tools.ResolveAsync(AiContractHarness.Call("restart_container", """{"id":"immutable-one"}"""), default);
+
+        var execution = plan.ExecuteAsync(default);
+        await started.Task;
+        Assert.False(context.TrySelect("second"));
+        release.SetResult();
+        await execution;
+        Assert.True(context.TrySelect("second"));
+    }
+
+    [Fact]
+    public async Task ExecutableChangeAfterAssistantApprovalPreventsExecution()
+    {
+        var fixture = new Fixture();
+        var context = new WslcSessionContext();
+        var path = "engine-a";
+        var tools = fixture.CreateTools(NetworkTestProxy.Create<ISettingsService>((method, _) =>
+            method.Name == "get_WslcPath" ? path : throw new InvalidOperationException(method.Name)), context);
+        var plan = await tools.ResolveAsync(AiContractHarness.Call("restart_container", """{"id":"immutable-one"}"""), default);
+        path = "engine-b";
+
+        var result = await plan.ExecuteAsync(default);
+
+        Assert.False(string.IsNullOrWhiteSpace(result));
+        Assert.Equal(["list"], fixture.Calls);
+    }
+
+    [Fact]
     public async Task UniqueHexIdPrefixFreezesFullInventoryIdBeforeApproval()
     {
         var h = new Fixture { Inventory = [Container("0123456789abcdef0123456789abcdef", "app-one")] };
@@ -857,7 +919,9 @@ public sealed class AssistantToolsetContractTests
         public Task<AssistantResolvedToolCall> Resolve(string name, string arguments) =>
             (tools ??= CreateTools(Strict<ISettingsService>())).ResolveAsync(AiContractHarness.Call(name, arguments), CancellationToken.None);
 
-        public AssistantToolset CreateTools(ISettingsService settings)
+        public AssistantToolset CreateTools(ISettingsService settings) => CreateTools(settings, null);
+
+        public AssistantToolset CreateTools(ISettingsService settings, WslcSessionContext? sessionContext)
         {
             var wslc = NetworkTestProxy.Create<IWslcService>((method, args) =>
             {
@@ -901,7 +965,7 @@ public sealed class AssistantToolsetContractTests
                 method.Name == "get_Templates" ? Array.Empty<StackTemplate>()
                     : throw new InvalidOperationException($"Unexpected template call: {method.Name}"));
             return new(wslc, kubernetes, templates, Strict<IComposeProjectStore>(), null!, settings,
-                Strict<IRegistryCatalogService>());
+                Strict<IRegistryCatalogService>(), sessionContext: sessionContext);
         }
 
         private static T Strict<T>() where T : class => NetworkTestProxy.Create<T>((method, _) =>

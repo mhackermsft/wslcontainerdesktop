@@ -32,6 +32,9 @@ public sealed class NotificationService : INotificationService
     private const string PageKey = "page";
     private const string ActionKey = "action";
     private const string IdKey = "id";
+    private const string EngineKey = "engine";
+    private const string SessionKindKey = "session-kind";
+    private const string SessionNameKey = "session-name";
 
     /// <summary>Toast action verb that starts installing the available update.</summary>
     public const string UpdateAction = "update";
@@ -47,6 +50,22 @@ public sealed class NotificationService : INotificationService
 
     /// <summary>Raised on the UI dispatcher when a toast body or action button is clicked.</summary>
     public event EventHandler<NotificationActivation>? ActivationRequested;
+
+    /// <summary>Whether the app is registered and Windows permits its notifications.</summary>
+    public bool CanShowNotifications
+    {
+        get
+        {
+            if (!_registered || !_settings.NotificationsEnabled)
+                return false;
+            try { return AppNotificationManager.Default.Setting == AppNotificationSetting.Enabled; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not read the Windows notification setting.");
+                return false;
+            }
+        }
+    }
 
     /// <summary>Creates a notification wrapper tied to the UI dispatcher used for navigation callbacks.</summary>
     public NotificationService(ISettingsService settings, DispatcherQueue dispatcher, ILogger<NotificationService> logger)
@@ -139,21 +158,27 @@ public sealed class NotificationService : INotificationService
     }
 
     /// <summary>Shows a toast for an exited container with a button that routes to logs.</summary>
-    public void NotifyContainerExited(string containerName, string containerId)
+    public void NotifyContainerExited(string containerName, string containerId,
+        WslContainerDesktop.Models.AutomationSessionOwner owner)
     {
         if (!IsCategoryEnabled(_settings.NotifyContainerEvents))
         {
             return;
         }
 
+        var button = new AppNotificationButton(UiText.Get("Common_Text0258", "View logs"))
+            .AddArgument(ActionKey, "logs")
+            .AddArgument(IdKey, containerId)
+            .AddArgument(EngineKey, owner.ExecutablePath)
+            .AddArgument(SessionKindKey, owner.SessionName is null ? "default" : "named")
+            .AddArgument(PageKey, "containers");
+        if (owner.SessionName is { } sessionName)
+            button.AddArgument(SessionNameKey, sessionName);
         Show(
             UiText.Get("Common_Text0256", "Container stopped"),
             UiText.Get("Common_Text0257", "\"{0}\" is no longer running.", containerName),
             "containers",
-            new AppNotificationButton(UiText.Get("Common_Text0258", "View logs"))
-                .AddArgument(ActionKey, "logs")
-                .AddArgument(IdKey, containerId)
-                .AddArgument(PageKey, "containers"));
+            button);
     }
 
     /// <summary>Shows a toast when the WSL container engine becomes unreachable.</summary>
@@ -164,7 +189,9 @@ public sealed class NotificationService : INotificationService
             return;
         }
 
-        Show(UiText.Get("Common_Text0259", "Engine unavailable"), UiText.Get("Common_Text0260", "The WSL container engine became unreachable."), "dashboard");
+        Show(UiText.Get("Notification_DefaultSessionUnavailable", "Default CLI session unavailable"),
+            UiText.Get("Notification_DefaultSessionUnavailableBody",
+                "The default CLI session could not be reached. Check the WSL engine page for details."), "wsl");
     }
 
     /// <summary>Shows a toast when engine connectivity recovers.</summary>
@@ -175,7 +202,8 @@ public sealed class NotificationService : INotificationService
             return;
         }
 
-        Show(UiText.Get("Common_Text0261", "Engine recovered"), UiText.Get("Common_Text0262", "The WSL container engine is reachable again."), "dashboard");
+        Show(UiText.Get("Notification_DefaultSessionRecovered", "Default CLI session recovered"),
+            UiText.Get("Notification_DefaultSessionRecoveredBody", "The default CLI session is reachable again."), "wsl");
     }
 
     /// <summary>Shows an update toast with either an install or release-notes action.</summary>
@@ -196,6 +224,19 @@ public sealed class NotificationService : INotificationService
                 .AddArgument(ActionKey, canInstall ? UpdateAction : ReleaseNotesAction));
     }
 
+    /// <summary>Shows an actionable reminder for paused or unavailable automatic operations.</summary>
+    public void NotifyAutomationActionRequired()
+    {
+        if (!CanShowNotifications)
+            return;
+        Show(
+            UiText.Get("Automation_NotificationTitle", "Automatic actions need your attention"),
+            UiText.Get("Automation_NotificationBody", "Some automatic actions are paused or waiting. Review them in WSL Container Desktop."),
+            "wsl",
+            new AppNotificationButton(UiText.Get("Automation_ReviewButton", "Review"))
+                .AddArgument(PageKey, "wsl"));
+    }
+
     /// <summary>Combines the master notification switch with a per-category switch.</summary>
     private bool IsCategoryEnabled(bool categoryEnabled) => _settings.NotificationsEnabled && categoryEnabled;
 
@@ -214,8 +255,8 @@ public sealed class NotificationService : INotificationService
         try
         {
             var builder = new AppNotificationBuilder()
-                .AddText(UiText.Translate(title))
-                .AddText(UiText.Translate(body));
+                .AddText(title)
+                .AddText(body);
 
             // Without a page, clicking the toast body only brings the app forward.
             if (page is not null)
@@ -249,15 +290,5 @@ public sealed class NotificationService : INotificationService
     /// Used both for live clicks and for cold-start activation handled by the app.
     /// </summary>
     public static NotificationActivation ParseActivation(AppNotificationActivatedEventArgs args)
-    {
-        var arguments = args.Arguments;
-        string? Get(string key) => arguments is not null && arguments.TryGetValue(key, out var v) ? v : null;
-
-        return new NotificationActivation
-        {
-            Page = Get(PageKey),
-            Action = Get(ActionKey),
-            TargetId = Get(IdKey),
-        };
-    }
+        => NotificationActivation.FromArguments(args.Arguments);
 }

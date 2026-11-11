@@ -67,6 +67,77 @@ public sealed class ProcessRunnerNonInteractiveTests
     }
 
     [WindowsFact]
+    public async Task BoundRunnersRemainIndependentOfLaterSelectionChanges()
+    {
+        using var stub = new WslcStub();
+        var settings = DispatchProxy.Create<ISettingsService, WslcCapabilitiesServiceTests.SettingsProxy>();
+        settings.WslcPath = stub.Quiet;
+        var context = new WslcSessionContext();
+        var runner = new ProcessRunner(settings, context);
+        var defaultRunner = runner.ForSession(context.Capture());
+        context.Select("First");
+        var firstRunner = runner.ForSession(context.Capture());
+        context.Select("Second");
+        settings.WslcPath = stub.Fail;
+
+        Assert.True((await defaultRunner.RunAsync(["list"])).Success);
+        Assert.True((await firstRunner.RunNonInteractiveAsync(["container", "prune"])).Success);
+        Assert.True((await firstRunner.RunStreamingAsync(["pull", "example"], _ => { })).Success);
+        Assert.False((await runner.RunAsync(["list"])).Success);
+        Assert.True((await firstRunner.RunAsync(["system", "info"])).Success);
+
+        Assert.Equal(["list", "--session First container prune", "--session First pull example", "system info"],
+            stub.Invocations(stub.Quiet));
+        Assert.Equal(["--session Second list"], stub.Invocations(stub.Fail));
+    }
+
+    [WindowsFact]
+    public async Task IntentionalDefaultStopBlocksScopedCommandsButNotDiagnosticsOrOtherSessions()
+    {
+        using var stub = new WslcStub();
+        var settings = DispatchProxy.Create<ISettingsService, WslcCapabilitiesServiceTests.SettingsProxy>();
+        settings.WslcPath = stub.Quiet;
+        var context = new WslcSessionContext();
+        var runner = new ProcessRunner(settings, context);
+        var capturedDefault = runner.ForSession(WslcSessionTarget.Default);
+        context.PauseDefaultSession(stub.Quiet);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => capturedDefault.RunAsync(["list"]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => capturedDefault.RunNonInteractiveAsync(["container", "prune"]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => capturedDefault.RunStreamingAsync(["pull", "image"], _ => { }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => capturedDefault.RunWithStdinAsync(["login"], "secret"));
+        Assert.Throws<InvalidOperationException>(() => capturedDefault.RunInteractive(["exec"]));
+        Assert.Throws<InvalidOperationException>(() => { _ = capturedDefault.VerifyScopeAsync(CancellationToken.None); });
+
+        Assert.True((await capturedDefault.RunAsync(["system", "info"])).Success);
+        Assert.True((await runner.ForSession(new WslcSessionTarget("another")).RunAsync(["list"])).Success);
+        Assert.Equal(["system info", "--session another list"], stub.Invocations(stub.Quiet));
+    }
+
+    [Fact]
+    public async Task GuardedRunnerRejectsStaleScopeBeforeAnyProcessAndCannotBeRetargeted()
+    {
+        var settings = DispatchProxy.Create<ISettingsService, WslcCapabilitiesServiceTests.SettingsProxy>();
+        settings.WslcPath = "must-not-run";
+        var checks = 0;
+        var runner = new ProcessRunner(settings, fixedSession: new("owner"), fixedExecutablePath: "must-not-run",
+            scopeVerifier: _ =>
+            {
+                checks++;
+                throw new InvalidOperationException("session changed");
+            });
+        var bound = runner.ForSession(new("owner"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => bound.RunAsync(["list"]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => bound.RunNonInteractiveAsync(["remove", "name"]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => bound.RunStreamingAsync(["pull", "image"], _ => { }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => bound.RunWithStdinAsync(["login"], "secret"));
+        Assert.Throws<InvalidOperationException>(() => runner.ForSession(new("another")));
+        Assert.Throws<InvalidOperationException>(() => runner.RunInteractive(["exec"]));
+        Assert.Equal(4, checks);
+    }
+
+    [WindowsFact]
     public async Task PromptingEngine_ReadsEofAndIsReportedAsFailureInsteadOfHanging()
     {
         using var stub = new WslcStub();

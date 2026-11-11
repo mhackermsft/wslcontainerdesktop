@@ -28,15 +28,21 @@ public sealed partial class ComposeProjectSupervisor
     private Action SuspendSupervision(ComposeProject project, ComposeService service)
     {
         var name = ResolveContainerName(project, service);
-        var health = _settings.HealthChecks.Where(h => h.ContainerName == name).ToList();
-        var restart = _settings.RestartPolicies.Where(r => r.ContainerName == name).ToList();
+        var target = _sessionContext?.Capture() ?? WslcSessionTarget.Default;
+        var executable = _settings.WslcPath;
+        var health = _settings.HealthChecks.Where(h => h.ContainerName == name &&
+            OwnerFor(h)?.Matches(executable, target) == true).ToList();
+        var restart = _settings.RestartPolicies.Where(r => r.ContainerName == name &&
+            OwnerFor(r)?.Matches(executable, target) == true).ToList();
         var selected = ProjectWithServices(project, [service]);
         RemoveHealthChecks(selected);
         RemoveRestartPolicies(selected);
         return () =>
         {
-            _settings.HealthChecks = _settings.HealthChecks.Where(h => h.ContainerName != name).Concat(health).ToList();
-            _settings.RestartPolicies = _settings.RestartPolicies.Where(r => r.ContainerName != name).Concat(restart).ToList();
+            _settings.HealthChecks = _settings.HealthChecks.Where(h =>
+                h.ContainerName != name || OwnerFor(h)?.Matches(executable, target) != true).Concat(health).ToList();
+            _settings.RestartPolicies = _settings.RestartPolicies.Where(r =>
+                r.ContainerName != name || OwnerFor(r)?.Matches(executable, target) != true).Concat(restart).ToList();
             _settings.Save();
         };
     }
@@ -65,6 +71,7 @@ public sealed partial class ComposeProjectSupervisor
         var snapshot = SnapshotProject(project);
         request = SnapshotRequest(request ?? new());
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        using var selection = _sessionContext?.LockSelection();
         try
         {
             InheritPersistedState(snapshot, _store.Get(project.Name));
@@ -188,6 +195,7 @@ public sealed partial class ComposeProjectSupervisor
             throw new ArgumentException("Use UpAsync to apply a desired project.", nameof(request));
         var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        using var selection = _sessionContext?.LockSelection();
         try
         {
             var project = _store.Get(projectName) ??
@@ -258,7 +266,7 @@ public sealed partial class ComposeProjectSupervisor
                         SeedRestartPolicies(readyProject);
                         if (project.AppliedServices.TryGetValue(entry.InstanceKey, out var saved))
                         {
-                            saved.ManuallyStopped = _suppression?.IsSuppressed(entry.ContainerName) == true;
+                            saved.ManuallyStopped = _suppression?.IsSuppressed(entry.ContainerName, CurrentAutomationOwner()) == true;
                             _store.Save(project);
                         }
                     }
@@ -270,7 +278,7 @@ public sealed partial class ComposeProjectSupervisor
                     try
                     {
                         await RequireCurrentAsync(applied, entry, ct).ConfigureAwait(false);
-                        _suppression?.Suppress(entry.ContainerName);
+                        _suppression?.Suppress(entry.ContainerName, CurrentAutomationOwner());
                         // Persist stop intent before issuing a mutation that may commit remotely.
                         if (project.AppliedServices.TryGetValue(entry.InstanceKey, out var savedStop))
                         {
@@ -334,7 +342,7 @@ public sealed partial class ComposeProjectSupervisor
         {
             await RequireCurrentAsync(project, entry, ct).ConfigureAwait(false);
             if (_suppression is not null)
-                _suppression.CompleteExplicitStart(_suppression.CaptureExplicitStart(entry.ContainerName, maximumStopVersion), true);
+                _suppression.CompleteExplicitStart(_suppression.CaptureExplicitStart(entry.ContainerName, maximumStopVersion, CurrentAutomationOwner()), true);
             return new(entry.Service.Name, true, entry.Reason, warning) { ContainerId = entry.ContainerId };
         }
         catch (OperationCanceledException) { throw; }
@@ -349,7 +357,7 @@ public sealed partial class ComposeProjectSupervisor
         try
         {
             await RequireCurrentAsync(project, entry, ct).ConfigureAwait(false);
-            var resume = _suppression?.CaptureExplicitStart(entry.ContainerName, maximumStopVersion);
+            var resume = _suppression?.CaptureExplicitStart(entry.ContainerName, maximumStopVersion, CurrentAutomationOwner());
             restoreSupervision = SuspendSupervision(project, entry.Service);
             if (entry.Action == ComposeServiceAction.Restart)
             {
@@ -368,7 +376,7 @@ public sealed partial class ComposeProjectSupervisor
     }
 
     /// <summary>Deep-copies a project through JSON so review/apply cannot mutate caller-owned objects.</summary>
-    private static ComposeProject SnapshotProject(ComposeProject project) =>
+    internal static ComposeProject SnapshotProject(ComposeProject project) =>
         JsonSerializer.Deserialize<ComposeProject>(JsonSerializer.Serialize(project))!;
 
     /// <summary>Copies saved applied state and replica overrides onto the desired project snapshot.</summary>
@@ -415,7 +423,7 @@ public sealed partial class ComposeProjectSupervisor
             ContainerId = containerId, Fingerprint = entry.Fingerprint, ImageId = entry.ImageId,
             Service = ComposeReconciliationPlanner.CloneService(entry.Service),
             Networks = resources.Networks, Volumes = resources.Volumes,
-            ManuallyStopped = manuallyStopped || _suppression?.IsSuppressed(entry.ContainerName) == true,
+            ManuallyStopped = manuallyStopped || _suppression?.IsSuppressed(entry.ContainerName, CurrentAutomationOwner()) == true,
         };
         _store.Save(project);
     }
@@ -570,6 +578,8 @@ public sealed partial class ComposeProjectSupervisor
             }
             else if (shouldPull && execute && !built.Contains(reference) && pulled.Add(reference))
             {
+                if (_authRefresher is not null)
+                    await _authRefresher.EnsureFreshForReferenceAsync(reference, ct, sessionClient: _wslc).ConfigureAwait(false);
                 var result = await _wslc.PullImageAsync(reference, ct).ConfigureAwait(false);
                 if (!result.Success) throw new InvalidOperationException($"Pull '{service.Name}': {Summarize(result)}");
                 images = await _wslc.ListImagesAsync(ct).ConfigureAwait(false);

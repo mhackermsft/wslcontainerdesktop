@@ -20,10 +20,13 @@ using WslContainerDesktop.Models;
 namespace WslContainerDesktop.Services;
 
 /// <summary>Serializes enrichment across callers, with a four-inspect budget and expiring results.</summary>
-internal sealed class ContainerPortResolver
+public sealed class ContainerPortResolver
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly Dictionary<string, Entry> _cache = new(StringComparer.Ordinal);
+    internal sealed record Scope(WslcSessionTarget Session, string ExecutablePath);
+    private readonly Dictionary<(Scope? Scope, string Id), Entry> _cache = new();
+    private readonly LinkedList<Scope?> _recentScopes = new();
+    private const int MaxScopes = 16;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private sealed record Entry(long CreatedAt, int State, string Name, DateTimeOffset Expires, List<PortMapping>? Ports);
 
@@ -37,24 +40,37 @@ internal sealed class ContainerPortResolver
         Func<string, CancellationToken, Task<CommandResult>> inspect,
         Action<string, string> reportFailure,
         CancellationToken ct,
-        DateTimeOffset? timestamp = null)
+        DateTimeOffset? timestamp = null,
+        Scope? scope = null)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            var existingScope = _recentScopes.Find(scope);
+            if (existingScope is not null)
+                _recentScopes.Remove(existingScope);
+            _recentScopes.AddLast(scope);
+            if (_recentScopes.Count > MaxScopes)
+            {
+                var evicted = _recentScopes.First!.Value;
+                _recentScopes.RemoveFirst();
+                foreach (var key in _cache.Keys.Where(key => key.Scope == evicted).ToArray())
+                    _cache.Remove(key);
+            }
             var now = timestamp ?? DateTimeOffset.UtcNow;
             if (completeInventory)
             {
                 var ids = containers.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
-                foreach (var id in _cache.Keys.Where(id => !ids.Contains(id)).ToArray())
-                    _cache.Remove(id);
+                foreach (var key in _cache.Keys.Where(key => key.Scope == scope && !ids.Contains(key.Id)).ToArray())
+                    _cache.Remove(key);
             }
             var budget = 4;
             // Never-before-inspected rows precede expired entries so large inventories make progress.
             foreach (var container in containers.Where(c => !c.PortsKnown)
-                         .OrderBy(c => _cache.TryGetValue(c.Id, out var entry) ? entry.Expires : DateTimeOffset.MinValue))
+                         .OrderBy(c => _cache.TryGetValue((scope, c.Id), out var entry) ? entry.Expires : DateTimeOffset.MinValue))
             {
-                if (_cache.TryGetValue(container.Id, out var cached) &&
+                var key = (scope, container.Id);
+                if (_cache.TryGetValue(key, out var cached) &&
                     cached.CreatedAt == container.CreatedAt && cached.State == container.StateValue &&
                     cached.Name == container.Name && cached.Expires > now)
                 {
@@ -85,7 +101,7 @@ internal sealed class ContainerPortResolver
                         reportFailure(container.Id, ex.Message);
                     }
                 }
-                _cache[container.Id] = new Entry(container.CreatedAt, container.StateValue, container.Name,
+                _cache[key] = new Entry(container.CreatedAt, container.StateValue, container.Name,
                     now.AddSeconds(ports is null ? 30 : 300), ports);
                 Apply(container, ports);
             }

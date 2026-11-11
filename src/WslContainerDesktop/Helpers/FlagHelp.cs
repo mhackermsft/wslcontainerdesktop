@@ -117,7 +117,7 @@ public static class FlagHelp
         "containers-size",
         UiText.Get("Common_Extra0520", "Size"),
         "-s, --size",
-        UiText.Get("Common_Text0299", "wslc list --size reports two sizes. The writable size is what the container has written itself; the virtual size also counts the read-only image layers. Image layers can be shared by several containers, so virtual sizes do not add up to disk use. Hover a size in the list to see both."));
+        UiText.Get("Common_Text0299", "Select Refresh to load current sizes; opening the page does not scan sizes. wslc list --size reports two sizes. The writable size is what the container has written itself; the virtual size also counts the read-only image layers. Image layers can be shared by several containers, so virtual sizes do not add up to disk use. Hover a size in the list to see both."));
 
     /// <summary>Help entry for showing stopped containers in the list.</summary>
     public static FlagHelpEntry ContainersShowAll => Entry(
@@ -173,7 +173,7 @@ public static class FlagHelp
         "restart-wsl-session",
         UiText.Get("Common_Text0314", "Restart WSL session"),
         "wslc [--session <name>] system session terminate",
-        UiText.Get("Common_Text0316", "wslc [--session <name>] system session terminate ends the selected WSL container session (or the default CLI session). Every running container in it stops; the session starts again automatically on the next container command, and containers must be started again."));
+        UiText.Get("Common_Text0316", "wslc [--session <name>] system session terminate ends the chosen WSL container session. Every running container in it stops. The default CLI session can restart on the next container command; named sessions may need to be started from the session list or their owning app."));
 
     /// <summary>Help entry for shutting down all WSL distributions.</summary>
     public static FlagHelpEntry ShutdownWsl => Entry(

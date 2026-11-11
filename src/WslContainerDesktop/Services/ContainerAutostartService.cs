@@ -14,377 +14,563 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Tray;
 
 namespace WslContainerDesktop.Services;
 
-/// <summary>
-/// Remembers which containers were running the last time the app observed them and, on the next
-/// launch, starts any that are stopped again — the app's answer to "bring my containers back after
-/// a reboot." A Windows reboot or <c>wsl --shutdown</c> stops every wslc container (they remain in
-/// the list as <em>stopped</em>), and there is no background daemon to restart them, so this closes
-/// that gap.
-///
-/// <para><b>Desired-running set.</b> While the app runs, <see cref="StatusMonitor"/> polls the
-/// engine; each healthy snapshot's running containers are persisted to
-/// <c>container-autostart.json</c> (next to <c>settings.json</c>). Because a container the user
-/// stops leaves that set on the very next poll, manually-stopped containers are naturally excluded
-/// from restore — only containers running when the host went down come back.</para>
-///
-/// <para><b>Ordering &amp; retention.</b> The persisted set is loaded at construction and used by
-/// <see cref="RestoreThenAttachAsync"/> <em>before</em> live tracking is attached, so the first
-/// post-reboot snapshot (everything stopped) cannot overwrite the desired set before it is used.
-/// A desired container is retained in the persisted set until it is confirmed running (restore
-/// succeeded) or no longer exists, so a slow engine, a failed restore, or a start error can't
-/// silently forget it before its next chance to restart.</para>
-///
-/// <para>Load/persist failures never crash the app: a corrupt or missing state file simply yields
-/// an empty desired set.</para>
-/// </summary>
+/// <summary>Restores only explicitly enrolled, session-qualified automatic-start history.</summary>
 public sealed class ContainerAutostartService : IDisposable
 {
-    private static readonly string SettingsDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "WslContainerDesktop");
-
-    private static readonly string StateFile = Path.Combine(SettingsDirectory, "container-autostart.json");
-
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
-
-    /// <summary>How long to wait for the engine to come up after launch before giving up on restore.</summary>
-    private static readonly TimeSpan EngineWaitTimeout = TimeSpan.FromMinutes(3);
-
-    /// <summary>Delay between engine-availability probes while waiting for restore.</summary>
-    private static readonly TimeSpan EngineProbeInterval = TimeSpan.FromSeconds(3);
-
-    private readonly IWslcService _wslc;
+    private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(45);
     private readonly StatusMonitor _monitor;
     private readonly ISettingsService _settings;
     private readonly ILogger<ContainerAutostartService> _logger;
+    private readonly WslcSessionContext _sessionContext;
+    private readonly AutostartStateStore _store;
+    private readonly RestartSuppressionState _suppression;
+    private readonly SessionRemovalGuard? _removalGuard;
+    private readonly Func<AutomationSessionOwner, IWslcService> _createClient;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<WslcSessionInfo>>> _discoverSessions;
+    private readonly Func<WslcSessionInfo, string, CancellationToken, Task> _verifySession;
+    private readonly TimeSpan _retryInterval;
+    private readonly object _gate = new();
+    private readonly SemaphoreSlim _restoreGate = new(1, 1);
+    private readonly List<AutostartEntry> _pending = [];
+    private readonly List<AutostartProblem> _problems = [];
+    private readonly CancellationTokenSource _shutdown = new();
+    private DateTimeOffset _lastRetry = DateTimeOffset.MinValue;
+    private int _statusRetryScheduled;
+    private bool _tracking;
+    private bool _disposed;
 
-    /// <summary>Containers running when the app last observed them, loaded from disk at construction.</summary>
-    private readonly IReadOnlyList<AutostartEntry> _desired;
+    /// <summary>Reasons automatic start is still waiting for the person or the engine.</summary>
+    public enum ProblemKind { EngineChanged, SessionUnavailable, EngineUnavailable, ContainerMissing, NotStartable, StartFailed, StorageFailed }
 
-    /// <summary>
-    /// Desired containers that have not yet been confirmed running this session (and still exist).
-    /// They are retained in the persisted set even while stopped so a slow engine, a failed restore,
-    /// or a start error can't drop them — losing them would defeat "restart on next reboot." An entry
-    /// leaves this set once it is seen running (confirmed restored) or no longer exists as a container.
-    /// Only touched from <see cref="OnStatusChanged"/>, which the monitor serializes on the UI thread.
-    /// </summary>
-    private readonly List<AutostartEntry> _pending;
+    /// <summary>A session and the reason its automatic-start work is incomplete.</summary>
+    public sealed record AutostartProblem(AutomationSessionOwner Owner, ProblemKind Kind, string? Detail = null);
 
-    private readonly object _persistGate = new();
-    private string _lastPersistedSignature;
-    private volatile bool _tracking;
-    private volatile bool _disposed;
+    /// <summary>Raised when the pending-problem list changes.</summary>
+    public event EventHandler? ProblemsChanged;
 
-    /// <summary>
-    /// Initializes a new <c>ContainerAutostartService</c> with the collaborators it needs from dependency injection.
-    /// </summary>
-    public ContainerAutostartService(IWslcService wslc, StatusMonitor monitor, ISettingsService settings, ILogger<ContainerAutostartService> logger)
+#if !WSLCD_TEST_NO_DISPATCHER
+    /// <summary>Creates a coordinator using immutable session-bound engine clients.</summary>
+    public ContainerAutostartService(IWslcService discovery, StatusMonitor monitor, ISettingsService settings,
+        ILogger<ContainerAutostartService> logger, WslcSessionContext sessionContext,
+        WslcSessionClientFactory clients, WslcSessionInventoryReader reader, AutostartStateStore store,
+        RestartSuppressionState suppression, SessionRemovalGuard removalGuard)
+        : this(discovery, monitor, settings, logger, sessionContext, store,
+            owner => clients.Create(new WslcSessionTarget(owner.SessionName), owner.ExecutablePath, managed: false),
+            reader.DiscoverAsync,
+            (session, executable, ct) => WslcSessionActionGuard.VerifyAsync(
+                discovery, () => settings.WslcPath, session, executable, ct), suppression: suppression,
+            removalGuard: removalGuard)
     {
-        _wslc = wslc;
+    }
+#endif
+
+    internal ContainerAutostartService(IWslcService discovery, StatusMonitor monitor, ISettingsService settings,
+        ILogger<ContainerAutostartService> logger, WslcSessionContext sessionContext, AutostartStateStore store,
+        Func<AutomationSessionOwner, IWslcService> createClient,
+        Func<CancellationToken, Task<IReadOnlyList<WslcSessionInfo>>> discoverSessions,
+        Func<WslcSessionInfo, string, CancellationToken, Task> verifySession,
+        TimeSpan? retryInterval = null, RestartSuppressionState? suppression = null,
+        SessionRemovalGuard? removalGuard = null)
+    {
         _monitor = monitor;
         _settings = settings;
         _logger = logger;
-
-        _desired = Load();
-        _pending = _desired.ToList();
-        _lastPersistedSignature = Signature(_desired);
+        _sessionContext = sessionContext;
+        _store = store;
+        _suppression = suppression ?? new RestartSuppressionState();
+        _removalGuard = removalGuard;
+        _suppression.Suppressed += OnManualStop;
+        _createClient = createClient;
+        _discoverSessions = discoverSessions;
+        _verifySession = verifySession;
+        _retryInterval = retryInterval ?? RetryInterval;
     }
 
-    /// <summary>
-    /// Restores previously-running containers (when enabled) and then begins tracking the running
-    /// set so future launches have an up-to-date picture. Never throws — safe to fire-and-forget
-    /// from launch so a failure can't block startup.
-    /// </summary>
+    /// <summary>Returns a stable list of unresolved automatic-start problems.</summary>
+    public IReadOnlyList<AutostartProblem> Problems
+    {
+        get { lock (_gate) return _problems.ToArray(); }
+    }
+
+    /// <summary>Loads pending work, begins tracking, and attempts only assigned sessions.</summary>
     public async Task RestoreThenAttachAsync(CancellationToken ct = default)
     {
         try
         {
-            await RestoreAsync(ct).ConfigureAwait(false);
+            if (!_settings.HasLoadError && !_store.HasLoadError && _store.Snapshot().Count == 0 &&
+                !string.IsNullOrWhiteSpace(_settings.WslcPath))
+            {
+                _store.EnableTracking(AutomationSessionOwner.Capture(_settings.WslcPath, WslcSessionTarget.Default));
+            }
+            lock (_gate)
+            {
+                _pending.Clear();
+                _pending.AddRange(_store.Snapshot().Where(entry => !entry.TracksSession && entry.SessionOwner?.IsValid == true));
+            }
+            Attach();
+            await RetryPendingAsync(ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // shutting down
+            // Application shutdown cancels outstanding startup work.
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Text.Json.JsonException)
         {
-            _logger.LogDebug(ex, "Container autostart restore failed.");
-        }
-        finally
-        {
+            _logger.LogWarning(ex, "Could not initialize automatic-start history.");
+            ReportStorageFailure(ex);
             Attach();
         }
     }
 
-    private async Task RestoreAsync(CancellationToken ct)
+    /// <summary>Retries a legacy entry after its owner has been durably assigned.</summary>
+    public async Task ResumeAssignedAsync(AutostartEntry entry, AutomationSessionOwner owner, CancellationToken ct = default)
     {
-        if (!_settings.RestartRunningContainersOnLaunch)
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(owner);
+        lock (_gate)
         {
-            _logger.LogDebug("Container autostart disabled; skipping restore.");
-            return;
+            var assigned = entry with { SessionOwner = owner };
+            if (!_pending.Any(existing => SameEntry(existing, assigned)))
+                _pending.Add(assigned);
         }
+        await RetryPendingAsync(ct).ConfigureAwait(false);
+    }
 
-        if (_desired.Count == 0)
+    /// <summary>Retries pending assigned entries without touching unassigned history.</summary>
+    public async Task RetryPendingAsync(CancellationToken ct = default)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown.Token);
+        await _restoreGate.WaitAsync(linked.Token).ConfigureAwait(false);
+        try
         {
-            return;
-        }
-
-        if (!await WaitForEngineAsync(ct).ConfigureAwait(false))
-        {
-            _logger.LogInformation("Engine did not become available in time; skipping container autostart restore.");
-            return;
-        }
-
-        var containers = await _wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
-        var byId = new Dictionary<string, ContainerInfo>(StringComparer.Ordinal);
-        foreach (var c in containers)
-        {
-            byId[c.Id] = c;
-        }
-
-        var restored = 0;
-        foreach (var entry in _desired)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            var container = ResolveContainer(containers, byId, entry);
-            if (container is null)
+            lock (_gate)
+                _lastRetry = DateTimeOffset.UtcNow;
+            if (_settings.HasLoadError || !_settings.RestartRunningContainersOnLaunch)
+                return;
+            List<AutomationSessionOwner> owners = [];
+            lock (_gate)
             {
-                // The container no longer exists (e.g. it was created with --rm, or removed).
-                continue;
+                foreach (var owner in _pending.Select(entry => entry.SessionOwner).Where(owner => owner?.IsValid == true))
+                    if (!owners.Any(existing => AutostartStateStore.SameOwner(existing, owner)))
+                        owners.Add(owner!);
             }
 
-            if (container.State is not (ContainerState.Created or ContainerState.Stopped))
+            using var concurrency = new SemaphoreSlim(2);
+            await Task.WhenAll(owners.Select(async owner =>
             {
-                continue;
-            }
-
-            var result = await _wslc.StartContainerAsync(container.Id, ct, explicitStart: false).ConfigureAwait(false);
-            if (result.Success)
-            {
-                restored++;
-                _logger.LogInformation("Autostart: restarted container {Name} ({Id}) after reboot.",
-                    string.IsNullOrWhiteSpace(container.Name) ? container.ShortId : container.Name, container.ShortId);
-            }
-            else
-            {
-                _logger.LogWarning("Autostart: failed to restart container {Name} ({Id}): {Detail}",
-                    string.IsNullOrWhiteSpace(container.Name) ? container.ShortId : container.Name, container.ShortId,
-                    string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError);
-            }
+                await concurrency.WaitAsync(linked.Token).ConfigureAwait(false);
+                try { await RestoreOwnerAsync(owner, linked.Token).ConfigureAwait(false); }
+                finally { concurrency.Release(); }
+            })).ConfigureAwait(false);
         }
-
-        if (restored > 0)
+        finally
         {
-            _logger.LogInformation("Autostart restored {Count} container(s) that were running before the last shutdown.", restored);
-            // Nudge the monitor so the newly-started containers are reflected (and persisted) promptly.
-            _monitor.RequestRefresh();
+            _restoreGate.Release();
         }
     }
 
-    /// <summary>Begins persisting the running set from status snapshots. Idempotent.</summary>
+    /// <summary>Explicitly forgets one owner's automatic-start history, without changing its data.</summary>
+    public async Task ForgetOwnerAsync(AutomationSessionOwner owner, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        _removalGuard?.Begin(owner, null);
+        try { await QuiesceAndForgetOwnerAsync(owner, ct).ConfigureAwait(false); }
+        finally { _removalGuard?.Complete(owner, null); }
+    }
+
+    internal async Task QuiesceAndForgetOwnerAsync(AutomationSessionOwner owner, CancellationToken ct = default)
+    {
+        await _restoreGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            bool changed;
+            lock (_gate)
+            {
+                _store.ForgetOwner(owner);
+                _pending.RemoveAll(entry => AutostartStateStore.SameOwner(entry.SessionOwner, owner));
+                changed = _problems.RemoveAll(problem => AutostartStateStore.SameOwner(problem.Owner, owner)) > 0;
+            }
+            if (changed) ProblemsChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally { _restoreGate.Release(); }
+    }
+
+    internal async Task WaitForCurrentRestoreAsync(CancellationToken ct)
+    {
+        await _restoreGate.WaitAsync(ct).ConfigureAwait(false);
+        _restoreGate.Release();
+    }
+
+    internal async Task PauseOwnerAsync(AutomationSessionOwner owner, CancellationToken ct)
+    {
+        await _restoreGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_store.HasLoadError || _settings.HasLoadError)
+                return;
+            lock (_gate)
+                foreach (var entry in _store.Snapshot().Where(entry => !entry.TracksSession &&
+                             AutostartStateStore.SameOwner(entry.SessionOwner, owner)))
+                    if (!_pending.Any(existing => SameEntry(existing, entry)))
+                        _pending.Add(entry);
+        }
+        finally { _restoreGate.Release(); }
+    }
+
+    internal async Task ResumeOwnerAsync(AutomationSessionOwner owner, CancellationToken ct)
+    {
+        await _restoreGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+                if (!_pending.Any(entry => AutostartStateStore.SameOwner(entry.SessionOwner, owner)))
+                    return;
+            if (!_settings.HasLoadError && _settings.RestartRunningContainersOnLaunch &&
+                !_store.HasLoadError)
+                await RestoreOwnerAsync(owner, ct).ConfigureAwait(false);
+        }
+        finally { _restoreGate.Release(); }
+    }
+
+    private async Task RestoreOwnerAsync(AutomationSessionOwner owner, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(OperationTimeout);
+        try
+        {
+            if (_removalGuard?.IsBlocked(owner, null, DateTimeOffset.UtcNow) == true)
+                return;
+            if (!string.Equals(owner.ExecutablePath, _settings.WslcPath, StringComparison.OrdinalIgnoreCase))
+            {
+                SetProblem(owner, ProblemKind.EngineChanged);
+                return;
+            }
+            WslcSessionInfo? generation = null;
+            if (owner.SessionName is not null)
+            {
+                var sessions = await _discoverSessions(timeout.Token).ConfigureAwait(false);
+                generation = sessions.SingleOrDefault(session =>
+                    string.Equals(session.Name, owner.SessionName, StringComparison.Ordinal));
+                if (generation is null || generation.ID <= 0 || generation.CreatorPid <= 0)
+                {
+                    SetProblem(owner, ProblemKind.SessionUnavailable);
+                    return;
+                }
+                await _verifySession(generation, owner.ExecutablePath, timeout.Token).ConfigureAwait(false);
+            }
+
+            var client = _createClient(owner);
+            if (!await client.IsEngineAvailableAsync(timeout.Token).ConfigureAwait(false))
+            {
+                SetProblem(owner, ProblemKind.EngineUnavailable);
+                return;
+            }
+            var containers = await client.ListContainersAsync(all: true, timeout.Token).ConfigureAwait(false);
+            if (containers.Any(container => string.IsNullOrWhiteSpace(container.Id) || string.IsNullOrWhiteSpace(container.Name)) ||
+                containers.Select(container => container.Id).Distinct(StringComparer.Ordinal).Count() != containers.Count)
+            {
+                SetProblem(owner, ProblemKind.StartFailed, UiText.Get("Automation_AmbiguousInventory",
+                    "The container inventory is incomplete or ambiguous. Refresh before retrying."));
+                return;
+            }
+            var byId = containers.ToDictionary(container => container.Id, StringComparer.Ordinal);
+            List<AutostartEntry> entries;
+            lock (_gate)
+                entries = _pending.Where(entry => AutostartStateStore.SameOwner(entry.SessionOwner, owner)).ToList();
+            var missing = new List<string>();
+            var notStartable = new List<string>();
+            foreach (var entry in entries)
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                if (_removalGuard?.IsBlocked(owner, generation, DateTimeOffset.UtcNow) == true)
+                    return;
+                var container = ResolveContainer(byId, entry);
+                if (container is null)
+                {
+                    missing.Add(string.IsNullOrWhiteSpace(entry.Name) ? entry.Id : entry.Name);
+                    continue;
+                }
+                if (_suppression.IsSuppressed(container.Name, owner))
+                {
+                    _store.ForgetContainer(owner, container.Name, entry.Id);
+                    RemovePending(entry);
+                    continue;
+                }
+                if (container.State == ContainerState.Running)
+                {
+                    RemovePending(entry);
+                    continue;
+                }
+                if (container.State is not (ContainerState.Created or ContainerState.Stopped))
+                {
+                    notStartable.Add(string.IsNullOrWhiteSpace(entry.Name) ? entry.Id : entry.Name);
+                    continue;
+                }
+
+                using var selection = _sessionContext.LockSelection();
+                if (!string.Equals(owner.ExecutablePath, _settings.WslcPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    SetProblem(owner, ProblemKind.EngineChanged);
+                    return;
+                }
+                if (generation is not null)
+                    await _verifySession(generation, owner.ExecutablePath, timeout.Token).ConfigureAwait(false);
+                if (_removalGuard?.IsBlocked(owner, generation, DateTimeOffset.UtcNow) == true)
+                    return;
+                if (_suppression.IsSuppressed(container.Name, owner))
+                {
+                    _store.ForgetContainer(owner, container.Name, entry.Id);
+                    RemovePending(entry);
+                    continue;
+                }
+                var result = await client.StartContainerAsync(container.Id, timeout.Token, explicitStart: false).ConfigureAwait(false);
+                if (!result.Success)
+                {
+                    SetProblem(owner, ProblemKind.StartFailed, result.ErrorText);
+                    return;
+                }
+                _monitor.RequestRefresh();
+            }
+            if (missing.Count > 0)
+                SetProblem(owner, ProblemKind.ContainerMissing, string.Join(", ", missing));
+            else if (notStartable.Count > 0)
+                SetProblem(owner, ProblemKind.NotStartable, string.Join(", ", notStartable));
+            else
+                ClearProblem(owner);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && timeout.IsCancellationRequested)
+        {
+            SetProblem(owner, ProblemKind.EngineUnavailable);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or
+                                   System.Text.Json.JsonException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            _logger.LogWarning(ex, "Automatic start could not complete for session {Session}.", owner.SessionName);
+            SetProblem(owner, ProblemKind.StartFailed, ex.Message);
+        }
+    }
+
     private void Attach()
     {
         if (_tracking || _disposed)
-        {
             return;
-        }
-
         _tracking = true;
         _monitor.StatusChanged += OnStatusChanged;
+        _monitor.AutomationSessionsChanged += OnAutomationSessionsChanged;
     }
 
-    private void OnStatusChanged(object? sender, EngineStatusSnapshot snapshot)
+    internal void OnStatusChanged(object? sender, EngineStatusSnapshot snapshot)
     {
-        // Only record while the engine is healthy; a down/unknown snapshot carries no container list
-        // and must not clobber the desired set with an empty one.
-        if (snapshot.Health is not (EngineHealth.Healthy or EngineHealth.Degraded))
+        if (_settings.HasLoadError)
+            return;
+        bool retry;
+        lock (_gate)
+            retry = _pending.Count > 0 && DateTimeOffset.UtcNow - _lastRetry >= _retryInterval;
+        if (retry && Interlocked.Exchange(ref _statusRetryScheduled, 1) == 0)
+            _ = RetryFromStatusAsync();
+
+        if (snapshot.Health is not (EngineHealth.Healthy or EngineHealth.Degraded) ||
+            string.IsNullOrWhiteSpace(_settings.WslcPath))
+            return;
+        var owner = AutomationSessionOwner.Capture(_settings.WslcPath, _sessionContext.Capture());
+        TrackObservation(owner, snapshot.Containers, snapshot.Session, snapshot.ObservedAt);
+    }
+
+    internal void OnAutomationSessionsChanged(object? sender, WslcAutomationInventory batch)
+    {
+        if (_settings.HasLoadError || batch.Error is not null ||
+            !string.Equals(batch.ExecutablePath, _settings.WslcPath, StringComparison.OrdinalIgnoreCase))
+            return;
+        string defaultName;
+        try { defaultName = WslcSessionActionGuard.ResolveDefaultSessionName(); }
+        catch (InvalidOperationException ex)
         {
+            _logger.LogWarning(ex, "Could not identify the default session for automatic-start tracking.");
             return;
         }
-
-        var containers = snapshot.Containers;
-        var runningEntries = containers
-            .Where(c => c.State == ContainerState.Running)
-            .Select(c => new AutostartEntry { Id = c.Id, Name = c.Name?.TrimStart('/') ?? string.Empty })
-            .ToList();
-
-        // Retire pending desired containers once they are confirmed running (restore succeeded) or
-        // have disappeared entirely (removed / created with --rm); everything else is still owed a
-        // confirmed start and must stay in the persisted set.
-        if (_pending.Count > 0)
+        foreach (var observation in batch.Sessions.Where(item => item.IsComplete && item.Session.CreatorPid > 0 &&
+                     (item.ObservedAt is null ||
+                      DateTimeOffset.UtcNow - item.ObservedAt <= AutomationSessionScopePlanner.ObservationMaxAge)))
         {
-            _pending.RemoveAll(e => IsRunning(e, runningEntries) || !Exists(e, containers));
-        }
-
-        // Persist the running set plus any still-pending desired containers, so a container that has
-        // not yet come back (slow engine / failed start) is not forgotten before its next restore.
-        var union = new List<AutostartEntry>(runningEntries);
-        foreach (var pending in _pending)
-        {
-            if (!IsRunning(pending, runningEntries))
-            {
-                union.Add(pending);
-            }
-        }
-
-        Persist(union);
-    }
-
-    /// <summary>True when a persisted entry matches a currently-running container (by id, then name).</summary>
-    private static bool IsRunning(AutostartEntry entry, IReadOnlyList<AutostartEntry> running) =>
-        ContainerIdentity.ResolveId(running.Select(r => r.Id), entry.Id) is not null ||
-        running.Any(r =>
-            (!string.IsNullOrWhiteSpace(entry.Name) && string.Equals(r.Name, entry.Name, StringComparison.Ordinal)));
-
-    /// <summary>True when a persisted entry still exists as a container in any state (by id, then name).</summary>
-    private static bool Exists(AutostartEntry entry, IReadOnlyList<ContainerInfo> containers) =>
-        ContainerIdentity.ResolveId(containers.Select(c => c.Id), entry.Id) is not null ||
-        containers.Any(c =>
-            (!string.IsNullOrWhiteSpace(entry.Name) && string.Equals(c.Name?.TrimStart('/'), entry.Name, StringComparison.Ordinal)));
-
-    private void Persist(IReadOnlyList<AutostartEntry> entries)
-    {
-        var signature = Signature(entries);
-
-        lock (_persistGate)
-        {
-            if (signature == _lastPersistedSignature)
-            {
-                return;
-            }
-
-            try
-            {
-                Directory.CreateDirectory(SettingsDirectory);
-                var json = JsonSerializer.Serialize(entries, SerializerOptions);
-                File.WriteAllText(StateFile, json);
-                _lastPersistedSignature = signature;
-            }
-            catch (Exception ex)
-            {
-                // Best effort; a failed write just means the set is a poll stale.
-                _logger.LogDebug(ex, "Failed to persist container autostart state to {Path}.", StateFile);
-            }
+            var target = string.Equals(observation.Session.Name, defaultName, StringComparison.Ordinal)
+                ? WslcSessionTarget.Default : new WslcSessionTarget(observation.Session.Name);
+            TrackObservation(AutomationSessionOwner.Capture(batch.ExecutablePath, target), observation.Containers.Items!,
+                observation.Session, observation.ObservedAt ?? DateTimeOffset.UtcNow);
         }
     }
 
-    private List<AutostartEntry> Load()
+    private void TrackObservation(AutomationSessionOwner owner, IReadOnlyList<ContainerInfo> containers,
+        WslcSessionInfo? generation, DateTimeOffset observedAt)
     {
+        if (!_settings.RestartRunningContainersOnLaunch)
+            return;
         try
         {
-            if (!File.Exists(StateFile))
+            if (containers.Any(container => container is null ||
+                string.IsNullOrWhiteSpace(container.Id) || string.IsNullOrWhiteSpace(container.Name)))
             {
-                return new List<AutostartEntry>();
+                SetProblem(owner, ProblemKind.StartFailed, UiText.Get("Automation_AmbiguousInventory",
+                    "The container inventory is incomplete or ambiguous. Refresh before retrying."));
+                return;
             }
-
-            var json = File.ReadAllText(StateFile);
-            var loaded = JsonSerializer.Deserialize<List<AutostartEntry>>(json);
-            if (loaded is null)
+            lock (_gate)
             {
-                return new List<AutostartEntry>();
+                if (_removalGuard?.IsBlocked(owner, generation, observedAt) == true)
+                    return;
+                if (!_store.Tracks(owner))
+                    _store.EnableTracking(owner);
+                var legacy = _store.Snapshot().Where(entry => !entry.TracksSession && entry.SessionOwner?.IsValid != true).ToArray();
+                var running = containers.Where(container => container.State == ContainerState.Running &&
+                        !_suppression.IsSuppressed(container.Name, owner))
+                    .Select(container => new AutostartEntry
+                    {
+                        Id = container.Id, Name = container.Name.TrimStart('/'), SessionOwner = owner,
+                    }).Where(entry => !legacy.Any(unassigned => SameContainer(entry, unassigned) ||
+                        !string.IsNullOrWhiteSpace(unassigned.Name) &&
+                        string.Equals(entry.Name, unassigned.Name, StringComparison.Ordinal)))
+                    .OrderBy(entry => entry.Id, StringComparer.Ordinal).ToList();
+                _pending.RemoveAll(entry => AutostartStateStore.SameOwner(entry.SessionOwner, owner) &&
+                    !string.IsNullOrWhiteSpace(entry.Name) && _suppression.IsSuppressed(entry.Name, owner));
+                foreach (var entry in _pending.Where(entry => AutostartStateStore.SameOwner(entry.SessionOwner, owner)))
+                    if (!running.Any(current => SameContainer(entry, current)))
+                        running.Add(entry);
+                _store.ReplaceOwned(owner, running);
+                _pending.RemoveAll(entry => AutostartStateStore.SameOwner(entry.SessionOwner, owner) &&
+                    containers.Any(container => container.State == ContainerState.Running &&
+                        SameContainer(entry, new AutostartEntry { Id = container.Id, Name = container.Name.TrimStart('/') })));
             }
-
-            return loaded
-                .Where(e => e is not null && (!string.IsNullOrWhiteSpace(e.Id) || !string.IsNullOrWhiteSpace(e.Name)))
-                .ToList();
+            ClearStorageProblem(owner);
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "Could not save automatic-start history.");
+            SetProblem(owner, ProblemKind.StorageFailed, ex.Message);
+        }
+    }
+
+    private void OnManualStop(string name, AutomationSessionOwner? owner, string? id)
+    {
+        if (owner?.IsValid != true)
+            return;
+        try
+        {
+            lock (_gate)
+            {
+                _store.ForgetContainer(owner, name, id);
+                _pending.RemoveAll(entry => AutostartStateStore.SameOwner(entry.SessionOwner, owner) &&
+                    (string.Equals(entry.Name.TrimStart('/'), name, StringComparison.Ordinal) ||
+                     !string.IsNullOrWhiteSpace(id) && string.Equals(entry.Id, id, StringComparison.Ordinal)));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "Could not save manual-stop intent for session {Session}.", owner.SessionName);
+            SetProblem(owner, ProblemKind.StorageFailed, ex.Message);
+        }
+    }
+
+    private async Task RetryFromStatusAsync()
+    {
+        try { await RetryPendingAsync(_shutdown.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            // A corrupt state file must never crash the app; start with an empty set.
-            _logger.LogWarning(ex, "Failed to load container autostart state from {Path}; starting empty.", StateFile);
-            return new List<AutostartEntry>();
+            _logger.LogWarning(ex, "Automatic-start retry failed.");
+            ReportStorageFailure(ex);
+        }
+        finally
+        {
+            Volatile.Write(ref _statusRetryScheduled, 0);
         }
     }
 
-    /// <summary>
-    /// Resolves a persisted entry to a current container, preferring the stable id and falling back
-    /// to the name (which survives even if the engine reassigned ids across a rebuild).
-    /// </summary>
-    private static ContainerInfo? ResolveContainer(
-        IReadOnlyList<ContainerInfo> containers,
-        IReadOnlyDictionary<string, ContainerInfo> byId,
-        AutostartEntry entry)
+    private void RemovePending(AutostartEntry entry)
     {
-        var resolvedId = ContainerIdentity.ResolveId(byId.Keys, entry.Id);
-        if (resolvedId is not null && byId.TryGetValue(resolvedId, out var byIdMatch))
-        {
-            return byIdMatch;
-        }
-
-        if (!string.IsNullOrWhiteSpace(entry.Name))
-        {
-            return containers.FirstOrDefault(c =>
-                string.Equals(c.Name?.TrimStart('/'), entry.Name, StringComparison.Ordinal));
-        }
-
-        return null;
+        lock (_gate)
+            _pending.RemoveAll(current => SameEntry(current, entry));
     }
 
-    private async Task<bool> WaitForEngineAsync(CancellationToken ct)
+    private static bool SameEntry(AutostartEntry left, AutostartEntry right) =>
+        AutostartStateStore.SameOwner(left.SessionOwner, right.SessionOwner) && SameContainer(left, right);
+
+    private static bool SameContainer(AutostartEntry left, AutostartEntry right) =>
+        ContainerIdentity.ResolveId([left.Id], right.Id) is not null ||
+        string.IsNullOrWhiteSpace(left.Id) && string.IsNullOrWhiteSpace(right.Id) &&
+        !string.IsNullOrWhiteSpace(left.Name) && string.Equals(left.Name, right.Name, StringComparison.Ordinal);
+
+    private static ContainerInfo? ResolveContainer(IReadOnlyDictionary<string, ContainerInfo> byId, AutostartEntry entry)
     {
-        var deadline = DateTimeOffset.UtcNow + EngineWaitTimeout;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            if (await _wslc.IsEngineAvailableAsync(ct).ConfigureAwait(false))
-            {
-                return true;
-            }
-
-            try
-            {
-                await Task.Delay(EngineProbeInterval, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-        }
-
-        return false;
+        var resolved = ContainerIdentity.ResolveId(byId.Keys, entry.Id);
+        return resolved is not null && byId.TryGetValue(resolved, out var match) ? match : null;
     }
 
-    private static string Signature(IReadOnlyList<AutostartEntry> entries) =>
-        string.Join('\n', entries
-            .Select(e => string.IsNullOrEmpty(e.Id) ? "name:" + e.Name : "id:" + e.Id)
-            .Where(key => key.Length > 5)
-            .OrderBy(key => key, StringComparer.Ordinal));
+    private void SetProblem(AutomationSessionOwner owner, ProblemKind kind, string? detail = null)
+    {
+        bool changed;
+        lock (_gate)
+        {
+            var storage = kind == ProblemKind.StorageFailed;
+            var existing = _problems.FirstOrDefault(problem => AutostartStateStore.SameOwner(problem.Owner, owner) &&
+                (problem.Kind == ProblemKind.StorageFailed) == storage);
+            var next = new AutostartProblem(owner, kind, detail);
+            changed = existing != next;
+            if (changed)
+            {
+                _problems.RemoveAll(problem => AutostartStateStore.SameOwner(problem.Owner, owner) &&
+                    (problem.Kind == ProblemKind.StorageFailed) == storage);
+                _problems.Add(next);
+            }
+        }
+        if (changed)
+            ProblemsChanged?.Invoke(this, EventArgs.Empty);
+    }
 
-    /// <summary>
-    /// Releases long-lived resources owned by this service.
-    /// </summary>
+    private void ClearProblem(AutomationSessionOwner owner)
+    {
+        int removed;
+        lock (_gate)
+            removed = _problems.RemoveAll(problem => AutostartStateStore.SameOwner(problem.Owner, owner) &&
+                problem.Kind != ProblemKind.StorageFailed);
+        if (removed > 0)
+            ProblemsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ClearStorageProblem(AutomationSessionOwner owner)
+    {
+        int removed;
+        lock (_gate)
+            removed = _problems.RemoveAll(problem => AutostartStateStore.SameOwner(problem.Owner, owner) &&
+                problem.Kind == ProblemKind.StorageFailed);
+        if (removed > 0)
+            ProblemsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ReportStorageFailure(Exception ex)
+    {
+        if (!string.IsNullOrWhiteSpace(_settings.WslcPath))
+            SetProblem(AutomationSessionOwner.Capture(_settings.WslcPath, WslcSessionTarget.Default),
+                ProblemKind.StorageFailed, ex.Message);
+    }
+
+    /// <summary>Stops retries and detaches from the shared status monitor.</summary>
     public void Dispose()
     {
         if (_disposed)
-        {
             return;
-        }
-
         _disposed = true;
+        _shutdown.Cancel();
+        _suppression.Suppressed -= OnManualStop;
         if (_tracking)
         {
             _monitor.StatusChanged -= OnStatusChanged;
+            _monitor.AutomationSessionsChanged -= OnAutomationSessionsChanged;
         }
-    }
-
-    /// <summary>A container that was running when the app last observed it, keyed by id (with name fallback).</summary>
-    public sealed class AutostartEntry
-    {
-        /// <summary>
-        /// Gets the persisted container id for this autostart entry.
-        /// </summary>
-        public string Id { get; set; } = string.Empty;
-        /// <summary>
-        /// Gets the last known container name for this autostart entry.
-        /// </summary>
-        public string Name { get; set; } = string.Empty;
     }
 }

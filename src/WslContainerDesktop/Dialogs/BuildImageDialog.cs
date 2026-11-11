@@ -36,6 +36,7 @@ public sealed class BuildImageDialog : ContentDialog
     private readonly TextBox _tagBox;
     private readonly TextBox _dockerfileBox;
     private readonly TextBlock _preview;
+    private WslcSessionSelection? _session;
 
     // Only registries with a host change the name; Docker Hub (no host) would be a no-op choice.
     private readonly IReadOnlyList<RegistryEntry> _hostRegistries;
@@ -129,10 +130,44 @@ public sealed class BuildImageDialog : ContentDialog
             else if (Services.WslcService.IsStdinDockerfile(Dockerfile))
             {
                 args.Cancel = true;
-                _dockerfileBox.Description = Services.WslcService.StdinDockerfileError;
+                _dockerfileBox.Description = UiText.Get("Images_StdinDockerfileError", WslcService.StdinDockerfileError);
                 _dockerfileBox.Focus(FocusState.Programmatic);
             }
         };
+        Opened += (_, _) => UiText.LanguageChanged += OnLanguageChanged;
+        Closed += (_, _) => UiText.LanguageChanged -= OnLanguageChanged;
+    }
+
+    /// <summary>Shows the chosen session and keeps the dialog localized while it remains open.</summary>
+    public void SetSession(WslcSessionSelection session)
+    {
+        _session = session;
+        RefreshLanguage();
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshLanguage();
+
+    private void RefreshLanguage()
+    {
+        Title = _session is null ? UiText.Get("Workload_Text_Build_image_327d5c", "Build image")
+            : UiText.Get("Images_BuildInSession", "Build image in {0}", _session.Target.Name ??
+                UiText.Get("WslEngine_Session_Default", "Default CLI session"));
+        PrimaryButtonText = UiText.Get("Workload_Text_Build_bdd254", "Build");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
+        _contextBox.Header = UiText.Get("Workload_Text_Folder_to_build_contains_your_Dockerfile_06d592", "Folder to build (contains your Dockerfile)");
+        _dockerfileBox.Header = UiText.Get("Workload_Text_Dockerfile_optional_relative_to_the_folder_6c47c0", "Dockerfile (optional, relative to the folder)");
+        _tagBox.Header = UiText.Get("Workload_Text_Image_name_52493e", "Image name");
+        _registryBox.Header = UiText.Get("Workload_Text_Prepare_for_pushing_to_a_registry_69afc1", "Prepare for pushing to a registry (optional)");
+        var index = _registryBox.SelectedIndex;
+        _registryBox.Items[0] = LocalOnly;
+        _registryBox.SelectedIndex = index;
+        if (_contextBox.Description is not null)
+            _contextBox.Description = UiText.Get("Workload_Text_Enter_the_folder_that_contains_your_0376dd", "Enter the folder that contains your Dockerfile.");
+        if (_tagBox.Description is not null)
+            _tagBox.Description = UiText.Get("Workload_Text_Enter_a_name_for_the_image_cd0692", "Enter a name for the image, for example myapp:latest.");
+        if (_dockerfileBox.Description is not null)
+            _dockerfileBox.Description = UiText.Get("Images_StdinDockerfileError", WslcService.StdinDockerfileError);
+        UpdatePreview();
     }
 
     private RegistryEntry? SelectedRegistry =>

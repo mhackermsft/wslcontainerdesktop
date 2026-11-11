@@ -16,6 +16,7 @@
 
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
+using System.Collections.ObjectModel;
 using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
@@ -107,5 +108,51 @@ public sealed class EngineEventActivityTests
 
         Assert.Equal(ActivityKind.ContainerStopped, entry.Kind);
         Assert.True(entry.IsError);
+    }
+
+    [Fact]
+    public void EventOwnershipSurvivesPersistenceAndDeduplicationIsSessionScoped()
+    {
+        var owner = new AutomationSessionOwner { ExecutablePath = @"C:\wslc.exe", SessionName = "first" };
+        var entry = EngineEventActivity.ToActivityEvent(
+            Parse($"{Ts} container die id1 (exitCode=1, name=a)"), owner);
+        var stored = System.Text.Json.JsonSerializer.Deserialize<ActivityEvent>(
+            System.Text.Json.JsonSerializer.Serialize(entry))!;
+
+        Assert.Equal(owner, stored.SessionOwner);
+        Assert.True(EngineEventActivity.HasSameOwner(stored, owner with { ExecutablePath = @"c:\WSLC.exe" }));
+        Assert.False(EngineEventActivity.HasSameOwner(stored, owner with { SessionName = "FIRST" }));
+        Assert.False(EngineEventActivity.HasSameOwner(stored, owner with { ExecutablePath = @"C:\other.exe" }));
+        Assert.False(EngineEventActivity.HasSameOwner(stored, null));
+        Assert.True(EngineEventActivity.HasSameOwner(new ActivityEvent(), null));
+    }
+
+    [Fact]
+    public void BatchDeduplicatesWithinEachSessionButKeepsOtherSessionsDistinct()
+    {
+        var entries = new ObservableCollection<ActivityEvent>();
+        var first = Parse($"{Ts} container start id1 (name=a)");
+        first.SessionOwner = AutomationSessionOwner.Capture("engine", new("alpha"));
+        var second = Parse($"{Ts} container start id1 (name=a)");
+        second.SessionOwner = AutomationSessionOwner.Capture("engine", new("Alpha"));
+
+        Assert.True(ActivityEventBatch.Apply(entries, [first, second, first], 500));
+        Assert.Equal(2, entries.Count);
+        Assert.Equal(["Alpha", "alpha"], entries.Select(entry => entry.SessionOwner!.SessionName).Order(StringComparer.Ordinal));
+        Assert.False(ActivityEventBatch.Apply(entries, [first, second], 500));
+    }
+
+    [Fact]
+    public void BatchReplacesRedundantStopsAndKeepsTheNewestBoundedEvents()
+    {
+        var entries = new ObservableCollection<ActivityEvent>();
+        var stop = Parse($"{Ts} container stop id1 (name=a)");
+        var die = Parse($"{Ts} container die id1 (exitCode=137, name=a)");
+        var later = Parse("2026-10-07T09:31:00.000000000-04:00 container start id2 (name=b)");
+        Assert.True(ActivityEventBatch.Apply(entries, [stop, die, later], 2));
+        Assert.Equal(2, entries.Count);
+        Assert.Equal("id2", entries[0].ContainerId);
+        Assert.Equal("die", entries[1].SourceAction);
+        Assert.True(entries[1].IsError);
     }
 }

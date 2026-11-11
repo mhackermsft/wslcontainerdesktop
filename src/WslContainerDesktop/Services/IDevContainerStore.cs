@@ -28,6 +28,10 @@ public interface IDevContainerStore
     DevContainerConfig? Get(string id);
     /// <summary>Adds or replaces one Dev Container configuration and persists it.</summary>
     void Save(DevContainerConfig config);
+    /// <summary>Atomically replaces a configuration only while its saved instance is unchanged.</summary>
+    bool TryReplace(DevContainerConfig expected, DevContainerConfig replacement);
+    /// <summary>Atomically removes a configuration only while its saved instance is unchanged.</summary>
+    bool TryDelete(DevContainerConfig expected);
     /// <summary>Removes a saved configuration by id and persists the change.</summary>
     void Delete(string id);
 }

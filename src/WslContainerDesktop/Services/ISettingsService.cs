@@ -19,6 +19,12 @@ namespace WslContainerDesktop.Services;
 /// <summary>App-wide settings shared by view models and services and persisted as JSON.</summary>
 public interface ISettingsService
 {
+    /// <summary>Whether the most recent attempt to persist settings failed.</summary>
+    bool HasSaveError => false;
+
+    /// <summary>Whether saved settings could not be read safely.</summary>
+    bool HasLoadError => false;
+
     /// <summary>Full path to wslc.exe.</summary>
     string WslcPath { get; set; }
 

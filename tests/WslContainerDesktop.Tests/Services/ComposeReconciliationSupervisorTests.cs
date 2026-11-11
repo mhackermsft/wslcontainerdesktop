@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using WslContainerDesktop.Models;
+using WslContainerDesktop.Services;
 using Xunit;
 using static WslContainerDesktop.Tests.Services.ComposeNetworkOrchestratorTests;
 using static WslContainerDesktop.Tests.Services.ComposeNetworkSupervisorTests;
@@ -26,6 +27,54 @@ namespace WslContainerDesktop.Tests.Services;
 /// </summary>
 public sealed class ComposeReconciliationSupervisorTests
 {
+    [Fact]
+    public async Task LegacyProjectDoesNotReconcileOrApplyBeforeAssignment()
+    {
+        var fixture = new Fixture();
+        fixture.Project.SessionOwner = null;
+        fixture.Engine.Reads.Clear();
+
+        await fixture.Supervisor.ReconcileAsync();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Supervisor.PrepareReviewAsync(fixture.Project));
+
+        Assert.Contains("session assignment", error.Message);
+        Assert.Empty(fixture.Engine.Reads);
+        Assert.Empty(fixture.Engine.Mutations);
+        Assert.Empty(fixture.HealthChecks);
+        Assert.Empty(fixture.RestartPolicies);
+    }
+
+    [Fact]
+    public async Task ProjectAssignedToAnotherSessionCannotBeManagedHere()
+    {
+        var fixture = new Fixture();
+        fixture.Project.SessionOwner = AutomationSessionOwner.Capture("wslc", new WslcSessionTarget("other"));
+        fixture.Engine.Reads.Clear();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Supervisor.PrepareReviewAsync(fixture.Project));
+
+        Assert.Contains("different session", error.Message);
+        Assert.Empty(fixture.Engine.Reads);
+        Assert.Empty(fixture.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task ComposeDoesNotReenrollAnUnassignedLegacyPolicy()
+    {
+        var fixture = new Fixture();
+        fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
+        var legacy = new RestartPolicyConfig { ContainerName = "demo_web", Policy = RestartPolicyKind.Always };
+        fixture.RestartPolicies.Add(legacy);
+
+        await UpSuccessfullyAsync(fixture);
+        await fixture.Supervisor.ReconcileAsync();
+
+        Assert.Same(legacy, Assert.Single(fixture.RestartPolicies));
+        Assert.Null(legacy.SessionOwner);
+    }
+
     [Theory]
     [InlineData(WslcCapabilitySupport.Supported)]
     [InlineData(WslcCapabilitySupport.Unsupported)]
@@ -119,7 +168,7 @@ public sealed class ComposeReconciliationSupervisorTests
         var fixture = new Fixture();
         await UpSuccessfullyAsync(fixture);
         fixture.Engine.States["demo_web"] = ContainerState.Stopped;
-        fixture.Suppression.Suppress("demo_web");
+        fixture.Suppression.Suppress("demo_web", fixture.CurrentOwner);
         fixture.Engine.Mutations.Clear();
 
         var plan = await fixture.Supervisor.PlanAsync(fixture.Project);
@@ -128,7 +177,7 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.Equal(["start:demo_web"], fixture.Engine.Mutations);
         Assert.False(fixture.Engine.LastStartWasExplicit);
-        Assert.False(fixture.Suppression.IsSuppressed("demo_web"));
+        Assert.False(fixture.Suppression.IsSuppressed("demo_web", fixture.CurrentOwner));
         Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);
     }
 
@@ -196,7 +245,7 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_web"]);
         Assert.Equal("demo_web", Assert.Single(fixture.RestartPolicies).ContainerName);
         Assert.True(fixture.Engine.Networks.ContainsKey("a"));
-        Assert.True(fixture.Suppression.IsSuppressed("demo_worker"));
+        Assert.True(fixture.Suppression.IsSuppressed("demo_worker", fixture.CurrentOwner));
         if (operation == ComposeLifecycleOperation.Stop)
             Assert.True(fixture.SavedProject!.AppliedServices["worker"].ManuallyStopped);
         else
@@ -638,13 +687,13 @@ public sealed class ComposeReconciliationSupervisorTests
         fixture.Engine.Mutations.Clear();
         fixture.BeforeCapabilities = () =>
         {
-            fixture.Suppression.Suppress("demo_web");
+            fixture.Suppression.Suppress("demo_web", fixture.CurrentOwner);
             return Task.CompletedTask;
         };
 
         await UpSuccessfullyAsync(fixture);
 
-        Assert.True(fixture.Suppression.IsSuppressed("demo_web"));
+        Assert.True(fixture.Suppression.IsSuppressed("demo_web", fixture.CurrentOwner));
         Assert.True(fixture.SavedProject!.AppliedServices["web"].ManuallyStopped);
         Assert.DoesNotContain("remove:demo_web", fixture.Engine.Mutations);
         Assert.False(fixture.Engine.LastStartWasExplicit);
@@ -818,12 +867,12 @@ public sealed class ComposeReconciliationSupervisorTests
         Assert.True(result.AllSucceeded);
         fixture.Engine.Mutations.Clear();
         var relaunched = new Fixture(engine: fixture.Engine, persisted: fixture.SavedProject);
-        Assert.False(relaunched.Suppression.IsSuppressed("demo_web"));
+        Assert.False(relaunched.Suppression.IsSuppressed("demo_web", relaunched.CurrentOwner));
 
         await relaunched.Supervisor.ReconcileAsync();
 
         Assert.Empty(relaunched.RestartPolicies);
-        Assert.True(relaunched.Suppression.IsSuppressed("demo_web"));
+        Assert.True(relaunched.Suppression.IsSuppressed("demo_web", relaunched.CurrentOwner));
         Assert.True(relaunched.SavedProject!.AppliedServices["web"].ManuallyStopped);
         Assert.Empty(relaunched.Engine.Mutations);
     }
@@ -849,7 +898,7 @@ public sealed class ComposeReconciliationSupervisorTests
         if (laterStop)
             fixture.BeforeCapabilities = () =>
             {
-                fixture.Suppression.Suppress("demo_web");
+                fixture.Suppression.Suppress("demo_web", fixture.CurrentOwner);
                 return Task.CompletedTask;
             };
 
@@ -859,7 +908,7 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.Equal(!fail, result.AllSucceeded);
         Assert.Equal(fail || laterStop, fixture.SavedProject!.AppliedServices["web"].ManuallyStopped);
-        Assert.Equal(fail || laterStop, fixture.Suppression.IsSuppressed("demo_web"));
+        Assert.Equal(fail || laterStop, fixture.Suppression.IsSuppressed("demo_web", fixture.CurrentOwner));
     }
 
     [Theory]
@@ -892,7 +941,7 @@ public sealed class ComposeReconciliationSupervisorTests
             Assert.False((await fixture.Supervisor.OperateAsync("demo", request)).AllSucceeded);
 
         Assert.True(fixture.SavedProject!.AppliedServices["web"].ManuallyStopped);
-        Assert.True(fixture.Suppression.IsSuppressed("demo_web"));
+        Assert.True(fixture.Suppression.IsSuppressed("demo_web", fixture.CurrentOwner));
         Assert.Same(workerPolicy, Assert.Single(fixture.RestartPolicies));
         Assert.Equal(["stop:demo_web"], fixture.Engine.Mutations);
         Assert.Equal(ContainerState.Running, fixture.Engine.States["demo_worker"]);
@@ -953,7 +1002,19 @@ public sealed class ComposeReconciliationSupervisorTests
         var fixture = new Fixture();
         fixture.Project.Services[0].Restart = RestartPolicyKind.Always;
         await UpSuccessfullyAsync(fixture);
-        fixture.HealthChecks.Add(new() { ContainerName = "demo_web", Command = "old-probe" });
+        fixture.HealthChecks.Add(new()
+        {
+            ContainerName = "demo_web", Command = "old-probe",
+            SessionOwner = AutomationSessionOwner.Capture("wslc", WslcSessionTarget.Default),
+        });
+        var unassigned = new HealthCheckConfig { ContainerName = "demo_web", Command = "legacy-probe" };
+        var foreign = new HealthCheckConfig
+        {
+            ContainerName = "demo_web", Command = "other-probe",
+            SessionOwner = AutomationSessionOwner.Capture("wslc", new WslcSessionTarget("another")),
+        };
+        fixture.HealthChecks.Add(unassigned);
+        fixture.HealthChecks.Add(foreign);
         if (replaced)
             fixture.Engine.ContainerIds["demo_web"] = "replaced-id";
         else
@@ -964,7 +1025,7 @@ public sealed class ComposeReconciliationSupervisorTests
 
         Assert.NotEmpty(fixture.Supervisor.ReconciliationWarnings);
         Assert.Empty(fixture.RestartPolicies);
-        Assert.Empty(fixture.HealthChecks);
+        Assert.Equal([unassigned, foreign], fixture.HealthChecks);
         Assert.Empty(fixture.Engine.Mutations);
     }
 

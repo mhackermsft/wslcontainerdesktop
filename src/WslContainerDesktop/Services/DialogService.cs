@@ -69,7 +69,13 @@ public sealed class DialogService
     }
 
     /// <summary>Shows an informational dialog with selectable wrapped text, if a window is available.</summary>
-    public async Task ShowMessageAsync(string title, string message)
+    public Task ShowMessageAsync(string title, string message) =>
+        ShowMessageCoreAsync(UiText.Translate(title), UiText.TranslateLines(message));
+
+    /// <summary>Shows already localized text or raw engine output without translating its contents.</summary>
+    public Task ShowLocalizedMessageAsync(string title, string message) => ShowMessageCoreAsync(title, message);
+
+    private async Task ShowMessageCoreAsync(string title, string message)
     {
         if (XamlRoot is null)
         {
@@ -78,12 +84,12 @@ public sealed class DialogService
 
         var dialog = new ContentDialog
         {
-            Title = UiText.Translate(title),
+            Title = title,
             Content = new ScrollViewer
             {
                 Content = new TextBlock
                 {
-                    Text = UiText.TranslateLines(message),
+                    Text = message,
                     TextWrapping = TextWrapping.Wrap,
                     IsTextSelectionEnabled = true,
                 },
@@ -98,26 +104,52 @@ public sealed class DialogService
     }
 
     /// <summary>Shows a yes/cancel confirmation dialog and returns true only for the primary button.</summary>
-    public async Task<bool> ShowConfirmAsync(string title, string message, string primaryText = "Yes", string closeText = "Cancel")
+    public Task<bool> ShowConfirmAsync(string title, string message, string primaryText = "Yes", string closeText = "Cancel") =>
+        ShowConfirmCoreAsync(UiText.Translate(title), UiText.TranslateLines(message), UiText.Translate(primaryText), UiText.Translate(closeText));
+
+    /// <summary>Shows already localized wording without translating interpolated values.</summary>
+    public Task<bool> ShowLocalizedConfirmAsync(string title, string message, string primaryText, string closeText) =>
+        ShowConfirmCoreAsync(title, message, primaryText, closeText);
+
+    /// <summary>Shows keyed confirmation wording that refreshes in place on a language change.</summary>
+    public Task<bool> ShowLocalizedConfirmAsync(Func<(string Title, string Message, string Primary, string Close)> text)
+    {
+        var initial = text();
+        return ShowConfirmCoreAsync(initial.Title, initial.Message, initial.Primary, initial.Close, text);
+    }
+
+    private async Task<bool> ShowConfirmCoreAsync(string title, string message, string primaryText, string closeText,
+        Func<(string Title, string Message, string Primary, string Close)>? text = null)
     {
         if (XamlRoot is null)
         {
             return false;
         }
 
+        var body = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap };
         var dialog = new ContentDialog
         {
-            Title = UiText.Translate(title),
-            Content = new TextBlock { Text = UiText.TranslateLines(message), TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = UiText.Translate(primaryText),
-            CloseButtonText = UiText.Translate(closeText),
+            Title = title,
+            Content = body,
+            PrimaryButtonText = primaryText,
+            CloseButtonText = closeText,
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = XamlRoot,
         };
 
         ApplyDimPlaceholders(dialog);
-        var result = await dialog.ShowAsync();
-        return result == ContentDialogResult.Primary;
+        void Refresh(object? sender, EventArgs args)
+        {
+            if (text is null) return;
+            var value = text();
+            dialog.Title = value.Title;
+            body.Text = value.Message;
+            dialog.PrimaryButtonText = value.Primary;
+            dialog.CloseButtonText = value.Close;
+        }
+        if (text is not null) UiText.LanguageChanged += Refresh;
+        try { return await dialog.ShowAsync() == ContentDialogResult.Primary; }
+        finally { if (text is not null) UiText.LanguageChanged -= Refresh; }
     }
 
     /// <summary>Shows a caller-built dialog, wiring the correct XamlRoot.</summary>

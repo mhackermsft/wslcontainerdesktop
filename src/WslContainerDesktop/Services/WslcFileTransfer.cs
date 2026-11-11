@@ -49,7 +49,11 @@ internal sealed class WslcFileTransfer(
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            return new CommandResult { ExitCode = -1, StandardError = $"Could not copy files: {ex.Message}" };
+            return new CommandResult
+            {
+                ExitCode = -1,
+                StandardError = UiText.Get("WslcFileTransfer_CopyFailed", "Could not copy files: {0}", ex.Message),
+            };
         }
     }
 
@@ -107,7 +111,11 @@ internal sealed class WslcFileTransfer(
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            return new CommandResult { ExitCode = -1, StandardError = $"Could not copy files: {ex.Message}" };
+            return new CommandResult
+            {
+                ExitCode = -1,
+                StandardError = UiText.Get("WslcFileTransfer_CopyFailed", "Could not copy files: {0}", ex.Message),
+            };
         }
     }
 

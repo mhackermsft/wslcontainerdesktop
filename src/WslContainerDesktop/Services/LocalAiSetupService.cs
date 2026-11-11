@@ -27,7 +27,7 @@ public sealed class LocalAiSetupService(IWslcService wslc,
 {
     private const string ImageReference = "ollama/ollama";
     private const string PullReference = "ollama/ollama:latest";
-    private const string ManagedContainerName = "wslcd-ollama";
+    internal const string ManagedContainerName = "wslcd-ollama";
     private const string ModelVolumeName = "wslcd-ollama";
     /// <summary>
     /// Gets owner label for other services or view models.

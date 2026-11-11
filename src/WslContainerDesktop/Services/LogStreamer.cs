@@ -36,6 +36,7 @@ public sealed class LogStreamer : IDisposable
 {
     private readonly ISettingsService _settings;
     private readonly DispatcherQueue _dispatcher;
+    private readonly WslcSessionContext _sessionContext;
 
     // How long the backlog must be quiet before it is sorted and shown, and the longest we wait
     // for a chatty container before showing it anyway.
@@ -65,10 +66,11 @@ public sealed class LogStreamer : IDisposable
     /// <summary>
     /// Initializes a new <c>LogStreamer</c> with the collaborators it needs from dependency injection.
     /// </summary>
-    public LogStreamer(ISettingsService settings, DispatcherQueue dispatcher)
+    public LogStreamer(ISettingsService settings, DispatcherQueue dispatcher, WslcSessionContext sessionContext)
     {
         _settings = settings;
         _dispatcher = dispatcher;
+        _sessionContext = sessionContext;
     }
 
     /// <summary>
@@ -79,37 +81,14 @@ public sealed class LogStreamer : IDisposable
     /// <summary>
     /// Starts the background work requested by the UI or a supervisor.
     /// </summary>
-    public void Start(string containerId, int tail = 200, bool details = false, bool timestamps = false)
+    public void Start(string containerId, int tail = 200, bool details = false, bool timestamps = false,
+        WslcSessionTarget? session = null, string? executablePath = null)
     {
+        using var selection = _sessionContext.LockSelection();
         Stop();
 
         _currentId = containerId;
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = _settings.WslcPath,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-
-        psi.ArgumentList.Add("logs");
-        if (details)
-        {
-            psi.ArgumentList.Add("--details");
-        }
-
-        // Always request timestamps: they are needed to put the backlog in order and are
-        // stripped again in Format when the caller did not ask to show them.
-        psi.ArgumentList.Add("--timestamps");
-
-        psi.ArgumentList.Add("-f");
-        psi.ArgumentList.Add("--tail");
-        psi.ArgumentList.Add(tail.ToString());
-        psi.ArgumentList.Add(containerId);
+        var psi = CreateStartInfo(executablePath ?? _settings.WslcPath, session ?? _sessionContext.Capture(), containerId, tail, details);
 
         int generation;
         lock (_gate)
@@ -127,7 +106,11 @@ public sealed class LogStreamer : IDisposable
         process.Exited += (_, _) =>
         {
             FlushBacklog(generation);
-            _dispatcher.TryEnqueue(() => Stopped?.Invoke());
+            _dispatcher.TryEnqueue(() =>
+            {
+                if (IsCurrent(generation))
+                    Stopped?.Invoke();
+            });
         };
 
         try
@@ -140,10 +123,32 @@ public sealed class LogStreamer : IDisposable
         catch (Exception ex)
         {
             FlushBacklog(generation);
-            Emit($"[failed to stream logs: {ex.Message}]");
+            Emit($"[failed to stream logs: {ex.Message}]", generation);
             process.Dispose();
             _process = null;
         }
+    }
+
+    internal static ProcessStartInfo CreateStartInfo(
+        string executable, WslcSessionTarget target, string containerId, int tail, bool details)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = executable,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        var arguments = new List<string> { "logs" };
+        if (details)
+            arguments.Add("--details");
+        arguments.AddRange(["--timestamps", "-f", "--tail", tail.ToString(), containerId]);
+        foreach (var argument in target.AddSessionSelector(arguments))
+            psi.ArgumentList.Add(argument);
+        return psi;
     }
 
     // Called on thread-pool threads by both pipe readers.
@@ -173,7 +178,7 @@ public sealed class LogStreamer : IDisposable
                 return;
             }
 
-            Emit(Format(line));
+            Emit(Format(line), generation);
         }
     }
 
@@ -193,21 +198,31 @@ public sealed class LogStreamer : IDisposable
             _backlogTimer = null;
             foreach (var line in ordered)
             {
-                Emit(Format(line));
+                Emit(Format(line), generation);
             }
         }
     }
 
     private string Format(string line) => _showTimestamps ? line : LogLineOrder.StripTimestamp(line);
 
-    private void Emit(string? line)
+    internal void Emit(string? line, int generation)
     {
         if (line is null)
         {
             return;
         }
 
-        _dispatcher.TryEnqueue(() => LineReceived?.Invoke(line));
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (IsCurrent(generation))
+                LineReceived?.Invoke(line);
+        });
+    }
+
+    private bool IsCurrent(int generation)
+    {
+        lock (_gate)
+            return generation == _generation;
     }
 
     /// <summary>
