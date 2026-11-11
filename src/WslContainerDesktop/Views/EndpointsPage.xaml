@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:WslContainerDesktop.ViewModels"
@@ -13,6 +14,7 @@
 
     <Page.Resources>
         <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
     </Page.Resources>
 
     <Grid Margin="24,16,24,16" RowSpacing="12">
@@ -29,44 +31,35 @@
                 Style="{ThemeResource CaptionTextBlockStyle}"
                 Text="{x:Bind ViewModel.InventorySummaryDisplay, Mode=OneWay}"
                 TextWrapping="Wrap" />
+            <TextBlock
+                Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                Text="{x:Bind ViewModel.WarningText, Mode=OneWay}"
+                TextWrapping="Wrap" />
+            <TextBlock x:Uid="ResourceSessionWakeNotice" i18n:Localization.Uid="ResourceSessionWakeNotice"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
         </StackPanel>
 
-        <StackPanel
-            Grid.Row="1"
-            Orientation="Horizontal"
-            Spacing="8">
-            <Button Command="{x:Bind ViewModel.RefreshCommand}">
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" HorizontalAlignment="Left" Command="{x:Bind ViewModel.RefreshCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon FontSize="14" Glyph="&#xE72C;" />
                     <TextBlock x:Uid="Resource_Endpoints_002" i18n:Localization.Uid="Resource_Endpoints_002" />
                 </StackPanel>
             </Button>
-        </StackPanel>
+            <controls:ResourceGridToolbar Grid.Column="1" VerticalAlignment="Top"
+                State="{x:Bind ViewModel.Grid, Mode=OneWay}" />
+        </Grid>
 
         <!-- Table: column header (wide only) + list  -->
-        <Grid Grid.Row="2">
+        <Grid x:Name="TableRoot" Grid.Row="2" SizeChanged="TableRoot_SizeChanged">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
-
-            <VisualStateManager.VisualStateGroups>
-                <VisualStateGroup>
-                    <VisualState x:Name="HeaderWide">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MinWidth="640" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                    </VisualState>
-                    <VisualState x:Name="HeaderNarrow">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MaxWidth="640" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                        <VisualState.Setters>
-                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
-                        </VisualState.Setters>
-                    </VisualState>
-                </VisualStateGroup>
-            </VisualStateManager.VisualStateGroups>
 
             <Border
                 x:Name="HeaderBorder"
@@ -76,20 +69,22 @@
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                 BorderThickness="1"
                 CornerRadius="6,6,0,0">
-                <Grid>
+                <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="1.2*" MinWidth="160" />
-                        <ColumnDefinition Width="140" />
-                        <ColumnDefinition Width="120" />
-                        <ColumnDefinition Width="1.4*" MinWidth="160" />
-                        <ColumnDefinition Width="92" />
+                        <ColumnDefinition Width="*" MinWidth="100" />
+                        <ColumnDefinition Width="1.2*" MinWidth="120" />
+                        <ColumnDefinition Width="85" />
+                        <ColumnDefinition Width="100" />
+                        <ColumnDefinition Width="1.4*" MinWidth="120" />
+                        <ColumnDefinition Width="100" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Uid="Resource_Endpoints_003" i18n:Localization.Uid="Resource_Endpoints_003" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
-                    <TextBlock x:Uid="Resource_Endpoints_004" i18n:Localization.Uid="Resource_Endpoints_004" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
-                    <TextBlock x:Uid="Resource_Endpoints_005" i18n:Localization.Uid="Resource_Endpoints_005" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
-                    <TextBlock x:Uid="Resource_Endpoints_006" i18n:Localization.Uid="Resource_Endpoints_006" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
+                    <controls:ResourceSortHeader Grid.Column="0" State="{x:Bind ViewModel.Grid}" SortKey="session"><controls:ResourceSortHeader.Header><TextBlock x:Uid="ResourceSessionColumn" i18n:Localization.Uid="ResourceSessionColumn" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                    <controls:ResourceSortHeader Grid.Column="1" State="{x:Bind ViewModel.Grid}" SortKey="container"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Endpoints_003" i18n:Localization.Uid="Resource_Endpoints_003" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                    <controls:ResourceSortHeader Grid.Column="2" State="{x:Bind ViewModel.Grid}" SortKey="hostport"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Endpoints_004" i18n:Localization.Uid="Resource_Endpoints_004" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                    <controls:ResourceSortHeader Grid.Column="3" State="{x:Bind ViewModel.Grid}" SortKey="containerport"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Endpoints_005" i18n:Localization.Uid="Resource_Endpoints_005" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                    <controls:ResourceSortHeader Grid.Column="4" State="{x:Bind ViewModel.Grid}" SortKey="address"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Endpoints_006" i18n:Localization.Uid="Resource_Endpoints_006" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
                     <TextBlock x:Uid="Resource_Endpoints_007" i18n:Localization.Uid="Resource_Endpoints_007"
-                        Grid.Column="4"
+                        Grid.Column="5"
                         HorizontalAlignment="Right"
                         Style="{ThemeResource CaptionTextBlockStyle}" />
                 </Grid>
@@ -103,8 +98,9 @@
                 CornerRadius="0,0,6,6">
                 <Grid>
                     <ListView
+                        x:Name="EndpointsList"
                         Padding="0,4"
-                        ItemsSource="{x:Bind ViewModel.Endpoints, Mode=OneWay}"
+                        ItemsSource="{x:Bind ViewModel.Grid.Items, Mode=OneWay}"
                         SelectionMode="None">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
@@ -115,37 +111,22 @@
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="vm:PortEndpointRow">
-                                <Grid x:Name="RowRoot">
-                                    <VisualStateManager.VisualStateGroups>
-                                        <VisualStateGroup>
-                                            <VisualState x:Name="RowWide">
-                                                <VisualState.StateTriggers>
-                                                    <converters:ControlSizeTrigger MinWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
-                                                </VisualState.StateTriggers>
-                                            </VisualState>
-                                            <VisualState x:Name="RowNarrow">
-                                                <VisualState.StateTriggers>
-                                                    <converters:ControlSizeTrigger MaxWidth="600" TargetElement="{Binding ElementName=RowRoot}" />
-                                                </VisualState.StateTriggers>
-                                                <VisualState.Setters>
-                                                    <Setter Target="WideGrid.Visibility" Value="Collapsed" />
-                                                    <Setter Target="NarrowPanel.Visibility" Value="Visible" />
-                                                </VisualState.Setters>
-                                            </VisualState>
-                                        </VisualStateGroup>
-                                    </VisualStateManager.VisualStateGroups>
-
-                                    <Grid x:Name="WideGrid">
+                                <Grid x:Name="RowRoot" SizeChanged="RowRoot_SizeChanged">
+                                    <Grid x:Name="WideGrid" ColumnSpacing="8">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="1.2*" MinWidth="160" />
-                                            <ColumnDefinition Width="140" />
-                                            <ColumnDefinition Width="120" />
-                                            <ColumnDefinition Width="1.4*" MinWidth="160" />
-                                            <ColumnDefinition Width="92" />
+                                            <ColumnDefinition Width="*" MinWidth="100" />
+                                            <ColumnDefinition Width="1.2*" MinWidth="120" />
+                                            <ColumnDefinition Width="85" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="1.4*" MinWidth="120" />
+                                            <ColumnDefinition Width="100" />
                                         </Grid.ColumnDefinitions>
 
+                                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                            Text="{x:Bind SessionName}" TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{x:Bind SessionName}" />
                                         <StackPanel
-                                            Grid.Column="0"
+                                            Grid.Column="1"
                                             Margin="0,0,8,0"
                                             VerticalAlignment="Center"
                                             Orientation="Horizontal"
@@ -164,21 +145,21 @@
                                         </StackPanel>
 
                                         <TextBlock
-                                            Grid.Column="1"
+                                            Grid.Column="2"
                                             VerticalAlignment="Center"
                                             FontFamily="Consolas"
                                             FontSize="13"
                                             Text="{x:Bind HostPort}" />
 
                                         <TextBlock
-                                            Grid.Column="2"
+                                            Grid.Column="3"
                                             VerticalAlignment="Center"
                                             FontSize="13"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                             Text="{x:Bind PortDisplay}" />
 
                                         <HyperlinkButton x:Uid="Resource_Endpoints_008" i18n:Localization.Uid="Resource_Endpoints_008"
-                                            Grid.Column="3"
+                                            Grid.Column="4"
                                             Margin="-4,0,0,0"
                                             VerticalAlignment="Center"
 
@@ -187,7 +168,7 @@
                                             IsEnabled="{x:Bind IsHttp}" />
 
                                         <StackPanel
-                                            Grid.Column="4"
+                                            Grid.Column="5"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Center"
                                             Orientation="Horizontal"
@@ -202,7 +183,7 @@
                                             <Button x:Uid="Resource_Endpoints_010" i18n:Localization.Uid="Resource_Endpoints_010"
                                                 Padding="7,5"
 
-                                                Click="Copy_Click">
+                                                Click="Copy_Click" IsEnabled="{x:Bind CanCopyAddress}">
                                                 <FontIcon FontSize="14" Glyph="&#xE8C8;" />
                                             </Button>
                                         </StackPanel>
@@ -210,6 +191,8 @@
 
                                     <!-- Narrow: stacked card layout  -->
                                     <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                        <TextBlock Text="{x:Bind SessionName}" TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{x:Bind SessionName}" />
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE7F4;" />
                                             <TextBlock VerticalAlignment="Center" FontFamily="Consolas" FontSize="13" Text="{x:Bind ContainerName}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind ContainerName}" />
@@ -237,7 +220,7 @@
                                             <Button x:Uid="Resource_Endpoints_015" i18n:Localization.Uid="Resource_Endpoints_015" Padding="7,5" Click="Open_Click" IsEnabled="{x:Bind IsHttp}" >
                                                 <FontIcon FontSize="14" Glyph="&#xE774;" />
                                             </Button>
-                                            <Button x:Uid="Resource_Endpoints_016" i18n:Localization.Uid="Resource_Endpoints_016" Padding="7,5" Click="Copy_Click" >
+                                            <Button x:Uid="Resource_Endpoints_016" i18n:Localization.Uid="Resource_Endpoints_016" Padding="7,5" Click="Copy_Click" IsEnabled="{x:Bind CanCopyAddress}" >
                                                 <FontIcon FontSize="14" Glyph="&#xE8C8;" />
                                             </Button>
                                         </StackPanel>
@@ -246,6 +229,11 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
+
+                    <TextBlock x:Uid="ResourceGrid_NoMatches" i18n:Localization.Uid="ResourceGrid_NoMatches"
+                        Margin="0,60,0,0" HorizontalAlignment="Center" VerticalAlignment="Top"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsHitTestVisible="False"
+                        Visibility="{x:Bind ViewModel.Grid.HasNoMatches, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
 
                     <StackPanel
                         Margin="0,60,0,0"

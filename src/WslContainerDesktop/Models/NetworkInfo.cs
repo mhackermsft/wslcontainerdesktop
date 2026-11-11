@@ -30,7 +30,15 @@ public sealed class NetworkInfo : ObservableObject
     /// Returns the network name. List controls use this as each row's screen-reader name;
     /// without it Narrator announces the .NET type name instead.
     /// </summary>
-    public override string ToString() => Name;
+    public override string ToString() => string.IsNullOrEmpty(SessionName) ? Name : $"{SessionName}: {Name}";
+
+    /// <summary>The owning session shown in combined resource lists.</summary>
+    [JsonIgnore]
+    public string SessionName { get; set; } = string.Empty;
+
+    /// <summary>Whether the session identity is sufficient for a scoped action.</summary>
+    [JsonIgnore]
+    public bool SessionIdentityKnown { get; set; } = true;
 
     /// <summary>Gets or sets the id.</summary>
     [JsonPropertyName("Id")]
@@ -57,7 +65,8 @@ public sealed class NetworkInfo : ObservableObject
 
     /// <summary>Gets a value indicating whether this value can modify.</summary>
     [JsonIgnore]
-    public bool CanModify => !IsBuiltIn;
+    public bool CanModify => !IsBuiltIn && SessionIdentityKnown &&
+        (string.IsNullOrEmpty(SessionName) || !string.IsNullOrWhiteSpace(Id));
 
     /// <summary>Gets the driver display.</summary>
     [JsonIgnore]

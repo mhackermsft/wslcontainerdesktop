@@ -233,10 +233,10 @@
     <value>运行中的容器退出或崩溃时通知。</value>
   </data>
   <data name="Settings_Notify_Engine_Label.Text" xml:space="preserve">
-    <value>引擎可用性</value>
+    <value>默认 CLI 会话可用性</value>
   </data>
   <data name="Settings_Notify_Engine_Help.Text" xml:space="preserve">
-    <value>容器引擎宕机或恢复时通知。</value>
+    <value>默认 CLI 会话不可用或恢复时通知。请在 WSL 引擎页面检查其他会话。</value>
   </data>
   <data name="Settings_Ai_Header.Text" xml:space="preserve">
     <value>AI 诊断</value>
@@ -5381,7 +5381,7 @@ k3s 项目更新安装脚本时会出现这种情况；请仅在信任来源时�
     <value>可回收空间（悬空镜像和已停止的容器）</value>
   </data>
   <data name="Resource_ReclaimSpace_005.Text" xml:space="preserve">
-    <value>容器存储：</value>
+    <value>默认 CLI 存储：</value>
   </data>
   <data name="Resource_ReclaimSpace_006.Content" xml:space="preserve">
     <value>打开 WSL 引擎存储设置</value>
@@ -5399,7 +5399,7 @@ k3s 项目更新安装脚本时会出现这种情况；请仅在信任来源时�
     <value>可回收：</value>
   </data>
   <data name="Resource_ReclaimSpace_012.Text" xml:space="preserve">
-    <value>个悬空镜像</value>
+    <value>个已确认候选项</value>
   </data>
   <data name="Resource_ReclaimSpace_013.Content" xml:space="preserve">
     <value>删除悬空镜像</value>
@@ -5414,7 +5414,7 @@ k3s 项目更新安装脚本时会出现这种情况；请仅在信任来源时�
     <value>已停止：</value>
   </data>
   <data name="Resource_ReclaimSpace_017.Text" xml:space="preserve">
-    <value>可回收</value>
+    <value>已知可回收</value>
   </data>
   <data name="Resource_ReclaimSpace_018.Text" xml:space="preserve">
     <value>可回收：</value>
@@ -6042,15 +6042,6 @@ k3s 项目更新安装脚本时会出现这种情况；请仅在信任来源时�
   <data name="Resource_WslEngine_Extra2.Title" xml:space="preserve">
     <value>无法检查更新</value>
   </data>
-  <data name="Resource_WslEngine_Extra3.Text" xml:space="preserve">
-    <value>容器会话</value>
-  </data>
-  <data name="Resource_WslEngine_Extra4.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
-    <value>容器会话</value>
-  </data>
-  <data name="Resource_WslEngine_Extra5.Text" xml:space="preserve">
-    <value>容器、镜像、数据卷和网络命令会使用此会话。由 SDK 创建的会话与默认 CLI 会话彼此独立。</value>
-  </data>
   <data name="WslEngine_RestartSessionConfirmation" xml:space="preserve">
     <value>重启{0}？这会停止所有运行中的容器并释放引擎按会话分配的绑定挂载槽位。之后可以重新启动容器。</value>
   </data>
@@ -6073,7 +6064,7 @@ k3s 项目更新安装脚本时会出现这种情况；请仅在信任来源时�
     <value>未知</value>
   </data>
   <data name="Common_Text0004" xml:space="preserve">
-    <value>Ollama 已配置，并已选为你的提供方。</value>
+    <value>找到了名为 wslcd-ollama 的容器。应用会在管理它之前检查其所有权。</value>
   </data>
   <data name="Common_Text0005" xml:space="preserve">
     <value>在本机运行模型，或在下方“提供方”中自行配置服务。</value>
@@ -6959,7 +6950,7 @@ k3s 项目更新安装脚本时会出现这种情况；请仅在信任来源时�
     <value>将镜像及其名称、标签、层和启动命令写入 .tar 文件，可用于复制到其他计算机或备份。要恢复镜像，请在镜像页面选择“导入 → 恢复已保存的镜像…”。</value>
   </data>
   <data name="Common_Text0299" xml:space="preserve">
-    <value>wslc list --size 返回两种大小：可写大小是容器自身写入的数据，虚拟大小还包括只读镜像层。多个容器可以共享镜像层，因此虚拟大小不能直接相加计算磁盘占用。将鼠标停留在列表大小上可查看两者。</value>
+    <value>选择“刷新”可获取最新大小；打开页面不会扫描大小。wslc list --size 返回两种大小：可写大小是容器自身写入的数据，虚拟大小还包括只读镜像层。多个容器可以共享镜像层，因此虚拟大小不能直接相加计算磁盘占用。将鼠标停留在列表大小上可查看两者。</value>
   </data>
   <data name="Common_Text0300" xml:space="preserve">
     <value>显示全部</value>
@@ -6998,7 +6989,7 @@ k3s 项目更新安装脚本时会出现这种情况；请仅在信任来源时�
     <value>重启 WSL 会话</value>
   </data>
   <data name="Common_Text0316" xml:space="preserve">
-    <value>wslc [--session &lt;name&gt;] system session terminate 用于结束所选 WSL 容器会话（或默认 CLI 会话）。其中所有运行中的容器都会停止；下次执行容器命令时会话会自动启动，但容器仍需重新启动。</value>
+    <value>wslc [--session &lt;name&gt;] system session terminate 会结束选择的 WSL 容器会话，其中所有运行中的容器都会停止。默认 CLI 会话可在下次执行容器命令时重新启动；命名会话可能需要从会话列表或创建它的应用中启动。</value>
   </data>
   <data name="Common_Text0317" xml:space="preserve">
     <value>关闭 WSL</value>
@@ -10840,4 +10831,1101 @@ License: {2} — {3}
   <data name="Root_Static_Settings_RefreshOpenAiModels.Content" xml:space="preserve">
     <value>刷新</value>
   </data>
+  <data name="WslcCopyInput_InvalidRedirect" xml:space="preserve">
+    <value>无法安全重定向原生复制的可执行文件、会话、目标或暂存路径。</value>
+  </data>
+  <data name="WslcFileTransfer_CopyFailed" xml:space="preserve">
+    <value>无法复制文件：{0}</value>
+  </data>
+  <data name="WslcSystemInfo_InvalidSessions" xml:space="preserve">
+    <value>WSLC 系统信息中没有有效的会话列表。</value>
+  </data>
+  <data name="WslcSessionInventory_ExecutableChanged" xml:space="preserve">
+    <value>读取会话资源列表时，WSLC 可执行文件已更改。</value>
+  </data>
+  <data name="WslcSessionInventory_InvalidSessions" xml:space="preserve">
+    <value>WSLC 返回的活动会话标识无效或存在歧义。</value>
+  </data>
+  <data name="WslcSession_SelectionBusy" xml:space="preserve">
+    <value>会话操作正在进行，暂时无法更改会话。</value>
+  </data>
+  <data name="WslEngine_SessionLoadFailed" xml:space="preserve">
+    <value>无法加载 WSLC 会话：{0}</value>
+  </data>
+  <data name="WslcSession_StatusSwitching" xml:space="preserve">
+    <value>引擎：正在切换会话…</value>
+  </data>
+  <data name="Settings_Engine_PathLocked.Text" xml:space="preserve">
+    <value>会话操作正在进行，暂时无法更改引擎路径。</value>
+  </data>
+  <data name="Assistant_SessionScope" xml:space="preserve">
+    <value>{0}
+会话：{1}</value>
+  </data>
+  <data name="Assistant_SessionChanged" xml:space="preserve">
+    <value>批准后会话已更改；未开始任何操作。请重新审核。</value>
+  </data>
+  <data name="Assistant_ExecutableChanged" xml:space="preserve">
+    <value>批准后 WSLC 可执行文件已更改；未开始任何操作。请重新审核。</value>
+  </data>
+  <data name="CombinedSession_Unavailable" xml:space="preserve">
+    <value>不可用；会话恢复后请刷新。</value>
+  </data>
+  <data name="CombinedSession_Loading" xml:space="preserve">
+    <value>正在读取会话信息…</value>
+  </data>
+  <data name="CombinedSession_Error" xml:space="preserve">
+    <value>刷新会话失败：{0}</value>
+  </data>
+  <data name="CombinedSession_Initial" xml:space="preserve">
+    <value>打开资源页面以加载所有活动会话。</value>
+  </data>
+  <data name="CombinedSession_Select" xml:space="preserve">
+    <value>选择会话并加载其资源。</value>
+  </data>
+  <data name="CombinedSession_NoActive" xml:space="preserve">
+    <value>未找到活动的 WSLC 会话。</value>
+  </data>
+  <data name="CombinedSession_Summary" xml:space="preserve">
+    <value>{1} 个容器中有 {0} 个运行中 · {2} 个映像 · {3} 个卷 · {4} 个网络 · {5} 个终结点</value>
+  </data>
+  <data name="CombinedSession_OldestRead" xml:space="preserve">
+    <value>{0}
+最早读取时间：{1}</value>
+  </data>
+  <data name="CombinedSession_NotLoaded" xml:space="preserve">
+    <value>有 {0} 个选中的会话尚未加载。</value>
+  </data>
+  <data name="CombinedSession_Partial" xml:space="preserve">
+    <value>部分会话资源列表不可用；显示的总数可能不完整。</value>
+  </data>
+  <data name="CombinedSession_UnknownPorts" xml:space="preserve">
+    <value>部分运行中容器的已发布端口未知；终结点列表可能不完整。</value>
+  </data>
+  <data name="CombinedSession_Cancelled" xml:space="preserve">
+    <value>刷新已取消；显示的资源可能已过时。</value>
+  </data>
+  <data name="CombinedSession_UnexpectedCancellation" xml:space="preserve">
+    <value>引擎意外取消了请求。</value>
+  </data>
+  <data name="CombinedSession_SessionChanged" xml:space="preserve">
+    <value>{0}：会话已更改或不再可用。</value>
+  </data>
+  <data name="CombinedSession_KindContainers" xml:space="preserve">
+    <value>容器</value>
+  </data>
+  <data name="CombinedSession_KindImages" xml:space="preserve">
+    <value>映像</value>
+  </data>
+  <data name="CombinedSession_KindVolumes" xml:space="preserve">
+    <value>卷</value>
+  </data>
+  <data name="CombinedSession_KindNetworks" xml:space="preserve">
+    <value>网络</value>
+  </data>
+  <data name="CombinedSession_UnknownFailure" xml:space="preserve">
+    <value>会话资源列表的故障类型未知。</value>
+  </data>
+  <data name="CombinedSession_PartTimedOut" xml:space="preserve">
+    <value>{0}：读取{1}超时。</value>
+  </data>
+  <data name="CombinedSession_PartUnavailable" xml:space="preserve">
+    <value>{0}：{1}不可用。</value>
+  </data>
+  <data name="CombinedSession_PartFailed" xml:space="preserve">
+    <value>{0}：{1}不可用：{2}</value>
+  </data>
+  <data name="CombinedSession_IdentityUnavailable" xml:space="preserve">
+    <value>无法确定默认会话的标识；未开始任何操作。</value>
+  </data>
+  <data name="CombinedSession_UnstableContainer" xml:space="preserve">
+    <value>容器标识不完整；请在操作前刷新。</value>
+  </data>
+  <data name="CombinedSession_ContainerChanged" xml:space="preserve">
+    <value>容器已更改或不再可用；请在操作前刷新。</value>
+  </data>
+  <data name="CombinedSession_ActionSessionChanged" xml:space="preserve">
+    <value>会话已更改或不再可用；请在操作前刷新。</value>
+  </data>
+  <data name="Nav_Sessions.Content" xml:space="preserve">
+    <value>合并会话</value>
+  </data>
+  <data name="Dashboard_CombinedTitle.Text" xml:space="preserve">
+    <value>所有会话的快照</value>
+  </data>
+  <data name="Dashboard_OpenCombined.Content" xml:space="preserve">
+    <value>打开容器</value>
+  </data>
+  <data name="Images_PushTagConflict" xml:space="preserve">
+    <value>目标标签已属于其他本地映像。请选择其他标签。</value>
+  </data>
+  <data name="Images_AliasUnverified" xml:space="preserve">
+    <value>{1} 中可能仍保留“{0}”的临时标签。请在重试前检查。</value>
+  </data>
+  <data name="Containers_NavigationUnavailableTitle" xml:space="preserve">
+    <value>未打开容器</value>
+  </data>
+  <data name="Containers_NavigationUnavailable" xml:space="preserve">
+    <value>无法在预期会话中唯一确定该容器。请从列表中选择。</value>
+  </data>
+  <data name="Containers_EventSessionUnknown" xml:space="preserve">
+    <value>此事件未指明会话。请选择列表中的容器以查看其日志。</value>
+  </data>
+  <data name="ContainerDetail_SessionLabel.Text" xml:space="preserve">
+    <value>会话：</value>
+  </data>
+  <data name="SessionPicker_Title" xml:space="preserve">
+    <value>选择会话</value>
+  </data>
+  <data name="SessionPicker_Continue" xml:space="preserve">
+    <value>继续</value>
+  </data>
+  <data name="SessionPicker_Field" xml:space="preserve">
+    <value>会话</value>
+  </data>
+  <data name="SessionPicker_Placeholder" xml:space="preserve">
+    <value>选择会话</value>
+  </data>
+  <data name="SessionPicker_Explanation" xml:space="preserve">
+    <value>镜像和存储属于各自的会话。已保存的项目和工作区会记住所属会话。</value>
+  </data>
+  <data name="ManagedSession_Duplicate" xml:space="preserve">
+    <value>已存在同名会话。</value>
+  </data>
+  <data name="ManagedSession_Changed" xml:space="preserve">
+    <value>会话已更改。请刷新后重试。</value>
+  </data>
+  <data name="ManagedSession_ReadFailed" xml:space="preserve">
+    <value>无法读取保存的会话，因此未更改它们。</value>
+  </data>
+  <data name="ManagedSession_NameRequired" xml:space="preserve">
+    <value>请输入有效的会话名称。</value>
+  </data>
+  <data name="ManagedSession_SavedButNotStarted" xml:space="preserve">
+    <value>会话已保存，但无法启动。可在会话列表中重试。{0}</value>
+  </data>
+  <data name="ManagedSession_NameInUse" xml:space="preserve">
+    <value>另一个进程正在使用此会话名称。请先停止它，再启动此保存的会话。</value>
+  </data>
+  <data name="ManagedSession_DeletePending" xml:space="preserve">
+    <value>会话移除已中断。请再次移除以完成操作，或选择保留数据。</value>
+  </data>
+  <data name="ManagedSession_DataInUse" xml:space="preserve">
+    <value>另一个进程正在使用此会话名称，未删除其保存的数据。</value>
+  </data>
+  <data name="ManagedSession_UnsafeStorage" xml:space="preserve">
+    <value>会话数据包含链接，因此未删除。</value>
+  </data>
+  <data name="ManagedSession_StoppedUnexpectedly" xml:space="preserve">
+    <value>会话意外停止。请从会话列表中重新启动。</value>
+  </data>
+  <data name="ManagedSession_Title.Text" xml:space="preserve">
+    <value>会话</value>
+  </data>
+  <data name="ManagedSession_Explanation.Text" xml:space="preserve">
+    <value>在此创建的会话会在应用启动时启动。其数据存储在应用的本地数据中，卸载应用时可能会被移除。可以停止其他应用创建的会话，但其所属应用可能会再次启动它们。监测跨会话的自动操作可能会唤醒空闲会话并消耗电量。WSL 不支持重命名会话。</value>
+  </data>
+  <data name="ManagedSession_StoreFailure.Message" xml:space="preserve">
+    <value>无法读取保存的会话，因此无法启动或更改它们。其现有数据未被删除。</value>
+  </data>
+  <data name="ManagedSession_StorageMissing" xml:space="preserve">
+    <value>此会话保存数据的文件夹不存在，未将其替换为空会话。</value>
+  </data>
+  <data name="ManagedSession_SettingsReadFailed" xml:space="preserve">
+    <value>无法读取保存的设置。请先修复设置并重新启动应用，再管理会话。</value>
+  </data>
+  <data name="Automation_SessionNotificationTitle" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="Automation_OtherSessionsUnavailable" xml:space="preserve"><value>无法监测其他会话中的自动操作：{0}</value></data>
+  <data name="Automation_SessionObservationFailed" xml:space="preserve"><value>无法安全地监测这些会话：{0}</value></data>
+  <data name="Automation_ComposeSessionFailure" xml:space="preserve"><value>{0} 的 Compose 恢复需要处理：{1}</value></data>
+  <data name="Automation_ScopeUnavailable" xml:space="preserve"><value>此会话尚未准备好使用 Compose。请检查会话后重试。</value></data>
+  <data name="Automation_ObservationStale" xml:space="preserve"><value>会话的自动操作状态已过期，未启动任何操作。</value></data>
+  <data name="Automation_ObservationTimedOut" xml:space="preserve"><value>会话监测超时。自动操作正在等待最新状态。</value></data>
+  <data name="Automation_EngineUnavailable" xml:space="preserve"><value>引擎或其设置不可用。</value></data>
+  <data name="Deployment_NoAvailableName" xml:space="preserve"><value>找不到可用的部署名称。未启动任何内容。</value></data>
+  <data name="Deployment_ProjectNameTaken" xml:space="preserve"><value>已有保存的 Compose 项目使用此名称。请重新检查部署。</value></data>
+  <data name="Deployment_ProjectMissing" xml:space="preserve"><value>在保存的项目中找不到已部署的项目。请刷新后重试。</value></data>
+  <data name="Deployment_ProjectChanged" xml:space="preserve"><value>移除期间保存的项目发生了变化。其定义已保留；请刷新后重试。</value></data>
+  <data name="Deployment_OllamaIdentityMissing" xml:space="preserve"><value>无法识别新建的 Ollama 容器，未下载模型。</value></data>
+  <data name="Deployment_OllamaStopped" xml:space="preserve"><value>现有的 Ollama 容器 {0} 未运行。请在启动 Open WebUI 前先启动该容器。</value></data>
+  <data name="Template_DeploymentSession" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="Compose_ReviewSession" xml:space="preserve"><value>会话：{0}</value></data>
+  <data name="Compose_ConfirmInSession" xml:space="preserve"><value>{0}&#10;&#10;会话：{1}</value></data>
+  <data name="Compose_ProjectAccessible" xml:space="preserve"><value>{0}，会话 {1}</value></data>
+  <data name="Compose_SessionUnassigned" xml:space="preserve"><value>未分配</value></data>
+  <data name="Compose_SessionHeader.Text" xml:space="preserve"><value>会话</value></data>
+  <data name="Template_SessionScope.Text" xml:space="preserve"><value>活动会话中的部署会一起显示。加载时可能会唤醒空闲会话。</value></data>
+  <data name="Template_NoDeploymentsTitle" xml:space="preserve"><value>未找到部署</value></data>
+  <data name="Template_NoDeployments" xml:space="preserve"><value>没有可见的匹配部署。请检查会话是否可用并刷新。</value></data>
+  <data name="Template_RemovedWithCleanup" xml:space="preserve"><value>已移除 {0} 并完成所请求的卷清理。</value></data>
+  <data name="Template_VolumesNotSafe" xml:space="preserve"><value>卷使用情况不完整，或卷被其他容器共享。未移除任何内容；请在“容器”页面查看存储。</value></data>
+  <data name="Template_VolumesKept" xml:space="preserve"><value>容器已移除，但部分卷无法删除：{0}</value></data>
+  <data name="Automation_ScopedMountLimit" xml:space="preserve"><value>会话 {0} 已达到绑定挂载数量上限，部分服务无法挂载文件。重新启动该会话会停止其运行中的容器。现在重新启动吗？</value></data>
+  <data name="Automation_RestartExhaustedTitle" xml:space="preserve"><value>{0} 未重新启动</value></data>
+  <data name="Automation_RestartExhausted" xml:space="preserve"><value>尝试重新启动 {0} 次后容器仍未运行，已停止尝试。</value></data>
+  <data name="Automation_RestartingTitle" xml:space="preserve"><value>正在重新启动 {0}</value></data>
+  <data name="Automation_Restarting" xml:space="preserve"><value>容器已退出；正在重新启动（第 {0} 次，共 {1} 次）。</value></data>
+  <data name="Automation_HealthDownTitle" xml:space="preserve"><value>{0} 已停止</value></data>
+  <data name="Automation_HealthDown" xml:space="preserve"><value>尝试重新启动 {0} 次后容器仍未运行。</value></data>
+  <data name="Automation_HealthUnhealthyTitle" xml:space="preserve"><value>{0} 运行状况不佳</value></data>
+  <data name="Automation_HealthRestarting" xml:space="preserve"><value>运行状况检查失败。正在自动重新启动（第 {0} 次，共 {1} 次）。</value></data>
+  <data name="Automation_HealthStopping" xml:space="preserve"><value>尝试重新启动 {0} 次后运行状况仍不佳。正在停止容器。</value></data>
+  <data name="Automation_HealthFailing" xml:space="preserve"><value>运行状况检查失败。</value></data>
+  <data name="ManagedSession_RestoreFailure" xml:space="preserve">
+    <value>无法恢复所有保存的会话：{0}</value>
+  </data>
+  <data name="ManagedSession_StatusUnavailable" xml:space="preserve">
+    <value>无法获取会话状态。请检查引擎并刷新。</value>
+  </data>
+  <data name="SessionPicker_DefaultUnavailable" xml:space="preserve">
+    <value>无法启动或识别默认 CLI 会话。未执行任何操作。</value>
+  </data>
+  <data name="ManagedSession_Create.Content" xml:space="preserve">
+    <value>创建会话</value>
+  </data>
+  <data name="ManagedSession_Start.Content" xml:space="preserve">
+    <value>启动</value>
+  </data>
+  <data name="ManagedSession_Remove.Content" xml:space="preserve">
+    <value>移除</value>
+  </data>
+  <data name="ManagedSession_Stop.Content" xml:space="preserve">
+    <value>停止</value>
+  </data>
+  <data name="ManagedSession_StartName" xml:space="preserve">
+    <value>启动会话 {0}</value>
+  </data>
+  <data name="ManagedSession_RemoveName" xml:space="preserve">
+    <value>移除会话 {0}</value>
+  </data>
+  <data name="ManagedSession_StopName" xml:space="preserve">
+    <value>停止会话 {0}</value>
+  </data>
+  <data name="ManagedSession_ExternalStatus" xml:space="preserve">
+    <value>由其他应用创建 · 运行中</value>
+  </data>
+  <data name="ManagedSession_OwnedActive" xml:space="preserve">
+    <value>由此应用创建 · 运行中</value>
+  </data>
+  <data name="ManagedSession_OwnedStopped" xml:space="preserve">
+    <value>由此应用创建 · 已停止</value>
+  </data>
+  <data name="ManagedSession_Failure" xml:space="preserve">
+    <value>无法启动：{0}</value>
+  </data>
+  <data name="ManagedSession_CreateTitle" xml:space="preserve">
+    <value>创建会话</value>
+  </data>
+  <data name="ManagedSession_NameLabel" xml:space="preserve">
+    <value>会话名称（此电脑上的其他用户可见；请勿包含机密信息）</value>
+  </data>
+  <data name="ManagedSession_NamePlaceholder" xml:space="preserve">
+    <value>例如：development</value>
+  </data>
+  <data name="ManagedSession_StopTitle" xml:space="preserve">
+    <value>停止会话</value>
+  </data>
+  <data name="ManagedSession_StopExternalConfirmation" xml:space="preserve">
+    <value>停止 {0}？其容器将停止，其他应用可能依赖此会话或再次启动它。数据将保留。</value>
+  </data>
+  <data name="ManagedSession_StopOwnedConfirmation" xml:space="preserve">
+    <value>停止 {0}？其容器将停止，数据将保留。下次打开应用时会再次启动此会话。</value>
+  </data>
+  <data name="ManagedSession_StopButton" xml:space="preserve">
+    <value>停止会话</value>
+  </data>
+  <data name="ManagedSession_RemoveTitle" xml:space="preserve">
+    <value>移除会话</value>
+  </data>
+  <data name="ManagedSession_RemoveConfirmation" xml:space="preserve">
+    <value>移除 {0}？如果此应用创建的实例正在运行，它将停止；其他应用创建的会话不会停止。“删除数据”会永久删除其容器、镜像、卷和存储的文件；“保留数据”会将它们保留在磁盘上。如果能够确定所属会话，此会话的自动启动记录也会被清除。</value>
+  </data>
+  <data name="ManagedSession_DeleteData" xml:space="preserve">
+    <value>删除数据</value>
+  </data>
+  <data name="ManagedSession_KeepData" xml:space="preserve">
+    <value>保留数据</value>
+  </data>
+  <data name="ManagedSession_DataKeptTitle" xml:space="preserve">
+    <value>会话数据已保留</value>
+  </data>
+  <data name="ManagedSession_DataKept" xml:space="preserve">
+    <value>会话数据保留在 {0}。应用不会自动重新打开这些数据，卸载应用时数据可能会被移除。</value>
+  </data>
+  <data name="ManagedSession_ActionFailed" xml:space="preserve">
+    <value>会话操作失败</value>
+  </data>
+  <data name="ManagedSession_Attention" xml:space="preserve">
+    <value>部分保存的会话无法启动或需要清理。请在 WSL 引擎页面中查看。</value>
+  </data>
+  <data name="ManagedSession_Review.Content" xml:space="preserve">
+    <value>查看会话</value>
+  </data>
+  <data name="CombinedSessions_Title.Text" xml:space="preserve">
+    <value>合并会话</value>
+  </data>
+  <data name="CombinedSessions_Explanation.Text" xml:space="preserve">
+    <value>一起查看所选活动会话的资源。行操作针对资源所属的会话。其他页面上的创建、部署和清理操作使用 WSL 引擎中选择的单个会话。</value>
+  </data>
+  <data name="CombinedSessions_Discover.Content" xml:space="preserve">
+    <value>发现会话</value>
+  </data>
+  <data name="CombinedSessions_SelectAll.Content" xml:space="preserve">
+    <value>全选</value>
+  </data>
+  <data name="CombinedSessions_ClearSelection.Content" xml:space="preserve">
+    <value>清除选择</value>
+  </data>
+  <data name="CombinedSessions_Load.Content" xml:space="preserve">
+    <value>加载所选会话</value>
+  </data>
+  <data name="CombinedSessions_Cancel.Content" xml:space="preserve">
+    <value>取消加载</value>
+  </data>
+  <data name="CombinedSessions_WakeWarning.Text" xml:space="preserve">
+    <value>加载资源或执行操作可能会唤醒空闲会话的虚拟机。选择会话不会更改后台管理范围。</value>
+  </data>
+  <data name="CombinedSessions_Containers.Header" xml:space="preserve">
+    <value>容器</value>
+  </data>
+  <data name="CombinedSessions_Images.Header" xml:space="preserve">
+    <value>映像</value>
+  </data>
+  <data name="CombinedSessions_Volumes.Header" xml:space="preserve">
+    <value>卷</value>
+  </data>
+  <data name="CombinedSessions_Networks.Header" xml:space="preserve">
+    <value>网络</value>
+  </data>
+  <data name="CombinedSessions_Endpoints.Header" xml:space="preserve">
+    <value>终结点</value>
+  </data>
+  <data name="CombinedSessions_Remove.Content" xml:space="preserve">
+    <value>删除</value>
+  </data>
+  <data name="CombinedSessions_Inspect.Content" xml:space="preserve">
+    <value>检查</value>
+  </data>
+  <data name="CombinedSessions_Open.Content" xml:space="preserve">
+    <value>打开</value>
+  </data>
+  <data name="CombinedSession_UnknownContainerIdentity" xml:space="preserve">
+    <value>部分会话或资源标识未知，因此无法执行某些操作。</value>
+  </data>
+  <data name="CombinedSession_RefreshBusy" xml:space="preserve">
+    <value>另一个会话刷新操作正在进行。</value>
+  </data>
+  <data name="CombinedSession_NotContainer" xml:space="preserve">
+    <value>所选行不是容器。</value>
+  </data>
+  <data name="CombinedSession_RemoveTitle" xml:space="preserve">
+    <value>删除容器</value>
+  </data>
+  <data name="CombinedSession_RemoveConfirmation" xml:space="preserve">
+    <value>从会话“{1}”中删除容器“{0}”？此操作无法撤销。卷将保留。</value>
+  </data>
+  <data name="CombinedSession_ActionFailed" xml:space="preserve">
+    <value>容器操作失败</value>
+  </data>
+  <data name="CombinedSession_ActionInterrupted" xml:space="preserve">
+    <value>容器操作已中断</value>
+  </data>
+  <data name="CombinedSession_ActionOutcomeUnknown" xml:space="preserve">
+    <value>操作已取消或超时，其结果可能未知；请在重试前刷新。</value>
+  </data>
+  <data name="CombinedSession_BuiltInNetwork" xml:space="preserve">
+    <value>无法删除内置网络。</value>
+  </data>
+  <data name="CombinedSession_VolumeIdentityUnknown" xml:space="preserve">
+    <value>无法验证卷的创建标识；未尝试删除。</value>
+  </data>
+  <data name="CombinedSession_ResourceChanged" xml:space="preserve">
+    <value>资源已更改或不再可用；请在操作前刷新。</value>
+  </data>
+  <data name="CombinedSession_InspectTitle" xml:space="preserve">
+    <value>检查 {0} · {1}</value>
+  </data>
+  <data name="CombinedSession_RemoveImageConfirmation" xml:space="preserve">
+    <value>从会话“{1}”中删除映像“{0}”？同一映像的其他标记也可能受到影响。</value>
+  </data>
+  <data name="CombinedSession_RemoveVolumeConfirmation" xml:space="preserve">
+    <value>从会话“{1}”中删除卷“{0}”？卷中的所有数据都将丢失。
+
+该卷当前的创建时间为 {2}；它可能与已加载的快照不同。</value>
+  </data>
+  <data name="CombinedSession_RemoveNetworkConfirmation" xml:space="preserve">
+    <value>从会话“{1}”中删除网络“{0}”？</value>
+  </data>
+  <data name="CombinedSession_NotResource" xml:space="preserve">
+    <value>所选行不是可删除的资源。</value>
+  </data>
+  <data name="CombinedSession_RemoveResourceTitle" xml:space="preserve">
+    <value>删除资源</value>
+  </data>
+  <data name="CombinedSession_ResourceActionFailed" xml:space="preserve">
+    <value>资源操作失败</value>
+  </data>
+  <data name="CombinedSession_ResourceActionInterrupted" xml:space="preserve">
+    <value>资源操作已中断</value>
+  </data>
+  <data name="CombinedSession_InvalidEndpoint" xml:space="preserve">
+    <value>该终结点没有可用的 TCP 地址。</value>
+  </data>
+  <data name="CombinedSessions_Actions.Content" xml:space="preserve">
+    <value>操作</value>
+  </data>
+  <data name="CombinedMenu_Inspect.Text" xml:space="preserve">
+    <value>检查</value>
+  </data>
+  <data name="CombinedMenu_Logs.Text" xml:space="preserve">
+    <value>日志</value>
+  </data>
+  <data name="CombinedMenu_Stats.Text" xml:space="preserve">
+    <value>统计信息</value>
+  </data>
+  <data name="CombinedMenu_Terminal.Text" xml:space="preserve">
+    <value>终端</value>
+  </data>
+  <data name="CombinedMenu_Start.Text" xml:space="preserve">
+    <value>启动</value>
+  </data>
+  <data name="CombinedMenu_Stop.Text" xml:space="preserve">
+    <value>停止</value>
+  </data>
+  <data name="CombinedMenu_Restart.Text" xml:space="preserve">
+    <value>重启</value>
+  </data>
+  <data name="CombinedMenu_Remove.Text" xml:space="preserve">
+    <value>删除</value>
+  </data>
+  <data name="CombinedSession_ContainerNotRunning" xml:space="preserve">
+    <value>容器未运行；请在操作前刷新。</value>
+  </data>
+  <data name="CombinedSession_LogsTitle" xml:space="preserve">
+    <value>日志 · {0} · {1}</value>
+  </data>
+  <data name="CombinedSession_StatsTitle" xml:space="preserve">
+    <value>统计信息 · {0} · {1}</value>
+  </data>
+  <data name="CombinedSession_StatsUnavailable" xml:space="preserve">
+    <value>容器统计信息不可用。</value>
+  </data>
+  <data name="CombinedSession_StatsDetails" xml:space="preserve">
+    <value>CPU：{0}
+内存：{1}
+网络 I/O：{2}
+磁盘 I/O：{3}
+进程：{4}</value>
+  </data>
+  <data name="CombinedMenu_CopyIn.Text" xml:space="preserve">
+    <value>复制文件到容器</value>
+  </data>
+  <data name="CombinedMenu_CopyOut.Text" xml:space="preserve">
+    <value>从容器复制文件或文件夹</value>
+  </data>
+  <data name="CombinedSession_CopyInTitle" xml:space="preserve">
+    <value>复制到容器</value>
+  </data>
+  <data name="CombinedSession_CopyInDirectory" xml:space="preserve">
+    <value>容器目标目录</value>
+  </data>
+  <data name="CombinedSession_CopyInConfirmation" xml:space="preserve">
+    <value>将“{0}”复制到容器“{2}”（会话“{3}”）中的“{1}”？现有文件可能被覆盖。</value>
+  </data>
+  <data name="CombinedSession_CopyOutTitle" xml:space="preserve">
+    <value>从容器复制</value>
+  </data>
+  <data name="CombinedSession_CopyOutPath" xml:space="preserve">
+    <value>容器文件或目录的绝对路径</value>
+  </data>
+  <data name="CombinedSession_CopyRootRefused" xml:space="preserve">
+    <value>请选择容器根目录下的文件或目录。</value>
+  </data>
+  <data name="CombinedSession_CopyOutConfirmation" xml:space="preserve">
+    <value>将容器“{1}”（会话“{2}”）中的“{0}”复制到“{3}”？现有文件可能被覆盖。</value>
+  </data>
+  <data name="CombinedSession_CopyButton" xml:space="preserve">
+    <value>复制</value>
+  </data>
+  <data name="CombinedSession_CopyComplete" xml:space="preserve">
+    <value>复制完成</value>
+  </data>
+  <data name="CombinedSession_CopyCompleteMessage" xml:space="preserve">
+    <value>复制操作已完成。</value>
+  </data>
+  <data name="CombinedSession_ActionsFor" xml:space="preserve">
+    <value>对会话 {1} 中的 {0} 执行操作</value>
+  </data>
+  <data name="CombinedSession_InspectFor" xml:space="preserve">
+    <value>检查会话 {1} 中的 {0}</value>
+  </data>
+  <data name="CombinedSession_RemoveFor" xml:space="preserve">
+    <value>删除会话 {1} 中的 {0}</value>
+  </data>
+  <data name="CombinedSession_OpenFor" xml:space="preserve">
+    <value>打开会话 {2} 中 {1} 的终结点 {0}</value>
+  </data>
+  <data name="WslEngine_SessionUnavailable" xml:space="preserve">
+    <value>所选会话 {0} 不再处于活动状态。它仍保持选中；如需在其他会话中操作，请选择该会话。</value>
+  </data>
+  <data name="CombinedSession_EndpointChanged" xml:space="preserve">
+    <value>终结点已更改或不再可用；请先刷新，然后再打开。</value>
+  </data>
+  <data name="CombinedSession_EndpointInspectFailed" xml:space="preserve">
+    <value>无法验证终结点：{0}</value>
+  </data>
+  <data name="Reclaim_SnapshotStaleTitle" xml:space="preserve">
+    <value>刷新磁盘使用情况</value>
+  </data>
+  <data name="Reclaim_SnapshotStale" xml:space="preserve">
+    <value>会话或引擎已更改，或者磁盘使用情况扫描未完成。请先刷新，然后再回收空间。</value>
+  </data>
+  <data name="WslcSession_EngineChanged" xml:space="preserve">
+    <value>引擎：配置已更改…</value>
+  </data>
+  <data name="SessionInventory_RefreshRequiredTitle" xml:space="preserve">
+    <value>刷新资源列表</value>
+  </data>
+  <data name="SessionInventory_RefreshRequired" xml:space="preserve">
+    <value>会话、引擎或显示的资源已更改。请先刷新，然后再执行此操作。</value>
+  </data>
+  <data name="SessionInventory_RefreshCancelled" xml:space="preserve">
+    <value>资源列表刷新已取消或超时；显示的数据可能已过期。</value>
+  </data>
+  <data name="WslcSessionInventory_DiscoveryTimedOut" xml:space="preserve">
+    <value>WSLC 会话发现已超时。</value>
+  </data>
+  <data name="Automation_AssignmentAlreadyOwned" xml:space="preserve">
+    <value>此设置已有所属会话。更改前请先刷新。</value>
+  </data>
+  <data name="Automation_InvalidOwner" xml:space="preserve">
+    <value>请先选择有效的引擎和会话，然后再继续。</value>
+  </data>
+  <data name="Automation_OwnershipReadFailed" xml:space="preserve">
+    <value>无法读取已保存的会话归属。它们未被更改。</value>
+  </data>
+  <data name="Automation_AutostartReadFailed" xml:space="preserve">
+    <value>无法读取已保存的自动启动历史记录。历史记录未被更改。</value>
+  </data>
+  <data name="Automation_EntryChanged" xml:space="preserve">
+    <value>此设置已更改。请先刷新，再分配会话。</value>
+  </data>
+  <data name="Automation_AmbiguousInventory" xml:space="preserve">
+    <value>容器列表不完整或存在歧义。请先刷新，然后重试。</value>
+  </data>
+  <data name="Automation_NotStartable" xml:space="preserve">
+    <value>{0} 的自动启动正在等待，因为这些容器在当前状态下无法启动：{1}</value>
+  </data>
+  <data name="Automation_SettingsSaveFailed" xml:space="preserve">
+    <value>无法保存设置。关闭应用后，最近的更改可能会丢失。</value>
+  </data>
+  <data name="Automation_SettingsReadFailed" xml:space="preserve">
+    <value>已保存的设置无法读取或不完整。自动操作已暂停，无法保存更改。请修复或恢复 settings.json，然后重新启动应用。</value>
+  </data>
+  <data name="ResourceSessionColumn.Text" xml:space="preserve">
+    <value>会话</value>
+  </data>
+  <data name="ResourceSessionWakeNotice.Text" xml:space="preserve">
+    <value>打开或刷新此页面可能会唤醒空闲会话，但不会更改后台管理范围。</value>
+  </data>
+  <data name="Endpoints_EmptyCombined" xml:space="preserve">
+    <value>活动会话中没有已发布的终结点。</value>
+  </data>
+  <data name="Endpoints_ManagementUnavailable" xml:space="preserve">
+    <value>所选会话不可用；其显示的终结点可能不是最新的。</value>
+  </data>
+  <data name="Endpoints_InvalidAddress" xml:space="preserve">
+    <value>某些终结点的主机地址无效，无法复制或打开。</value>
+  </data>
+  <data name="Volumes_SessionDetailsUnavailable" xml:space="preserve">
+    <value>{0}：数据卷详细信息可能不完整：{1}</value>
+  </data>
+  <data name="Volumes_CombinedRemoveConfirmation" xml:space="preserve">
+    <value>从所列会话中删除 {0} 个数据卷？数据将丢失。各项删除可能单独失败。&#xA;&#xA;{1}</value>
+  </data>
+  <data name="Volumes_CreateForSession" xml:space="preserve">
+    <value>在 {0} 中创建数据卷</value>
+  </data>
+  <data name="Volumes_PruneForSession" xml:space="preserve">
+    <value>删除 {0} 中所有未使用的数据卷？</value>
+  </data>
+  <data name="Networks_SessionDetailsUnavailable" xml:space="preserve">
+    <value>{0}：网络使用情况可能不完整：{1}</value>
+  </data>
+  <data name="Networks_CombinedRemoveConfirmation" xml:space="preserve">
+    <value>从所列会话中删除 {0} 个网络？各项删除可能单独失败。&#xA;&#xA;{1}</value>
+  </data>
+  <data name="Networks_CreateForSession" xml:space="preserve">
+    <value>在 {0} 中创建网络</value>
+  </data>
+  <data name="Networks_PruneForSession" xml:space="preserve">
+    <value>删除 {0} 中所有未使用的网络？</value>
+  </data>
+  <data name="Volumes_CombinedSummary" xml:space="preserve">
+    <value>{1} 个活动会话中共有 {0} 个数据卷。</value>
+  </data>
+  <data name="Networks_CombinedSummary" xml:space="preserve">
+    <value>{1} 个活动会话中共有 {0} 个网络。</value>
+  </data>
+  <data name="Endpoints_CombinedSummary" xml:space="preserve">
+    <value>{1} 个活动会话中共有 {0} 个终结点。</value>
+  </data>
+  <data name="ResourceSessionDestination" xml:space="preserve">
+    <value>创建或清理时可选择会话。现有资源仍属于各自的会话。</value>
+  </data>
+  <data name="ResourceSession_BulkInterrupted" xml:space="preserve">
+    <value>当前操作的结果可能未知；之后的 {0} 个项目尚未执行。</value>
+  </data>
+  <data name="Images_ManagementDestination" xml:space="preserve">
+    <value>拉取、构建、导入或清理时可选择会话。现有镜像仍属于各自的会话。</value>
+  </data>
+  <data name="Images_CombinedSummary" xml:space="preserve">
+    <value>{1} 个活动会话中共有 {0} 个镜像。</value>
+  </data>
+  <data name="Images_SessionDetailsUnavailable" xml:space="preserve">
+    <value>{0}：镜像使用情况可能不完整：{1}</value>
+  </data>
+  <data name="Images_CombinedRemoveConfirmation" xml:space="preserve">
+    <value>从所列会话中删除 {0} 个镜像？各项删除可能单独失败。&#xA;&#xA;{1}</value>
+  </data>
+  <data name="Images_SaveOneSession" xml:space="preserve">
+    <value>请一次选择一个会话中的镜像，保存到归档文件。</value>
+  </data>
+  <data name="Images_RunInSession" xml:space="preserve">
+    <value>在 {0} 中运行镜像</value>
+  </data>
+  <data name="Images_PushFromSession" xml:space="preserve">
+    <value>从 {0} 推送镜像</value>
+  </data>
+  <data name="Images_AliasCleanupFailedTitle" xml:space="preserve">
+    <value>临时镜像标记仍然存在</value>
+  </data>
+  <data name="Images_AliasCleanupFailed" xml:space="preserve">
+    <value>无法从 {1} 删除临时标记“{0}”。请先检查再重试。{2}</value>
+  </data>
+  <data name="Images_AliasChanged" xml:space="preserve">
+    <value>临时标记现在指向了其他镜像。</value>
+  </data>
+  <data name="Images_PullIntoSession" xml:space="preserve">
+    <value>将镜像拉取到 {0}</value>
+  </data>
+  <data name="Images_ProfileChanged" xml:space="preserve">
+    <value>已保存的配置不再针对该镜像。请刷新后重试。</value>
+  </data>
+  <data name="Images_TagInSession" xml:space="preserve">
+    <value>在 {0} 中为镜像添加标记</value>
+  </data>
+  <data name="Images_ImportIntoSession" xml:space="preserve">
+    <value>在 {0} 中创建镜像</value>
+  </data>
+  <data name="Images_BuildInSession" xml:space="preserve">
+    <value>在 {0} 中构建镜像</value>
+  </data>
+  <data name="Images_PruneInSession" xml:space="preserve">
+    <value>删除 {0} 中所有悬空（未使用）的镜像？</value>
+  </data>
+  <data name="Containers_CombinedSummary" xml:space="preserve">
+    <value>{1} 个活动会话中共有 {0} 个容器。</value>
+  </data>
+  <data name="Containers_ManagementDestination" xml:space="preserve">
+    <value>清理时可选择会话。现有容器仍属于各自的会话。</value>
+  </data>
+  <data name="Containers_AmbiguousInventory" xml:space="preserve">
+    <value>部分容器的身份重复或缺失，无法对其执行操作。</value>
+  </data>
+  <data name="Containers_ManagementUnavailable" xml:space="preserve">
+    <value>所选会话不可用；其显示的容器可能不是最新的。</value>
+  </data>
+  <data name="Containers_SizeUnavailable" xml:space="preserve">
+    <value>这些会话的容器大小可能不可用或不是最新的：{0}</value>
+  </data>
+  <data name="Containers_HealthInSession" xml:space="preserve">
+    <value>{0} 中的运行状况检查</value>
+  </data>
+  <data name="Containers_CombinedRemoveConfirmation" xml:space="preserve">
+    <value>从所列会话中删除 {0} 个容器？此操作无法撤销。各项删除可能单独失败。&#xA;&#xA;{1}</value>
+  </data>
+  <data name="Containers_RemoveInSession" xml:space="preserve">
+    <value>从会话“{2}”中删除容器“{0}”（{1}）？此操作无法撤销。</value>
+  </data>
+  <data name="Containers_StorageUnknownTitle" xml:space="preserve">
+    <value>数据卷使用情况不完整</value>
+  </data>
+  <data name="Containers_StorageUnknown" xml:space="preserve">
+    <value>无法确认数据卷的使用情况。可以删除容器，但会保留其数据卷。</value>
+  </data>
+  <data name="Containers_StorageChanged" xml:space="preserve">
+    <value>容器的数据卷使用情况已更改。删除前请重新检查。</value>
+  </data>
+  <data name="Containers_RunInManagementSession" xml:space="preserve">
+    <value>在 {0} 中运行容器</value>
+  </data>
+  <data name="Containers_PruneInSession" xml:space="preserve">
+    <value>删除 {0} 中所有已停止的容器？</value>
+  </data>
+  <data name="Automation_NotificationTitle" xml:space="preserve">
+    <value>自动操作需要您处理</value>
+  </data>
+  <data name="Automation_NotificationBody" xml:space="preserve">
+    <value>部分自动操作已暂停或正在等待。请在 WSL Container Desktop 中查看。</value>
+  </data>
+  <data name="Automation_ReviewButton" xml:space="preserve">
+    <value>查看</value>
+  </data>
+  <data name="Automation_KindAutostart" xml:space="preserve">
+    <value>自动启动</value>
+  </data>
+  <data name="Automation_KindHealth" xml:space="preserve">
+    <value>运行状况检查</value>
+  </data>
+  <data name="Automation_KindRestart" xml:space="preserve">
+    <value>重启策略</value>
+  </data>
+  <data name="Automation_AssignFor" xml:space="preserve">
+    <value>为 {1} 分配{0}会话</value>
+  </data>
+  <data name="Automation_PendingSummary" xml:space="preserve">
+    <value>{0} 个已保存的自动操作需要选择会话后才能运行。</value>
+  </data>
+  <data name="Automation_WaitingSummary" xml:space="preserve">
+    <value>部分自动操作正在等待或需要您处理。</value>
+  </data>
+  <data name="Automation_ChooseSessionTitle" xml:space="preserve">
+    <value>选择会话</value>
+  </data>
+  <data name="Automation_ChooseSession" xml:space="preserve">
+    <value>请先选择会话，再为此操作分配会话。</value>
+  </data>
+  <data name="Automation_AssignTitle" xml:space="preserve">
+    <value>分配自动操作</value>
+  </data>
+  <data name="Automation_AssignConfirmation" xml:space="preserve">
+    <value>将“{1}”的{0}分配给“{2}”？这可能会启动或重启该会话中的容器。</value>
+  </data>
+  <data name="Automation_AssignButton" xml:space="preserve">
+    <value>分配</value>
+  </data>
+  <data name="Automation_AssignmentFailedTitle" xml:space="preserve">
+    <value>无法保存会话选择</value>
+  </data>
+  <data name="Automation_AssignmentFailed" xml:space="preserve">
+    <value>该操作仍处于暂停状态。{0}</value>
+  </data>
+  <data name="Automation_TrackingTitle" xml:space="preserve">
+    <value>自动启动</value>
+  </data>
+  <data name="Automation_AlreadyTracking" xml:space="preserve">
+    <value>已为 {0} 启用自动启动跟踪。</value>
+  </data>
+  <data name="Automation_TrackingConfirmation" xml:space="preserve">
+    <value>记住“{0}”中正在运行的容器，并在应用重启后启动它们？在 WSL 引擎中选择此会话时，跟踪记录才会更新。</value>
+  </data>
+  <data name="Automation_EnableTracking" xml:space="preserve">
+    <value>启用自动启动</value>
+  </data>
+  <data name="Automation_RetryFailedTitle" xml:space="preserve">
+    <value>无法重试自动操作</value>
+  </data>
+  <data name="Automation_SessionUnavailable" xml:space="preserve">
+    <value>该会话已不可用。请刷新会话列表后重试。</value>
+  </data>
+  <data name="Automation_AutostartDisabled" xml:space="preserve">
+    <value>设置中已关闭自动启动。已分配的容器不会自动启动。</value>
+  </data>
+  <data name="Automation_InactivePolicy" xml:space="preserve">
+    <value>由于会话或引擎不可用，{0}（{1}）的运行状况检查和重启操作正在等待。</value>
+  </data>
+  <data name="Automation_InactiveTracking" xml:space="preserve">
+    <value>由于会话或引擎不可用，{0}（{1}）的自动启动跟踪正在等待。</value>
+  </data>
+  <data name="Automation_CurrentPoliciesUnavailable" xml:space="preserve">
+    <value>所选会话或引擎不可用，运行状况检查和重启操作正在等待。</value>
+  </data>
+  <data name="Automation_CurrentTrackingUnavailable" xml:space="preserve">
+    <value>所选会话或引擎不可用，自动启动跟踪正在等待。</value>
+  </data>
+  <data name="Automation_EngineChanged" xml:space="preserve">
+    <value>{0} 的自动启动正在等待，因为其引擎路径已更改。</value>
+  </data>
+  <data name="Automation_WaitingSession" xml:space="preserve">
+    <value>{0} 的自动启动正在等待该会话可用。</value>
+  </data>
+  <data name="Automation_WaitingEngine" xml:space="preserve">
+    <value>{0} 的自动启动正在等待其引擎。</value>
+  </data>
+  <data name="Automation_MissingContainers" xml:space="preserve">
+    <value>{0} 的自动启动无法验证以下容器保存的 ID：{1}。请先检查其跟踪记录，再启动替代容器。</value>
+  </data>
+  <data name="Automation_StartFailed" xml:space="preserve">
+    <value>{0} 的自动启动未能完成：{1}</value>
+  </data>
+  <data name="Automation_StorageFailed" xml:space="preserve">
+    <value>无法保存自动启动历史记录：{0}</value>
+  </data>
+  <data name="Automation_Review.Content" xml:space="preserve">
+    <value>查看自动操作</value>
+  </data>
+  <data name="Automation_SectionTitle.Text" xml:space="preserve">
+    <value>自动操作需要处理</value>
+  </data>
+  <data name="Automation_SectionExplanation.Text" xml:space="preserve">
+    <value>停止会话会暂停其自动操作。再次启动会话时，自动操作会自动恢复，无需手动重试。仅在需要您处理问题时（例如旧操作尚未分配会话）才显示此区域。分配自动启动可能会立即启动对应容器。</value>
+  </data>
+  <data name="Automation_NotificationsOff.Text" xml:space="preserve">
+    <value>Windows 通知不可用。提醒会显示在应用中；请检查应用和 Windows 的通知设置。</value>
+  </data>
+  <data name="Automation_AssignmentSession.PlaceholderText" xml:space="preserve">
+    <value>选择自动操作所属的会话</value>
+  </data>
+  <data name="Automation_AssignmentSession.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>自动操作所属的会话</value>
+  </data>
+  <data name="Automation_AssignItem.Content" xml:space="preserve">
+    <value>分配</value>
+  </data>
+  <data name="Automation_Enable.Content" xml:space="preserve">
+    <value>为此会话启用自动启动</value>
+  </data>
+  <data name="Automation_Retry.Content" xml:space="preserve">
+    <value>重试等待中的操作</value>
+  </data>
+  <data name="Automation_ProjectNeedsSession" xml:space="preserve">
+    <value>此已保存的 Compose 项目需要先分配会话，才能进行管理。</value>
+  </data>
+  <data name="Automation_ProjectDifferentSession" xml:space="preserve">
+    <value>此 Compose 项目属于其他会话或引擎。请先选择其所属会话，然后再继续。</value>
+  </data>
+  <data name="Automation_KindCompose" xml:space="preserve">
+    <value>Compose 项目</value>
+  </data>
+  <data name="Automation_InactiveCompose" xml:space="preserve">
+    <value>由于会话或引擎不可用，{0}（{1}）的 Compose 恢复正在等待。</value>
+  </data>
+  <data name="Automation_ComposeWarning" xml:space="preserve">
+    <value>Compose 恢复需要您处理：{0}</value>
+  </data>
+  <data name="ManagedSession_OperationInProgress" xml:space="preserve"><value>已有会话操作正在进行。</value></data>
+  <data name="ManagedSession_Removing" xml:space="preserve"><value>正在移除会话 {0}…</value></data>
+  <data name="ManagedSession_Removed" xml:space="preserve"><value>已移除会话 {0}。</value></data>
+  <data name="ManagedSession_RemoveFailed" xml:space="preserve"><value>无法移除会话 {0}：{1}</value></data>
+  <data name="Automation_TrackingOwner" xml:space="preserve"><value>{0}（{1}）</value></data>
+  <data name="Automation_ForgetTrackingName" xml:space="preserve"><value>清除 {0} 的自动启动跟踪记录</value></data>
+  <data name="Automation_ForgetTracking.Content" xml:space="preserve"><value>清除跟踪记录</value></data>
+  <data name="Automation_ForgetTrackingTitle" xml:space="preserve"><value>清除自动启动跟踪记录</value></data>
+  <data name="Automation_ForgetTrackingConfirmation" xml:space="preserve"><value>清除 {0} 的自动启动跟踪记录？已保存的重启记录将被移除，容器数据和其他设置会保留。如果会话再次运行，自动启动跟踪可能会恢复。</value></data>
+  <data name="Automation_ForgetTrackingButton" xml:space="preserve"><value>清除跟踪记录</value></data>
+  <data name="Automation_ForgetTrackingFailed" xml:space="preserve"><value>无法清除自动启动跟踪记录</value></data>
+  <data name="ResourceGrid_Search.PlaceholderText" xml:space="preserve"><value>筛选资源</value></data>
+  <data name="ResourceGrid_Filter" xml:space="preserve"><value>筛选</value></data>
+  <data name="ResourceGrid_Filtered" xml:space="preserve"><value>已筛选</value></data>
+  <data name="ResourceGrid_FilterButton" xml:space="preserve"><value>筛选和排序</value></data>
+  <data name="ResourceGrid_FilterButtonActive" xml:space="preserve"><value>筛选和排序；当前筛选条件：{0}</value></data>
+  <data name="ResourceGrid_ClearFilter.Content" xml:space="preserve"><value>清除筛选</value></data>
+  <data name="ResourceGrid_Search.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>筛选资源</value></data>
+  <data name="ResourceGrid_SortLabel.Text" xml:space="preserve"><value>排序依据</value></data>
+  <data name="ResourceGrid_Sort.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>排序依据</value></data>
+  <data name="ResourceGrid_Direction.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>更改排序方向。</value></data>
+  <data name="ResourceGrid_NoMatches.Text" xml:space="preserve"><value>没有资源符合筛选条件。</value></data>
+  <data name="ResourceGrid_OriginalOrder" xml:space="preserve"><value>原始顺序</value></data>
+  <data name="ResourceGrid_Ascending" xml:space="preserve"><value>升序</value></data>
+  <data name="ResourceGrid_Descending" xml:space="preserve"><value>降序</value></data>
+  <data name="ResourceGrid_Session" xml:space="preserve"><value>会话</value></data>
+  <data name="ResourceGrid_Name" xml:space="preserve"><value>名称</value></data>
+  <data name="ResourceGrid_Status" xml:space="preserve"><value>状态</value></data>
+  <data name="ResourceGrid_Image" xml:space="preserve"><value>映像</value></data>
+  <data name="ResourceGrid_Ports" xml:space="preserve"><value>端口</value></data>
+  <data name="ResourceGrid_Network" xml:space="preserve"><value>网络</value></data>
+  <data name="ResourceGrid_Size" xml:space="preserve"><value>大小</value></data>
+  <data name="ResourceGrid_Created" xml:space="preserve"><value>创建时间</value></data>
+  <data name="ResourceGrid_Repository" xml:space="preserve"><value>存储库</value></data>
+  <data name="ResourceGrid_Tag" xml:space="preserve"><value>标记</value></data>
+  <data name="ResourceGrid_ImageId" xml:space="preserve"><value>映像 ID</value></data>
+  <data name="ResourceGrid_Type" xml:space="preserve"><value>类型</value></data>
+  <data name="ResourceGrid_UsedBy" xml:space="preserve"><value>使用者</value></data>
+  <data name="ResourceGrid_Driver" xml:space="preserve"><value>驱动程序</value></data>
+  <data name="ResourceGrid_Id" xml:space="preserve"><value>ID</value></data>
+  <data name="ResourceGrid_IdHeader.Text" xml:space="preserve"><value>ID</value></data>
+  <data name="ResourceGrid_Container" xml:space="preserve"><value>容器</value></data>
+  <data name="ResourceGrid_HostPort" xml:space="preserve"><value>主机端口</value></data>
+  <data name="ResourceGrid_ContainerPort" xml:space="preserve"><value>容器端口</value></data>
+  <data name="ResourceGrid_Address" xml:space="preserve"><value>地址</value></data>
+  <data name="ResourceGrid_HeaderInactive" xml:space="preserve"><value>点击以升序排序。</value></data>
+  <data name="ResourceGrid_HeaderAscending" xml:space="preserve"><value>已按升序排序。点击以改为降序。</value></data>
+  <data name="ResourceGrid_HeaderDescending" xml:space="preserve"><value>已按降序排序。点击以改为升序。</value></data>
+  <data name="Dashboard_Refresh.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>刷新仪表板</value></data>
+  <data name="Dashboard_Refresh.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>刷新仪表板</value></data>
+  <data name="Dashboard_AllSessionsNotice.Text" xml:space="preserve"><value>总数和实时性能涵盖所有活动会话。读取数据可能会唤醒空闲会话；仪表板可见时，实时统计会使会话保持活动。</value></data>
+  <data name="Dashboard_ActiveSessions.Text" xml:space="preserve"><value>活动会话</value></data>
+  <data name="Shell_DefaultSessionStatus" xml:space="preserve"><value>默认 CLI 会话 · {0}</value></data>
+  <data name="Root_DefaultSessionHealthy" xml:space="preserve"><value>WSL Container Desktop — 默认 CLI 会话：{0}</value></data>
+  <data name="Root_DefaultSessionUnreachable" xml:space="preserve"><value>WSL Container Desktop — 无法连接默认 CLI 会话</value></data>
+  <data name="Notification_DefaultSessionUnavailable" xml:space="preserve"><value>默认 CLI 会话不可用</value></data>
+  <data name="Notification_DefaultSessionUnavailableBody" xml:space="preserve"><value>无法连接默认 CLI 会话。请查看 WSL 引擎页面了解详情。</value></data>
+  <data name="Notification_DefaultSessionRecovered" xml:space="preserve"><value>默认 CLI 会话已恢复</value></data>
+  <data name="Notification_DefaultSessionRecoveredBody" xml:space="preserve"><value>现在可以再次连接默认 CLI 会话。</value></data>
+  <data name="Activity_DefaultSessionDown" xml:space="preserve"><value>默认 CLI 会话已无法连接</value></data>
+  <data name="Activity_DefaultSessionUp" xml:space="preserve"><value>默认 CLI 会话可以连接</value></data>
+  <data name="WslEngine_DefaultCliStatus.Text" xml:space="preserve"><value>默认 CLI 会话状态</value></data>
+  <data name="Activity_AllSessionsNotice.Text" xml:space="preserve"><value>此页面可见时会刷新活动会话的近期活动记录。首次读取最多涵盖一小时，可能会唤醒空闲会话；未运行的会话和更早的空缺可能不会显示。</value></data>
+  <data name="Activity_Refresh.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>刷新活动记录</value></data>
+  <data name="Activity_Refresh.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>刷新所有活动会话的活动记录</value></data>
+  <data name="Activity_EventSession" xml:space="preserve"><value>会话：{0}</value></data>
+  <data name="Activity_ReadFailed" xml:space="preserve"><value>无法刷新活动记录：{0}</value></data>
+  <data name="Activity_PollStopped" xml:space="preserve"><value>活动记录更新已停止：{0}。请选择“刷新”重试。</value></data>
+  <data name="Activity_LoadingSessions" xml:space="preserve"><value>正在加载活动会话的活动记录…</value></data>
+  <data name="Activity_NoActiveSessions" xml:space="preserve"><value>没有可读取的活动会话。</value></data>
+  <data name="Activity_AllSessionsUpdated" xml:space="preserve"><value>已于 {1} 更新 {0} 个活动会话的活动记录。</value></data>
+  <data name="Activity_PartialSessions" xml:space="preserve"><value>以下会话的活动记录不完整：{0}。{1}</value></data>
+  <data name="Activity_ReadTimedOut" xml:space="preserve"><value>读取超时</value></data>
+  <data name="Activity_ReadUnavailable" xml:space="preserve"><value>无法读取</value></data>
+  <data name="Activity_ListPaused" xml:space="preserve"><value>{0} · 列表已暂停</value></data>
+  <data name="Compose_RestartSessionConfirmation" xml:space="preserve"><value>是否重启 {0} 以释放其绑定挂载槽位？这会停止该会话中的所有容器。</value></data>
+  <data name="Compose_RestartOwnerUnavailable" xml:space="preserve"><value>无法验证项目所属会话。未重启任何会话；请在 WSL 引擎中检查该会话。</value></data>
+  <data name="Compose_SessionStatusIncomplete" xml:space="preserve"><value> - 无法读取部分项目会话，其状态不可用。</value></data>
+  <data name="SessionPicker_NoActive" xml:space="preserve"><value>没有活动会话。请在 WSL 引擎中启动一个会话，然后重试。</value></data>
+  <data name="Registry_StatusNotChecked" xml:space="preserve"><value>尚未检查注册表登录状态。请选择“刷新”重试。</value></data>
+  <data name="Registry_StatusCheckFailed" xml:space="preserve"><value>无法检查注册表登录状态：{0}</value></data>
+  <data name="Dashboard_CombinedCpu.Text" xml:space="preserve"><value>容器 CPU 总和</value></data>
+  <data name="Dashboard_CombinedCpuHelp.Text" xml:space="preserve"><value>各容器 CPU 百分比之和；可能超过 100%，且不代表主机 CPU 使用率。</value></data>
+  <data name="Dashboard_AllSessionsFreshness" xml:space="preserve"><value>{0} 个活动会话 · {1} 个网络 · {2} 个端点 · 最早的清单读取时间：{3}</value></data>
+  <data name="Dashboard_AllSessionsCount" xml:space="preserve"><value>{0} 个活动会话 · {1} 个网络 · {2} 个端点</value></data>
+  <data name="Dashboard_VersionUnavailable" xml:space="preserve"><value>无法读取引擎版本：{0}</value></data>
+  <data name="Dashboard_StatsReadFailed" xml:space="preserve"><value>无法读取实时统计信息：{0}</value></data>
+  <data name="Dashboard_PollStopped" xml:space="preserve"><value>仪表板实时更新已停止：{0}。请刷新以重试。</value></data>
+  <data name="Dashboard_StatsSessionFailure" xml:space="preserve"><value>{0}：{1}</value></data>
+  <data name="Dashboard_StatsLoading" xml:space="preserve"><value>正在读取实时统计信息…</value></data>
+  <data name="Dashboard_StatsFreshness" xml:space="preserve"><value>统计信息更新时间：{0}</value></data>
+  <data name="Dashboard_StatsUnavailable" xml:space="preserve"><value>暂时无法获取运行中的容器或其统计信息。</value></data>
+  <data name="Dashboard_NoRunning" xml:space="preserve"><value>没有运行中的容器可供统计。</value></data>
+  <data name="Dashboard_StatsSessionChanged" xml:space="preserve"><value>会话已更改或不再可用。</value></data>
+  <data name="Dashboard_StatsIdentityUnknown" xml:space="preserve"><value>容器标识不完整或存在歧义。</value></data>
+  <data name="Dashboard_StatsMissing" xml:space="preserve"><value>部分运行中的容器未报告统计信息。</value></data>
+  <data name="Dashboard_StatsInvalid" xml:space="preserve"><value>引擎返回的统计信息无效。</value></data>
+  <data name="Dashboard_StatsTimedOut" xml:space="preserve"><value>统计信息请求超时。</value></data>
+  <data name="Dashboard_IdentityUnavailable" xml:space="preserve"><value>此容器的会话或标识不完整。请刷新后再打开。</value></data>
+  <data name="ManagedSession_StartingProgress" xml:space="preserve"><value>正在启动或继续会话 {0}…</value></data>
+  <data name="ManagedSession_StoppingProgress" xml:space="preserve"><value>正在停止会话 {0}…</value></data>
+  <data name="ManagedSession_StopStartFailed" xml:space="preserve"><value>{0} 的会话操作失败：{1}。请检查会话状态后重试。</value></data>
+  <data name="ManagedSession_DefaultActionFailed" xml:space="preserve"><value>{0} 的操作失败：{1}。请检查下方的会话状态；如果已暂停，请选择“启动”或“继续”，以允许此应用再次使用该会话。</value></data>
+  <data name="ManagedSession_DefaultResumed" xml:space="preserve"><value>默认 CLI 会话已再次可用。</value></data>
+  <data name="ManagedSession_DefaultStopped" xml:space="preserve"><value>默认 CLI 会话的停止请求已完成，数据已保留。选择“启动”或“继续”以允许此应用再次使用该会话。其他应用可能会独立启动它。重新打开此应用时，也可能启动该会话及已配置自动启动的容器。</value></data>
+  <data name="ManagedSession_StoppedProgress" xml:space="preserve"><value>已请求停止 {0}，数据已保留。其他应用可能会再次启动它。</value></data>
+  <data name="ManagedSession_StopDefaultConfirmation" xml:space="preserve"><value>停止默认 CLI 会话？其容器将停止，数据会保留。此应用将暂停该会话的自动操作，直到您选择“启动”。其他应用可能独立启动它。重新打开此应用时，也可能启动该会话及已配置自动启动的容器。</value></data>
+  <data name="ManagedSession_DefaultStatus" xml:space="preserve"><value>默认 CLI 会话在此应用中已暂停。请在 WSL 引擎页面启动或继续该会话。</value></data>
+  <data name="ManagedSession_TrayPaused" xml:space="preserve"><value>WSL Container Desktop — 默认 CLI 会话已暂停</value></data>
+  <data name="ManagedSession_Paused" xml:space="preserve"><value>已暂停</value></data>
+  <data name="ManagedSession_StartLabel" xml:space="preserve"><value>启动</value></data>
+  <data name="ManagedSession_ResumeLabel" xml:space="preserve"><value>继续</value></data>
+  <data name="ManagedSession_ResumeDefaultName" xml:space="preserve"><value>启动或继续默认 CLI 会话</value></data>
+  <data name="ManagedSession_DefaultStoppedRow" xml:space="preserve"><value>已由您停止 · 数据已保留。选择“启动”以再次使用。</value></data>
+  <data name="ManagedSession_DefaultStartedElsewhere" xml:space="preserve"><value>会话处于活动状态，但此应用的操作和自动操作已暂停。选择“继续”以恢复。</value></data>
+  <data name="ManagedSession_DefaultStartRequired" xml:space="preserve"><value>默认 CLI 会话已在此应用中停止。请打开 WSL 引擎页面并为该会话选择“启动”。</value></data>
+  <data name="ManagedSession_StopListFailure" xml:space="preserve"><value>会话操作进行时无法刷新会话列表。请等待操作完成；如果问题仍然存在，请选择“刷新”。{0}</value></data>
+  <data name="ManagedSession_StopWaitTimedOut" xml:space="preserve"><value>其他会话操作未能及时完成。请等待其完成后，再重试停止会话。</value></data>
+  <data name="ManagedSession_StopCommandTimedOut" xml:space="preserve"><value>停止请求已超时，会话当前状态未知。请刷新会话列表后重试。</value></data>
+  <data name="SessionOperation_SelectionUnavailable" xml:space="preserve"><value>无法选择会话，未开始任何操作。</value></data>
+  <data name="Reclaim_InventorySession" xml:space="preserve"><value>磁盘使用情况：{0}</value></data>
+  <data name="Reclaim_ConfirmSession" xml:space="preserve"><value>会话：{0}&#xA;&#xA;{1}</value></data>
+  <data name="WslEngine_RestartNoActiveSession" xml:space="preserve"><value>没有可重新启动的活动会话。</value></data>
+  <data name="WslEngine_NamedSessionTerminated" xml:space="preserve"><value>会话 {0} 已终止。如果会话列表中有启动选项，请从列表中重新启动；否则请从创建该会话的应用中启动。</value></data>
+  <data name="WslEngine_SessionTerminatedTitle" xml:space="preserve"><value>会话已停止</value></data>
+  <data name="Assistant_SessionUiUnavailable" xml:space="preserve"><value>无法打开会话选择器。请打开应用并重试。</value></data>
+  <data name="Assistant_DestructiveDisabled" xml:space="preserve"><value>助手的破坏性操作已关闭。没有进行任何更改。</value></data>
+  <data name="Assistant_ProjectUnavailable" xml:space="preserve"><value>保存的 Compose 项目不存在或无法唯一确定。没有进行任何更改。</value></data>
+  <data name="Assistant_SessionChoiceCancelled" xml:space="preserve"><value>已取消选择会话。未启动任何操作，请勿自动重试。</value></data>
+  <data name="Assistant_NoActiveSession" xml:space="preserve"><value>所选会话未运行。请在 WSL 引擎中启动它，然后再次请求该操作。</value></data>
+  <data name="Registry_LogoutTitle" xml:space="preserve"><value>退出注册表</value></data>
+  <data name="Registry_LogoutAction" xml:space="preserve"><value>退出登录</value></data>
+  <data name="Registry_LogoutSessionConfirmation" xml:space="preserve"><value>使用会话 {1} 退出“{0}”吗？注册表凭据可能与其他会话共享。</value></data>
+  <data name="Registry_RemoveSessionConfirmation" xml:space="preserve"><value>移除“{0}”（{1}）并使用会话 {2} 退出登录吗？注册表凭据可能与其他会话共享。</value></data>
+  <data name="Registry_CredentialNote.Text" xml:space="preserve"><value>凭据可能在会话之间共享。登录状态反映最近一次检查或登录所用的会话。</value></data>
+  <data name="Registry_SessionLoginFailed" xml:space="preserve"><value>无法为所选会话完成登录。请刷新会话列表并重试。</value></data>
+  <data name="Registry_LoginInSession" xml:space="preserve"><value>使用会话 {1} 登录 {0}</value></data>
+  <data name="DevContainer_SessionLabel" xml:space="preserve"><value>会话：{0}</value></data>
+  <data name="DevContainer_SessionNotAssigned" xml:space="preserve"><value>未分配会话</value></data>
+  <data name="DevContainer_StatusUnavailable" xml:space="preserve"><value>会话状态不可用</value></data>
+  <data name="DevContainer_SessionUnassigned" xml:space="preserve"><value>此开发容器尚未分配会话。请先启动它并选择会话。</value></data>
+  <data name="DevContainer_NoOwnedContainer" xml:space="preserve"><value>在所选会话中找不到匹配的开发容器。没有进行任何更改。</value></data>
+  <data name="DevContainer_IdentityUnavailable" xml:space="preserve"><value>无法验证开发容器的身份。未启动任何操作。</value></data>
+  <data name="DevContainer_DifferentEngine" xml:space="preserve"><value>此开发容器属于其他引擎。请先恢复该引擎，然后再继续。</value></data>
+  <data name="DevContainer_RemoveConfirmation" xml:space="preserve"><value>停止并移除会话 {1} 中的“{0}”，然后从列表中移除它吗？</value></data>
+  <data name="LocalAi_RemoveInSession" xml:space="preserve"><value>这将移除会话 {1} 中应用的“{0}”容器。&#xA;&#xA;</value></data>
+  <data name="LocalAi_OtherSessionsUnknown" xml:space="preserve"><value>容器已移除，但无法检查其他会话。所选提供程序未更改。</value></data>
+  <data name="LocalAi_ProviderRetained" xml:space="preserve"><value>已保留所选提供程序。如果它使用此运行时，请启动运行时或选择其他提供程序。</value></data>
+  <data name="LocalAi_PresenceIncomplete" xml:space="preserve"><value>无法检查所有活动会话中的本地 AI。请在 WSL 引擎中检查会话，然后返回设置。</value></data>
+  <data name="LocalAi_PresenceTitle" xml:space="preserve"><value>本地 AI 状态不可用</value></data>
+  <data name="SessionOperation_NotRunning" xml:space="preserve"><value>所选会话未运行。请在 WSL 引擎中启动它，然后重试。</value></data>
+  <data name="Reclaim_StatusCalculating" xml:space="preserve"><value>正在计算磁盘使用情况…</value></data>
+  <data name="Reclaim_StatusReclaimable" xml:space="preserve"><value>悬空镜像和已停止的容器最多可回收 {0}</value></data>
+  <data name="Reclaim_StatusNothing" xml:space="preserve"><value>没有明显可回收的内容</value></data>
+  <data name="Reclaim_StatusCancelled" xml:space="preserve"><value>磁盘使用情况刷新已取消或超时；显示的数据可能已过时</value></data>
+  <data name="Reclaim_StatusError" xml:space="preserve"><value>错误</value></data>
+  <data name="Reclaim_StatusPruneFailed" xml:space="preserve"><value>清理失败</value></data>
+  <data name="Reclaim_StatusIncomplete" xml:space="preserve"><value>{0} · 数据卷使用情况不完整；未知数据卷未计为未使用</value></data>
+  <data name="Registry_StatusWithSession" xml:space="preserve"><value>{0} · 最近使用的会话：{1}</value></data>
+  <data name="Registry_StatusUnavailable" xml:space="preserve"><value>无法检查注册表登录状态。请选择一个活动会话并刷新。</value></data>
+  <data name="Registry_StatusUpdated" xml:space="preserve"><value>注册表登录状态已更新。</value></data>
+  <data name="Images_StdinDockerfileError" xml:space="preserve"><value>“-”会从标准输入读取 Dockerfile，而应用无法提供标准输入。请输入 Dockerfile 路径。</value></data>
+  <data name="Catalog_BrowseUnsupported" xml:space="preserve"><value>此注册表不支持浏览。请手动输入镜像引用。</value></data>
+  <data name="Catalog_AzureCliMissing" xml:space="preserve"><value>浏览此注册表需要 Azure CLI (az)，但它尚未安装。</value></data>
+  <data name="Catalog_TagsUnsupported" xml:space="preserve"><value>此注册表不支持浏览。</value></data>
+  <data name="Catalog_CredentialsRejected" xml:space="preserve"><value>注册表拒绝了已保存的凭据。请在注册表页面重新登录。</value></data>
+  <data name="Catalog_LoginRequired" xml:space="preserve"><value>请先登录此注册表。打开注册表页面并登录。</value></data>
+  <data name="Catalog_RequestRejected" xml:space="preserve"><value>注册表拒绝了请求。请在注册表页面登录此注册表。</value></data>
+  <data name="Catalog_CatalogUnsupported" xml:space="preserve"><value>此注册表不支持浏览其目录。</value></data>
+  <data name="Catalog_HttpError" xml:space="preserve"><value>注册表返回错误（{0}）。</value></data>
+  <data name="Catalog_Unreachable" xml:space="preserve"><value>无法连接到注册表。请检查网络连接并确认主机名正确。</value></data>
+  <data name="NetworkAddressing_SubnetRequired" xml:space="preserve"><value>请先输入子网，再设置网关或 IP 范围。</value></data>
+  <data name="NetworkAddressing_InvalidSubnet" xml:space="preserve"><value>“{0}”不是有效的子网。请使用 CIDR 表示法，例如 172.28.0.0/16。</value></data>
+  <data name="NetworkAddressing_InvalidGateway" xml:space="preserve"><value>“{0}”不是有效的网关地址。</value></data>
+  <data name="NetworkAddressing_GatewayOutside" xml:space="preserve"><value>网关 {0} 不在子网 {1} 中。</value></data>
+  <data name="NetworkAddressing_InvalidRange" xml:space="preserve"><value>“{0}”不是有效的 IP 范围。请使用 CIDR 表示法，例如 172.28.5.0/24。</value></data>
+  <data name="NetworkAddressing_RangeOutside" xml:space="preserve"><value>IP 范围 {0} 必须位于子网 {1} 内。</value></data>
+  <data name="DevContainer_OwnerUnavailable" xml:space="preserve"><value>开发容器所属的会话未运行。请在 WSL 引擎或创建该会话的应用中启动它，然后重试。</value></data>
+  <data name="Registry_AddedWithoutSignIn" xml:space="preserve"><value>已添加注册表 {0}，但登录未开始。</value></data>
+  <data name="Reclaim_DanglingCountOne" xml:space="preserve"><value>{0} 个悬空镜像</value></data>
+  <data name="Reclaim_DanglingCountMany" xml:space="preserve"><value>{0} 个悬空镜像</value></data>
+  <data name="DevContainer_DefinitionChanged" xml:space="preserve"><value>移除可能已完成，但保存的开发容器定义发生了更改并已保留。请刷新后重试。</value></data>
+  <data name="DevContainer_RemovalOutcomeUnknown" xml:space="preserve"><value>移除可能已完成，但无法验证会话。已保留保存的定义；请刷新后重试。</value></data>
+  <data name="Reclaim_DefaultStorage" xml:space="preserve"><value>默认（{0}）</value></data>
+  <data name="Reclaim_AllSessionsNotice.Text" xml:space="preserve"><value>用量涵盖所有活动会话，可能会唤醒空闲会话。镜像层可能共享，因此镜像大小是估计上限。每次清理只针对一个会话。</value></data>
+  <data name="Reclaim_NoActiveSessions" xml:space="preserve"><value>没有活动会话。请启动一个会话以查看磁盘用量。</value></data>
+  <data name="Reclaim_AllSessions" xml:space="preserve"><value>已扫描活动会话：{0} / {1}</value></data>
+  <data name="Reclaim_PartialSessions" xml:space="preserve"><value>磁盘用量不完整。无法扫描以下会话：{0}</value></data>
+  <data name="Reclaim_ScanTimedOut" xml:space="preserve"><value>磁盘用量扫描超时。</value></data>
+  <data name="Reclaim_ScanUnavailable" xml:space="preserve"><value>磁盘用量扫描</value></data>
+  <data name="Reclaim_SessionLabel" xml:space="preserve"><value>会话：{0}</value></data>
+  <data name="Reclaim_StatusNoKnown" xml:space="preserve"><value>在已扫描的会话中未发现可回收空间。</value></data>
+  <data name="Reclaim_StatusSizeIncomplete" xml:space="preserve"><value>部分已停止容器的可写层大小未知；无法计算可回收总量。</value></data>
+  <data name="Reclaim_ConfirmUnknownContainerSize" xml:space="preserve"><value>是否删除所有已停止的容器（{0} 个候选项）？部分可写层的大小未知。</value></data>
+  <data name="Reclaim_RemovedUnknownSize" xml:space="preserve"><value>已删除 {0}。回收的可写层空间大小未知。</value></data>
+  <data name="Reclaim_AllUnknownContainerSize" xml:space="preserve"><value>已删除 {0} 和 {1}。回收的可写层空间大小未知。</value></data>
+  <data name="Registry_RemoveListOnlyConfirmation" xml:space="preserve"><value>从共享列表中移除“{0}”（{1}）吗？已保存的凭据将保留。若要删除凭据，请先退出登录，再移除此条目。</value></data>
+  <data name="Registry_RemovedListOnly" xml:space="preserve"><value>已从列表中移除 {0}。已保存的凭据未更改。</value></data>
+  <data name="Reclaim_ImageUsageUnknown" xml:space="preserve"><value>镜像使用情况未知。</value></data>
+  <data name="Reclaim_StatusUsageIncomplete" xml:space="preserve"><value>部分镜像使用情况或容器清理资格未知；无法计算可回收总量。</value></data>
+  <data name="Reclaim_ConfirmUnknownImageUsage" xml:space="preserve"><value>部分镜像的使用情况未知。引擎将决定可删除哪些悬空镜像。</value></data>
+  <data name="Reclaim_ConfirmUnknownContainerState" xml:space="preserve"><value>部分容器状态或清理资格未知。引擎将决定可删除哪些容器。</value></data>
+  <data name="Shell_SessionsHeading.Text" xml:space="preserve"><value>会话状态</value></data>
+  <data name="Shell_ReviewSessions.Content" xml:space="preserve"><value>在 WSL 引擎页面查看会话</value></data>
+  <data name="Shell_OneSessionActive" xml:space="preserve"><value>1 个会话处于活动状态</value></data>
+  <data name="Shell_SessionsActive" xml:space="preserve"><value>{0} 个会话处于活动状态</value></data>
+  <data name="Shell_SessionsAttention" xml:space="preserve"><value>{0} 个会话 · 需要关注</value></data>
+  <data name="Shell_SessionsUnconfirmed" xml:space="preserve"><value>{0} 个会话 · 状态未确认</value></data>
+  <data name="Shell_SessionsPaused" xml:space="preserve"><value>{0} 个会话 · 已暂停</value></data>
+  <data name="Shell_SessionActive" xml:space="preserve"><value>活动</value></data>
+  <data name="Shell_SessionAttention" xml:space="preserve"><value>需要关注</value></data>
+  <data name="Shell_SessionFailed" xml:space="preserve"><value>失败</value></data>
+  <data name="Shell_SessionPaused" xml:space="preserve"><value>已暂停</value></data>
+  <data name="Shell_SessionRemoving" xml:space="preserve"><value>正在移除</value></data>
+  <data name="Shell_SessionsRemoving" xml:space="preserve"><value>{0} 个会话 · 正在移除</value></data>
+  <data name="Shell_SessionUnknown" xml:space="preserve"><value>近期未检查</value></data>
+  <data name="Shell_SessionCounts" xml:space="preserve"><value>{0}/{1} 个容器正在运行</value></data>
+  <data name="Shell_SessionCountsUnknown" xml:space="preserve"><value>容器数量不可用</value></data>
+  <data name="Shell_SessionChecked" xml:space="preserve"><value>上次检查：{0}</value></data>
+  <data name="Shell_SessionNeverChecked" xml:space="preserve"><value>无近期观测记录</value></data>
+  <data name="Shell_SessionDetail" xml:space="preserve"><value>{0} · {1}
+{2} · {3}</value></data>
+  <data name="Shell_SessionsEmpty" xml:space="preserve"><value>尚未观测到任何会话。</value></data>
+  <data name="Shell_SessionsNote" xml:space="preserve"><value>“活动”表示会话已响应，并不表示所有容器都健康。详情使用现有观测记录；打开此面板不会唤醒会话。</value></data>
 </root>

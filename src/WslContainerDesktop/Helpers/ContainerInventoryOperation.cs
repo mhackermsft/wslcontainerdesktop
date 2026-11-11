@@ -30,7 +30,8 @@ internal static class ContainerInventoryOperation
             await action();
             return true;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+        catch (Exception ex) when (ex is InvalidOperationException or JsonException or IOException or
+                                   UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {
             await reportFailure(ex);
             return false;

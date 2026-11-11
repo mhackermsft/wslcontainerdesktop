@@ -56,11 +56,11 @@ public sealed class OpenWebUiPlanner(IWslcService wslc)
     /// Installs a model into the Ollama container this template deployed, so the web UI has
     /// something to talk to. Only ever targets the bundled container, never a reused runtime.
     /// </summary>
-    public async Task<CommandResult> InstallModelAsync(string model, CancellationToken ct = default)
+    public async Task<CommandResult> InstallModelAsync(string model, CancellationToken ct = default, string? containerId = null)
     {
         if (!IsValidModelName(model))
             throw new ArgumentException("Unsupported Ollama model name.", nameof(model));
-        return await wslc.ExecAsync(BundledOllamaContainer, $"ollama pull {model.Trim()}", ct).ConfigureAwait(false);
+        return await wslc.ExecAsync(containerId ?? BundledOllamaContainer, $"ollama pull {model.Trim()}", ct).ConfigureAwait(false);
     }
 
     /// <param name="ExistingOllamaId">Immutable ID of the runtime to reuse, or null to deploy one.</param>
@@ -93,47 +93,35 @@ public sealed class OpenWebUiPlanner(IWslcService wslc)
     /// </summary>
     private async Task<(string Id, string Name)?> FindOllamaAsync(CancellationToken ct)
     {
-        try
-        {
-            var containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
-            if (containers.Count == 0)
-                return null;
-
-            // Inventory reports either a reference or a bare image ID, so resolve IDs through the
-            // image list. Matching only on "ollama/ollama" would miss a container reported by ID.
-            var ollamaImageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            try
-            {
-                foreach (var image in await wslc.ListImagesAsync(ct).ConfigureAwait(false))
-                {
-                    if (IsOllamaReference(image.Repository) && !string.IsNullOrWhiteSpace(image.Id))
-                    {
-                        ollamaImageIds.Add(image.Id.Trim());
-                        if (image.Id.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
-                            ollamaImageIds.Add(image.Id["sha256:".Length..]);
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // Fall back to reference matching below.
-            }
-
-            var matches = containers
-                .Where(c => !string.IsNullOrWhiteSpace(c.Id) && IsOllamaContainer(c, ollamaImageIds))
-                .OrderByDescending(c => c.State == ContainerState.Running)
-                .ToArray();
-            if (matches.Length == 0)
-                return null;
-            var match = matches[0];
-            return (match.Id, string.IsNullOrWhiteSpace(match.Name) ? match.Id : match.Name);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // If inventory cannot be read, deploy the self-contained stack rather than guessing that
-            // a reusable runtime exists.
+        var containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+        if (containers.Count == 0)
             return null;
+
+        // Inventory reports either a reference or a bare image ID, so resolve IDs through the
+        // image list. Matching only on "ollama/ollama" would miss a container reported by ID.
+        var ollamaImageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var image in await wslc.ListImagesAsync(ct).ConfigureAwait(false))
+        {
+            if (IsOllamaReference(image.Repository) && !string.IsNullOrWhiteSpace(image.Id))
+            {
+                ollamaImageIds.Add(image.Id.Trim());
+                if (image.Id.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+                    ollamaImageIds.Add(image.Id["sha256:".Length..]);
+            }
         }
+
+        var matches = containers
+            .Where(c => !string.IsNullOrWhiteSpace(c.Id) && IsOllamaContainer(c, ollamaImageIds))
+            .OrderByDescending(c => c.State == ContainerState.Running)
+            .ToArray();
+        if (matches.Length == 0)
+            return null;
+        var match = matches[0];
+        if (match.State != ContainerState.Running)
+            throw new InvalidOperationException(UiText.Get("Deployment_OllamaStopped",
+                "The existing Ollama container {0} is not running. Start it before launching Open WebUI.",
+                string.IsNullOrWhiteSpace(match.Name) ? match.Id : match.Name));
+        return (match.Id, string.IsNullOrWhiteSpace(match.Name) ? match.Id : match.Name);
     }
 
     private static bool IsOllamaContainer(ContainerInfo container, HashSet<string> ollamaImageIds)
@@ -169,9 +157,9 @@ public sealed class OpenWebUiPlanner(IWslcService wslc)
 
     /// <summary>Attaches the reused runtime to the template's network under a stable alias so the
     /// web UI resolves it by name instead of an address that changes on restart.</summary>
-    public Task<CommandResult> AttachExistingAsync(string containerId, CancellationToken ct = default) =>
+    public Task<CommandResult> AttachExistingAsync(string containerId, CancellationToken ct = default, string? networkName = null) =>
         wslc.ConnectNetworkAsync(
-            new NetworkAttachment { Network = NetworkName, Aliases = { OllamaAlias } }, containerId, ct);
+            new NetworkAttachment { Network = networkName ?? NetworkName, Aliases = { OllamaAlias } }, containerId, ct);
 
     /// <summary>No Ollama present: deploy one alongside the web UI. The runtime port is deliberately
     /// not published, so this never competes for 11434 with a runtime added later.</summary>

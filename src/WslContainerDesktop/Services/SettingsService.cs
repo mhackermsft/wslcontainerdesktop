@@ -143,6 +143,12 @@ public sealed class SettingsService : ISettingsService
     public event EventHandler? Changed;
 
     /// <inheritdoc/>
+    public bool HasSaveError { get; private set; }
+
+    /// <inheritdoc/>
+    public bool HasLoadError { get; private set; }
+
+    /// <inheritdoc/>
     public string? K3sInstallerSha256 { get; set; }
     /// <inheritdoc/>
     public List<RegistryEntry> Registries { get; set; } = new() { RegistryEntry.DockerHub() };
@@ -156,17 +162,10 @@ public sealed class SettingsService : ISettingsService
     {
         try
         {
-            if (!File.Exists(_settingsFile))
-            {
-                return;
-            }
-
             var json = File.ReadAllText(_settingsFile);
             var dto = JsonSerializer.Deserialize<SettingsDto>(json);
             if (dto is null)
-            {
-                return;
-            }
+                throw new InvalidDataException("Saved settings are empty.");
 
             if (!string.IsNullOrWhiteSpace(dto.WslcPath))
             {
@@ -248,14 +247,20 @@ public sealed class SettingsService : ISettingsService
             {
                 foreach (var h in dto.HealthChecks)
                 {
-                    if (h is null || string.IsNullOrWhiteSpace(h.ContainerName))
+                    if (h is null)
+                        throw new InvalidDataException("A saved health check is missing.");
+                    if (string.IsNullOrWhiteSpace(h.ContainerName) ||
+                        !Enum.IsDefined(typeof(HealthProbeKind), h.Kind))
                     {
+                        if (h.Enabled)
+                            throw new InvalidDataException("An enabled health check has an invalid container or probe type.");
                         continue;
                     }
 
                     var config = new HealthCheckConfig
                     {
                         ContainerName = h.ContainerName!.Trim(),
+                        SessionOwner = h.SessionOwner,
                         Kind = h.Kind == (int)HealthProbeKind.Tcp ? HealthProbeKind.Tcp : HealthProbeKind.Command,
                         Command = h.Command ?? string.Empty,
                         TcpPort = h.TcpPort,
@@ -272,6 +277,10 @@ public sealed class SettingsService : ISettingsService
                     {
                         healthChecks.Add(config);
                     }
+                    else if (config.Enabled)
+                    {
+                        throw new InvalidDataException("An enabled health check is incomplete.");
+                    }
                 }
             }
 
@@ -283,14 +292,20 @@ public sealed class SettingsService : ISettingsService
             {
                 foreach (var r in dto.RestartPolicies)
                 {
-                    if (r is null || string.IsNullOrWhiteSpace(r.ContainerName))
+                    if (r is null)
+                        throw new InvalidDataException("A saved restart policy is missing.");
+                    if (string.IsNullOrWhiteSpace(r.ContainerName) ||
+                        !Enum.IsDefined(typeof(RestartPolicyKind), r.Policy))
                     {
+                        if (r.Enabled)
+                            throw new InvalidDataException("An enabled restart policy has an invalid container or policy.");
                         continue;
                     }
 
                     var policy = new RestartPolicyConfig
                     {
                         ContainerName = r.ContainerName!.Trim(),
+                        SessionOwner = r.SessionOwner,
                         Policy = Enum.IsDefined(typeof(RestartPolicyKind), r.Policy)
                             ? (RestartPolicyKind)r.Policy
                             : RestartPolicyKind.No,
@@ -306,11 +321,16 @@ public sealed class SettingsService : ISettingsService
             }
 
             RestartPolicies = restartPolicies;
+            HasLoadError = false;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            HasLoadError = false;
         }
         catch (Exception ex)
         {
-            // Corrupt settings should never crash the app; fall back to defaults.
-            _logger.LogWarning(ex, "Failed to load settings from {Path}; using defaults.", _settingsFile);
+            HasLoadError = true;
+            _logger.LogWarning(ex, "Could not load complete settings from {Path}; automatic actions are paused.", _settingsFile);
         }
     }
 
@@ -319,6 +339,8 @@ public sealed class SettingsService : ISettingsService
     {
         try
         {
+            if (HasLoadError)
+                throw new InvalidOperationException("Saved settings must be repaired before they can be overwritten.");
             Directory.CreateDirectory(_settingsDirectory);
             var dto = new SettingsDto
             {
@@ -376,6 +398,7 @@ public sealed class SettingsService : ISettingsService
                     .Select(h => new HealthCheckDto
                     {
                         ContainerName = h.ContainerName,
+                        SessionOwner = h.SessionOwner,
                         Kind = (int)h.Kind,
                         Command = h.Command,
                         TcpPort = h.TcpPort,
@@ -390,6 +413,7 @@ public sealed class SettingsService : ISettingsService
                     .Select(r => new RestartPolicyDto
                     {
                         ContainerName = r.ContainerName,
+                        SessionOwner = r.SessionOwner,
                         Policy = (int)r.Policy,
                         MaxRestarts = r.MaxRestarts,
                         Enabled = r.Enabled,
@@ -398,11 +422,28 @@ public sealed class SettingsService : ISettingsService
             };
 
             var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_settingsFile, json);
+            var temporary = Path.Combine(_settingsDirectory, $".settings-{Guid.NewGuid():N}.tmp");
+            try
+            {
+                File.WriteAllText(temporary, json);
+                File.Move(temporary, _settingsFile, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporary))
+                {
+                    try { File.Delete(temporary); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _logger.LogWarning(ex, "Failed to remove temporary settings file.");
+                    }
+                }
+            }
+            HasSaveError = false;
         }
         catch (Exception ex)
         {
-            // Best effort; ignore persistence failures.
+            HasSaveError = true;
             _logger.LogWarning(ex, "Failed to save settings to {Path}.", _settingsFile);
         }
 
@@ -497,6 +538,7 @@ public sealed class SettingsService : ISettingsService
     private sealed class RestartPolicyDto
     {
         public string? ContainerName { get; set; }
+        public AutomationSessionOwner? SessionOwner { get; set; }
         public int Policy { get; set; }
         public int MaxRestarts { get; set; } = 3;
         public bool Enabled { get; set; } = true;
@@ -507,6 +549,7 @@ public sealed class SettingsService : ISettingsService
     {
         public NativeHealthOptions? DesiredHealth { get; set; }
         public string? ContainerName { get; set; }
+        public AutomationSessionOwner? SessionOwner { get; set; }
         public int Kind { get; set; }
         public string? Command { get; set; }
         public int TcpPort { get; set; }

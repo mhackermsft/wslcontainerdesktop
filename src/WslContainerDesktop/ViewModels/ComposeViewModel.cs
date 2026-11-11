@@ -17,6 +17,8 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Xaml.Controls;
 using WslContainerDesktop.Dialogs;
 using WslContainerDesktop.Models;
@@ -32,7 +34,7 @@ public partial class ComposeProjectRow : ObservableObject
     /// Returns the project name. List controls use this as each row's screen-reader name;
     /// without it Narrator announces the .NET type name instead.
     /// </summary>
-    public override string ToString() => Name;
+    public override string ToString() => UiText.Get("Compose_ProjectAccessible", "{0}, session {1}", Name, SessionDisplay);
 
     /// <summary>Creates a row and wires it to the page-level service-management command.</summary>
     public ComposeProjectRow(ComposeProject project, IAsyncRelayCommand<ComposeProjectRow?> manageServicesCommand)
@@ -46,6 +48,7 @@ public partial class ComposeProjectRow : ObservableObject
     {
         StatusText = UiText.Translate(StatusText);
         OnPropertyChanged(nameof(ServicesSummary));
+        OnPropertyChanged(nameof(SessionDisplay));
     }
 
     /// <summary>Persisted Compose project definition backing this row.</summary>
@@ -56,6 +59,10 @@ public partial class ComposeProjectRow : ObservableObject
 
     /// <summary>Project name shown in the list.</summary>
     public string Name => Project.Name;
+    /// <summary>The owning session, or an explicit indication that assignment is needed.</summary>
+    public string SessionDisplay => Project.SessionOwner?.IsValid == true
+        ? Project.SessionOwner.SessionName ?? UiText.Get("WslEngine_Session_Default", "Default CLI session")
+        : UiText.Get("Compose_SessionUnassigned", "Not assigned");
 
     /// <summary>Number of services in the Compose project.</summary>
     public int ServiceCount => Project.Services.Count;
@@ -91,7 +98,16 @@ public partial class ComposeViewModel : ObservableObject
     private readonly ComposeProjectSupervisor _supervisor;
     private readonly IWslcService _wslc;
     private readonly DialogService _dialogs;
+    private readonly WslcSessionContext _sessionContext;
+    private readonly SessionAutomationCoordinator? _sessionAutomation;
+    private readonly WslcSessionInventoryReader? _sessionReader;
+    private readonly ISettingsService? _settings;
+    private readonly IWslcSessionSelectionService? _sessionSelection;
+    private readonly ILogger<ComposeViewModel> _logger;
+    private readonly SemaphoreSlim _templateGate = new(1, 1);
     private int _busyOperations;
+    private long _refreshGeneration;
+    private bool _observingSessions;
 
     /// <summary>Generated busy flag shared by Compose page commands.</summary>
     [ObservableProperty]
@@ -109,6 +125,35 @@ public partial class ComposeViewModel : ObservableObject
     /// <summary>Compose projects displayed by the page.</summary>
     public ObservableCollection<ComposeProjectRow> Projects { get; } = new();
 
+    /// <summary>Updates visible rows from the shared session monitor without starting another poller.</summary>
+    public void SetSessionObservationVisible(bool visible)
+    {
+        if (_sessionAutomation is null || visible == _observingSessions)
+            return;
+        _observingSessions = visible;
+        if (visible)
+            _sessionAutomation.Changed += OnSessionObservationChanged;
+        else
+            _sessionAutomation.Changed -= OnSessionObservationChanged;
+    }
+
+    private void OnSessionObservationChanged(object? sender, EventArgs e)
+    {
+        if (_settings is null || _sessionAutomation is null)
+            return;
+        foreach (var row in Projects)
+        {
+            var owner = row.Project.SessionOwner;
+            var containers = owner?.IsValid == true ? _sessionAutomation.GetContainers(owner) : null;
+            if (containers is null)
+                row.StatusText = owner?.IsValid == true
+                    ? UiText.Get("Workload_Text_Status_unavailable_7eb5af", "Status unavailable")
+                    : UiText.Get("Compose_SessionUnassigned", "Not assigned");
+            else
+                UpdateStatus(row, containers);
+        }
+    }
+
     /// <summary>Refreshes app-owned display text for the current language.</summary>
     public void RefreshLanguage()
     {
@@ -121,40 +166,98 @@ public partial class ComposeViewModel : ObservableObject
         IComposeProjectStore store,
         ComposeProjectSupervisor supervisor,
         IWslcService wslc,
-        DialogService dialogs)
+        DialogService dialogs,
+        WslcSessionContext sessionContext,
+        SessionAutomationCoordinator? sessionAutomation = null,
+        WslcSessionInventoryReader? sessionReader = null,
+        ISettingsService? settings = null,
+        IWslcSessionSelectionService? sessionSelection = null,
+        ILogger<ComposeViewModel>? logger = null)
     {
         _store = store;
         _supervisor = supervisor;
         _wslc = wslc;
         _dialogs = dialogs;
+        _sessionContext = sessionContext;
+        _sessionAutomation = sessionAutomation;
+        _sessionReader = sessionReader;
+        _settings = settings;
+        _sessionSelection = sessionSelection;
+        _logger = logger ?? NullLogger<ComposeViewModel>.Instance;
     }
 
     /// <summary>Reloads stored projects and reconciles each row with the current container inventory.</summary>
     [RelayCommand(CanExecute = nameof(CanManageServices))]
     public async Task RefreshAsync()
     {
+        var generation = Interlocked.Increment(ref _refreshGeneration);
         BeginBusyOperation();
         StatusMessage = UiText.Get("Workload_Text_Loading_compose_projects_33a0b7", "Loading compose projects…");
         try
         {
             IReadOnlyList<ContainerInfo>? containers = null;
+            IReadOnlyList<ComposeProject>? projects = null;
+            Dictionary<string, IReadOnlyList<ContainerInfo>>? sessionContainers = null;
             string? inventoryError = null;
+            var selection = _sessionContext.CaptureSnapshot();
+            var executable = _settings?.WslcPath;
             try
             {
-                containers = await _wslc.ListContainersAsync(all: true);
+                if (_sessionReader is not null && _settings is not null)
+                {
+                    projects = _store.GetAll();
+                    sessionContainers = await ReadProjectSessionContainersAsync(projects, executable!);
+                }
+                else
+                {
+                    containers = await _wslc.ListContainersAsync(all: true);
+                }
             }
             catch (Exception ex)
             {
+                _logger.LogWarning(ex, "Could not read Compose project session status.");
                 inventoryError = ex.Message;
             }
+            if (generation != Volatile.Read(ref _refreshGeneration))
+                return;
+            if ((sessionContainers is null && selection != _sessionContext.CaptureSnapshot()) ||
+                !string.Equals(executable, _settings?.WslcPath, StringComparison.OrdinalIgnoreCase))
+            {
+                containers = null;
+                sessionContainers = null;
+                inventoryError = UiText.Get("CombinedSession_ActionSessionChanged",
+                    "The session changed or is no longer available; refresh before taking action.");
+            }
 
-            var projects = _store.GetAll();
+            projects ??= _store.GetAll();
             Projects.Clear();
+            var incomplete = false;
             foreach (var project in projects)
             {
                 var row = new ComposeProjectRow(project, ManageServicesCommand);
-                if (containers is null) row.StatusText = UiText.Get("Workload_Text_Status_unavailable_7eb5af", "Status unavailable");
-                else UpdateStatus(row, containers);
+                var owner = project.SessionOwner;
+                IReadOnlyList<ContainerInfo>? projectContainers;
+                if (_settings is not null && _sessionReader is not null)
+                {
+                    var name = owner?.IsValid == true
+                        ? owner.SessionName ?? WslcSessionActionGuard.ResolveDefaultSessionName() : null;
+                    projectContainers = owner is not null && name is not null &&
+                        string.Equals(owner.ExecutablePath, executable, StringComparison.OrdinalIgnoreCase) &&
+                        sessionContainers?.TryGetValue(name, out var observed) == true ? observed : null;
+                }
+                else
+                {
+                    projectContainers = _settings is null || owner?.Matches(_settings.WslcPath, _sessionContext.Capture()) == true
+                        ? containers : owner?.IsValid == true ? _sessionAutomation?.GetContainers(owner) : null;
+                }
+                if (projectContainers is null)
+                {
+                    incomplete |= owner?.IsValid == true;
+                    row.StatusText = owner?.IsValid == true
+                        ? UiText.Get("Workload_Text_Status_unavailable_7eb5af", "Status unavailable")
+                        : UiText.Get("Compose_SessionUnassigned", "Not assigned");
+                }
+                else UpdateStatus(row, projectContainers);
                 Projects.Add(row);
             }
 
@@ -163,6 +266,9 @@ public partial class ComposeViewModel : ObservableObject
                 : UiText.Get("Workload_Text_0_project_s_53276f", "{0} project(s)", Projects.Count);
             if (inventoryError is not null)
                 StatusMessage += UiText.Get("Workload_Text_Container_status_unavailable_0_f892d1", " - Container status unavailable: {0}", inventoryError);
+            else if (incomplete)
+                StatusMessage += UiText.Get("Compose_SessionStatusIncomplete",
+                    " - Some project sessions could not be read; their status is unavailable.");
             if (_supervisor.ReconciliationWarnings.Count > 0)
             {
                 StatusMessage += UiText.Get("Workload_Text_Network_attention_f45fdf", " - Network attention: ") + string.Join("; ", _supervisor.ReconciliationWarnings.Select(UiText.TranslateLines));
@@ -172,6 +278,31 @@ public partial class ComposeViewModel : ObservableObject
         {
             EndBusyOperation();
         }
+    }
+
+    private async Task<Dictionary<string, IReadOnlyList<ContainerInfo>>> ReadProjectSessionContainersAsync(
+        IReadOnlyList<ComposeProject> projects, string executable)
+    {
+        var result = new Dictionary<string, IReadOnlyList<ContainerInfo>>(StringComparer.Ordinal);
+        var owners = projects.Select(project => project.SessionOwner)
+            .Where(owner => owner?.IsValid == true &&
+                string.Equals(owner.ExecutablePath, executable, StringComparison.OrdinalIgnoreCase))
+            .Select(owner => owner!).ToArray();
+        if (owners.Length == 0)
+            return result;
+        var defaultName = WslcSessionActionGuard.ResolveDefaultSessionName();
+        var names = owners.Select(owner => owner.SessionName ?? defaultName).ToHashSet(StringComparer.Ordinal);
+        var sessions = await _sessionReader!.DiscoverAsync();
+        var targets = sessions.Where(session => names.Contains(session.Name)).ToArray();
+        if (targets.Length == 0)
+            return result;
+        var inventories = await _sessionReader.ReadContainersAsync(targets);
+        if (!string.Equals(executable, _settings!.WslcPath, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(UiText.Get("WslcSessionInventory_ExecutableChanged",
+                "The WSLC executable changed while session inventory was being read."));
+        foreach (var inventory in inventories.Where(inventory => inventory.IsComplete))
+            result[inventory.Session.Name] = inventory.Containers.Items!;
+        return result;
     }
 
     private static void UpdateStatus(ComposeProjectRow row, IReadOnlyList<ContainerInfo> containers)
@@ -184,6 +315,28 @@ public partial class ComposeViewModel : ObservableObject
             : running == row.DesiredInstanceCount
                 ? UiText.Get("Workload_Text_Running_0_1_instances_684b8f", "Running ({0}/{1} instances)", running, row.DesiredInstanceCount)
                 : UiText.Get("Workload_Text_Partial_0_1_instances_ce3931", "Partial ({0}/{1} instances)", running, row.DesiredInstanceCount);
+    }
+
+    private async Task<ComposeSessionScope?> ScopeForProjectAsync(ComposeProject project)
+    {
+        if (_sessionAutomation is null || _sessionReader is null || _settings is null)
+            return null;
+        var owner = project.SessionOwner;
+        if (owner?.IsValid != true)
+            throw new InvalidOperationException(UiText.Get("Automation_ProjectNeedsSession",
+                "This saved Compose project needs a session assignment before it can be managed."));
+        if (!string.Equals(owner.ExecutablePath, _settings.WslcPath, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(UiText.Get("Automation_ProjectDifferentSession",
+                "This Compose project belongs to a different session or engine. Select its assigned session before continuing."));
+        var name = owner.SessionName ?? WslcSessionActionGuard.ResolveDefaultSessionName();
+        var generation = (await _sessionReader.DiscoverAsync()).SingleOrDefault(session =>
+            string.Equals(session.Name, name, StringComparison.Ordinal));
+        if (generation is null || generation.CreatorPid <= 0)
+            throw new InvalidOperationException(UiText.Get("Automation_SessionUnavailable",
+                "That session is no longer available. Refresh the session list and try again."));
+        var selection = new WslcSessionSelection(new(owner.SessionName), owner.ExecutablePath, generation,
+            owner.SessionName ?? UiText.Get("WslEngine_Session_Default", "Default CLI session"));
+        return await _sessionAutomation.GetComposeScopeAsync(selection);
     }
 
     /// <summary>Prompts for Compose YAML and imports it through the shared import flow.</summary>
@@ -290,14 +443,93 @@ public partial class ComposeViewModel : ObservableObject
             CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel"),
             DefaultButton = ContentDialogButton.Close,
         });
+        if (importChoice is not (ContentDialogResult.Primary or ContentDialogResult.Secondary))
+            return;
+
+        using var selection = _sessionContext.LockSelection();
+        var existing = _sessionAutomation is null ? null : _store.Get(project.Name);
+        if (_sessionAutomation is not null)
+        {
+            if (existing?.SessionOwner?.IsValid == true)
+            {
+                project.SessionOwner = existing.SessionOwner;
+                project.ImportedOnly = existing.ImportedOnly;
+                if (importChoice == ContentDialogResult.Primary)
+                {
+                    try
+                    {
+                        using var scope = await ScopeForProjectAsync(existing);
+                        await BringUpAsync(project, scope, ct: scope?.Lifetime ?? default);
+                    }
+                    catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+                    {
+                        _logger.LogWarning(ex, "Could not apply the imported Compose project in its existing session.");
+                        await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Workload_Text_Bring_up_failed_1f4ce8", "Bring up failed"),
+                            ex.Message);
+                    }
+                    return;
+                }
+            }
+            else
+            {
+                if (importChoice == ContentDialogResult.Primary)
+                {
+                    var target = await SessionOperationTarget.ChooseAsync(_sessionSelection, _dialogs, _logger);
+                    if (target is null)
+                        return;
+                    project.SessionOwner = AutomationSessionOwner.Capture(target.Selection.ExecutablePath, target.Selection.Target);
+                    try
+                    {
+                        await target.VerifyAsync();
+                        using var scope = await _sessionAutomation.GetComposeScopeAsync(target.Selection);
+                        await BringUpAsync(project, scope, requireNew: existing is null, ct: scope.Lifetime);
+                    }
+                    catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+                    {
+                        _logger.LogWarning(ex, "Could not apply the imported Compose project in its chosen session.");
+                        await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Workload_Text_Bring_up_failed_1f4ce8", "Bring up failed"),
+                            ex.Message);
+                    }
+                    return;
+                }
+                var destination = await SessionOperationTarget.ChooseForLaterAsync(_sessionSelection, _dialogs, _logger);
+                if (destination is null)
+                    return;
+                project.SessionOwner = AutomationSessionOwner.Capture(destination.ExecutablePath, destination.Target);
+                project.ImportedOnly = true;
+            }
+        }
         if (importChoice == ContentDialogResult.Primary)
         {
             await BringUpAsync(project);
         }
-        else if (importChoice == ContentDialogResult.Secondary)
+        else
         {
             // Explicit import-only choice, not a side effect of cancelling deployment review.
-            _store.Save(project);
+            if (_sessionAutomation is not null && existing is null)
+            {
+                if (!_store.TryAddNew(project))
+                {
+                    await _dialogs.ShowLocalizedMessageAsync(
+                        UiText.Get("SessionInventory_RefreshRequiredTitle", "Refresh the inventory"),
+                        UiText.Get("SessionInventory_RefreshRequired",
+                            "The session, engine, or displayed resources changed. Refresh before taking this action."));
+                    return;
+                }
+            }
+            else
+            {
+                if (_sessionAutomation is not null && existing is not null && !_store.TryReplace(existing, project))
+                {
+                    await _dialogs.ShowLocalizedMessageAsync(
+                        UiText.Get("SessionInventory_RefreshRequiredTitle", "Refresh the inventory"),
+                        UiText.Get("SessionInventory_RefreshRequired",
+                            "The session, engine, or displayed resources changed. Refresh before taking this action."));
+                    return;
+                }
+                if (_sessionAutomation is null)
+                    _store.Save(project);
+            }
             await RefreshAsync();
             StatusMessage = UiText.Get("Workload_Text_Imported_project_0_1dff8a", "Imported project \"{0}\"", new ComposePreviewProjection(project).Redact(project.Name));
         }
@@ -309,9 +541,16 @@ public partial class ComposeViewModel : ObservableObject
     /// Re-importing an already-imported project refreshes it only after confirmation,
     /// so a template's Launch button is idempotent. Errors are surfaced via the dialog service.
     /// </summary>
-    /// <returns>False when configuration validation/import failed; not a runtime health guarantee.</returns>
-    public async Task<bool> ImportAndUpAsync(string yaml, string? suggestedName = null, string? baseDirectory = null)
+    /// <returns>The saved deployed project, or null when validation or deployment did not complete.</returns>
+    public async Task<ComposeProject?> ImportAndUpAsync(string yaml, string? suggestedName = null, string? baseDirectory = null,
+        ComposeSessionScope? scope = null)
     {
+        using var linked = scope is null ? null : CancellationTokenSource.CreateLinkedTokenSource(scope.Lifetime);
+        var ct = linked?.Token ?? default;
+        await _templateGate.WaitAsync(ct);
+        try
+        {
+        using var selection = (scope?.Context ?? _sessionContext).LockSelection();
         ComposeProject project;
         try
         {
@@ -320,7 +559,7 @@ public partial class ComposeViewModel : ObservableObject
         catch (Exception ex)
         {
             await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Launch_failed_1755d5", "Launch failed"), ex.Message);
-            return false;
+            return null;
         }
 
         if (!string.IsNullOrWhiteSpace(suggestedName))
@@ -333,22 +572,30 @@ public partial class ComposeViewModel : ObservableObject
             await _dialogs.ShowMessageAsync(
                 UiText.Get("Workload_Text_Nothing_to_launch_e88455", "Nothing to launch"),
                 UiText.Get("Workload_Text_No_services_with_an_image_were_ffb50a", "No services with an image were found in the compose file."));
-            return false;
+            return null;
         }
 
         // Step around anything already deployed before namespacing locks in the project name:
         // a repeat launch becomes its own project with its own network and free host ports, rather
         // than colliding with (or quietly adopting) the deployment already running.
-        var adjustment = await new DeploymentConflictResolver(_wslc).ResolveProjectAsync(project);
+        if (scope is not null)
+            project.SessionOwner = AutomationSessionOwner.Capture(scope.Selection.ExecutablePath, scope.Selection.Target);
+        var adjustment = await new DeploymentConflictResolver(scope?.Client ?? _wslc).ResolveProjectAsync(
+            project, ct, _store.GetAll().Select(item => item.Name).ToArray());
 
         project.ApplyProjectNamespacing();
-        var launched = await BringUpAsync(project);
+        var launched = await BringUpAsync(project, scope, requireNew: true, ct);
         if (launched && adjustment.Adjusted)
         {
             StatusMessage = adjustment.Summary;
         }
 
-        return launched;
+        return launched
+            ? _store.Get(project.Name) ?? throw new InvalidOperationException(UiText.Get("Deployment_ProjectMissing",
+                "The deployed project could not be found in saved projects. Refresh before retrying."))
+            : null;
+        }
+        finally { _templateGate.Release(); }
     }
 
     /// <summary>
@@ -357,10 +604,15 @@ public partial class ComposeViewModel : ObservableObject
     /// stored project definition so the system is back to its pre-launch state. Used by the Templates
     /// page's one-click Remove. External resources are always preserved by the supervisor.
     /// </summary>
-    public async Task RemoveProjectAsync(string projectName, bool removeVolumes)
+    public async Task RemoveProjectAsync(string projectName, bool removeVolumes, ComposeSessionScope? scope = null)
     {
-        await _supervisor.DownAsync(projectName, removeVolumes);
-        _store.Delete(projectName);
+        if (scope is null)
+        {
+            await _supervisor.DownAsync(projectName, removeVolumes);
+            _store.Delete(projectName);
+        }
+        else
+            await scope.Supervisor.DownAndDeleteAsync(projectName, removeVolumes, scope.Lifetime);
         await RefreshAsync();
     }
 
@@ -374,7 +626,28 @@ public partial class ComposeViewModel : ObservableObject
             return;
         }
 
-        await BringUpAsync(row.Project);
+        try
+        {
+            if (_sessionAutomation is not null && row.Project.SessionOwner?.IsValid != true)
+            {
+                var target = await SessionOperationTarget.ChooseAsync(_sessionSelection, _dialogs, _logger);
+                if (target is null) return;
+                var project = ComposeProjectSupervisor.SnapshotProject(row.Project);
+                project.SessionOwner = AutomationSessionOwner.Capture(target.Selection.ExecutablePath, target.Selection.Target);
+                await target.VerifyAsync();
+                using var chosenScope = await _sessionAutomation.GetComposeScopeAsync(target.Selection);
+                await BringUpAsync(project, chosenScope, ct: chosenScope.Lifetime);
+                return;
+            }
+            using var scope = await ScopeForProjectAsync(row.Project);
+            await BringUpAsync(row.Project, scope, ct: scope?.Lifetime ?? default);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or
+                                   System.Text.Json.JsonException or System.ComponentModel.Win32Exception or
+                                   TimeoutException or OperationCanceledException)
+        {
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Workload_Text_Bring_up_failed_1f4ce8", "Bring up failed"), ex.Message);
+        }
     }
 
     private bool CanManageServices() => !IsBusy;
@@ -422,9 +695,12 @@ public partial class ComposeViewModel : ObservableObject
             }
 
             StatusMessage = $"{dialog.OperationLabel} — \"{row.Name}\"…";
-            var review = await _supervisor.PrepareReviewAsync(row.Project, request);
+            using var scope = await ScopeForProjectAsync(row.Project);
+            var supervisor = scope?.Supervisor ?? _supervisor;
+            var ct = scope?.Lifetime ?? default;
+            var review = await supervisor.PrepareReviewAsync(row.Project, request, ct);
             var confirmed = await _dialogs.ShowDialogAsync(new ComposePreviewDialog(review.Preview)) == ContentDialogResult.Primary;
-            var outcome = await _supervisor.ApplyReviewedAsync(review, confirmed, dialog.SaveReplicaOverrides);
+            var outcome = await supervisor.ApplyReviewedAsync(review, confirmed, dialog.SaveReplicaOverrides, ct);
             if (!outcome.AllSucceeded && outcome.Execution is null)
             {
                 StatusMessage = outcome.Message;
@@ -481,13 +757,15 @@ public partial class ComposeViewModel : ObservableObject
             })));
     }
 
-    private async Task<bool> BringUpAsync(ComposeProject project)
+    private async Task<bool> BringUpAsync(ComposeProject project, ComposeSessionScope? scope = null,
+        bool requireNew = false, CancellationToken ct = default)
     {
         BeginBusyOperation();
         StatusMessage = UiText.Get("Workload_Text_Bringing_up_0_fc2ceb", "Bringing up \"{0}\"…", project.Name);
         try
         {
-            var result = await _supervisor.UpAsync(project);
+            var supervisor = scope?.Supervisor ?? _supervisor;
+            var result = requireNew ? await supervisor.UpNewAsync(project, ct) : await supervisor.UpAsync(project, ct);
             await RefreshAsync();
             if (result.AllSucceeded)
             {
@@ -500,13 +778,26 @@ public partial class ComposeViewModel : ObservableObject
 
                 if (failed.Any(f => ComposeProjectSupervisor.IsMountLimitFailure(f.Detail)))
                 {
+                    if (scope is null)
+                    {
+                        await _dialogs.ShowLocalizedMessageAsync(
+                            UiText.Get("Workload_Text_wslc_mount_limit_reached_c1cb82", "wslc mount limit reached"),
+                            UiText.Get("Compose_RestartOwnerUnavailable",
+                                "The project's session could not be verified. No session was restarted; check the session in WSL engine."));
+                        return false;
+                    }
+                    var message = UiText.Get("Automation_ScopedMountLimit",
+                            "Some services could not mount their files because session {0} reached its bind-mount limit. Restarting that session stops its running containers. Restart it now?",
+                            scope.Selection.DisplayName);
                     var restart = await _dialogs.ShowConfirmAsync(
                         UiText.Get("Workload_Text_wslc_mount_limit_reached_c1cb82", "wslc mount limit reached"),
-                        UiText.Get("Workload_Text_Some_services_couldn_t_mount_their_679633", "Some services couldn't mount their configs/secrets because wslc hit its session bind-mount limit (15 distinct host paths). Restart the WSL session to release the slots, then bring the project up again. Restarting stops all running containers. Restart now?"),
+                        message,
                         UiText.Get("Workload_Text_Restart_WSL_session_574951", "Restart WSL session"));
                     if (restart)
                     {
-                        await RestartSessionCoreAsync();
+                        var restarted = await scope.Client.RestartSessionAsync(ct);
+                        if (!restarted.Success)
+                            await _dialogs.ShowMessageAsync(UiText.Get("Workload_Text_Restart_failed_b8864c", "Restart failed"), restarted.ErrorText);
                     }
                     return false;
                 }
@@ -540,7 +831,8 @@ public partial class ComposeViewModel : ObservableObject
 
         var ok = await _dialogs.ShowConfirmAsync(
             UiText.Get("Workload_Text_Bring_project_down_1ebeb2", "Bring project down"),
-            UiText.Get("Workload_Text_Stop_and_remove_all_containers_for_e1a7c1", "Stop and remove all containers for \"{0}\"? The project definition is kept.", row.Name),
+            UiText.Get("Compose_ConfirmInSession", "{0}\n\nSession: {1}",
+                UiText.Get("Workload_Text_Stop_and_remove_all_containers_for_e1a7c1", "Stop and remove all containers for \"{0}\"? The project definition is kept.", row.Name), row.SessionDisplay),
             UiText.Get("Workload_Text_Bring_down_151b4b", "Bring down"));
         if (!ok)
         {
@@ -551,7 +843,8 @@ public partial class ComposeViewModel : ObservableObject
         StatusMessage = UiText.Get("Workload_Text_Bringing_down_0_952aea", "Bringing down \"{0}\"…", row.Name);
         try
         {
-            await _supervisor.DownAsync(row.Name);
+            using var scope = await ScopeForProjectAsync(row.Project);
+            await (scope?.Supervisor ?? _supervisor).DownAsync(row.Name, ct: scope?.Lifetime ?? default);
             await RefreshAsync();
             StatusMessage = UiText.Get("Workload_Text_0_is_down_5a240a", "\"{0}\" is down", row.Name);
         }
@@ -578,7 +871,8 @@ public partial class ComposeViewModel : ObservableObject
 
         var ok = await _dialogs.ShowConfirmAsync(
             UiText.Get("Workload_Text_Restart_project_101a59", "Restart project"),
-            UiText.Get("Workload_Text_Stop_and_start_the_existing_containers_536030", "Stop and start the existing containers for \"{0}\" in dependency order?\n\nRestart does not create or recreate containers, build images, or apply configuration changes. Use Up (Apply) to apply changes.", row.Name),
+            UiText.Get("Compose_ConfirmInSession", "{0}\n\nSession: {1}",
+                UiText.Get("Workload_Text_Stop_and_start_the_existing_containers_536030", "Stop and start the existing containers for \"{0}\" in dependency order?\n\nRestart does not create or recreate containers, build images, or apply configuration changes. Use Up (Apply) to apply changes.", row.Name), row.SessionDisplay),
             UiText.Get("Workload_Text_Restart_6b983a", "Restart"));
         if (!ok)
         {
@@ -589,10 +883,11 @@ public partial class ComposeViewModel : ObservableObject
         StatusMessage = UiText.Get("Workload_Text_Restarting_0_aba7d5", "Restarting \"{0}\"…", row.Name);
         try
         {
-            var result = await _supervisor.OperateAsync(row.Name, new ComposeOperationRequest
+            using var scope = await ScopeForProjectAsync(row.Project);
+            var result = await (scope?.Supervisor ?? _supervisor).OperateAsync(row.Name, new ComposeOperationRequest
             {
                 Operation = ComposeLifecycleOperation.Restart,
-            });
+            }, scope?.Lifetime ?? default);
             await RefreshAsync();
             if (result.AllSucceeded)
             {
@@ -628,7 +923,8 @@ public partial class ComposeViewModel : ObservableObject
 
         var ok = await _dialogs.ShowConfirmAsync(
             UiText.Get("Workload_Text_Remove_project_704e73", "Remove project"),
-            UiText.Get("Workload_Text_Remove_the_project_definition_for_0_158ca8", "Remove the project definition for \"{0}\"? This also brings it down (stops and removes its containers) and deletes the volumes it created. External volumes are preserved.", row.Name),
+            UiText.Get("Compose_ConfirmInSession", "{0}\n\nSession: {1}",
+                UiText.Get("Workload_Text_Remove_the_project_definition_for_0_158ca8", "Remove the project definition for \"{0}\"? This also brings it down (stops and removes its containers) and deletes the volumes it created. External volumes are preserved.", row.Name), row.SessionDisplay),
             UiText.Get("Workload_Text_Remove_c3812f", "Remove"));
         if (!ok)
         {
@@ -638,9 +934,15 @@ public partial class ComposeViewModel : ObservableObject
         BeginBusyOperation();
         try
         {
-            await _supervisor.DownAsync(row.Name, removeVolumes: true);
-            _store.Delete(row.Name);
-            _supervisor.CleanStaging(row.Name);
+            using var scope = await ScopeForProjectAsync(row.Project);
+            if (scope is null)
+            {
+                await _supervisor.DownAsync(row.Name, removeVolumes: true);
+                _store.Delete(row.Name);
+                _supervisor.CleanStaging(row.Name);
+            }
+            else
+                await scope.Supervisor.DownAndDeleteAsync(row.Name, removeVolumes: true, scope.Lifetime);
             await RefreshAsync();
             StatusMessage = UiText.Get("Workload_Text_Removed_0_7285c3", "Removed \"{0}\"", row.Name);
         }
@@ -663,29 +965,49 @@ public partial class ComposeViewModel : ObservableObject
     private async Task RestartSessionAsync()
     {
         if (IsBusy)
-        {
             return;
-        }
 
-        var ok = await _dialogs.ShowConfirmAsync(
-            UiText.Get("Workload_Text_Restart_WSL_session_574951", "Restart WSL session"),
-            UiText.Get("Workload_Text_This_releases_wslc_s_leaked_bind_ddc612", "This releases wslc's leaked bind-mount slots (needed when config/secret mounts start failing after ~15 distinct mounts). It also STOPS ALL running containers. Continue?"),
-            UiText.Get("Workload_Text_Restart_6b983a", "Restart"));
-        if (!ok)
-        {
-            return;
-        }
-
-        await RestartSessionCoreAsync();
+        BeginBusyOperation();
+        try { await RestartChosenSessionAsync(); }
+        finally { EndBusyOperation(); }
     }
 
-    private async Task RestartSessionCoreAsync()
+    private async Task RestartChosenSessionAsync()
+    {
+        var choice = await SessionOperationTarget.ChooseActiveAsync(_sessionSelection, _dialogs, _logger);
+        if (choice is null)
+            return;
+        var ok = await _dialogs.ShowLocalizedConfirmAsync(() => (
+            UiText.Get("Workload_Text_Restart_WSL_session_574951", "Restart WSL session"),
+            UiText.Get("Compose_RestartSessionConfirmation",
+                "Restart {0} to release its bind-mount slots? This stops all containers in that session.",
+                choice.Target.Name ?? UiText.Get("WslEngine_Session_Default", "Default CLI session")),
+            UiText.Get("Workload_Text_Restart_6b983a", "Restart"),
+            UiText.Get("Workload_Text_Cancel_19766e", "Cancel")));
+        if (!ok)
+            return;
+        try
+        {
+            if (_sessionSelection is null)
+                throw new InvalidOperationException(UiText.Get("SessionOperation_SelectionUnavailable",
+                    "Session selection is unavailable. No action was started."));
+            await RestartSessionCoreAsync(new(choice, _sessionSelection.CreateClient(choice), _sessionSelection));
+        }
+        catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+        {
+            _logger.LogWarning(ex, "Could not restart the chosen Compose session.");
+            await _dialogs.ShowLocalizedMessageAsync(UiText.Get("Workload_Text_Restart_failed_b8864c", "Restart failed"), ex.Message);
+        }
+    }
+
+    private async Task RestartSessionCoreAsync(SessionOperationTarget target)
     {
         BeginBusyOperation();
         StatusMessage = UiText.Get("Workload_Text_Restarting_WSL_session_ab25ce", "Restarting WSL session…");
         try
         {
-            var result = await _wslc.RestartSessionAsync();
+            await target.VerifyAsync();
+            var result = await target.Client.RestartSessionAsync();
             await RefreshAsync();
             StatusMessage = result.Success
                 ? UiText.Get("Workload_Text_WSL_session_restarted_mount_slots_released_c52c57", "WSL session restarted — mount slots released. Bring your projects up again.")

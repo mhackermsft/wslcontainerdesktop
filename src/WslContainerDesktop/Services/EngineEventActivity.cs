@@ -29,8 +29,14 @@ public static class EngineEventActivity
     // 3.0.2 stamps die and stop with the same time; allow slack for clock rounding and replays.
     private static readonly TimeSpan StopDieWindow = TimeSpan.FromSeconds(2);
 
+    /// <summary>Compares event ownership without conflating sessions or executable paths.</summary>
+    internal static bool HasSameOwner(ActivityEvent entry, AutomationSessionOwner? owner) =>
+        owner is null ? entry.SessionOwner is null :
+        owner.IsValid && entry.SessionOwner?.Matches(owner.ExecutablePath,
+            new WslcSessionTarget(owner.SessionName)) == true;
+
     /// <summary>Maps an engine event to the Activity entry shown on the timeline.</summary>
-    public static ActivityEvent ToActivityEvent(EngineEvent evt)
+    public static ActivityEvent ToActivityEvent(EngineEvent evt, AutomationSessionOwner? owner = null)
     {
         var category = evt.Type.ToLowerInvariant() switch
         {
@@ -75,6 +81,7 @@ public static class EngineEventActivity
             SourceAction = evt.Action,
             ActorId = evt.ActorId,
             ContainerId = evt.ContainerId,
+            SessionOwner = owner,
             Attributes = evt.Attributes,
         };
     }

@@ -870,6 +870,7 @@ public sealed partial class ContainerDetailPage : Page
     private void OnUiLanguageChanged(object? sender, EventArgs e)
     {
         ViewModel.RefreshLocalizedText();
+        UpdateMatchUi();
         Bindings.Update();
     }
 }

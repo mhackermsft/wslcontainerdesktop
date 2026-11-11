@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.ViewModels;
 using WslContainerDesktop.Services;
 
@@ -26,6 +27,7 @@ namespace WslContainerDesktop.Views;
 /// <summary>Page that helps users identify and reclaim disk space used by WSL containers and images.</summary>
 public sealed partial class ReclaimSpacePage : Page
 {
+    private CancellationTokenSource? _pageLifetime;
     /// <summary>Initializes the page/control and resolves its view model from the app service provider.</summary>
     public ReclaimSpacePage()
     {
@@ -36,12 +38,15 @@ public sealed partial class ReclaimSpacePage : Page
     /// <summary>Disk cleanup view model bound by the page.</summary>
     public ReclaimSpaceViewModel ViewModel { get; }
 
-    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         UiText.LanguageChanged += OnUiLanguageChanged;
         ViewModel.RefreshLocalizedText();
-        await ViewModel.RefreshAsync();
+        _pageLifetime = new CancellationTokenSource();
+        ViewModel.SetPageLifetime(_pageLifetime.Token);
+        var lifetime = _pageLifetime.Token;
+        UiSafe.Run(() => ViewModel.RefreshForPageAsync(lifetime));
     }
 
     private void OpenStorageSettings_Click(object sender, RoutedEventArgs e) =>
@@ -49,6 +54,9 @@ public sealed partial class ReclaimSpacePage : Page
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         UiText.LanguageChanged -= OnUiLanguageChanged;
+        _pageLifetime?.Cancel();
+        _pageLifetime?.Dispose();
+        _pageLifetime = null;
         base.OnNavigatedFrom(e);
     }
 

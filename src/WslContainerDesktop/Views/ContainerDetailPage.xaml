@@ -122,6 +122,14 @@
                         Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                         Text="{x:Bind ViewModel.Selected.Image, Mode=OneWay}"
                         TextTrimming="CharacterEllipsis" />
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock x:Uid="ContainerDetail_SessionLabel" i18n:Localization.Uid="ContainerDetail_SessionLabel"
+                            FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.Selected.SessionName, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis"
+                            ToolTipService.ToolTip="{x:Bind ViewModel.Selected.SessionName, Mode=OneWay}" />
+                    </StackPanel>
                 </StackPanel>
             </Grid>
 

@@ -239,7 +239,11 @@ public sealed class ComposeRuntimeTests
     [InlineData(true)]
     public async Task RuntimeStoreAcceptsRealSupervisorSaveWithoutDiskOrEngine(bool approve)
     {
-        var project = new ComposeProject { Name = "synthetic" };
+        var project = new ComposeProject
+        {
+            Name = "synthetic",
+            SessionOwner = AutomationSessionOwner.Capture("synthetic-engine", WslcSessionTarget.Default),
+        };
         var store = CreateStore(project);
         var inventoryReads = 0;
         var service = NetworkTestProxy.Create<IWslcService>((method, _) =>
@@ -256,6 +260,7 @@ public sealed class ComposeRuntimeTests
             throw new InvalidOperationException($"Unexpected engine access {method.Name}.");
         });
         var settings = NetworkTestProxy.Create<ISettingsService>((method, _) =>
+            method.Name == "get_WslcPath" ? "synthetic-engine" :
             throw new InvalidOperationException($"Unexpected settings access {method.Name}."));
         var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) => method.Name switch
         {

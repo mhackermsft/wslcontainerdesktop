@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using WslContainerDesktop.Services;
+
 namespace WslContainerDesktop.Models;
 
 /// <summary>
@@ -47,6 +49,16 @@ public static class ContainerStateExtensions
         ContainerState.Stopped => "Stopped",
         ContainerState.Paused => "Paused",
         _ => "Unknown",
+    };
+
+    /// <summary>Returns the localized lifecycle state used in resource views.</summary>
+    public static string ToLocalizedDisplayString(this ContainerState state) => state switch
+    {
+        ContainerState.Created => UiText.Get("Workload_Text_Created_d70b9e", "Created"),
+        ContainerState.Running => UiText.Get("Resource_Text_73989d9c5926", "Running"),
+        ContainerState.Stopped => UiText.Get("Workload_Text_Stopped_1a4f63", "Stopped"),
+        ContainerState.Paused => UiText.Get("Common_Text0241", "Paused"),
+        _ => UiText.Get("Resource_Text_bc7819b34ff8", "Unknown"),
     };
 
     /// <summary>Checks whether this value is running.</summary>

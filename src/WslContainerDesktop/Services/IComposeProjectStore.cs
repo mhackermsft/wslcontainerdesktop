@@ -25,6 +25,9 @@ namespace WslContainerDesktop.Services;
 /// </summary>
 public interface IComposeProjectStore
 {
+    /// <summary>Raised after a project change is durably saved.</summary>
+    event EventHandler? Changed;
+
     /// <summary>All saved projects, ordered by name.</summary>
     IReadOnlyList<ComposeProject> GetAll();
 
@@ -36,6 +39,15 @@ public interface IComposeProjectStore
     /// Import and execution validate sources; persistence also checkpoints applied state when pending definitions are invalid.
     /// </summary>
     void Save(ComposeProject project);
+
+    /// <summary>Atomically saves a new project only if its name is still unused.</summary>
+    bool TryAddNew(ComposeProject project);
+
+    /// <summary>Atomically replaces a project only if the saved instance still matches.</summary>
+    bool TryReplace(ComposeProject expected, ComposeProject replacement);
+
+    /// <summary>Atomically removes a project only if the saved instance still matches.</summary>
+    bool TryDelete(ComposeProject project);
 
     /// <summary>Removes the project with the given name (case-insensitive) and persists the change.</summary>
     void Delete(string name);

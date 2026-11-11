@@ -17,6 +17,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using WslContainerDesktop.Helpers;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.ViewModels;
 
@@ -35,10 +36,16 @@ public sealed partial class ActivityPage : Page
     /// <summary>Activity timeline view model bound by the page.</summary>
     public ActivityViewModel ViewModel { get; }
 
-    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        await ViewModel.InitializeAsync();
+        ViewModel.Start();
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        ViewModel.Stop();
+        base.OnNavigatedFrom(e);
     }
 
     private void EventsList_ItemClick(object sender, ItemClickEventArgs e)
@@ -49,7 +56,9 @@ public sealed partial class ActivityPage : Page
         {
             App.Current.MainWindow?.OpenContainerLogs(
                 evt.ContainerId ?? evt.ActorId ?? string.Empty,
-                evt.Attributes.TryGetValue("name", out var name) ? name : null);
+                evt.Attributes.TryGetValue("name", out var name) ? name : null,
+                requireManualSelection: evt.SessionOwner is not { IsValid: true },
+                owner: evt.SessionOwner);
         }
     }
 }

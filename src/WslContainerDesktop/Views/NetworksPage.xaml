@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:i18n="using:WslContainerDesktop.Helpers"
     xmlns:converters="using:WslContainerDesktop.Helpers"
+    xmlns:controls="using:WslContainerDesktop.Views.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:WslContainerDesktop.Models"
@@ -30,12 +31,22 @@
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Style="{ThemeResource CaptionTextBlockStyle}"
                 Text="{x:Bind ViewModel.StatusMessageDisplay, Mode=OneWay}" />
+            <TextBlock Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                Text="{x:Bind ViewModel.CombinedWarning, Mode=OneWay}" TextWrapping="Wrap" />
+            <TextBlock x:Uid="ResourceSessionWakeNotice" i18n:Localization.Uid="ResourceSessionWakeNotice"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+            <TextBlock Text="{x:Bind ViewModel.ManagementDestination, Mode=OneWay}" TextWrapping="Wrap" />
         </StackPanel>
 
-        <StackPanel
-            Grid.Row="1"
-            Orientation="Horizontal"
-            Spacing="8"
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+        <converters:WrapPanel
+            Grid.Column="0"
+            HorizontalSpacing="8"
+            VerticalSpacing="8"
             Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
             <Button Command="{x:Bind ViewModel.CreateCommand}" Style="{ThemeResource AccentButtonStyle}">
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -61,13 +72,13 @@
                     <TextBlock x:Uid="Resource_Networks_006" i18n:Localization.Uid="Resource_Networks_006" />
                 </StackPanel>
             </ToggleButton>
-        </StackPanel>
+        </converters:WrapPanel>
 
         <!-- Bulk-action bar (shown while selecting)  -->
-        <StackPanel
-            Grid.Row="1"
-            Orientation="Horizontal"
-            Spacing="8"
+        <converters:WrapPanel
+            Grid.Column="0"
+            HorizontalSpacing="8"
+            VerticalSpacing="8"
             Visibility="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToVis}}">
             <TextBlock
                 VerticalAlignment="Center"
@@ -85,32 +96,17 @@
                     <TextBlock x:Uid="Resource_Networks_008" i18n:Localization.Uid="Resource_Networks_008" />
                 </StackPanel>
             </Button>
-        </StackPanel>
+        </converters:WrapPanel>
+        <controls:ResourceGridToolbar Grid.Column="1" VerticalAlignment="Top"
+            State="{x:Bind ViewModel.Grid, Mode=OneWay}" />
+        </Grid>
 
         <!-- Table: column header (wide only) + list  -->
-        <Grid Grid.Row="2">
+        <Grid x:Name="TableRoot" Grid.Row="2" SizeChanged="TableRoot_SizeChanged">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-
-            <VisualStateManager.VisualStateGroups>
-                <VisualStateGroup>
-                    <VisualState x:Name="HeaderWide">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MinWidth="700" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                    </VisualState>
-                    <VisualState x:Name="HeaderNarrow">
-                        <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MaxWidth="700" TargetElement="{Binding ElementName=Root}" />
-                        </VisualState.StateTriggers>
-                        <VisualState.Setters>
-                            <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
-                        </VisualState.Setters>
-                    </VisualState>
-                </VisualStateGroup>
-            </VisualStateManager.VisualStateGroups>
 
         <Border
             x:Name="HeaderBorder"
@@ -122,18 +118,20 @@
             CornerRadius="6,6,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MinWidth="200" />
-                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="*" MinWidth="100" />
                     <ColumnDefinition Width="*" MinWidth="140" />
-                    <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="90" />
+                    <ColumnDefinition Width="*" MinWidth="120" />
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="100" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Uid="Resource_Networks_009" i18n:Localization.Uid="Resource_Networks_009" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Networks_010" i18n:Localization.Uid="Resource_Networks_010" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Networks_011" i18n:Localization.Uid="Resource_Networks_011" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" Text="ID" />
+                <controls:ResourceSortHeader Grid.Column="0" State="{x:Bind ViewModel.Grid}" SortKey="session"><controls:ResourceSortHeader.Header><TextBlock x:Uid="ResourceSessionColumn" i18n:Localization.Uid="ResourceSessionColumn" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="1" State="{x:Bind ViewModel.Grid}" SortKey="name"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Networks_009" i18n:Localization.Uid="Resource_Networks_009" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="2" State="{x:Bind ViewModel.Grid}" SortKey="driver"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Networks_010" i18n:Localization.Uid="Resource_Networks_010" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="3" State="{x:Bind ViewModel.Grid}" SortKey="usedby"><controls:ResourceSortHeader.Header><TextBlock x:Uid="Resource_Networks_011" i18n:Localization.Uid="Resource_Networks_011" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
+                <controls:ResourceSortHeader Grid.Column="4" State="{x:Bind ViewModel.Grid}" SortKey="id"><controls:ResourceSortHeader.Header><TextBlock x:Uid="ResourceGrid_IdHeader" i18n:Localization.Uid="ResourceGrid_IdHeader" Style="{ThemeResource CaptionTextBlockStyle}" /></controls:ResourceSortHeader.Header></controls:ResourceSortHeader>
                 <TextBlock x:Uid="Resource_Networks_012" i18n:Localization.Uid="Resource_Networks_012"
-                    Grid.Column="4"
+                    Grid.Column="5"
                     HorizontalAlignment="Right"
                     Style="{ThemeResource CaptionTextBlockStyle}" />
             </Grid>
@@ -149,7 +147,7 @@
                 <ListView
                     x:Name="NetworksList"
                     Padding="0,4"
-                    ItemsSource="{x:Bind ViewModel.Networks, Mode=OneWay}"
+                    ItemsSource="{x:Bind ViewModel.Grid.Items, Mode=OneWay}"
                     SelectedItem="{x:Bind ViewModel.Selected, Mode=TwoWay}"
                     SelectionChanged="List_SelectionChanged"
                     SelectionMode="{x:Bind ViewModel.IsSelectionMode, Mode=OneWay, Converter={StaticResource BoolToSelMode}}">
@@ -162,37 +160,21 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:NetworkInfo">
-                            <Grid x:Name="RowRoot">
-                                <VisualStateManager.VisualStateGroups>
-                                    <VisualStateGroup>
-                                        <VisualState x:Name="RowWide">
-                                            <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MinWidth="760" TargetElement="{Binding ElementName=RowRoot}" />
-                                            </VisualState.StateTriggers>
-                                        </VisualState>
-                                        <VisualState x:Name="RowNarrow">
-                                            <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MaxWidth="760" TargetElement="{Binding ElementName=RowRoot}" />
-                                            </VisualState.StateTriggers>
-                                            <VisualState.Setters>
-                                                <Setter Target="WideGrid.Visibility" Value="Collapsed" />
-                                                <Setter Target="NarrowPanel.Visibility" Value="Visible" />
-                                            </VisualState.Setters>
-                                        </VisualState>
-                                    </VisualStateGroup>
-                                </VisualStateManager.VisualStateGroups>
-
+                            <Grid x:Name="RowRoot" SizeChanged="RowRoot_SizeChanged">
                                 <Grid x:Name="WideGrid">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" MinWidth="200" />
-                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="*" MinWidth="100" />
                                     <ColumnDefinition Width="*" MinWidth="140" />
-                                    <ColumnDefinition Width="150" />
-                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="90" />
+                                    <ColumnDefinition Width="*" MinWidth="120" />
+                                    <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="100" />
                                 </Grid.ColumnDefinitions>
 
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{x:Bind SessionName}"
+                                    TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind SessionName}" />
                                 <StackPanel
-                                    Grid.Column="0"
+                                    Grid.Column="1"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
                                     Spacing="10">
@@ -218,27 +200,27 @@
                                     </Border>
                                 </StackPanel>
                                 <TextBlock
-                                    Grid.Column="1"
+                                    Grid.Column="2"
                                     VerticalAlignment="Center"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     Text="{x:Bind DriverDisplay}" />
                                 <TextBlock
-                                    Grid.Column="2"
+                                    Grid.Column="3"
                                     Margin="0,0,12,0"
                                     VerticalAlignment="Center"
                                     Text="{x:Bind UsedByDisplay, Mode=OneWay}"
                                     TextTrimming="CharacterEllipsis"
                                     ToolTipService.ToolTip="{x:Bind UsedByTooltip, Mode=OneWay}" />
                                 <TextBlock
-                                    Grid.Column="3"
+                                    Grid.Column="4"
                                     VerticalAlignment="Center"
                                     FontFamily="Consolas"
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="{x:Bind ShortId}" />
+                                    Text="{x:Bind ShortId, Mode=OneWay}" />
 
                                 <StackPanel
-                                    Grid.Column="4"
+                                    Grid.Column="5"
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal"
@@ -261,6 +243,8 @@
 
                                 <!-- Narrow: stacked card layout (shown when the row is too narrow for columns)  -->
                                 <StackPanel x:Name="NarrowPanel" Spacing="8" Visibility="Collapsed">
+                                    <TextBlock Text="{x:Bind SessionName}" TextTrimming="CharacterEllipsis"
+                                        ToolTipService.ToolTip="{x:Bind SessionName}" />
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Glyph="&#xE968;" />
                                         <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
@@ -284,7 +268,7 @@
                                         <TextBlock x:Uid="Resource_Networks_020" i18n:Localization.Uid="Resource_Networks_020" Grid.Row="1" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind UsedByDisplay, Mode=OneWay}" TextWrapping="Wrap" ToolTipService.ToolTip="{x:Bind UsedByTooltip, Mode=OneWay}" />
                                         <TextBlock Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" Text="ID" />
-                                        <TextBlock Grid.Row="2" Grid.Column="1" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ShortId}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="2" Grid.Column="1" FontFamily="Consolas" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ShortId, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
 
                                     <StackPanel Orientation="Horizontal" Spacing="4" Visibility="{x:Bind CanModify, Converter={StaticResource BoolToVis}}">
@@ -300,6 +284,11 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+
+                <TextBlock x:Uid="ResourceGrid_NoMatches" i18n:Localization.Uid="ResourceGrid_NoMatches"
+                    Margin="0,60,0,0" HorizontalAlignment="Center" VerticalAlignment="Top"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsHitTestVisible="False"
+                    Visibility="{x:Bind ViewModel.Grid.HasNoMatches, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
 
                 <StackPanel
                     Margin="0,60,0,0"

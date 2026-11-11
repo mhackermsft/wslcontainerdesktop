@@ -42,7 +42,21 @@ public partial class ContainerRowViewModel : ObservableObject
     /// Returns the container name. List controls use this as each row's screen-reader name;
     /// without it Narrator announces the .NET type name instead.
     /// </summary>
-    public override string ToString() => Name;
+    public override string ToString() => string.IsNullOrEmpty(SessionName) ? Name : $"{SessionName}: {Name}";
+
+    /// <summary>The owning session and captured container identity, when displayed across sessions.</summary>
+    public CombinedSessionRow? SessionSource { get; private set; }
+    private bool _sessionIdentityAmbiguous;
+
+    /// <summary>Owning session shown in combined lists.</summary>
+    public string SessionName => SessionSource?.SessionName ?? string.Empty;
+
+    /// <summary>Whether the session and container identity are sufficient for scoped actions.</summary>
+    public bool SessionActionsAvailable => !_sessionIdentityAmbiguous && (SessionSource?.CanManage ?? true);
+
+    /// <summary>Whether the container list has room for its table layout.</summary>
+    [ObservableProperty]
+    private bool _isWideLayout;
 
     /// <summary>Container name shown in the main grid.</summary>
     [ObservableProperty]
@@ -67,7 +81,11 @@ public partial class ContainerRowViewModel : ObservableObject
 
     /// <summary>Primary network name resolved from container inspect.</summary>
     [ObservableProperty]
-    private string _network = "-";
+    [NotifyPropertyChangedFor(nameof(NetworkDisplay))]
+    private string _network = string.Empty;
+
+    /// <summary>Network name, or a localized indication that it has not been determined.</summary>
+    public string NetworkDisplay => string.IsNullOrEmpty(Network) ? UiText.Get("Resource_Text_bc7819b34ff8", "Unknown") : Network;
 
     /// <summary>Full size text for details, including virtual size when known.</summary>
     [ObservableProperty]
@@ -152,6 +170,24 @@ public partial class ContainerRowViewModel : ObservableObject
     public ContainerRowViewModel(ContainerInfo model)
     {
         Update(model);
+    }
+
+    /// <summary>Creates a row for a container in its owning session.</summary>
+    public ContainerRowViewModel(CombinedSessionRow source)
+    {
+        Update(source);
+    }
+
+    /// <summary>Updates the session-qualified snapshot without changing the row's owner.</summary>
+    public void Update(CombinedSessionRow source, bool identityAmbiguous = false)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var container = source.Container ?? throw new ArgumentException("A container row is required.", nameof(source));
+        SessionSource = source;
+        _sessionIdentityAmbiguous = identityAmbiguous;
+        Update(container);
+        OnPropertyChanged(nameof(SessionName));
+        OnPropertyChanged(nameof(SessionActionsAvailable));
     }
 
     /// <summary>Full container id used for <c>wslc</c> operations.</summary>

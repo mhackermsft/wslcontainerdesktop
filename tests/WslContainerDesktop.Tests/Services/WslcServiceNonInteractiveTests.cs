@@ -24,6 +24,24 @@ namespace WslContainerDesktop.Tests.Services;
 /// <summary>Drives the real WslcService against stub engines; nothing here touches a real WSLC session.</summary>
 public sealed class WslcServiceNonInteractiveTests : IDisposable
 {
+    [Fact]
+    public void PendingHealthKeysKeepSessionsAndExecutablesSeparate()
+    {
+        var comparer = WslcService.PendingHealthKeyComparer.Instance;
+        var entries = new Dictionary<WslcService.PendingHealthKey, string>(comparer)
+        {
+            [new(@"C:\WSL\wslc.exe", "first", "same-id")] = "first",
+            [new(@"C:\WSL\wslc.exe", "FIRST", "same-id")] = "second",
+            [new(@"C:\Other\wslc.exe", "first", "same-id")] = "third",
+            [new(@"C:\WSL\wslc.exe", null, "same-id")] = "default",
+        };
+
+        Assert.Equal(4, entries.Count);
+        Assert.Equal("first", entries[new(@"c:\wsl\WSLC.exe", "first", "same-id")]);
+        Assert.Equal("second", entries[new(@"c:\wsl\WSLC.exe", "FIRST", "same-id")]);
+        Assert.Equal("default", entries[new(@"c:\wsl\WSLC.exe", null, "same-id")]);
+    }
+
     private static readonly TimeSpan Guard = TimeSpan.FromSeconds(30);
     private readonly WslcStub _stub = new();
 
@@ -88,6 +106,102 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
             _stub.Invocations(_stub.Quiet));
     }
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("{\"Server\":{}}")]
+    [InlineData("{\"Server\":{\"Sessions\":null}}")]
+    [InlineData("{\"Server\":{\"Sessions\":{}}}")]
+    [InlineData("{\"Server\":{\"Sessions\":[]},\"server\":{\"Sessions\":[]}}")]
+    public void SystemInfo_MissingOrAmbiguousSessionListIsRejected(string json)
+    {
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => WslcService.ParseSystemInfo(json));
+    }
+
+    [Fact]
+    public void SystemInfo_EmptyActiveSessionListIsAValidInventory()
+    {
+        var result = WslcService.ParseSystemInfo("{\"server\":{\"sessions\":[]}}");
+
+        Assert.Empty(result.Server.Sessions);
+    }
+
+    [Theory]
+    [InlineData("First")]
+    [InlineData("Space & %PATH% !")]
+    public async Task Upload_CapturesTheNamedSessionBeforeStaging(string sessionName)
+    {
+        var context = new WslcSessionContext();
+        context.Select(sessionName);
+        var source = Path.Combine(_stub.Directory, "source.txt");
+        await File.WriteAllTextAsync(source, "test content");
+        var executable = _stub.Quiet;
+        var service = Service(_stub.Quiet, sessionContext: context, stagingRoot: () =>
+        {
+            context.Select("Second");
+            executable = _stub.Fail;
+            return Path.Combine(_stub.Directory, "staging");
+        }, pathProvider: () => executable);
+
+        var result = await service.CopyToContainerAsync("container-id", source, "/tmp").WaitAsync(Guard);
+
+        Assert.True(result.Success, result.ErrorText);
+        Assert.Equal("Second", context.SelectedSessionName);
+        Assert.Equal([$"--session \"{sessionName}\" container cp --quiet - \"container-id:/\""],
+            _stub.Invocations(_stub.Quiet));
+        Assert.Empty(_stub.Invocations(_stub.Fail));
+    }
+
+    [Theory]
+    [InlineData(null, "container cp --quiet - \"container-id:/\"")]
+    [InlineData("First", "--session \"First\" container cp --quiet - \"container-id:/\"")]
+    public async Task Upload_UsesBoundRunnerRatherThanTheMutableFallbackContext(string? name, string expected)
+    {
+        var context = new WslcSessionContext();
+        context.Select("Second");
+        var source = Path.Combine(_stub.Directory, "source.txt");
+        await File.WriteAllTextAsync(source, "test content");
+        var service = Service(_stub.Quiet, sessionContext: context,
+            stagingRoot: () => Path.Combine(_stub.Directory, "staging"),
+            boundTarget: new WslcSessionTarget(name));
+
+        var result = await service.CopyToContainerAsync("container-id", source, "/tmp").WaitAsync(Guard);
+
+        Assert.True(result.Success, result.ErrorText);
+        Assert.Equal([expected], _stub.Invocations(_stub.Quiet));
+    }
+
+    [Fact]
+    public async Task Upload_RevalidatesSessionAfterStagingBeforeStartingCopy()
+    {
+        var source = Path.Combine(_stub.Directory, "source.txt");
+        await File.WriteAllTextAsync(source, "test content");
+        var service = Service(_stub.Quiet, boundTarget: new WslcSessionTarget("first"),
+            stagingRoot: () => Path.Combine(_stub.Directory, "staging"),
+            scopeVerifier: _ => throw new InvalidOperationException("Session changed"));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CopyToContainerAsync("container-id", source, "/tmp"));
+
+        Assert.Equal("Session changed", error.Message);
+        Assert.Empty(_stub.Invocations(_stub.Quiet));
+    }
+
+    [Fact]
+    public async Task Download_RejectsChangedSessionBeforePreparingDestination()
+    {
+        var destination = Path.Combine(_stub.Directory, "report.txt");
+        await File.WriteAllTextAsync(destination, "preserve");
+        var service = Service(_stub.Quiet, boundTarget: new WslcSessionTarget("first"),
+            scopeVerifier: _ => throw new InvalidOperationException("Session changed"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CopyFromContainerAsync("container-id", "/report.txt", _stub.Directory));
+
+        Assert.Equal("preserve", await File.ReadAllTextAsync(destination));
+        Assert.Empty(_stub.Invocations(_stub.Quiet));
+    }
+
     [Fact]
     public async Task Run_InteractiveInTheForeground_IsRefusedWithoutLaunching()
     {
@@ -101,6 +215,60 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
         Assert.False(result.Success);
         Assert.Equal(RunContainerOptions.ForegroundInteractiveError, result.StandardError);
         Assert.Empty(_stub.Invocations(_stub.Quiet));
+    }
+
+    [Fact]
+    public async Task ManagedDefaultAliasUsesDefaultSessionStopIntentWhileKeepingExplicitEngineTarget()
+    {
+        var suppression = new RestartSuppressionState();
+        var owner = AutomationSessionOwner.Capture(_stub.Quiet, WslcSessionTarget.Default);
+        suppression.Suppress("web", owner);
+        var service = Service(_stub.Quiet, boundTarget: new WslcSessionTarget("wslc-cli-user"),
+            suppression: suppression, managedOwner: owner);
+
+        var result = await service.RunContainerAsync(new RunContainerOptions
+        {
+            Image = "ubuntu", Name = "web", Detached = true,
+        }).WaitAsync(Guard);
+
+        Assert.True(result.Success, result.ErrorText);
+        Assert.False(suppression.IsSuppressed("web", owner));
+        Assert.Contains(_stub.Invocations(_stub.Quiet), command => command.StartsWith("--session wslc-cli-user "));
+    }
+
+    [Fact]
+    public async Task ManagedDefaultAliasRecordsHealthAgainstTheDefaultOwner()
+    {
+        var health = new List<HealthCheckConfig>();
+        var settings = NetworkTestProxy.Create<ISettingsService>((method, args) => method.Name switch
+        {
+            "get_WslcPath" => _stub.Quiet,
+            "get_HealthChecks" => health,
+            "set_HealthChecks" => SetHealth((List<HealthCheckConfig>)args[0]!),
+            "get_RestartPolicies" => new List<RestartPolicyConfig>(),
+            nameof(ISettingsService.Save) => null,
+            _ => throw new InvalidOperationException(method.Name),
+        });
+        object? SetHealth(List<HealthCheckConfig> value) { health = value; return null; }
+        var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) => method.Name switch
+        {
+            nameof(IWslcCapabilitiesService.GetAsync) => Task.FromResult(
+                new WslcCapabilities(_stub.Quiet, "3.0.1.0", new Dictionary<WslcFeature, WslcCapability>())),
+            _ => throw new InvalidOperationException(method.Name),
+        });
+        var owner = AutomationSessionOwner.Capture(_stub.Quiet, WslcSessionTarget.Default);
+        var runner = new ProcessRunner(settings, fixedSession: new("wslc-cli-user"), fixedExecutablePath: _stub.Quiet);
+        var service = new WslcService(runner, NullLogger<WslcService>.Instance, capabilities, settings,
+            new RestartSuppressionState(), managedOwner: owner);
+
+        var result = await service.RunContainerAsync(new RunContainerOptions
+        {
+            Image = "ubuntu", Name = "web", Detached = true,
+            Health = new NativeHealthOptions { Test = ["CMD-SHELL", "true"] },
+        }).WaitAsync(Guard);
+
+        Assert.True(result.Success, result.ErrorText);
+        Assert.Equal(owner, Assert.Single(health).SessionOwner);
     }
 
     [Theory]
@@ -195,6 +363,21 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
         Assert.Contains("Resource inventory failed", error.Message);
         Assert.DoesNotContain("Volume not found", error.Message);
         Assert.Equal(["network list --format json"], _stub.Invocations(_stub.Fail));
+    }
+
+    [Fact]
+    public async Task StatisticsFailuresAndInvalidJsonDoNotAppearAsEmptySamples()
+    {
+        var failed = Service(_stub.Fail);
+        var malformed = Service(_stub.Quiet);
+        var empty = Service(_stub.Json);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => failed.GetStatsAsync().WaitAsync(Guard));
+        await Assert.ThrowsAnyAsync<System.Text.Json.JsonException>(() => malformed.GetStatsAsync().WaitAsync(Guard));
+        Assert.Empty(await empty.GetStatsAsync().WaitAsync(Guard));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => failed.GetStatsAsync("container").WaitAsync(Guard));
+        await Assert.ThrowsAnyAsync<System.Text.Json.JsonException>(() => malformed.GetStatsAsync("container").WaitAsync(Guard));
+        Assert.Null(await empty.GetStatsAsync("container").WaitAsync(Guard));
     }
 
     [Fact]
@@ -347,7 +530,11 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(method)),
     }).WaitAsync(Guard);
 
-    private static WslcService Service(string engine, string? settingsPath = null, IWslPolicyService? policy = null)
+    private static WslcService Service(string engine, string? settingsPath = null, IWslPolicyService? policy = null,
+        WslcSessionContext? sessionContext = null, Func<string>? stagingRoot = null,
+        Func<string>? pathProvider = null, WslcSessionTarget? boundTarget = null,
+        RestartSuppressionState? suppression = null, AutomationSessionOwner? managedOwner = null,
+        Func<CancellationToken, Task>? scopeVerifier = null)
     {
         var snapshot = new WslcCapabilities(engine, "3.0.1.0", new Dictionary<WslcFeature, WslcCapability>());
         var capabilities = NetworkTestProxy.Create<IWslcCapabilitiesService>((method, _) => method.Name switch
@@ -359,13 +546,15 @@ public sealed class WslcServiceNonInteractiveTests : IDisposable
         var path = settingsPath ?? engine;
         var settings = NetworkTestProxy.Create<ISettingsService>((method, _) => method.Name switch
         {
-            "get_WslcPath" => path,
+            "get_WslcPath" => pathProvider?.Invoke() ?? path,
             "get_HealthChecks" => new List<HealthCheckConfig>(),
             "add_Changed" or "remove_Changed" => null,
             _ => throw new NotSupportedException(method.Name),
         });
-        return new WslcService(new ProcessRunner(settings), NullLogger<WslcService>.Instance, capabilities, settings,
-            new RestartSuppressionState(), policy);
+        var runner = new ProcessRunner(settings, sessionContext, fixedSession: boundTarget, scopeVerifier: scopeVerifier);
+        return new WslcService(runner, NullLogger<WslcService>.Instance, capabilities, settings,
+            suppression ?? new RestartSuppressionState(), policy, fileTransferStagingRoot: stagingRoot,
+            sessionContext: sessionContext, managedOwner: managedOwner);
     }
 
     /// <summary>

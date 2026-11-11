@@ -34,6 +34,7 @@ public sealed class CreateNetworkDialog : ContentDialog
     private readonly TextBox _gatewayBox;
     private readonly TextBox _ipRangeBox;
     private readonly TextBlock _errorText;
+    private WslcSessionSelection? _session;
 
     /// <summary>Creates a new &lt;c&gt;CreateNetworkDialog&lt;/c&gt; and wires the state used by the dialog or model.</summary>
     public CreateNetworkDialog()
@@ -96,6 +97,53 @@ public sealed class CreateNetworkDialog : ContentDialog
 
         Loaded += (_, _) => _nameBox.Focus(FocusState.Programmatic);
         PrimaryButtonClick += OnPrimary;
+        Opened += (_, _) => UiText.LanguageChanged += OnLanguageChanged;
+        Closed += (_, _) => UiText.LanguageChanged -= OnLanguageChanged;
+    }
+
+    /// <summary>Keeps the selected session and dialog wording localized while editing.</summary>
+    public void SetSession(WslcSessionSelection session)
+    {
+        _session = session;
+        RefreshLanguage();
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshLanguage();
+
+    private void RefreshLanguage()
+    {
+        Title = _session is null ? UiText.Get("Workload_Text_Create_network_dbf4e6", "Create network")
+            : UiText.Get("Networks_CreateForSession", "Create network in {0}", _session.Target.Name ??
+                UiText.Get("WslEngine_Session_Default", "Default CLI session"));
+        PrimaryButtonText = UiText.Get("Workload_Text_Create_475949", "Create");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
+        _nameBox.Header = UiText.Get("Workload_Text_Network_name_b97af0", "Network name");
+        _nameBox.PlaceholderText = UiText.Get("Workload_Text_e_g_app_net_8fe647", "e.g. app-net");
+        _internalBox.Content = InfoTip.Labeled(
+            new TextBlock { Text = UiText.Get("Workload_Text_Internal_network_internal_7c7e70", "Internal network (--internal)"), VerticalAlignment = VerticalAlignment.Center },
+            InfoTip.Create(FlagHelp.NetworkInternal));
+        _driverOptionsBox.Header = InfoTip.Header(UiText.Get("Workload_Text_Driver_options_one_key_value_per_0d7e76", "Driver options (one key=value per line)"), FlagHelp.NetworkDriverOptions);
+        _labelsBox.Header = UiText.Get("Workload_Text_Labels_one_key_value_per_line_f7aa78", "Labels (one key=value per line)");
+        _subnetBox.Header = UiText.Get("Workload_Text_Subnet_optional_CIDR_786318", "Subnet (optional, CIDR)");
+        _subnetBox.PlaceholderText = UiText.Get("Workload_Text_e_g_172_28_0_0_c3ba25", "e.g. 172.28.0.0/16");
+        _gatewayBox.Header = UiText.Get("Workload_Text_Gateway_optional_9a3176", "Gateway (optional)");
+        _gatewayBox.PlaceholderText = UiText.Get("Workload_Text_e_g_172_28_0_1_af839f", "e.g. 172.28.0.1");
+        _ipRangeBox.Header = UiText.Get("Workload_Text_IP_range_optional_CIDR_within_the_205cbd", "IP range (optional, CIDR within the subnet)");
+        _ipRangeBox.PlaceholderText = UiText.Get("Workload_Text_e_g_172_28_5_0_dba741", "e.g. 172.28.5.0/24");
+        _advanced.Header = UiText.Get("Workload_Text_Advanced_options_9443ff", "Advanced options");
+        if (_errorText.Visibility == Visibility.Visible)
+        {
+            string? error;
+            if (string.IsNullOrWhiteSpace(_nameBox.Text))
+                error = UiText.Get("Workload_Text_Enter_a_network_name_d93a83", "Enter a network name.");
+            else if (!TryParseKeyValues(_driverOptionsBox.Text, requireValue: true, out _, out error) ||
+                     !TryParseKeyValues(_labelsBox.Text, requireValue: false, out _, out error))
+                error ??= UiText.Get("Workload_Text_Invalid_key_value_entry_16c85f", "Invalid key/value entry.");
+            else
+                error = NetworkAddressing.Validate(_subnetBox.Text, _gatewayBox.Text, _ipRangeBox.Text);
+            _errorText.Text = error ?? string.Empty;
+            _errorText.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
+        }
     }
 
     /// <summary>Gets or sets the network name.</summary>

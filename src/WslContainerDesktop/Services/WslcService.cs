@@ -35,26 +35,60 @@ public sealed class WslcService(
     RestartSuppressionState suppression,
     IWslPolicyService? policy = null,
     Func<string>? fileTransferStagingRoot = null,
-    WslcSessionContext? sessionContext = null) : IWslcService
+    WslcSessionContext? sessionContext = null,
+    LegacyPolicyOwnershipStore? legacyOwners = null,
+    AutomationSessionOwner? managedOwner = null,
+    ContainerPortResolver? containerPorts = null) : IWslcService
 {
     private readonly IWslcCapabilitiesService _capabilities = capabilities;
     private readonly IWslPolicyService _policy = policy ?? AllowAllWslPolicyService.Instance;
-    private readonly ContainerPortResolver _containerPorts = new();
+    private readonly ContainerPortResolver _containerPorts = containerPorts ?? new();
     /// <summary>
     /// Remembers requested health-check options until the created container can be inspected.
     /// </summary>
+    internal readonly record struct PendingHealthKey(string ExecutablePath, string? SessionName, string ContainerId);
+    internal sealed class PendingHealthKeyComparer : IEqualityComparer<PendingHealthKey>
+    {
+        internal static readonly PendingHealthKeyComparer Instance = new();
+        public bool Equals(PendingHealthKey left, PendingHealthKey right) =>
+            string.Equals(left.ExecutablePath, right.ExecutablePath, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(left.SessionName, right.SessionName, StringComparison.Ordinal) &&
+            string.Equals(left.ContainerId, right.ContainerId, StringComparison.Ordinal);
+        public int GetHashCode(PendingHealthKey value) => HashCode.Combine(
+            StringComparer.OrdinalIgnoreCase.GetHashCode(value.ExecutablePath),
+            value.SessionName is null ? 0 : StringComparer.Ordinal.GetHashCode(value.SessionName),
+            StringComparer.Ordinal.GetHashCode(value.ContainerId));
+    }
+
     private sealed record PendingHealth(RunContainerOptions Options, string ExecutablePath);
-    private readonly ConcurrentDictionary<string, PendingHealth> _pendingHealth = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<PendingHealthKey, PendingHealth> _pendingHealth = new(PendingHealthKeyComparer.Instance);
     private readonly SemaphoreSlim _createGate = new(1, 1);
     private const int PendingHealthLimit = 256;
 
-    private WslcFileTransfer FileTransfer => new(
-        (path, arguments, ct) => ProcessRunner.RunAtPathAsync(path, sessionContext?.AddSessionSelector(arguments) ?? arguments, ct),
-        (path, arguments, input, ct) => ProcessRunner.RunCopyWithInputFileAtPathAsync(
-            path, arguments, input, ct, sessionContext?.SelectedSessionName),
-        () => settings.WslcPath,
-        () => fileTransferStagingRoot?.Invoke() ??
-            Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "file-transfer"));
+    private WslcFileTransfer FileTransfer
+    {
+        get
+        {
+            var target = runner.CaptureSessionTarget(sessionContext);
+            var scopedRunner = runner.ForSession(target);
+            var executable = runner.CaptureExecutablePath();
+            return new WslcFileTransfer(
+                async (path, arguments, ct) =>
+                {
+                    await scopedRunner.VerifyScopeAsync(ct).ConfigureAwait(false);
+                    return await ProcessRunner.RunAtPathAsync(path, target.AddSessionSelector(arguments), ct).ConfigureAwait(false);
+                },
+                async (path, arguments, input, ct) =>
+                {
+                    await scopedRunner.VerifyScopeAsync(ct).ConfigureAwait(false);
+                    return await ProcessRunner.RunCopyWithInputFileAtPathAsync(
+                        path, arguments, input, ct, target.Name).ConfigureAwait(false);
+                },
+                () => executable,
+                () => fileTransferStagingRoot?.Invoke() ??
+                    Path.Combine(Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path, "file-transfer"));
+        }
+    }
 
     /// <summary>
     /// Provides the default policy when no registry-based WSL policy service was registered.
@@ -94,16 +128,50 @@ public sealed class WslcService(
 
         try
         {
-            return JsonSerializer.Deserialize<WslcSystemInfo>(result.StandardOutput, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-            }) ?? new WslcSystemInfo();
+            return ParseSystemInfo(result.StandardOutput);
         }
         catch (JsonException ex)
         {
             logger.LogWarning(ex, "Failed to parse wslc system info JSON.");
             throw;
         }
+    }
+
+    internal static WslcSystemInfo ParseSystemInfo(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (!TryUniqueProperty(document.RootElement, "Server", out var server) ||
+            !TryUniqueProperty(server, "Sessions", out var sessions) ||
+            sessions.ValueKind != JsonValueKind.Array)
+        {
+            throw new WslcSessionInventoryErrors.SystemInfoException();
+        }
+
+        var information = document.RootElement.Deserialize<WslcSystemInfo>(new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+        });
+        if (information?.Server?.Sessions is null)
+            throw new WslcSessionInventoryErrors.SystemInfoException();
+        return information;
+    }
+
+    private static bool TryUniqueProperty(JsonElement element, string name, out JsonElement value)
+    {
+        value = default;
+        if (element.ValueKind != JsonValueKind.Object)
+            return false;
+        var found = false;
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (found)
+                return false;
+            found = true;
+            value = property.Value;
+        }
+        return found;
     }
 
     /// <summary>
@@ -224,7 +292,28 @@ public sealed class WslcService(
     /// <summary>
     /// Lists container service resources used by WSL Container Desktop.
     /// </summary>
-    public async Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(bool all = true, CancellationToken ct = default, bool includeSize = false)
+    public Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(bool all = true, CancellationToken ct = default,
+        bool includeSize = false, bool resolvePorts = true)
+    {
+        var target = runner.CaptureSessionTarget(sessionContext);
+        var scopedRunner = runner.ForSession(target);
+        return ListContainersCoreAsync(scopedRunner, target, all, ct, includeSize, resolvePorts);
+    }
+
+    /// <summary>Lists containers and enriches ports against one captured session and executable.</summary>
+    public Task<IReadOnlyList<ContainerInfo>> ListContainersForSessionAsync(
+        WslcSessionTarget target, string executable, bool all = true, CancellationToken ct = default,
+        bool includeSize = false, bool resolvePorts = true)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentException.ThrowIfNullOrWhiteSpace(executable);
+        var scopedRunner = new ProcessRunner(settings, sessionContext, fixedSession: target, fixedExecutablePath: executable);
+        return ListContainersCoreAsync(scopedRunner, target, all, ct, includeSize, resolvePorts);
+    }
+
+    private async Task<IReadOnlyList<ContainerInfo>> ListContainersCoreAsync(
+        ProcessRunner scopedRunner, WslcSessionTarget target, bool all, CancellationToken ct, bool includeSize,
+        bool resolvePorts = true)
     {
         var args = new List<string> { "list", "--format", "json" };
         if (all)
@@ -237,7 +326,7 @@ public sealed class WslcService(
             args.Add("--size");
         }
 
-        var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
+        var result = await scopedRunner.RunAsync(args, ct).ConfigureAwait(false);
         if (!result.Success)
         {
             logger.LogWarning("Container list failed with exit code {ExitCode}.", result.ExitCode);
@@ -255,9 +344,14 @@ public sealed class WslcService(
             logger.LogWarning(ex, "Failed to parse container inventory; no partial list will be returned.");
             throw;
         }
-        await _containerPorts.ResolveAsync(containers, all, (id, token) => InspectContainerAsync(id, token),
-            (id, message) => logger.LogWarning("Container {Id} ports remain unknown: {Detail}", id, message), ct)
-            .ConfigureAwait(false);
+        if (resolvePorts)
+        {
+            await _containerPorts.ResolveAsync(containers, all,
+                (id, token) => InspectContainerWithRunnerAsync(scopedRunner, id, token),
+                (id, message) => logger.LogWarning("Container {Id} ports remain unknown: {Detail}", id, message), ct,
+                scope: new ContainerPortResolver.Scope(target, scopedRunner.CaptureExecutablePath()))
+                .ConfigureAwait(false);
+        }
         return containers;
     }
 
@@ -266,8 +360,13 @@ public sealed class WslcService(
     /// </summary>
     public async Task<CommandResult> StartContainerAsync(string id, CancellationToken ct = default, bool explicitStart = true)
     {
-        var resume = explicitStart ? await CaptureStartIntentAsync(id, ct).ConfigureAwait(false) : null;
-        var pending = FindPendingHealth(id);
+        using var selection = sessionContext?.LockSelection();
+        var target = runner.CaptureSessionTarget(sessionContext);
+        var scopedRunner = runner.ForSession(target);
+        var executable = scopedRunner.CaptureExecutablePath();
+        var owner = managedOwner ?? AutomationSessionOwner.Capture(executable, target);
+        var resume = explicitStart ? await CaptureStartIntentAsync(scopedRunner, id, owner, ct).ConfigureAwait(false) : null;
+        var pending = FindPendingHealth(id, executable, target);
         if (pending.Value is not null)
         {
             var current = await _capabilities.GetAsync(ct).ConfigureAwait(false);
@@ -275,12 +374,12 @@ public sealed class WslcService(
                 throw new InvalidOperationException("Pending health configuration belongs to a different WSLC executable. Switch back before starting this container.");
             if (pending.Value.Options.Name == id)
             {
-                var inspect = await InspectContainerAsync(id, ct).ConfigureAwait(false);
-                if (!inspect.Success || NativeHealthParser.ContainerId(inspect.StandardOutput) != pending.Key)
+                var inspect = await InspectContainerWithRunnerAsync(scopedRunner, id, ct).ConfigureAwait(false);
+                if (!inspect.Success || NativeHealthParser.ContainerId(inspect.StandardOutput) != pending.Key.ContainerId)
                     throw new InvalidOperationException("The container name no longer identifies the container awaiting health enrollment. No start was attempted.");
             }
         }
-        var result = await runner.RunAsync(["start", id], ct).ConfigureAwait(false);
+        var result = await scopedRunner.RunAsync(["start", id], ct).ConfigureAwait(false);
         if (result.Success && pending.Value is not null)
         {
             RegisterHealth(pending.Value.Options);
@@ -291,12 +390,13 @@ public sealed class WslcService(
         return result;
     }
 
-    private async Task<RestartSuppressionState.ResumeToken?> CaptureStartIntentAsync(string id, CancellationToken ct)
+    private async Task<RestartSuppressionState.ResumeToken?> CaptureStartIntentAsync(
+        ProcessRunner scopedRunner, string id, AutomationSessionOwner owner, CancellationToken ct)
     {
         var version = suppression.Version;
-        if (!suppression.HasSuppressedContainers)
+        if (!suppression.HasSuppressedContainersFor(owner))
             return null;
-        var inspect = await InspectContainerAsync(id, ct).ConfigureAwait(false);
+        var inspect = await InspectContainerWithRunnerAsync(scopedRunner, id, ct).ConfigureAwait(false);
         if (!inspect.Success)
             throw new InvalidOperationException($"Cannot resolve container identity before explicitly starting '{id}': {inspect.ErrorText}");
         using var document = JsonDocument.Parse(inspect.StandardOutput);
@@ -306,7 +406,7 @@ public sealed class WslcService(
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("Name", out var name) ||
             name.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(name.GetString()))
             throw new InvalidOperationException("Container inspect did not provide a name; restart suppression cannot be safely resumed.");
-        return suppression.CaptureExplicitStart(name.GetString()!, version);
+        return suppression.CaptureExplicitStart(name.GetString()!, version, owner);
     }
 
     /// <summary>
@@ -348,7 +448,11 @@ public sealed class WslcService(
     /// </summary>
     public async Task<CommandResult> RestartContainerAsync(string id, int? timeSeconds, string? signal, CancellationToken ct = default)
     {
-        var resume = await CaptureStartIntentAsync(id, ct).ConfigureAwait(false);
+        using var selection = sessionContext?.LockSelection();
+        var target = runner.CaptureSessionTarget(sessionContext);
+        var scopedRunner = runner.ForSession(target);
+        var owner = managedOwner ?? AutomationSessionOwner.Capture(scopedRunner.CaptureExecutablePath(), target);
+        var resume = await CaptureStartIntentAsync(scopedRunner, id, owner, ct).ConfigureAwait(false);
         var args = new List<string> { "restart" };
         if (timeSeconds is int t && t >= 0)
         {
@@ -363,7 +467,7 @@ public sealed class WslcService(
         }
 
         args.Add(id);
-        var result = await runner.RunAsync(args, ct).ConfigureAwait(false);
+        var result = await scopedRunner.RunAsync(args, ct).ConfigureAwait(false);
         if (resume is { } token)
             suppression.CompleteExplicitStart(token, result.Success);
         return result;
@@ -381,6 +485,10 @@ public sealed class WslcService(
     public async Task<CommandResult> RemoveContainerAsync(string id, bool force = true, CancellationToken ct = default,
         bool removeAnonymousVolumes = false)
     {
+        using var selection = sessionContext?.LockSelection();
+        var target = runner.CaptureSessionTarget(sessionContext);
+        var scopedRunner = runner.ForSession(target);
+        var executable = scopedRunner.CaptureExecutablePath();
         var args = new List<string> { "remove" };
         if (force)
         {
@@ -393,9 +501,10 @@ public sealed class WslcService(
         }
 
         args.Add(id);
-        var result = await runner.RunNonInteractiveAsync(args, ct).ConfigureAwait(false);
+        var result = await scopedRunner.RunNonInteractiveAsync(args, ct).ConfigureAwait(false);
         if (result.Success)
-            foreach (var pending in _pendingHealth.Where(p => MatchesPendingHealth(p.Key, p.Value, id)))
+            foreach (var pending in _pendingHealth.Where(p =>
+                SamePendingScope(p.Key, executable, target) && MatchesPendingHealth(p.Key.ContainerId, p.Value, id)))
                 _pendingHealth.TryRemove(pending.Key, out _);
         return result;
     }
@@ -418,12 +527,14 @@ public sealed class WslcService(
     public async Task<CommandResult> RunContainerAsync(RunContainerOptions options, CancellationToken ct = default,
         long maximumStopVersion = long.MaxValue)
     {
+        using var sessionSelection = sessionContext?.LockSelection();
+        var owner = managedOwner ?? AutomationSessionOwner.Capture(runner.CaptureExecutablePath(), runner.CaptureSessionTarget(sessionContext));
         if (options.WaitsForTerminalInput())
             return new CommandResult { ExitCode = -1, StandardError = RunContainerOptions.ForegroundInteractiveError };
         if (await ValidateRunImagePolicyAsync(options.Image, ct).ConfigureAwait(false) is { } policyError)
             return policyError;
         var resume = string.IsNullOrWhiteSpace(options.Name)
-            ? (RestartSuppressionState.ResumeToken?)null : suppression.CaptureExplicitStart(options.Name, maximumStopVersion);
+            ? (RestartSuppressionState.ResumeToken?)null : suppression.CaptureExplicitStart(options.Name, maximumStopVersion, owner);
         var selection = options.Health is null ? new NativeHealthSelection(true, [])
             : NativeHealthPolicy.Select(options.Health, await _capabilities.GetAsync(ct).ConfigureAwait(false));
         var effective = options.Clone();
@@ -449,14 +560,27 @@ public sealed class WslcService(
     {
         if (options.Health is null || string.IsNullOrWhiteSpace(options.Name))
             return;
-        var previous = settings.HealthChecks.FirstOrDefault(h => h.ContainerName == options.Name);
+        if (settings.HealthChecks.Any(h => h.ContainerName == options.Name &&
+                (legacyOwners?.OwnerFor(h) ?? h.SessionOwner)?.IsValid != true) ||
+            settings.RestartPolicies.Any(p => p.ContainerName == options.Name &&
+                (legacyOwners?.OwnerFor(p) ?? p.SessionOwner)?.IsValid != true))
+            return;
+        var target = runner.CaptureSessionTarget(sessionContext);
+        var executable = runner.CaptureExecutablePath();
+        var owner = managedOwner ?? AutomationSessionOwner.Capture(executable, target);
+        var policyTarget = new WslcSessionTarget(owner.SessionName);
+        var previous = settings.HealthChecks.FirstOrDefault(h => h.ContainerName == options.Name &&
+            (legacyOwners?.OwnerFor(h) ?? h.SessionOwner)?.Matches(executable, policyTarget) == true);
         var config = previous?.Clone() ?? new HealthCheckConfig { ContainerName = options.Name, MaxRestarts = 0 };
+        config.SessionOwner = owner;
         config.DesiredHealth = options.Health.Clone();
         config.Kind = HealthProbeKind.Command;
         config.Enabled = true;
         config.Command = options.Health.Test.Count == 2 && options.Health.Test[0] == "CMD-SHELL"
             ? options.Health.Test[1] : string.Empty;
-        settings.HealthChecks = settings.HealthChecks.Where(h => h.ContainerName != options.Name).Append(config).ToList();
+        settings.HealthChecks = settings.HealthChecks.Where(h =>
+            h.ContainerName != options.Name ||
+            (legacyOwners?.OwnerFor(h) ?? h.SessionOwner)?.Matches(executable, policyTarget) != true).Append(config).ToList();
         settings.Save();
     }
 
@@ -465,6 +589,7 @@ public sealed class WslcService(
     /// </summary>
     public async Task<CommandResult> CreateContainerAsync(RunContainerOptions options, CancellationToken ct = default)
     {
+        using var sessionSelection = sessionContext?.LockSelection();
         await _createGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -497,7 +622,9 @@ public sealed class WslcService(
             var id = result.StandardOutput.Trim();
             if (id.Length != 64 || !id.All(Uri.IsHexDigit))
                 throw new InvalidOperationException("Container creation succeeded but returned no unambiguous ID; health enrollment cannot be deferred safely. Inspect the created container before retrying.");
-            _pendingHealth[id] = new(effective, snapshot!.ExecutablePath);
+            var target = runner.CaptureSessionTarget(sessionContext);
+            var executable = runner.CaptureExecutablePath();
+            _pendingHealth[new PendingHealthKey(executable, target.Name, id)] = new(effective, snapshot!.ExecutablePath);
         }
         if (selection.Diagnostic is null)
             return result;
@@ -512,9 +639,15 @@ public sealed class WslcService(
     private static bool MatchesPendingHealth(string key, PendingHealth pending, string id) =>
         key == id || pending.Options.Name == id || id.Length >= 12 && key.StartsWith(id, StringComparison.Ordinal);
 
-    private KeyValuePair<string, PendingHealth> FindPendingHealth(string id)
+    private static bool SamePendingScope(PendingHealthKey key, string executable, WslcSessionTarget target) =>
+        string.Equals(key.ExecutablePath, executable, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(key.SessionName, target.Name, StringComparison.Ordinal);
+
+    private KeyValuePair<PendingHealthKey, PendingHealth> FindPendingHealth(
+        string id, string executable, WslcSessionTarget target)
     {
-        var matches = _pendingHealth.Where(p => MatchesPendingHealth(p.Key, p.Value, id)).Take(2).ToArray();
+        var matches = _pendingHealth.Where(p =>
+            SamePendingScope(p.Key, executable, target) && MatchesPendingHealth(p.Key.ContainerId, p.Value, id)).Take(2).ToArray();
         if (matches.Length > 1)
             throw new InvalidOperationException("Container identifier is ambiguous for pending health enrollment. Use the full container ID.");
         return matches.FirstOrDefault();
@@ -541,7 +674,11 @@ public sealed class WslcService(
     /// <summary>
     /// Inspects container through the service layer.
     /// </summary>
-    public Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default, bool includeSize = false)
+    public Task<CommandResult> InspectContainerAsync(string id, CancellationToken ct = default, bool includeSize = false) =>
+        InspectContainerWithRunnerAsync(runner, id, ct, includeSize);
+
+    internal static Task<CommandResult> InspectContainerWithRunnerAsync(
+        ProcessRunner runner, string id, CancellationToken ct = default, bool includeSize = false)
     {
         var args = new List<string> { "inspect", "--type", "container" };
         if (includeSize)
@@ -568,9 +705,13 @@ public sealed class WslcService(
     /// <summary>
     /// Copies from container through the service layer.
     /// </summary>
-    public Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default,
-        bool followSymlinks = false) =>
-        FileTransfer.CopyFromAsync(id, containerPath, hostPath, ct, followSymlinks);
+    public async Task<CommandResult> CopyFromContainerAsync(string id, string containerPath, string hostPath, CancellationToken ct = default,
+        bool followSymlinks = false)
+    {
+        var transfer = FileTransfer;
+        await runner.VerifyScopeAsync(ct).ConfigureAwait(false);
+        return await transfer.CopyFromAsync(id, containerPath, hostPath, ct, followSymlinks).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Copies to container through the service layer.
@@ -643,7 +784,7 @@ public sealed class WslcService(
         // Deliberately omit --all: like `docker stats`, that flag would also report stopped
         // containers (with zero usage), which is not what the dashboard's "live" list should show.
         var result = await runner.RunAsync(["stats", "--format", "json"], ct).ConfigureAwait(false);
-        return Deserialize<ContainerStats>(result);
+        return DeserializeStats(result);
     }
 
     /// <summary>
@@ -652,14 +793,32 @@ public sealed class WslcService(
     public async Task<ContainerStats?> GetStatsAsync(string id, CancellationToken ct = default)
     {
         var result = await runner.RunAsync(["stats", "--format", "json", id], ct).ConfigureAwait(false);
-        return Deserialize<ContainerStats>(result).FirstOrDefault();
+        return DeserializeStats(result).FirstOrDefault();
+    }
+
+    private IReadOnlyList<ContainerStats> DeserializeStats(CommandResult result)
+    {
+        if (!result.Success)
+        {
+            logger.LogWarning("Container statistics failed with exit code {ExitCode}.", result.ExitCode);
+            throw new InvalidOperationException(result.ErrorText);
+        }
+        try
+        {
+            return WslcJsonParser.ParseList<ContainerStats>(result.StandardOutput);
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex, "Could not parse container statistics.");
+            throw;
+        }
     }
 
     /// <summary>
     /// Opens terminal for the user.
     /// </summary>
-    public void OpenTerminal(string id) =>
-        runner.RunInteractive(["exec", "-it", id, "/bin/sh", "-c", "clear; (bash || sh)"]);
+    public Task OpenTerminal(string id) =>
+        runner.RunInteractiveAsync(["exec", "-it", id, "/bin/sh", "-c", "clear; (bash || sh)"]);
 
     /// <summary>
     /// Executes a command inside a container through <c>wslc</c>.
@@ -816,14 +975,14 @@ public sealed class WslcService(
     /// <summary>
     /// Starts following container logs through the service layer.
     /// </summary>
-    public void FollowLogs(string id, bool details = false, bool timestamps = false) =>
-        runner.RunInteractive(BuildLogsArguments(id, 200, follow: true, details, timestamps));
+    public Task FollowLogs(string id, bool details = false, bool timestamps = false) =>
+        runner.RunInteractiveAsync(BuildLogsArguments(id, 200, follow: true, details, timestamps));
 
     /// <summary>
     /// Attaches an interactive session to a running container.
     /// </summary>
-    public void AttachContainer(string id) =>
-        runner.RunInteractive(["attach", id]);
+    public Task AttachContainer(string id) =>
+        runner.RunInteractiveAsync(["attach", id]);
 
     private static List<string> BuildLogsArguments(string id, int tail, bool follow, bool details, bool timestamps,
         DateTimeOffset? since = null, DateTimeOffset? until = null)

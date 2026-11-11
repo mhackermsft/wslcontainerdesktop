@@ -83,7 +83,8 @@ public sealed class ActivityEvent
     /// Returns the event title. List controls use this as each row's screen-reader name;
     /// without it Narrator announces the .NET type name instead.
     /// </summary>
-    public override string ToString() => DisplayTitle;
+    public override string ToString() => string.IsNullOrEmpty(SessionDisplay)
+        ? DisplayTitle : $"{DisplayTitle} · {SessionDisplay}";
 
     /// <summary>Gets or sets the id.</summary>
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
@@ -125,6 +126,16 @@ public sealed class ActivityEvent
 
     /// <summary>Gets or sets the container id.</summary>
     public string? ContainerId { get; init; }
+
+    /// <summary>Originating engine and session for a session-qualified engine event.</summary>
+    public AutomationSessionOwner? SessionOwner { get; init; }
+
+    /// <summary>Originating session, when known, without altering persisted event evidence.</summary>
+    [JsonIgnore]
+    public string SessionDisplay => SessionOwner?.IsValid == true
+        ? UiText.Get("Activity_EventSession", "Session: {0}", SessionOwner.SessionName ??
+            UiText.Get("WslEngine_Session_Default", "Default CLI session"))
+        : string.Empty;
 
     /// <summary>Gets or sets the attributes.</summary>
     public IReadOnlyDictionary<string, string> Attributes { get; init; } =

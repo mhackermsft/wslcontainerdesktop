@@ -10,6 +10,7 @@
     xmlns:helpers="using:WslContainerDesktop.Helpers"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:WslContainerDesktop.Models"
+    xmlns:vm="using:WslContainerDesktop.ViewModels"
     x:Name="Root"
     mc:Ignorable="d">
 
@@ -47,7 +48,8 @@
 
                 <!-- Actions  -->
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Command="{x:Bind ViewModel.RestartSessionCommand}" Style="{ThemeResource AccentButtonStyle}">
+                    <Button Command="{x:Bind ViewModel.RestartSessionCommand}" Style="{ThemeResource AccentButtonStyle}"
+                        IsEnabled="{x:Bind ViewModel.CanRestartSelectedSession, Mode=OneWay}">
                         <ToolTipService.ToolTip>
                             <ToolTip>
                                 <StackPanel MaxWidth="380" Spacing="4">
@@ -62,7 +64,8 @@
                             <TextBlock x:Uid="Resource_WslEngine_002" i18n:Localization.Uid="Resource_WslEngine_002" />
                         </StackPanel>
                     </Button>
-                    <Button Command="{x:Bind ViewModel.ShutdownWslCommand}">
+                    <Button Command="{x:Bind ViewModel.ShutdownWslCommand}"
+                        IsEnabled="{x:Bind ViewModel.CanManageSessions, Mode=OneWay}">
                         <ToolTipService.ToolTip>
                             <ToolTip>
                                 <StackPanel MaxWidth="380" Spacing="4">
@@ -77,7 +80,8 @@
                             <TextBlock x:Uid="Resource_WslEngine_003" i18n:Localization.Uid="Resource_WslEngine_003" />
                         </StackPanel>
                     </Button>
-                    <Button Command="{x:Bind ViewModel.RefreshCommand}">
+                    <Button Command="{x:Bind ViewModel.RefreshCommand}"
+                        IsEnabled="{x:Bind ViewModel.CanManageSessions, Mode=OneWay}">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon FontSize="14" Glyph="&#xE72C;" />
                             <TextBlock x:Uid="Resource_WslEngine_004" i18n:Localization.Uid="Resource_WslEngine_004" />
@@ -85,31 +89,173 @@
                     </Button>
                 </StackPanel>
 
-                <StackPanel Spacing="6">
-                    <TextBlock
-                        x:Uid="Resource_WslEngine_Extra3"
-                        i18n:Localization.Uid="Resource_WslEngine_Extra3"
-                        FontWeight="SemiBold" />
-                    <ComboBox
-                        x:Uid="Resource_WslEngine_Extra4"
-                        i18n:Localization.Uid="Resource_WslEngine_Extra4"
-                        AutomationProperties.AutomationId="WslcSessionSelector"
-                        Width="360"
-                        HorizontalAlignment="Left"
-                        DisplayMemberPath="DisplayName"
-                        ItemsSource="{x:Bind ViewModel.WslcSessions, Mode=OneWay}"
-                        SelectedItem="{x:Bind ViewModel.SelectedWslcSession, Mode=TwoWay}" />
-                    <TextBlock
-                        x:Uid="Resource_WslEngine_Extra5"
-                        i18n:Localization.Uid="Resource_WslEngine_Extra5"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        TextWrapping="Wrap" />
-                    <InfoBar
-                        IsClosable="False"
-                        IsOpen="{x:Bind ViewModel.HasSessionWarning, Mode=OneWay}"
-                        Message="{x:Bind ViewModel.SessionWarningDisplay, Mode=OneWay}"
-                        Severity="Warning" />
-                </StackPanel>
+                <InfoBar
+                    IsClosable="False"
+                    IsOpen="{x:Bind ViewModel.HasSessionWarning, Mode=OneWay}"
+                    Message="{x:Bind ViewModel.SessionWarningDisplay, Mode=OneWay}"
+                    Severity="Warning" />
+
+                <Border Style="{StaticResource StatCard}">
+                    <StackPanel Spacing="10">
+                        <TextBlock x:Uid="ManagedSession_Title" i18n:Localization.Uid="ManagedSession_Title"
+                            Style="{ThemeResource SubtitleTextBlockStyle}" />
+                        <TextBlock x:Uid="ManagedSession_Explanation" i18n:Localization.Uid="ManagedSession_Explanation"
+                            TextWrapping="Wrap" />
+                        <InfoBar x:Uid="ManagedSession_StoreFailure" i18n:Localization.Uid="ManagedSession_StoreFailure"
+                            IsOpen="{x:Bind ViewModel.ManagedSessions.HasLoadError}"
+                            IsClosable="False" Severity="Error" />
+                        <InfoBar IsOpen="{x:Bind ViewModel.HasSessionRestoreFailure, Mode=OneWay}"
+                            Message="{x:Bind ViewModel.SessionRestoreFailure, Mode=OneWay}"
+                            IsClosable="False" Severity="Error" />
+                        <Grid ColumnSpacing="8"
+                            Visibility="{x:Bind ViewModel.Removal.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ProgressRing Width="20" Height="20" IsActive="{x:Bind ViewModel.Removal.IsBusy, Mode=OneWay}"
+                                AutomationProperties.Name="{x:Bind ViewModel.Removal.Message, Mode=OneWay}" />
+                            <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.Removal.Message, Mode=OneWay}"
+                                AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+                        </Grid>
+                        <InfoBar IsOpen="{x:Bind ViewModel.Removal.IsSuccess, Mode=OneWay}"
+                            Message="{x:Bind ViewModel.Removal.Message, Mode=OneWay}"
+                            IsClosable="False" Severity="Success" />
+                        <InfoBar IsOpen="{x:Bind ViewModel.Removal.IsFailure, Mode=OneWay}"
+                            Message="{x:Bind ViewModel.Removal.Message, Mode=OneWay}"
+                            IsClosable="False" Severity="Error" />
+                        <Grid ColumnSpacing="8"
+                            Visibility="{x:Bind ViewModel.StopProgress.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ProgressRing Width="20" Height="20" IsActive="{x:Bind ViewModel.StopProgress.IsBusy, Mode=OneWay}"
+                                AutomationProperties.Name="{x:Bind ViewModel.StopProgress.Message, Mode=OneWay}" />
+                            <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.StopProgress.Message, Mode=OneWay}"
+                                AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+                        </Grid>
+                        <InfoBar IsOpen="{x:Bind ViewModel.StopProgress.IsSuccess, Mode=OneWay}"
+                            Message="{x:Bind ViewModel.StopProgress.Message, Mode=OneWay}"
+                            IsClosable="False" Severity="Success" />
+                        <InfoBar IsOpen="{x:Bind ViewModel.StopProgress.IsFailure, Mode=OneWay}"
+                            Message="{x:Bind ViewModel.StopProgress.Message, Mode=OneWay}"
+                            IsClosable="False" Severity="Error" />
+                        <Button x:Uid="ManagedSession_Create" i18n:Localization.Uid="ManagedSession_Create"
+                            IsEnabled="{x:Bind ViewModel.CanManageSessions, Mode=OneWay}"
+                            HorizontalAlignment="Left" Click="CreateSession_Click" />
+                        <ListView ItemsSource="{x:Bind ViewModel.SessionItems, Mode=OneWay}" SelectionMode="None"
+                            IsEnabled="{x:Bind ViewModel.CanManageSessions, Mode=OneWay}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SessionListItem">
+                                    <Grid ColumnSpacing="12" Padding="0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="{x:Bind DisplayName, Mode=OneWay}" FontWeight="SemiBold"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{x:Bind StatusDisplay, Mode=OneWay}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                            <Button Content="{x:Bind ResumeDefaultLabel, Mode=OneWay}"
+                                                AutomationProperties.Name="{x:Bind ResumeDefaultName, Mode=OneWay}"
+                                                Tag="{x:Bind}" Click="ResumeDefaultSession_Click"
+                                                Visibility="{x:Bind CanResumeDefault, Converter={StaticResource BoolToVis}}" />
+                                            <Button x:Uid="ManagedSession_Start" i18n:Localization.Uid="ManagedSession_Start"
+                                                AutomationProperties.Name="{x:Bind StartName, Mode=OneWay}"
+                                                Tag="{x:Bind}" Click="StartSession_Click"
+                                                Visibility="{x:Bind CanStart, Converter={StaticResource BoolToVis}}" />
+                                            <Button x:Uid="ManagedSession_Remove" i18n:Localization.Uid="ManagedSession_Remove"
+                                                AutomationProperties.Name="{x:Bind RemoveName, Mode=OneWay}"
+                                                Tag="{x:Bind}" Click="RemoveSession_Click"
+                                                Visibility="{x:Bind CanRemove, Converter={StaticResource BoolToVis}}" />
+                                            <Button x:Uid="ManagedSession_Stop" i18n:Localization.Uid="ManagedSession_Stop"
+                                                AutomationProperties.Name="{x:Bind StopName, Mode=OneWay}"
+                                                Tag="{x:Bind}" Click="StopSession_Click"
+                                                Visibility="{x:Bind CanStop, Converter={StaticResource BoolToVis}}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource StatCard}"
+                    Visibility="{x:Bind Automation.NeedsAttention, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Spacing="10">
+                        <TextBlock x:Uid="Automation_SectionTitle" i18n:Localization.Uid="Automation_SectionTitle"
+                            Style="{ThemeResource SubtitleTextBlockStyle}" />
+                        <TextBlock x:Uid="Automation_SectionExplanation" i18n:Localization.Uid="Automation_SectionExplanation"
+                            TextWrapping="Wrap" />
+                        <TextBlock Text="{x:Bind Automation.AttentionMessage, Mode=OneWay}"
+                            Visibility="{x:Bind Automation.NeedsAttention, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                            TextWrapping="Wrap" />
+                        <TextBlock x:Uid="Automation_NotificationsOff" i18n:Localization.Uid="Automation_NotificationsOff"
+                            Visibility="{x:Bind Automation.NotificationsDisabled, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                            TextWrapping="Wrap" />
+                        <ComboBox x:Uid="Automation_AssignmentSession" i18n:Localization.Uid="Automation_AssignmentSession"
+                            AutomationProperties.AutomationId="AutomationAssignmentSession"
+                            Width="360" HorizontalAlignment="Left"
+                            DisplayMemberPath="DisplayName"
+                            ItemsSource="{x:Bind ViewModel.AssignmentSessions, Mode=OneWay}"
+                            SelectedItem="{x:Bind ViewModel.SelectedAssignmentSession, Mode=TwoWay}"
+                            Visibility="{x:Bind Automation.HasPendingAssignments, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                            IsEnabled="{x:Bind Automation.CanEdit, Mode=OneWay}" />
+                        <ListView ItemsSource="{x:Bind Automation.PendingAssignments, Mode=OneWay}"
+                            SelectionMode="None" MaxHeight="240"
+                            IsEnabled="{x:Bind Automation.CanEdit, Mode=OneWay}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="vm:AutomationReviewItem">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind KindText, Mode=OneWay}" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Name}" TextWrapping="Wrap" />
+                                        <Button Grid.Column="2" x:Uid="Automation_AssignItem" i18n:Localization.Uid="Automation_AssignItem"
+                                            AutomationProperties.Name="{x:Bind AssignName, Mode=OneWay}"
+                                            Tag="{x:Bind}" Click="AssignAutomation_Click" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <ItemsControl ItemsSource="{x:Bind Automation.Issues, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock Text="{x:Bind}" TextWrapping="Wrap"
+                                        Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <ListView ItemsSource="{x:Bind Automation.UnavailableTracking, Mode=OneWay}"
+                            SelectionMode="None" MaxHeight="240" IsEnabled="{x:Bind Automation.CanEdit, Mode=OneWay}"
+                            Visibility="{x:Bind Automation.HasUnavailableTracking, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="vm:AutomationTrackingIssue">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind DisplayName, Mode=OneWay}" TextWrapping="Wrap" />
+                                        <Button Grid.Column="1" x:Uid="Automation_ForgetTracking"
+                                            i18n:Localization.Uid="Automation_ForgetTracking"
+                                            AutomationProperties.Name="{x:Bind ForgetName, Mode=OneWay}"
+                                            Tag="{x:Bind}" Click="ForgetTracking_Click" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <Button x:Uid="Automation_Retry" i18n:Localization.Uid="Automation_Retry"
+                            HorizontalAlignment="Left"
+                            IsEnabled="{x:Bind Automation.CanEdit, Mode=OneWay}" Click="RetryAutomation_Click" />
+                    </StackPanel>
+                </Border>
 
                 <!--  WSL updates  -->
                 <Border Style="{StaticResource StatCard}">
@@ -165,6 +311,7 @@
                                 <Button x:Uid="Resource_WslEngine_009" i18n:Localization.Uid="Resource_WslEngine_009"
 
                                     Command="{x:Bind ViewModel.UpdateWslCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanManageSessions, Mode=OneWay}"
                                     Style="{ThemeResource AccentButtonStyle}"
                                     ToolTipService.ToolTip="{x:Bind ViewModel.BeforeUpdateNote, Converter={StaticResource UiTextConverter}}">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -214,6 +361,8 @@
                 <!-- Engine status banner  -->
                 <Border Style="{StaticResource StatCard}">
                     <StackPanel Spacing="10">
+                        <TextBlock x:Uid="WslEngine_DefaultCliStatus" i18n:Localization.Uid="WslEngine_DefaultCliStatus"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <Ellipse
                                 Width="12"
@@ -268,7 +417,7 @@
                             <Button x:Uid="Resource_WslEngine_018" i18n:Localization.Uid="Resource_WslEngine_018"
                                 Click="ChangeStorageLocation_Click"
 
-                                IsEnabled="{x:Bind ViewModel.StorageEditAvailable, Mode=OneWay}">
+                                IsEnabled="{x:Bind ViewModel.CanChangeStorage, Mode=OneWay}">
                                 <ToolTipService.ToolTip>
                                     <ToolTip>
                                         <StackPanel MaxWidth="380" Spacing="4">
@@ -282,7 +431,7 @@
                             <Button x:Uid="Resource_WslEngine_019" i18n:Localization.Uid="Resource_WslEngine_019"
                                 Command="{x:Bind ViewModel.ResetStorageLocationCommand}"
 
-                                IsEnabled="{x:Bind ViewModel.StorageEditAvailable, Mode=OneWay}" />
+                                IsEnabled="{x:Bind ViewModel.CanChangeStorage, Mode=OneWay}" />
                         </StackPanel>
                         <TextBlock x:Uid="Resource_WslEngine_020" i18n:Localization.Uid="Resource_WslEngine_020"
                             Margin="0,6,0,0"
@@ -319,6 +468,7 @@
                                 <Button x:Uid="Resource_WslEngine_026" i18n:Localization.Uid="Resource_WslEngine_026"
                                     HorizontalAlignment="Left"
                                     Command="{x:Bind ViewModel.EditSettingsFileCommand}"
+                                    IsEnabled="{x:Bind ViewModel.CanManageSessions, Mode=OneWay}"
 
                                     ToolTipService.ToolTip="{x:Bind ViewModel.SettingsFilePathDisplay, Mode=OneWay}" />
                             </StackPanel>

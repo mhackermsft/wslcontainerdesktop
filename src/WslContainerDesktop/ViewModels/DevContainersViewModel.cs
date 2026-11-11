@@ -19,6 +19,8 @@ using System.Collections.ObjectModel;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
+using System.Text.Json;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
 
@@ -47,6 +49,7 @@ public partial class DevContainerRow : ObservableObject
         OnPropertyChanged(nameof(PortsSummary));
         OnPropertyChanged(nameof(WarningsSummary));
         OnPropertyChanged(nameof(LifecycleLog));
+        OnPropertyChanged(nameof(SessionDisplay));
     }
 
     /// <summary>Parsed Dev Container configuration backing this row.</summary>
@@ -55,6 +58,13 @@ public partial class DevContainerRow : ObservableObject
     public string Name => Config.Name;
     /// <summary>Windows workspace folder that contains the Dev Container file.</summary>
     public string WorkspacePath => Config.WorkspacePath;
+    /// <summary>Whether the workspace has an owning session.</summary>
+    public bool HasAssignedSession => Config.SessionOwner?.IsValid == true;
+    /// <summary>The owning session, or an indication that the workspace needs an assignment.</summary>
+    public string SessionDisplay => HasAssignedSession
+        ? UiText.Get("DevContainer_SessionLabel", "Session: {0}", Config.SessionOwner?.SessionName ??
+            UiText.Get("WslEngine_Session_Default", "Default CLI session"))
+        : UiText.Get("DevContainer_SessionNotAssigned", "Session not assigned");
     /// <summary>Short description of the image, build, or Compose service used by this container.</summary>
     public string ImageSummary => Config.Compose is not null
         ? UiText.Get("Workload_Text_Compose_0_30434f", "Compose: {0}", Config.Compose.Service)
@@ -92,11 +102,25 @@ public partial class DevContainerRow : ObservableObject
 public partial class DevContainersViewModel(
     IDevContainerImporter importer,
     IDevContainerStore store,
-    IDevContainerSupervisor supervisor,
     IDevContainerHostCommandPresenter hostCommandPresenter,
-    IWslcService wslc,
-    DialogService dialogs) : ObservableObject
+    DevContainerSessionCoordinator sessions,
+    DialogService dialogs,
+    ILogger<DevContainersViewModel> logger) : ObservableObject
 {
+    private int _busyOperations;
+    private long _refreshGeneration;
+
+    private void BeginBusyOperation()
+    {
+        Interlocked.Increment(ref _busyOperations);
+        IsBusy = true;
+    }
+
+    private void EndBusyOperation()
+    {
+        IsBusy = Interlocked.Decrement(ref _busyOperations) > 0;
+    }
+
     /// <summary>Generated busy flag used to serialize Dev Container operations.</summary>
     [ObservableProperty]
     private bool _isBusy;
@@ -123,35 +147,45 @@ public partial class DevContainersViewModel(
     [RelayCommand]
     public async Task RefreshAsync()
     {
-        IsBusy = true;
+        var generation = Interlocked.Increment(ref _refreshGeneration);
+        BeginBusyOperation();
         StatusMessage = UiText.Get("Workload_Text_Loading_dev_containers_c83356", "Loading dev containers…");
         try
         {
-            IReadOnlyList<ContainerInfo> containers;
-            try
-            {
-                containers = await wslc.ListContainersAsync(all: true);
-            }
-            catch
-            {
-                containers = Array.Empty<ContainerInfo>();
-            }
-
-            DevContainers.Clear();
+            var rows = new List<DevContainerRow>();
             foreach (var config in store.GetAll())
             {
                 var row = new DevContainerRow(config);
-                UpdateStatus(row, containers);
-                DevContainers.Add(row);
+                if (config.SessionOwner?.IsValid != true)
+                    row.StatusText = UiText.Get("DevContainer_SessionNotAssigned", "Session not assigned");
+                else
+                {
+                    try
+                    {
+                        var target = await sessions.ForOwnerAsync(config.SessionOwner);
+                        var container = await DevContainerSupervisor.FindOwnedContainerAsync(target.Client, config);
+                        await target.VerifyAsync();
+                        UpdateStatus(row, container is null ? [] : [container]);
+                    }
+                    catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+                    {
+                        logger.LogWarning(ex, "Could not read the Dev Container session.");
+                        row.StatusText = UiText.Get("DevContainer_StatusUnavailable", "Session status unavailable");
+                    }
+                }
+                rows.Add(row);
             }
 
+            if (generation != Volatile.Read(ref _refreshGeneration)) return;
+            DevContainers.Clear();
+            foreach (var row in rows) DevContainers.Add(row);
             StatusMessage = DevContainers.Count == 0
                 ? UiText.Get("Workload_Text_No_dev_containers_Open_a_workspace_3fac89", "No dev containers. Open a workspace folder to import one.")
                 : UiText.Get("Workload_Text_0_dev_container_s_88a6a2", "{0} dev container(s)", DevContainers.Count);
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -163,7 +197,7 @@ public partial class DevContainersViewModel(
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         try
         {
             var result = await importer.ImportAsync(workspacePath);
@@ -187,7 +221,7 @@ public partial class DevContainersViewModel(
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -201,7 +235,7 @@ public partial class DevContainersViewModel(
             return;
         }
 
-        await RunOperationAsync(row, () => supervisor.UpAsync(row.Config,
+        await RunOperationAsync(row, (scope, config) => scope.Supervisor.UpAsync(config, ct: scope.Lifetime,
             approveHostCommandsAsync: hostCommandPresenter.ConfirmAsync), UiText.Get("Workload_Text_Starting_aeed4d", "Starting"), UiText.Get("Workload_Final_9cd854d29b", "Start failed"));
     }
 
@@ -215,7 +249,7 @@ public partial class DevContainersViewModel(
             return;
         }
 
-        await RunOperationAsync(row, () => supervisor.UpAsync(row.Config, rebuild: true,
+        await RunOperationAsync(row, (scope, config) => scope.Supervisor.UpAsync(config, rebuild: true, ct: scope.Lifetime,
             approveHostCommandsAsync: hostCommandPresenter.ConfirmAsync), UiText.Get("Workload_Text_Rebuilding_c3a834", "Rebuilding"), UiText.Get("Workload_Text_Rebuild_failed_8da927", "Rebuild failed"));
     }
 
@@ -229,7 +263,7 @@ public partial class DevContainersViewModel(
             return;
         }
 
-        await RunOperationAsync(row, () => supervisor.UpAsync(row.Config, rebuild: true, noCache: true,
+        await RunOperationAsync(row, (scope, config) => scope.Supervisor.UpAsync(config, rebuild: true, noCache: true, ct: scope.Lifetime,
             approveHostCommandsAsync: hostCommandPresenter.ConfirmAsync), UiText.Get("Workload_Text_Rebuilding_without_cache_1f1e26", "Rebuilding without cache"), UiText.Get("Workload_Text_Rebuild_failed_8da927", "Rebuild failed"));
     }
 
@@ -248,11 +282,16 @@ public partial class DevContainersViewModel(
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = UiText.Get("Workload_Text_Stopping_0_a7625f", "Stopping \"{0}\"…", row.Name);
         try
         {
-            await supervisor.StopAsync(row.Config);
+            using var scope = await sessions.OpenAsync(row.Config, allowChoice: true, startDefault: false);
+            if (scope is null) return;
+            var config = await EnsureOwnedAsync(row.Config, scope, requireExisting: true);
+            if (config is null) return;
+            await scope.Target.VerifyAsync();
+            await scope.Supervisor.StopAsync(config, scope.Lifetime);
             await RefreshAsync();
             StatusMessage = UiText.Get("Workload_Text_Stopped_0_9ae09a", "Stopped \"{0}\"", row.Name);
         }
@@ -262,7 +301,7 @@ public partial class DevContainersViewModel(
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
@@ -281,17 +320,22 @@ public partial class DevContainersViewModel(
             return;
         }
 
-        var ok = await dialogs.ShowConfirmAsync(UiText.Get("Workload_Text_Remove_dev_container_89dc8e", "Remove dev container"), UiText.Get("Workload_Text_Stop_remove_and_forget_0_6723d8", "Stop, remove, and forget \"{0}\"?", row.Name), UiText.Get("Workload_Text_Remove_c3812f", "Remove"));
-        if (!ok)
-        {
-            return;
-        }
-
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = UiText.Get("Workload_Text_Removing_0_4bf34d", "Removing \"{0}\"…", row.Name);
         try
         {
-            await supervisor.RemoveAsync(row.Config);
+            using var scope = await sessions.OpenAsync(row.Config, allowChoice: true, startDefault: false);
+            if (scope is null) return;
+            if (!await dialogs.ShowLocalizedConfirmAsync(() => (
+                    UiText.Get("Workload_Text_Remove_dev_container_89dc8e", "Remove dev container"),
+                    UiText.Get("DevContainer_RemoveConfirmation",
+                        "Stop, remove, and forget \"{0}\" in session {1}?", row.Name, scope.Target.DisplayName),
+                    UiText.Get("Workload_Text_Remove_c3812f", "Remove"),
+                    UiText.Get("Workload_Text_Cancel_19766e", "Cancel")))) return;
+            var config = await EnsureOwnedAsync(row.Config, scope, requireExisting: row.Config.SessionOwner?.IsValid != true);
+            if (config is null) return;
+            await scope.Target.VerifyAsync();
+            await scope.Supervisor.RemoveAsync(config, scope.Lifetime);
             await RefreshAsync();
             StatusMessage = UiText.Get("Workload_Text_Removed_0_7285c3", "Removed \"{0}\"", row.Name);
         }
@@ -301,39 +345,64 @@ public partial class DevContainersViewModel(
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
     }
 
     /// <summary>Opens a terminal into the running Dev Container.</summary>
     [RelayCommand]
-    private void OpenTerminal(DevContainerRow? row)
+    private async Task OpenTerminalAsync(DevContainerRow? row)
     {
         row ??= Selected;
-        if (row is not null && !string.IsNullOrWhiteSpace(row.ContainerId))
+        if (row is null || IsBusy) return;
+        BeginBusyOperation();
+        try
         {
-            supervisor.OpenTerminal(row.Config, row.ContainerId);
+            using var scope = await sessions.OpenAsync(row.Config, allowChoice: true, startDefault: false);
+            if (scope is null) return;
+            var config = await EnsureOwnedAsync(row.Config, scope, requireExisting: true);
+            if (config is null) return;
+            var container = await DevContainerSupervisor.FindOwnedContainerAsync(scope.Target.Client, config, scope.Lifetime);
+            await scope.Target.VerifyAsync();
+            if (container is null || !container.State.IsRunning())
+                throw new InvalidOperationException(UiText.Get("DevContainer_NoOwnedContainer",
+                    "No matching Dev Container was found in the chosen session. Nothing was changed."));
+            await scope.Supervisor.OpenTerminalAsync(config, container.Id, scope.Lifetime);
         }
+        catch (Exception ex) when (SessionOperationTarget.IsSessionFailure(ex))
+        {
+            logger.LogWarning(ex, "Could not open the Dev Container terminal.");
+            await dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"), ex.Message);
+        }
+        finally { EndBusyOperation(); }
     }
 
-    private async Task RunOperationAsync(DevContainerRow row, Func<Task<DevContainerOperationResult>> operation, string progress, string failureTitle)
+    private async Task RunOperationAsync(DevContainerRow row,
+        Func<DevContainerSessionScope, DevContainerConfig, Task<DevContainerOperationResult>> operation,
+        string progress, string failureTitle)
     {
         if (IsBusy)
         {
             return;
         }
 
-        IsBusy = true;
+        BeginBusyOperation();
         StatusMessage = $"{progress} \"{row.Name}\"…";
         try
         {
-            var result = await operation();
+            using var scope = await sessions.OpenAsync(row.Config, allowChoice: true);
+            if (scope is null) return;
+            var config = await EnsureOwnedAsync(row.Config, scope, requireExisting: false);
+            if (config is null) return;
+            await scope.Target.VerifyAsync();
+            var result = await operation(scope, config);
             await RefreshAsync();
             StatusMessage = result.Success ? result.Detail : UiText.Get("Workload_Text_0_failed_47953d", "{0}: failed", row.Name);
             if (!result.Success)
             {
                 await dialogs.ShowMessageAsync(failureTitle, result.Detail);
             }
+
         }
         catch (OperationCanceledException)
         {
@@ -346,8 +415,35 @@ public partial class DevContainersViewModel(
         }
         finally
         {
-            IsBusy = false;
+            EndBusyOperation();
         }
+    }
+
+    private async Task<DevContainerConfig?> EnsureOwnedAsync(DevContainerConfig original,
+        DevContainerSessionScope scope, bool requireExisting)
+    {
+        await scope.Target.VerifyAsync();
+        if (requireExisting &&
+            await DevContainerSupervisor.FindOwnedContainerAsync(scope.Target.Client, original, scope.Lifetime) is null)
+        {
+            await dialogs.ShowLocalizedMessageAsync(UiText.Get("Resource_Text_c4e6ed956953", "Operation failed"),
+                UiText.Get("DevContainer_NoOwnedContainer",
+                    "No matching Dev Container was found in the chosen session. Nothing was changed."));
+            return null;
+        }
+        var current = store.Get(original.Id);
+        if (!ReferenceEquals(current, original))
+            throw new InvalidOperationException(UiText.Get("SessionInventory_RefreshRequired",
+                "The session, engine, or displayed resources changed. Refresh before taking this action."));
+        if (original.SessionOwner?.IsValid == true) return original;
+        var config = JsonSerializer.Deserialize<DevContainerConfig>(JsonSerializer.Serialize(original))!;
+        config.SessionOwner = AutomationSessionOwner.Capture(scope.Target.Selection.ExecutablePath, scope.Target.Selection.Target);
+        await scope.Target.VerifyAsync();
+        scope.Lifetime.ThrowIfCancellationRequested();
+        if (!store.TryReplace(original, config))
+            throw new InvalidOperationException(UiText.Get("SessionInventory_RefreshRequired",
+                "The session, engine, or displayed resources changed. Refresh before taking this action."));
+        return config;
     }
 
     private static void UpdateStatus(DevContainerRow row, IReadOnlyList<ContainerInfo> containers)
@@ -364,11 +460,7 @@ public partial class DevContainersViewModel(
         }
         else
         {
-            name = row.Config.RunOptions.Name;
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                name = $"devcontainer-{row.Config.Id}";
-            }
+            name = $"devcontainer-{row.Config.Id}";
         }
 
         var container = containers.FirstOrDefault(c => string.Equals(c.Name.TrimStart('/'), name, StringComparison.Ordinal));

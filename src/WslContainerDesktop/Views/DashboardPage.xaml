@@ -9,12 +9,12 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:WslContainerDesktop.ViewModels"
     x:Name="Root"
+    Loaded="Page_Loaded"
     mc:Ignorable="d">
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
         <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
-        <converters:BoolToStatusBrushConverter x:Key="BoolToStatusBrush" />
         <Style x:Key="StatCard" TargetType="Border">
             <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
             <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
@@ -29,11 +29,30 @@
         <StackPanel Margin="24,16,24,24" Spacing="16">
 
             <!-- Header  -->
-            <StackPanel Spacing="2">
-                <TextBlock x:Uid="Resource_Dashboard_001" i18n:Localization.Uid="Resource_Dashboard_001" Style="{ThemeResource TitleTextBlockStyle}" />
-                <TextBlock x:Uid="Resource_Dashboard_002" i18n:Localization.Uid="Resource_Dashboard_002"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Style="{ThemeResource CaptionTextBlockStyle}" />
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="2">
+                    <TextBlock x:Uid="Resource_Dashboard_001" i18n:Localization.Uid="Resource_Dashboard_001" Style="{ThemeResource TitleTextBlockStyle}" />
+                    <TextBlock x:Uid="Resource_Dashboard_002" i18n:Localization.Uid="Resource_Dashboard_002"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{ThemeResource CaptionTextBlockStyle}" />
+                </StackPanel>
+                <Button x:Uid="Dashboard_Refresh" i18n:Localization.Uid="Dashboard_Refresh"
+                    Grid.Column="1" VerticalAlignment="Top" Command="{x:Bind ViewModel.RefreshCommand}">
+                    <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                </Button>
+            </Grid>
+
+            <StackPanel Spacing="4">
+                <TextBlock x:Uid="Dashboard_AllSessionsNotice" i18n:Localization.Uid="Dashboard_AllSessionsNotice"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                <TextBlock Text="{x:Bind ViewModel.InventoryStatus, Mode=OneWay}" TextWrapping="Wrap" />
+                <TextBlock Text="{x:Bind ViewModel.InventoryWarning, Mode=OneWay}"
+                    Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap"
+                    Visibility="{x:Bind ViewModel.InventoryWarning, Mode=OneWay, Converter={StaticResource EmptyToVis}, ConverterParameter=invert}" />
             </StackPanel>
 
             <!-- Summary cards (reflow onto multiple rows when narrow)  -->
@@ -52,7 +71,7 @@
                             <TextBlock
                                 FontSize="30"
                                 FontWeight="SemiBold"
-                                Text="{x:Bind ViewModel.RunningContainers, Mode=OneWay}" />
+                                Text="{x:Bind ViewModel.RunningContainersDisplay, Mode=OneWay}" />
                             <TextBlock x:Uid="Resource_Dashboard_004" i18n:Localization.Uid="Resource_Dashboard_004"
                                 Margin="0,0,0,4"
                                 VerticalAlignment="Bottom"
@@ -60,7 +79,7 @@
                         </StackPanel>
                         <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}">
                             <Run x:Uid="Resource_Dashboard_005" i18n:Localization.Uid="Resource_Dashboard_005" />
-                            <Run Text="{x:Bind ViewModel.TotalContainers, Mode=OneWay}" />
+                            <Run Text="{x:Bind ViewModel.TotalContainersDisplay, Mode=OneWay}" />
                             <Run x:Uid="Resource_Dashboard_006" i18n:Localization.Uid="Resource_Dashboard_006" />
                         </TextBlock>
                     </StackPanel>
@@ -78,7 +97,7 @@
                         <TextBlock
                             FontSize="30"
                             FontWeight="SemiBold"
-                            Text="{x:Bind ViewModel.ImageCount, Mode=OneWay}" />
+                            Text="{x:Bind ViewModel.ImageCountDisplay, Mode=OneWay}" />
                     </StackPanel>
                 </Border>
 
@@ -94,24 +113,18 @@
                         <TextBlock
                             FontSize="30"
                             FontWeight="SemiBold"
-                            Text="{x:Bind ViewModel.VolumeCount, Mode=OneWay}" />
+                            Text="{x:Bind ViewModel.VolumeCountDisplay, Mode=OneWay}" />
                     </StackPanel>
                 </Border>
 
                 <Border Grid.Column="3" Style="{StaticResource StatCard}">
                     <StackPanel Spacing="6">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse
-                                Width="12"
-                                Height="12"
-                                VerticalAlignment="Center"
-                                Fill="{x:Bind ViewModel.EngineHealthy, Mode=OneWay, Converter={StaticResource BoolToStatusBrush}}" />
-                            <TextBlock x:Uid="Resource_Dashboard_009" i18n:Localization.Uid="Resource_Dashboard_009" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
+                        <TextBlock x:Uid="Dashboard_ActiveSessions" i18n:Localization.Uid="Dashboard_ActiveSessions"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <TextBlock
-                            FontSize="24"
+                            FontSize="30"
                             FontWeight="SemiBold"
-                            Text="{x:Bind ViewModel.EngineStatusDisplay, Mode=OneWay}" />
+                            Text="{x:Bind ViewModel.ActiveSessionsDisplay, Mode=OneWay}" />
                         <TextBlock
                             FontSize="12"
                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
@@ -130,14 +143,21 @@
                                 FontSize="16"
                                 Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                                 Glyph="&#xE950;" />
-                            <TextBlock x:Uid="Resource_Dashboard_010" i18n:Localization.Uid="Resource_Dashboard_010" FontWeight="SemiBold" />
+                            <TextBlock x:Uid="Dashboard_CombinedCpu" i18n:Localization.Uid="Dashboard_CombinedCpu" FontWeight="SemiBold" />
                         </StackPanel>
                         <TextBlock
                             HorizontalAlignment="Right"
                             FontWeight="SemiBold"
                             Text="{x:Bind ViewModel.TotalCpu, Mode=OneWay}" />
                     </Grid>
-                    <ProgressBar Maximum="100" Value="{x:Bind ViewModel.TotalCpuValue, Mode=OneWay}" />
+                    <TextBlock x:Uid="Dashboard_CombinedCpuHelp" i18n:Localization.Uid="Dashboard_CombinedCpuHelp"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    <TextBlock Text="{x:Bind ViewModel.StatsWarning, Mode=OneWay}"
+                        Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap"
+                        Visibility="{x:Bind ViewModel.StatsWarning, Mode=OneWay, Converter={StaticResource EmptyToVis}, ConverterParameter=invert}" />
+                    <TextBlock Text="{x:Bind ViewModel.StatsFreshness, Mode=OneWay}"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        Visibility="{x:Bind ViewModel.StatsFreshness, Mode=OneWay, Converter={StaticResource EmptyToVis}, ConverterParameter=invert}" />
                 </StackPanel>
             </Border>
 
@@ -151,40 +171,26 @@
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                 BorderThickness="1"
                 CornerRadius="8">
-                <Grid>
-                    <VisualStateManager.VisualStateGroups>
-                        <VisualStateGroup>
-                            <VisualState x:Name="PerfWide">
-                                <VisualState.StateTriggers>
-                                    <converters:ControlSizeTrigger MinWidth="640" TargetElement="{Binding ElementName=Root}" />
-                                </VisualState.StateTriggers>
-                            </VisualState>
-                            <VisualState x:Name="PerfNarrow">
-                                <VisualState.StateTriggers>
-                                    <converters:ControlSizeTrigger MaxWidth="640" TargetElement="{Binding ElementName=Root}" />
-                                </VisualState.StateTriggers>
-                                <VisualState.Setters>
-                                    <Setter Target="PerfHeader.Visibility" Value="Collapsed" />
-                                    <Setter Target="PerfList.Margin" Value="0,6,0,6" />
-                                </VisualState.Setters>
-                            </VisualState>
-                        </VisualStateGroup>
-                    </VisualStateManager.VisualStateGroups>
-
+                <ScrollViewer x:Name="PerfViewport" SizeChanged="PerfViewport_SizeChanged"
+                    HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto"
+                    VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                <Grid x:Name="PerfRoot">
                     <!-- Column header (wide only)  -->
-                    <Grid x:Name="PerfHeader" Padding="16,10" VerticalAlignment="Top">
+                    <Grid x:Name="PerfHeader" Padding="16,10" VerticalAlignment="Top" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="2*" MinWidth="120" />
-                            <ColumnDefinition Width="1.4*" MinWidth="120" />
-                            <ColumnDefinition Width="1.4*" MinWidth="120" />
-                            <ColumnDefinition Width="1.4*" MinWidth="110" />
-                            <ColumnDefinition Width="1.4*" MinWidth="110" />
+                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="60" />
+                            <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="80" />
+                            <ColumnDefinition Width="*" MinWidth="80" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Uid="Resource_Dashboard_012" i18n:Localization.Uid="Resource_Dashboard_012" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
-                        <TextBlock Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" Text="CPU" />
-                        <TextBlock x:Uid="Resource_Dashboard_013" i18n:Localization.Uid="Resource_Dashboard_013" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" />
-                        <TextBlock x:Uid="Resource_Dashboard_014" i18n:Localization.Uid="Resource_Dashboard_014" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
-                        <TextBlock x:Uid="Resource_Dashboard_015" i18n:Localization.Uid="Resource_Dashboard_015" Grid.Column="4" Style="{ThemeResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Uid="ResourceSessionColumn" i18n:Localization.Uid="ResourceSessionColumn" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Uid="Resource_Dashboard_012" i18n:Localization.Uid="Resource_Dashboard_012" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
+                        <TextBlock Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" Text="CPU" />
+                        <TextBlock x:Uid="Resource_Dashboard_013" i18n:Localization.Uid="Resource_Dashboard_013" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Uid="Resource_Dashboard_014" i18n:Localization.Uid="Resource_Dashboard_014" Grid.Column="4" Style="{ThemeResource CaptionTextBlockStyle}" />
+                        <TextBlock x:Uid="Resource_Dashboard_015" i18n:Localization.Uid="Resource_Dashboard_015" Grid.Column="5" Style="{ThemeResource CaptionTextBlockStyle}" />
                     </Grid>
 
                     <!-- Clicking a row opens that container's detail page, like the Containers list.  -->
@@ -208,45 +214,33 @@
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="vm:DashboardStatRow">
                                 <Grid x:Name="PerfRowRoot">
-                                    <VisualStateManager.VisualStateGroups>
-                                        <VisualStateGroup>
-                                            <VisualState x:Name="PerfRowWide">
-                                                <VisualState.StateTriggers>
-                                                    <converters:ControlSizeTrigger MinWidth="600" TargetElement="{Binding ElementName=PerfRowRoot}" />
-                                                </VisualState.StateTriggers>
-                                            </VisualState>
-                                            <VisualState x:Name="PerfRowNarrow">
-                                                <VisualState.StateTriggers>
-                                                    <converters:ControlSizeTrigger MaxWidth="600" TargetElement="{Binding ElementName=PerfRowRoot}" />
-                                                </VisualState.StateTriggers>
-                                                <VisualState.Setters>
-                                                    <Setter Target="PerfWideGrid.Visibility" Value="Collapsed" />
-                                                    <Setter Target="PerfNarrowPanel.Visibility" Value="Visible" />
-                                                </VisualState.Setters>
-                                            </VisualState>
-                                        </VisualStateGroup>
-                                    </VisualStateManager.VisualStateGroups>
-
-                                <Grid x:Name="PerfWideGrid" Padding="16,8" ColumnSpacing="8">
+                                <Grid x:Name="PerfWideGrid" Padding="16,8" ColumnSpacing="8"
+                                    Visibility="{x:Bind IsWideLayout, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="2*" MinWidth="120" />
-                                        <ColumnDefinition Width="1.4*" MinWidth="120" />
-                                        <ColumnDefinition Width="1.4*" MinWidth="120" />
-                                        <ColumnDefinition Width="1.4*" MinWidth="110" />
-                                        <ColumnDefinition Width="1.4*" MinWidth="110" />
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="60" />
+                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="*" MinWidth="80" />
                                     </Grid.ColumnDefinitions>
 
-                                    <StackPanel
-                                        Grid.Column="0"
-                                        VerticalAlignment="Center"
-                                        Orientation="Horizontal"
-                                        Spacing="6">
+                                    <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                        Text="{x:Bind SessionName, Mode=OneWay}" TextTrimming="CharacterEllipsis"
+                                        ToolTipService.ToolTip="{x:Bind SessionName, Mode=OneWay}" />
+                                    <Grid Grid.Column="1" VerticalAlignment="Center" ColumnSpacing="6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
                                         <TextBlock
                                             VerticalAlignment="Center"
                                             FontWeight="SemiBold"
                                             Text="{x:Bind Name, Mode=OneWay}"
+                                            ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"
                                             TextTrimming="CharacterEllipsis" />
                                         <Border
+                                            Grid.Column="1"
                                             Padding="5,1"
                                             VerticalAlignment="Center"
                                             Background="#1F7A3D"
@@ -258,10 +252,10 @@
                                                 <TextBlock FontSize="10" Foreground="White" Text="GPU" />
                                             </StackPanel>
                                         </Border>
-                                    </StackPanel>
+                                    </Grid>
 
                                     <StackPanel
-                                        Grid.Column="1"
+                                        Grid.Column="2"
                                         Margin="0,0,10,0"
                                         VerticalAlignment="Center"
                                         Spacing="3">
@@ -269,11 +263,12 @@
                                         <ProgressBar
                                             Maximum="100"
                                             Minimum="0"
-                                            Value="{x:Bind CpuValue, Mode=OneWay}" />
+                                            Visibility="{x:Bind StatsAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                            Value="{x:Bind CpuBarValue, Mode=OneWay}" />
                                     </StackPanel>
 
                                     <StackPanel
-                                        Grid.Column="2"
+                                        Grid.Column="3"
                                         Margin="0,0,10,0"
                                         VerticalAlignment="Center"
                                         Spacing="3">
@@ -281,31 +276,38 @@
                                             FontSize="12"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                             Text="{x:Bind MemUsage, Mode=OneWay}"
+                                            ToolTipService.ToolTip="{x:Bind MemUsage, Mode=OneWay}"
                                             TextTrimming="CharacterEllipsis" />
                                         <ProgressBar
                                             Maximum="100"
                                             Minimum="0"
-                                            Value="{x:Bind MemValue, Mode=OneWay}" />
+                                            Visibility="{x:Bind StatsAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                            Value="{x:Bind MemBarValue, Mode=OneWay}" />
                                     </StackPanel>
 
-                                    <TextBlock
-                                        Grid.Column="3"
-                                        VerticalAlignment="Center"
-                                        FontFamily="Consolas"
-                                        FontSize="12"
-                                        Text="{x:Bind NetIO, Mode=OneWay}"
-                                        TextTrimming="CharacterEllipsis" />
                                     <TextBlock
                                         Grid.Column="4"
                                         VerticalAlignment="Center"
                                         FontFamily="Consolas"
                                         FontSize="12"
+                                        Text="{x:Bind NetIO, Mode=OneWay}"
+                                        ToolTipService.ToolTip="{x:Bind NetIO, Mode=OneWay}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Grid.Column="5"
+                                        VerticalAlignment="Center"
+                                        FontFamily="Consolas"
+                                        FontSize="12"
                                         Text="{x:Bind BlockIO, Mode=OneWay}"
+                                        ToolTipService.ToolTip="{x:Bind BlockIO, Mode=OneWay}"
                                         TextTrimming="CharacterEllipsis" />
                                 </Grid>
 
                                 <!-- Narrow: stacked card layout  -->
-                                <StackPanel x:Name="PerfNarrowPanel" Padding="16,10" Spacing="8" Visibility="Collapsed">
+                                <StackPanel x:Name="PerfNarrowPanel" Padding="16,10" Spacing="8"
+                                    Visibility="{x:Bind IsWideLayout, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+                                    <TextBlock Text="{x:Bind SessionName, Mode=OneWay}"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <TextBlock
                                             VerticalAlignment="Center"
@@ -334,7 +336,8 @@
                                         <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" Text="CPU" />
                                         <StackPanel Grid.Column="1" Spacing="3">
                                             <TextBlock FontSize="13" Text="{x:Bind Cpu, Mode=OneWay}" />
-                                            <ProgressBar Maximum="100" Minimum="0" Value="{x:Bind CpuValue, Mode=OneWay}" />
+                                            <ProgressBar Maximum="100" Minimum="0" Value="{x:Bind CpuBarValue, Mode=OneWay}"
+                                                Visibility="{x:Bind StatsAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
                                     </Grid>
 
@@ -350,7 +353,8 @@
                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                 Text="{x:Bind MemUsage, Mode=OneWay}"
                                                 TextTrimming="CharacterEllipsis" />
-                                            <ProgressBar Maximum="100" Minimum="0" Value="{x:Bind MemValue, Mode=OneWay}" />
+                                            <ProgressBar Maximum="100" Minimum="0" Value="{x:Bind MemBarValue, Mode=OneWay}"
+                                                Visibility="{x:Bind StatsAvailable, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
                                     </Grid>
 
@@ -397,11 +401,13 @@
                             FontSize="36"
                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                             Glyph="&#xE9D9;" />
-                        <TextBlock x:Uid="Resource_Dashboard_020" i18n:Localization.Uid="Resource_Dashboard_020"
+                        <TextBlock
                             HorizontalAlignment="Center"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.EmptyStatsMessage, Mode=OneWay}" TextWrapping="Wrap" />
                     </StackPanel>
                 </Grid>
+                </ScrollViewer>
             </Border>
         </StackPanel>
     </ScrollViewer>

@@ -38,7 +38,8 @@ public interface IAiProvider
 public interface IAiDiagnosticsService
 {
     /// <summary>Collects sanitized evidence for the selected container without sending it.</summary>
-    Task<AiDiagnosticPreview> BuildPreviewAsync(ContainerInfo container, CancellationToken ct = default);
+    Task<AiDiagnosticPreview> BuildPreviewAsync(ContainerInfo container, CancellationToken ct = default,
+        IWslcService? sessionClient = null, bool includeActivity = true, string? sessionName = null);
 
     /// <summary>Sends a previously previewed prompt to the currently selected provider.</summary>
     Task<AiDiagnosis> DiagnoseAsync(AiPromptRequest request, CancellationToken ct = default);

@@ -48,6 +48,9 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
     private bool _isConnected;
     private bool _disposed;
     private string? _streamPath;
+    private WslcSessionContext.SelectionSnapshot _streamSelection;
+    private long _generation;
+    private long _identityGeneration;
     private int _reconnectPromptly;
 
     /// <summary>Raised on the UI dispatcher when a new unique <c>wslc events</c> entry is parsed.</summary>
@@ -81,9 +84,11 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
         _enqueue = enqueue;
         _logger = logger;
         _sessionContext = sessionContext ?? new WslcSessionContext();
+        _streamSelection = _sessionContext.CaptureSnapshot();
         _streamPath = settings.WslcPath;
         _settings.Changed += OnSettingsChanged;
         _requirements.Changed += OnRequirementChanged;
+        _sessionContext.DefaultSessionStopChanged += OnDefaultSessionStopChanged;
     }
 
     /// <summary>Whether the current <c>wslc events</c> process is connected.</summary>
@@ -136,6 +141,8 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
             loop = _loop;
             _cts = null;
             _loop = null;
+            _generation++;
+            _identityGeneration++;
         }
 
         try
@@ -163,6 +170,16 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
                 return;
             }
 
+            _generation++;
+            var selection = _sessionContext.CaptureSnapshot();
+            if (selection != _streamSelection)
+            {
+                _streamSelection = selection;
+                _identityGeneration++;
+                _lastEventTimestamp = null;
+                _delivered.Clear();
+                _recent.Clear();
+            }
             shouldStart = _loop is null;
         }
 
@@ -183,7 +200,8 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
         var backoff = InitialBackoff;
         while (!ct.IsCancellationRequested)
         {
-            if (_requirements.Current.State != WslRequirementState.Ok)
+            if (_requirements.Current.State != WslRequirementState.Ok ||
+                _sessionContext.IsDefaultSessionStopped(_settings.WslcPath, _sessionContext.Capture()))
             {
                 SetConnected(false);
                 await DelayAsync(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
@@ -215,23 +233,20 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
     /// <summary>Runs one <c>wslc events</c> process and returns its exit code.</summary>
     private async Task<int?> RunOnceAsync(CancellationToken ct)
     {
-        var process = CreateProcess();
+        var (process, generation) = CreateProcess();
         try
         {
-            if (!process.Start())
-            {
-                return null;
-            }
-
-            ChildProcessJob.Shared?.TryAssign(process);
             lock (_gate)
             {
+                if (generation != _generation || !process.Start())
+                    return null;
                 _process = process;
             }
 
+            ChildProcessJob.Shared?.TryAssign(process);
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
-            SetConnected(true);
+            SetConnected(true, generation);
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
             return process.ExitCode;
         }
@@ -271,11 +286,33 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
     }
 
     /// <summary>Builds the event-stream process with argument-list escaping and UTF-8 output readers.</summary>
-    private Process CreateProcess()
+    private (Process Process, long Generation) CreateProcess()
     {
+        WslcSessionContext.SelectionSnapshot selection;
+        DateTimeOffset? lastEvent;
+        long generation;
+        long identityGeneration;
+        string path;
+        lock (_gate)
+        {
+            selection = _sessionContext.CaptureSnapshot();
+            if (selection != _streamSelection)
+            {
+                _streamSelection = selection;
+                _generation++;
+                _identityGeneration++;
+                _lastEventTimestamp = null;
+                _delivered.Clear();
+                _recent.Clear();
+            }
+            generation = _generation;
+            identityGeneration = _identityGeneration;
+            lastEvent = _lastEventTimestamp;
+            path = _settings.WslcPath;
+        }
         var psi = new ProcessStartInfo
         {
-            FileName = _settings.WslcPath,
+            FileName = path,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -283,18 +320,18 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
-        foreach (var argument in _sessionContext.AddSessionSelector(["events"]))
+        foreach (var argument in selection.Target.AddSessionSelector(["events"]))
         {
             psi.ArgumentList.Add(argument);
         }
-        if (_lastEventTimestamp is { } last)
+        if (lastEvent is { } last)
         {
             psi.ArgumentList.Add("--since");
             psi.ArgumentList.Add(last.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
         var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        process.OutputDataReceived += (_, e) => OnLine(e.Data);
+        process.OutputDataReceived += (_, e) => OnLine(e.Data, identityGeneration);
         process.ErrorDataReceived += (_, e) =>
         {
             if (!string.IsNullOrWhiteSpace(e.Data))
@@ -302,11 +339,11 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
                 _logger.LogDebug("wslc events: {Line}", e.Data);
             }
         };
-        return process;
+        return (process, generation);
     }
 
     /// <summary>Parses one event line, de-duplicates it, stores it, and notifies observers.</summary>
-    private void OnLine(string? line)
+    private void OnLine(string? line, long identityGeneration)
     {
         if (!WslcEventParser.TryParseLine(line, out var evt, _logger))
         {
@@ -316,6 +353,10 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
         var key = evt.StableKey;
         lock (_gate)
         {
+            if (identityGeneration != _identityGeneration)
+                return;
+            evt.SessionOwner = string.IsNullOrWhiteSpace(_streamPath) ? null :
+                AutomationSessionOwner.Capture(_streamPath, _streamSelection.Target);
             if (!_delivered.Add(key))
             {
                 return;
@@ -330,7 +371,15 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
             }
         }
 
-        _enqueue(() => EventReceived?.Invoke(this, evt));
+        _enqueue(() =>
+        {
+            lock (_gate)
+            {
+                if (identityGeneration != _identityGeneration)
+                    return;
+            }
+            EventReceived?.Invoke(this, evt);
+        });
     }
 
     /// <summary>Disconnects the stream when the configured WSL container engine is not usable.</summary>
@@ -338,9 +387,22 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
     {
         if (e.State != WslRequirementState.Ok)
         {
+            lock (_gate)
+                _generation++;
             KillCurrentProcess();
             SetConnected(false);
         }
+    }
+
+    private void OnDefaultSessionStopChanged(object? sender, EventArgs e)
+    {
+        lock (_gate)
+            if (_loop is null || _disposed)
+                return;
+        var target = _sessionContext.Capture();
+        if (target.Name is null ||
+            string.Equals(target.Name, WslcSessionActionGuard.ResolveDefaultSessionName(), StringComparison.Ordinal))
+            Restart();
     }
 
     /// <summary>Restarts only when the configured <c>wslc.exe</c> path changes.</summary>
@@ -356,6 +418,11 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
             }
 
             _streamPath = path;
+            _generation++;
+            _identityGeneration++;
+            _lastEventTimestamp = null;
+            _delivered.Clear();
+            _recent.Clear();
         }
 
         Interlocked.Exchange(ref _reconnectPromptly, 1);
@@ -392,11 +459,15 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
     }
 
     /// <summary>Updates connection state and raises the UI-thread change event.</summary>
-    private void SetConnected(bool connected)
+    private void SetConnected(bool connected, long? generation = null)
     {
         var changed = false;
+        long notificationGeneration;
         lock (_gate)
         {
+            if (generation is not null && generation != _generation)
+                return;
+            notificationGeneration = _generation;
             if (_isConnected != connected)
             {
                 _isConnected = connected;
@@ -406,7 +477,15 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
 
         if (changed)
         {
-            _enqueue(() => ConnectionChanged?.Invoke(this, connected));
+            _enqueue(() =>
+            {
+                lock (_gate)
+                {
+                    if (notificationGeneration != _generation)
+                        return;
+                }
+                ConnectionChanged?.Invoke(this, connected);
+            });
         }
     }
 
@@ -433,6 +512,7 @@ public sealed class EngineEventStream : IEngineEventStream, IDisposable
         _disposed = true;
         _settings.Changed -= OnSettingsChanged;
         _requirements.Changed -= OnRequirementChanged;
+        _sessionContext.DefaultSessionStopChanged -= OnDefaultSessionStopChanged;
         Stop();
     }
 }

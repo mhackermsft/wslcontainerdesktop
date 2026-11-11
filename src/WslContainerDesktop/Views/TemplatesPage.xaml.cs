@@ -51,6 +51,7 @@ public sealed partial class TemplatesPage : Page
         UiText.LanguageChanged -= OnLanguageChanged;
         UiText.LanguageChanged += OnLanguageChanged;
         OnLanguageChanged(this, EventArgs.Empty);
+        UiSafe.Run(ViewModel.RefreshSessionsAsync);
     }
 
     private void OnUnloadedForLanguage(object sender, RoutedEventArgs e) =>

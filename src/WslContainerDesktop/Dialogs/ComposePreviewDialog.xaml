@@ -32,6 +32,9 @@
         VerticalScrollMode="Enabled"
         HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12">
+            <TextBlock Text="{x:Bind ViewModel.SessionDisplay}" TextWrapping="Wrap"
+                AutomationProperties.AutomationId="ComposePreviewSession"
+                Visibility="{x:Bind ViewModel.HasSessionScope, Converter={StaticResource BoolToVis}}" />
             <InfoBar
                 AutomationProperties.AutomationId="ComposePreviewStatus"
                 IsOpen="True"

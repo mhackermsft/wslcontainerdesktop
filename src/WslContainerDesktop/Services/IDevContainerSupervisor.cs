@@ -48,5 +48,5 @@ public interface IDevContainerSupervisor
     /// <summary>
     /// Opens terminal for the user.
     /// </summary>
-    void OpenTerminal(DevContainerConfig config, string containerId);
+    Task OpenTerminalAsync(DevContainerConfig config, string containerId, CancellationToken ct = default);
 }

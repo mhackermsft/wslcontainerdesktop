@@ -28,6 +28,9 @@ public sealed class RegistryLoginDialog : ContentDialog
     private readonly TextBox _userBox;
     private readonly PasswordBox _passwordBox;
     private readonly bool _dockerHub;
+    private readonly string _registryName;
+    private readonly TextBlock? _hint;
+    private WslcSessionSelection? _session;
     private bool _foldingCase;
     private bool _isComposing;
 
@@ -44,6 +47,7 @@ public sealed class RegistryLoginDialog : ContentDialog
     public RegistryLoginDialog(string registryName, string? prefillUsername, bool dockerHub = false)
     {
         _dockerHub = dockerHub;
+        _registryName = registryName;
         Title = UiText.Get("Workload_Text_Log_in_to_0_78a87c", "Log in to {0}", registryName);
         PrimaryButtonText = UiText.Get("Workload_Text_Log_in_c18984", "Log in");
         CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
@@ -72,13 +76,14 @@ public sealed class RegistryLoginDialog : ContentDialog
 
         if (_dockerHub)
         {
-            panel.Children.Insert(1, new TextBlock
+            _hint = new TextBlock
             {
                 Text = UiText.Get(
                     "Workload_Text_Docker_Hub_login_hint_5d2b9f",
                     "Use your Docker ID for a password or personal access token, or your organization namespace for an organization access token. Put the token in the password field."),
                 TextWrapping = TextWrapping.Wrap,
-            });
+            };
+            panel.Children.Insert(1, _hint);
         }
 
         Content = panel;
@@ -90,6 +95,34 @@ public sealed class RegistryLoginDialog : ContentDialog
         };
         _userBox.TextChanged += (_, _) => FoldAsciiCase();
         PrimaryButtonClick += OnPrimary;
+        Opened += (_, _) => UiText.LanguageChanged += OnLanguageChanged;
+        Closed += (_, _) => UiText.LanguageChanged -= OnLanguageChanged;
+    }
+
+    /// <summary>Keeps session-specific login wording localized without changing credentials.</summary>
+    public void SetSession(WslcSessionSelection session)
+    {
+        _session = session;
+        RefreshLanguage();
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => RefreshLanguage();
+
+    private void RefreshLanguage()
+    {
+        Title = _session is null ? UiText.Get("Workload_Text_Log_in_to_0_78a87c", "Log in to {0}", _registryName)
+            : UiText.Get("Registry_LoginInSession", "Sign in to {0} using session {1}", _registryName,
+                _session.Target.Name ?? UiText.Get("WslEngine_Session_Default", "Default CLI session"));
+        PrimaryButtonText = UiText.Get("Workload_Text_Log_in_c18984", "Log in");
+        CloseButtonText = UiText.Get("Workload_Text_Cancel_19766e", "Cancel");
+        _userBox.Header = UiText.Get("Workload_Text_Username_e3b89e", "Username");
+        _userBox.PlaceholderText = _dockerHub
+            ? UiText.Get("Workload_Text_Docker_ID_or_organization_namespace_a1c4e7", "Docker ID or organization namespace")
+            : UiText.Get("Workload_Text_username_or_token_name_39f3c5", "username or token name");
+        _passwordBox.Header = UiText.Get("Workload_Text_Password_token_051a24", "Password / token");
+        if (_hint is not null)
+            _hint.Text = UiText.Get("Workload_Text_Docker_Hub_login_hint_5d2b9f",
+                "Use your Docker ID for a password or personal access token, or your organization namespace for an organization access token. Put the token in the password field.");
     }
 
     /// <summary>Shows ASCII case correction after input commits, preserving the selection and IME composition.</summary>

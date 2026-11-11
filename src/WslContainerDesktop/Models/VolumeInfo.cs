@@ -27,7 +27,20 @@ public sealed class VolumeInfo : CommunityToolkit.Mvvm.ComponentModel.Observable
     /// Returns the volume name. List controls use this as each row's screen-reader name;
     /// without it Narrator announces the .NET type name instead.
     /// </summary>
-    public override string ToString() => Name;
+    public override string ToString() => string.IsNullOrEmpty(SessionName) ? Name : $"{SessionName}: {Name}";
+
+    /// <summary>The owning session shown in combined resource lists.</summary>
+    [JsonIgnore]
+    public string SessionName { get; set; } = string.Empty;
+
+    /// <summary>Session label for combined read-only views.</summary>
+    [JsonIgnore]
+    public string SessionDisplay => string.IsNullOrEmpty(SessionName) ? string.Empty :
+        UiText.Get("Reclaim_SessionLabel", "Session: {0}", SessionName);
+
+    /// <summary>Whether the session identity is sufficient for a scoped action.</summary>
+    [JsonIgnore]
+    public bool SessionActionsAvailable { get; set; } = true;
 
     /// <summary>Gets or sets the name.</summary>
     [JsonPropertyName("Name")]

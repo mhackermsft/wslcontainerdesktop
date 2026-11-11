@@ -402,6 +402,7 @@ public sealed class RunContainerDialog : ContentDialog
             _imageBox.Items.Add(options.Image);
         }
 
+        _imageBox.SelectedItem = string.IsNullOrWhiteSpace(options.Image) ? null : options.Image;
         _imageBox.Text = options.Image ?? string.Empty;
         // An imported/saved image is already fully qualified; keep the default registry so it isn't re-qualified.
         _registryBox.SelectedIndex = 0;

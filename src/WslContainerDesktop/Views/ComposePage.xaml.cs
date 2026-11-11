@@ -59,7 +59,14 @@ public sealed partial class ComposePage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        ViewModel.SetSessionObservationVisible(true);
         UiSafe.Run(() => ViewModel.RefreshAsync());
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        ViewModel.SetSessionObservationVisible(false);
+        base.OnNavigatedFrom(e);
     }
 
     private static ComposeProjectRow? RowOf(object sender) =>

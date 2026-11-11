@@ -29,7 +29,8 @@ public sealed class ComposeReviewToken
     /// <summary>Creates a token for one reviewed plan snapshot owned by one supervisor instance.</summary>
     internal ComposeReviewToken(Guid owner, ComposeProject project, ComposeOperationRequest request,
         string stamp, ComposeCompatibilityPreview preview, ComposeReconciliationPlan plan, long maximumStopVersion,
-        DateTimeOffset expiresAt)
+        DateTimeOffset expiresAt, WslcSessionContext.SelectionSnapshot? session, WslcSessionInfo? sessionGeneration,
+        bool requireNew)
     {
         Owner = owner;
         Project = project;
@@ -39,6 +40,9 @@ public sealed class ComposeReviewToken
         Plan = plan;
         MaximumStopVersion = maximumStopVersion;
         ExpiresAt = expiresAt;
+        Session = session;
+        SessionGeneration = sessionGeneration;
+        RequireNew = requireNew;
     }
 
     /// <summary>Supervisor instance that issued the token; prevents cross-session replay.</summary>
@@ -53,6 +57,11 @@ public sealed class ComposeReviewToken
     internal ComposeReconciliationPlan Plan { get; }
     /// <summary>Suppression-state version used to avoid racing explicit user starts/stops.</summary>
     internal long MaximumStopVersion { get; }
+    /// <summary>Session selection captured with the review evidence.</summary>
+    internal WslcSessionContext.SelectionSnapshot? Session { get; }
+    /// <summary>Active session identity captured with the review evidence.</summary>
+    internal WslcSessionInfo? SessionGeneration { get; }
+    internal bool RequireNew { get; }
     /// <summary>Atomic single-use marker; non-zero means the review was already applied or refused.</summary>
     internal int Consumed;
     /// <summary>Redacted preview that was shown for confirmation.</summary>
@@ -101,20 +110,44 @@ public sealed partial class ComposeProjectSupervisor
 
     /// <summary>Read-only review of exactly the shared PlanAsync normalization; never persists intent.</summary>
     public async Task<ComposeReviewToken> PrepareReviewAsync(ComposeProject project,
-        ComposeOperationRequest? request = null, CancellationToken ct = default)
+        ComposeOperationRequest? request = null, CancellationToken ct = default, bool requireNew = false)
     {
         var desired = SnapshotProject(project);
         var maximumStopVersion = _suppression?.Version ?? long.MaxValue;
         var operation = SnapshotRequest(request ?? new());
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        using var selection = _sessionContext?.LockSelection();
         try
         {
+            if (requireNew && _store.Get(desired.Name) is not null)
+                throw new InvalidOperationException(UiText.Get("Deployment_ProjectNameTaken",
+                    "A saved Compose project already uses this name. Review the deployment again."));
+            PrepareProjectOwner(desired, allowUnassigned: operation.Operation == ComposeLifecycleOperation.Up);
+            var session = _sessionContext?.CaptureSnapshot();
+            var before = session is { } initial
+                ? await FindSessionGenerationAsync(initial.Target, ct).ConfigureAwait(false)
+                : null;
+            if (session?.Target.Name is not null && before is null)
+                throw new InvalidOperationException(UiText.Get("CombinedSession_ActionSessionChanged",
+                    "The session changed or is no longer available; refresh before taking action."));
             _capabilities.Invalidate();
             // Resolve and capture evidence together. A plan from before taking the gate must
             // never be approved using a newer inventory/capability stamp.
             var evidence = await ReadReviewEvidenceAsync(desired, operation, ct).ConfigureAwait(false);
-            return new(_reviewOwner, desired, operation, evidence.Stamp, evidence.Preview, evidence.Plan,
-                maximumStopVersion, _reviewClock.GetUtcNow().AddMinutes(10));
+            var generation = session is { } captured
+                ? await FindSessionGenerationAsync(captured.Target, ct).ConfigureAwait(false)
+                : null;
+            if (session is not null &&
+                (generation is null && evidence.Preview.CanApply || before is not null && generation != before))
+                throw new InvalidOperationException(UiText.Get("CombinedSession_ActionSessionChanged",
+                    "The session changed or is no longer available; refresh before taking action."));
+            var preview = evidence.Preview with
+            {
+                HasSessionScope = session is not null,
+                SessionName = session?.Target.Name,
+            };
+            return new(_reviewOwner, desired, operation, evidence.Stamp, preview, evidence.Plan,
+                maximumStopVersion, _reviewClock.GetUtcNow().AddMinutes(10), session, generation, requireNew);
         }
         finally { _lifecycleGate.Release(); }
     }
@@ -124,16 +157,21 @@ public sealed partial class ComposeProjectSupervisor
     {
         if (token.Owner != _reviewOwner) return ComposePlanValidation.ForeignToken;
         if (Volatile.Read(ref token.Consumed) != 0) return ComposePlanValidation.AlreadyUsed;
+        if (token.RequireNew && _store.Get(token.Project.Name) is not null) return ComposePlanValidation.Stale;
         if (ct.IsCancellationRequested) return ComposePlanValidation.Cancelled;
         if (_reviewClock.GetUtcNow() >= token.ExpiresAt) return ComposePlanValidation.Expired;
         if (!token.Preview.CanApply) return ComposePlanValidation.Blocked;
         try { await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false); }
         catch (OperationCanceledException) { return ComposePlanValidation.Cancelled; }
+        using var selection = _sessionContext?.LockSelection();
         try
         {
             if (Volatile.Read(ref token.Consumed) != 0) return ComposePlanValidation.AlreadyUsed;
+            if (!IsReviewedSessionCurrent(token)) return ComposePlanValidation.Stale;
+            if (!await IsReviewedGenerationCurrentAsync(token, ct).ConfigureAwait(false)) return ComposePlanValidation.Stale;
             _capabilities.Invalidate();
             var evidence = await ReadReviewEvidenceAsync(SnapshotProject(token.Project), token.Request, ct).ConfigureAwait(false);
+            if (!await IsReviewedGenerationCurrentAsync(token, ct).ConfigureAwait(false)) return ComposePlanValidation.Stale;
             return _reviewClock.GetUtcNow() >= token.ExpiresAt ? ComposePlanValidation.Expired :
                 !evidence.Preview.CanApply ? ComposePlanValidation.Blocked :
                 token.Stamp == evidence.Stamp ? ComposePlanValidation.Valid : ComposePlanValidation.Stale;
@@ -167,21 +205,31 @@ public sealed partial class ComposeProjectSupervisor
         var maximumStopVersion = token.MaximumStopVersion;
         try { await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false); }
         catch (OperationCanceledException) { return ReviewRefusal(ComposeReviewOutcomeKind.Cancelled); }
+        using var selection = _sessionContext?.LockSelection();
         try
         {
+            if (token.RequireNew && _store.Get(token.Project.Name) is not null) return ReviewRefusal(ComposeReviewOutcomeKind.Stale);
+            if (!IsReviewedSessionCurrent(token)) return ReviewRefusal(ComposeReviewOutcomeKind.Stale);
+            if (!await IsReviewedGenerationCurrentAsync(token, ct).ConfigureAwait(false)) return ReviewRefusal(ComposeReviewOutcomeKind.Stale);
             _capabilities.Invalidate();
             var desired = SnapshotProject(token.Project);
             var evidence = await ReadReviewEvidenceAsync(desired, token.Request, ct).ConfigureAwait(false);
             if (_reviewClock.GetUtcNow() >= token.ExpiresAt) return ReviewRefusal(ComposeReviewOutcomeKind.Expired);
             if (!evidence.Preview.CanApply) return ReviewRefusal(ComposeReviewOutcomeKind.Blocked);
             if (evidence.Stamp != token.Stamp) return ReviewRefusal(ComposeReviewOutcomeKind.Stale);
+            if (!await IsReviewedGenerationCurrentAsync(token, ct).ConfigureAwait(false)) return ReviewRefusal(ComposeReviewOutcomeKind.Stale);
             ct.ThrowIfCancellationRequested();
             desired.AppliedStateKnown = true;
+            if (token.Request.Operation == ComposeLifecycleOperation.Up)
+                desired.ImportedOnly = false;
+            if (token.RequireNew && !_store.TryAddNew(desired))
+                return ReviewRefusal(ComposeReviewOutcomeKind.Stale);
             if (saveReplicaOverrides && token.Request.Operation == ComposeLifecycleOperation.Up)
             {
                 foreach (var pair in token.Request.Replicas) desired.ReplicaOverrides[pair.Key] = pair.Value;
                 _store.Save(desired);
             }
+
             var result = token.Request.Operation == ComposeLifecycleOperation.Up
                 ? await UpCoreAsync(desired, maximumStopVersion, ct, token.Request, evidence.Plan, onServiceSucceeded).ConfigureAwait(false)
                 : await ExistingCoreAsync(desired, token.Request, maximumStopVersion, ct, evidence.Plan).ConfigureAwait(false);
@@ -234,6 +282,28 @@ public sealed partial class ComposeProjectSupervisor
             };
         }
         finally { _lifecycleGate.Release(); }
+    }
+
+    private bool IsReviewedSessionCurrent(ComposeReviewToken token) =>
+        token.Session is null
+            ? _sessionContext is null
+            : _sessionContext is not null && _sessionContext.TryApply(token.Session.Value, static () => { });
+
+    private async Task<bool> IsReviewedGenerationCurrentAsync(ComposeReviewToken token, CancellationToken ct)
+    {
+        if (token.Session is null)
+            return _sessionContext is null;
+        var current = await FindSessionGenerationAsync(token.Session.Value.Target, ct).ConfigureAwait(false);
+        return current is not null && current == token.SessionGeneration;
+    }
+
+    private async Task<WslcSessionInfo?> FindSessionGenerationAsync(WslcSessionTarget target, CancellationToken ct)
+    {
+        var name = target.Name ?? WslcSessionActionGuard.ResolveDefaultSessionName();
+        var info = await _wslc.GetSystemInfoAsync(ct).ConfigureAwait(false);
+        var matches = info.Server.Sessions.Where(session =>
+            string.Equals(session.Name, name, StringComparison.Ordinal)).Take(2).ToArray();
+        return matches.Length == 1 && matches[0].ID > 0 && matches[0].CreatorPid > 0 ? matches[0] : null;
     }
 
     /// <summary>Builds redacted retained-resource notes for successful or partial reviewed apply.</summary>

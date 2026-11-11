@@ -82,7 +82,7 @@ public sealed partial class ComposeProjectSupervisor
     private readonly IComposeProjectStore _store;
     private readonly ISettingsService _settings;
     private readonly ILogger<ComposeProjectSupervisor> _logger;
-    private readonly HealthWatchdog _health;
+    private readonly IAppHealthObservationSource _health;
     private readonly StatusMonitor _monitor;
     private readonly RestartSuppressionState? _suppression;
     private readonly IWslcCapabilitiesService _capabilities;
@@ -91,9 +91,15 @@ public sealed partial class ComposeProjectSupervisor
     private readonly IWslPolicyService _policy;
     private readonly TimeProvider _reviewClock;
     private readonly string? _stagingRoot;
-    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly WslcSessionContext? _sessionContext;
+    private readonly LegacyPolicyOwnershipStore? _legacyOwners;
+    private readonly SemaphoreSlim _lifecycleGate;
+    private readonly Func<IReadOnlyList<ContainerInfo>>? _scopedContainers;
+    private readonly RegistryAuthRefresher? _authRefresher;
     /// <summary>Warnings from startup reconciliation, shown so users know what needs manual review.</summary>
     public IReadOnlyList<string> ReconciliationWarnings { get; private set; } = Array.Empty<string>();
+    /// <summary>Raised after startup reconciliation updates its warnings.</summary>
+    public event EventHandler? ReconciliationChanged;
 
     /// <summary>How long to wait for a <c>service_healthy</c> dependency before starting dependents.</summary>
     private static readonly TimeSpan HealthyWaitTimeout = TimeSpan.FromSeconds(90);
@@ -105,15 +111,25 @@ public sealed partial class ComposeProjectSupervisor
         ISettingsService settings,
         ILogger<ComposeProjectSupervisor> logger,
         IWslcCapabilitiesService capabilities,
-        HealthWatchdog health,
+        IAppHealthObservationSource health,
         StatusMonitor monitor,
         RestartSuppressionState? suppression = null,
         IComposeReviewPresenter? reviewPresenter = null,
         TimeProvider? reviewClock = null,
         IWslPolicyService? policy = null,
-        string? stagingRoot = null)
+        string? stagingRoot = null,
+        WslcSessionContext? sessionContext = null,
+        LegacyPolicyOwnershipStore? legacyOwners = null,
+        SemaphoreSlim? lifecycleGate = null,
+        Func<IReadOnlyList<ContainerInfo>>? scopedContainers = null,
+        RegistryAuthRefresher? authRefresher = null)
     {
         _stagingRoot = stagingRoot;
+        _sessionContext = sessionContext;
+        _legacyOwners = legacyOwners;
+        _lifecycleGate = lifecycleGate ?? new SemaphoreSlim(1, 1);
+        _scopedContainers = scopedContainers;
+        _authRefresher = authRefresher;
         _wslc = wslc;
         _store = store;
         _settings = settings;
@@ -125,8 +141,14 @@ public sealed partial class ComposeProjectSupervisor
         _reviewPresenter = reviewPresenter;
         _reviewClock = reviewClock ?? TimeProvider.System;
         _policy = policy ?? AllowAllWslPolicyService.Instance;
-        _networks = new ComposeNetworkOrchestrator(wslc, logger, suppression);
+        _networks = new ComposeNetworkOrchestrator(wslc, logger, suppression, CurrentAutomationOwner);
     }
+
+    internal ComposeProjectSupervisor ForSession(IWslcService client, WslcSessionContext context,
+        IAppHealthObservationSource health, Func<IReadOnlyList<ContainerInfo>> observedContainers) =>
+        new(client, _store, _settings, _logger, _capabilities, health, _monitor, _suppression,
+            _reviewPresenter, _reviewClock, _policy, _stagingRoot, context, _legacyOwners,
+            _lifecycleGate, observedContainers, _authRefresher);
 
     /// <summary>Fallback policy used in tests/older wiring when no enterprise WSL policy service is registered.</summary>
     private sealed class AllowAllWslPolicyService : IWslPolicyService
@@ -149,6 +171,15 @@ public sealed partial class ComposeProjectSupervisor
     /// <summary>Applies a project using an explicit operation request, usually including profile or replica choices.</summary>
     public Task<ComposeUpResult> UpAsync(ComposeProject project, ComposeOperationRequest request,
         CancellationToken ct = default) => UpAsync(project, request, null, ct);
+
+    /// <summary>Reviews and creates a project only if no saved project has claimed its name.</summary>
+    public async Task<ComposeUpResult> UpNewAsync(ComposeProject project, CancellationToken ct = default)
+    {
+        var review = await PrepareReviewAsync(project, new ComposeOperationRequest(), ct, requireNew: true).ConfigureAwait(false);
+        var confirmed = _reviewPresenter is not null &&
+            await _reviewPresenter.ConfirmAsync(review.Preview, ct).ConfigureAwait(false);
+        return (await ApplyReviewedAsync(review, confirmed, false, ct).ConfigureAwait(false)).ToUpResult();
+    }
 
     /// <summary>Checkpoints successful actions before fallible local completion or later services.
     /// The observer must not re-enter lifecycle operations; errors abort after local completion.</summary>
@@ -271,7 +302,12 @@ public sealed partial class ComposeProjectSupervisor
                     Complete(() => SeedHealthChecks(readyProject));
                     Complete(() => SeedRestartPolicies(readyProject));
                     Complete(() => RecordApplied(project, entry, result.ContainerId!));
-                    Complete(() => _monitor.RequestRefresh());
+                    Complete(() =>
+                    {
+                        _monitor.RequestRefresh();
+                        if (_scopedContainers is not null)
+                            _monitor.RequestAutomationRefresh();
+                    });
                 }
             }
             catch (OperationCanceledException)
@@ -360,7 +396,7 @@ public sealed partial class ComposeProjectSupervisor
         try
         {
             await RequireCurrentAsync(project, entry, ct).ConfigureAwait(false);
-            _suppression?.Suppress(entry.ContainerName);
+            _suppression?.Suppress(entry.ContainerName, CurrentAutomationOwner());
             if (project.AppliedServices.TryGetValue(entry.InstanceKey, out var saved))
             {
                 saved.ManuallyStopped = true;
@@ -478,6 +514,7 @@ public sealed partial class ComposeProjectSupervisor
     public async Task DownAsync(string projectName, bool removeVolumes = false, CancellationToken ct = default)
     {
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        using var selection = _sessionContext?.LockSelection();
         try
         {
             await DownCoreAsync(projectName, removeVolumes, ct).ConfigureAwait(false);
@@ -488,13 +525,45 @@ public sealed partial class ComposeProjectSupervisor
         }
     }
 
-    private async Task DownCoreAsync(string projectName, bool removeVolumes, CancellationToken ct)
+    internal async Task DownRequiredAsync(string projectName, bool removeVolumes, CancellationToken ct)
+    {
+        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        using var selection = _sessionContext?.LockSelection();
+        try { await DownCoreAsync(projectName, removeVolumes, ct, requireProject: true).ConfigureAwait(false); }
+        finally { _lifecycleGate.Release(); }
+    }
+
+    /// <summary>Removes a project and its saved definition under one lifecycle lock.</summary>
+    public async Task DownAndDeleteAsync(string projectName, bool removeVolumes, CancellationToken ct = default)
+    {
+        await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        using var selection = _sessionContext?.LockSelection();
+        try
+        {
+            var project = _store.Get(projectName) ??
+                throw new InvalidOperationException(UiText.Get("Deployment_ProjectMissing",
+                    "The deployed project could not be found in saved projects. Refresh before retrying."));
+            RequireProjectOwner(project);
+            await DownCoreAsync(projectName, removeVolumes, ct).ConfigureAwait(false);
+            if (!_store.TryDelete(project))
+                throw new InvalidOperationException(UiText.Get("Deployment_ProjectChanged",
+                    "The saved project changed during removal. Its definition was kept; refresh before retrying."));
+            CleanStaging(projectName);
+        }
+        finally { _lifecycleGate.Release(); }
+    }
+
+    private async Task DownCoreAsync(string projectName, bool removeVolumes, CancellationToken ct, bool requireProject = false)
     {
         var project = _store.Get(projectName);
         if (project is null)
         {
+            if (requireProject)
+                throw new InvalidOperationException(UiText.Get("Deployment_ProjectMissing",
+                    "The deployed project could not be found in saved projects. Refresh before retrying."));
             return;
         }
+        RequireProjectOwner(project);
 
         var result = await ExistingCoreAsync(project,
             new ComposeOperationRequest
@@ -593,11 +662,15 @@ public sealed partial class ComposeProjectSupervisor
     public async Task ReconcileAsync(CancellationToken ct = default)
     {
         await _lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        using var selection = _sessionContext?.LockSelection();
         var warnings = new List<string>();
         try
         {
-            var projects = _store.GetAll();
-            if (projects.Count == 0)
+            var target = _sessionContext?.Capture() ?? WslcSessionTarget.Default;
+            var executable = _settings.WslcPath;
+            var projects = _store.GetAll()
+                .Where(project => !project.ImportedOnly && project.SessionOwner?.Matches(executable, target) == true).ToArray();
+            if (projects.Length == 0)
             {
                 return;
             }
@@ -649,8 +722,8 @@ public sealed partial class ComposeProjectSupervisor
                         }
                         if (applied?.ManuallyStopped == true)
                         {
-                            if (_suppression?.IsSuppressed(ResolveContainerName(project, service)) == false)
-                                _suppression.Suppress(ResolveContainerName(project, service));
+                            if (_suppression?.IsSuppressed(ResolveContainerName(project, service), CurrentAutomationOwner()) == false)
+                                _suppression.Suppress(ResolveContainerName(project, service), CurrentAutomationOwner());
                             var stoppedService = ProjectWithServices(project, [service]);
                             RemoveHealthChecks(stoppedService);
                             RemoveRestartPolicies(stoppedService);
@@ -713,6 +786,7 @@ public sealed partial class ComposeProjectSupervisor
         {
             ReconciliationWarnings = warnings;
             _lifecycleGate.Release();
+            ReconciliationChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -942,11 +1016,11 @@ public sealed partial class ComposeProjectSupervisor
         {
             ct.ThrowIfCancellationRequested();
 
-            var containers = _monitor.Latest?.Containers ?? Array.Empty<ContainerInfo>();
+            var containers = _scopedContainers?.Invoke() ?? _monitor.Latest?.Containers ?? Array.Empty<ContainerInfo>();
             var container = FindByName(containers, name);
             if (container is not null && container.State == ContainerState.Running)
             {
-                var health = _health.Latest.Containers.FirstOrDefault(h => h.ContainerName == name);
+                var health = _health.GetObservations().FirstOrDefault(h => h.ContainerName == name);
                 if (health is not null && NativeHealthPolicy.IsDependencyReady(container, health, expectedId, notBefore))
                     return true;
             }
@@ -1372,9 +1446,58 @@ public sealed partial class ComposeProjectSupervisor
         containers.FirstOrDefault(c =>
             string.Equals(c.Name.TrimStart('/'), name, StringComparison.Ordinal));
 
+    private AutomationSessionOwner? OwnerFor(HealthCheckConfig config) =>
+        _legacyOwners?.OwnerFor(config) ?? config.SessionOwner;
+
+    private AutomationSessionOwner? OwnerFor(RestartPolicyConfig config) =>
+        _legacyOwners?.OwnerFor(config) ?? config.SessionOwner;
+
+    private AutomationSessionOwner CurrentAutomationOwner() =>
+        AutomationSessionOwner.Capture(_settings.WslcPath, _sessionContext?.Capture() ?? WslcSessionTarget.Default);
+
+    private void RequireProjectOwner(ComposeProject project)
+    {
+        var target = _sessionContext?.Capture() ?? WslcSessionTarget.Default;
+        if (project.SessionOwner?.IsValid != true)
+            throw new InvalidOperationException(UiText.Get("Automation_ProjectNeedsSession",
+                "This saved Compose project needs a session assignment before it can be managed."));
+        if (!project.SessionOwner.Matches(_settings.WslcPath, target))
+            throw new InvalidOperationException(UiText.Get("Automation_ProjectDifferentSession",
+                "This Compose project belongs to a different session or engine. Select its assigned session before continuing."));
+    }
+
+    private void PrepareProjectOwner(ComposeProject project, bool allowUnassigned)
+    {
+        var existing = _store.Get(project.Name);
+        if (existing is not null)
+        {
+            if (existing.SessionOwner?.IsValid != true && allowUnassigned && project.SessionOwner?.IsValid == true)
+            {
+                RequireProjectOwner(project);
+                return;
+            }
+            RequireProjectOwner(existing);
+            project.SessionOwner = existing.SessionOwner;
+            return;
+        }
+        if (project.SessionOwner is not null)
+        {
+            RequireProjectOwner(project);
+            return;
+        }
+        project.SessionOwner = AutomationSessionOwner.Capture(
+            _settings.WslcPath, _sessionContext?.Capture() ?? WslcSessionTarget.Default);
+    }
+
+    private bool HasUnassignedPolicy(string name) =>
+        _settings.HealthChecks.Any(config => config.ContainerName == name && OwnerFor(config)?.IsValid != true) ||
+        _settings.RestartPolicies.Any(config => config.ContainerName == name && OwnerFor(config)?.IsValid != true);
+
     /// <summary>Enrolls each service's health check (bound to its resolved container name) into the watchdog.</summary>
     private void SeedHealthChecks(ComposeProject project)
     {
+        var target = _sessionContext?.Capture() ?? WslcSessionTarget.Default;
+        var owner = AutomationSessionOwner.Capture(_settings.WslcPath, target);
         var toAdd = new List<HealthCheckConfig>();
         foreach (var service in project.Services)
         {
@@ -1387,10 +1510,13 @@ public sealed partial class ComposeProjectSupervisor
             {
                 continue;
             }
+            if (HasUnassignedPolicy(ResolveContainerName(project, service)))
+                continue;
 
             toAdd.Add(new HealthCheckConfig
             {
                 ContainerName = ResolveContainerName(project, service),
+                SessionOwner = owner,
                 Kind = service.Health.Kind,
                 Command = service.Health.Command,
                 TcpPort = service.Health.TcpPort,
@@ -1401,11 +1527,13 @@ public sealed partial class ComposeProjectSupervisor
             });
         }
 
-        var names = project.Services.Select(s => ResolveContainerName(project, s)).ToHashSet(StringComparer.Ordinal);
+        var names = project.Services.Select(s => ResolveContainerName(project, s))
+            .Where(name => !HasUnassignedPolicy(name)).ToHashSet(StringComparer.Ordinal);
 
         // Replace the list reference atomically so the watchdog never enumerates a mutating list.
         var merged = _settings.HealthChecks
-            .Where(c => !names.Contains(c.ContainerName))
+            .Where(c => !names.Contains(c.ContainerName) ||
+                OwnerFor(c)?.Matches(owner.ExecutablePath, target) != true)
             .Concat(toAdd)
             .ToList();
 
@@ -1416,12 +1544,14 @@ public sealed partial class ComposeProjectSupervisor
     /// <summary>Removes the health checks the app seeded for a project's containers.</summary>
     private void RemoveHealthChecks(ComposeProject project)
     {
+        var target = _sessionContext?.Capture() ?? WslcSessionTarget.Default;
+        var executable = _settings.WslcPath;
         var names = new HashSet<string>(
             project.Services.Select(s => ResolveContainerName(project, s)),
             StringComparer.Ordinal);
 
         var remaining = _settings.HealthChecks
-            .Where(c => !names.Contains(c.ContainerName))
+            .Where(c => !names.Contains(c.ContainerName) || OwnerFor(c)?.Matches(executable, target) != true)
             .ToList();
 
         if (remaining.Count == _settings.HealthChecks.Count)
@@ -1439,6 +1569,8 @@ public sealed partial class ComposeProjectSupervisor
     /// </summary>
     private void SeedRestartPolicies(ComposeProject project)
     {
+        var target = _sessionContext?.Capture() ?? WslcSessionTarget.Default;
+        var owner = AutomationSessionOwner.Capture(_settings.WslcPath, target);
         var toAdd = new List<RestartPolicyConfig>();
         foreach (var service in project.Services)
         {
@@ -1453,6 +1585,8 @@ public sealed partial class ComposeProjectSupervisor
             {
                 continue;
             }
+            if (HasUnassignedPolicy(ResolveContainerName(project, service)))
+                continue;
 
             var budget = service.Restart is RestartPolicyKind.Always or RestartPolicyKind.UnlessStopped
                 ? RestartPolicyConfig.MaxRestartLimit
@@ -1461,6 +1595,7 @@ public sealed partial class ComposeProjectSupervisor
             toAdd.Add(new RestartPolicyConfig
             {
                 ContainerName = ResolveContainerName(project, service),
+                SessionOwner = owner,
                 Policy = service.Restart,
                 MaxRestarts = budget,
                 Enabled = true,
@@ -1468,12 +1603,13 @@ public sealed partial class ComposeProjectSupervisor
         }
 
         var names = new HashSet<string>(
-            project.Services.Select(s => ResolveContainerName(project, s)),
+            project.Services.Select(s => ResolveContainerName(project, s)).Where(name => !HasUnassignedPolicy(name)),
             StringComparer.Ordinal);
 
         // Replace the list reference atomically so the watchdog never enumerates a mutating list.
         var merged = _settings.RestartPolicies
-            .Where(p => !names.Contains(p.ContainerName))
+            .Where(p => !names.Contains(p.ContainerName) ||
+                OwnerFor(p)?.Matches(owner.ExecutablePath, target) != true)
             .Concat(toAdd)
             .ToList();
 
@@ -1489,12 +1625,14 @@ public sealed partial class ComposeProjectSupervisor
     /// <summary>Removes the restart policies the app seeded for a project's containers.</summary>
     private void RemoveRestartPolicies(ComposeProject project)
     {
+        var target = _sessionContext?.Capture() ?? WslcSessionTarget.Default;
+        var executable = _settings.WslcPath;
         var names = new HashSet<string>(
             project.Services.Select(s => ResolveContainerName(project, s)),
             StringComparer.Ordinal);
 
         var remaining = _settings.RestartPolicies
-            .Where(p => !names.Contains(p.ContainerName))
+            .Where(p => !names.Contains(p.ContainerName) || OwnerFor(p)?.Matches(executable, target) != true)
             .ToList();
 
         if (remaining.Count == _settings.RestartPolicies.Count)

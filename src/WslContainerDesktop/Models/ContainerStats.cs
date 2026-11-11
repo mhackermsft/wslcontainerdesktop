@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json.Serialization;
+using System.Globalization;
 
 namespace WslContainerDesktop.Models;
 
@@ -34,11 +35,11 @@ public sealed class ContainerStats
 
     /// <summary>Gets or sets the cpu percent.</summary>
     [JsonPropertyName("CPUPerc")]
-    public string CpuPercent { get; set; } = "0%";
+    public string CpuPercent { get; set; } = "-";
 
     /// <summary>Gets or sets the mem percent.</summary>
     [JsonPropertyName("MemPerc")]
-    public string MemPercent { get; set; } = "0%";
+    public string MemPercent { get; set; } = "-";
 
     /// <summary>Gets or sets the mem usage.</summary>
     [JsonPropertyName("MemUsage")]
@@ -76,6 +77,7 @@ public sealed class ContainerStats
         }
 
         var trimmed = s.Replace("%", string.Empty).Trim();
-        return double.TryParse(trimmed, out var v) ? v : 0;
+        return double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) &&
+            double.IsFinite(v) ? v : 0;
     }
 }

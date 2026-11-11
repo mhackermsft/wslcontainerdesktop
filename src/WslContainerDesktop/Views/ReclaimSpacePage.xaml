@@ -15,6 +15,9 @@
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
         <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
         <converters:BytesToSizeConverter x:Key="BytesToSize" />
+        <DataTemplate x:Key="WrappedButtonLabel">
+            <TextBlock Text="{Binding}" TextAlignment="Center" TextWrapping="Wrap" />
+        </DataTemplate>
         <Style x:Key="StatCard" TargetType="Border">
             <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
             <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
@@ -42,6 +45,15 @@
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Style="{ThemeResource CaptionTextBlockStyle}"
                         Text="{x:Bind ViewModel.StatusMessageDisplay, Mode=OneWay}" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="{x:Bind ViewModel.InventorySessionDisplay, Mode=OneWay}" TextWrapping="Wrap" />
+                    <TextBlock x:Uid="Reclaim_AllSessionsNotice" i18n:Localization.Uid="Reclaim_AllSessionsNotice"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+                    <TextBlock Text="{x:Bind ViewModel.InventoryWarning, Mode=OneWay}"
+                        Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap" />
                 </StackPanel>
 
                 <!-- Actions  -->
@@ -52,7 +64,7 @@
                             <TextBlock x:Uid="Resource_ReclaimSpace_002" i18n:Localization.Uid="Resource_ReclaimSpace_002" />
                         </StackPanel>
                     </Button>
-                    <Button Command="{x:Bind ViewModel.RefreshCommand}">
+                    <Button Command="{x:Bind ViewModel.RefreshChosenCommand}">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon FontSize="14" Glyph="&#xE72C;" />
                             <TextBlock x:Uid="Resource_ReclaimSpace_003" i18n:Localization.Uid="Resource_ReclaimSpace_003" />
@@ -60,6 +72,7 @@
                     </Button>
                 </StackPanel>
 
+                <StackPanel Spacing="16" Visibility="{x:Bind ViewModel.HasInventory, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <!-- Reclaimable summary banner  -->
                 <Border Style="{StaticResource StatCard}">
                     <StackPanel Spacing="8">
@@ -67,7 +80,7 @@
                         <TextBlock
                             FontSize="30"
                             FontWeight="SemiBold"
-                            Text="{x:Bind ViewModel.TotalReclaimableSize, Mode=OneWay}" />
+                            Text="{x:Bind ViewModel.TotalReclaimableSizeDisplay, Mode=OneWay}" />
                         <TextBlock>
                             <Run x:Uid="Resource_ReclaimSpace_005" i18n:Localization.Uid="Resource_ReclaimSpace_005" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <Run Text="{x:Bind ViewModel.StorageLocationDisplay, Mode=OneWay}" />
@@ -107,9 +120,9 @@
                                 <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ViewModel.ImageCount, Mode=OneWay}" />
                                 <Run x:Uid="Resource_ReclaimSpace_010" i18n:Localization.Uid="Resource_ReclaimSpace_010" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                             </TextBlock>
-                            <TextBlock>
+                            <TextBlock TextWrapping="Wrap">
                                 <Run x:Uid="Resource_ReclaimSpace_011" i18n:Localization.Uid="Resource_ReclaimSpace_011" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <Run Text="{x:Bind ViewModel.ImagesReclaimableSize, Mode=OneWay}" />
+                                <Run Text="{x:Bind ViewModel.ImagesReclaimableSizeDisplay, Mode=OneWay}" />
                                 <Run Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="  ·" />
                                 <Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ViewModel.DanglingImageCount, Mode=OneWay}" />
                                 <Run x:Uid="Resource_ReclaimSpace_012" i18n:Localization.Uid="Resource_ReclaimSpace_012" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
@@ -117,11 +130,13 @@
                             <TextBlock
                                 FontSize="12"
                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="{x:Bind ViewModel.RetainedDanglingNote, Mode=OneWay, Converter={StaticResource UiTextConverter}}"
+                                Text="{x:Bind ViewModel.RetainedDanglingNote, Mode=OneWay}"
                                 TextWrapping="Wrap"
                                 Visibility="{x:Bind ViewModel.HasRetainedDanglingImages, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                             <Button x:Uid="Resource_ReclaimSpace_013" i18n:Localization.Uid="Resource_ReclaimSpace_013"
                                 HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                ContentTemplate="{StaticResource WrappedButtonLabel}"
                                 Command="{x:Bind ViewModel.PruneImagesCommand}" />
                         </StackPanel>
                     </Border>
@@ -140,17 +155,19 @@
                                 <Run x:Uid="Resource_ReclaimSpace_015" i18n:Localization.Uid="Resource_ReclaimSpace_015" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <Run Text="{x:Bind ViewModel.ContainerCount, Mode=OneWay}" />
                             </TextBlock>
-                            <TextBlock>
+                            <TextBlock TextWrapping="Wrap">
                                 <Run x:Uid="Resource_ReclaimSpace_016" i18n:Localization.Uid="Resource_ReclaimSpace_016" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <Run Text="{x:Bind ViewModel.StoppedContainerCount, Mode=OneWay}" />
                                 <Run x:Uid="Resource_ReclaimSpace_017" i18n:Localization.Uid="Resource_ReclaimSpace_017" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                             </TextBlock>
                             <TextBlock>
                                 <Run x:Uid="Resource_ReclaimSpace_018" i18n:Localization.Uid="Resource_ReclaimSpace_018" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <Run Text="{x:Bind ViewModel.StoppedContainersReclaimableSize, Mode=OneWay}" />
+                                <Run Text="{x:Bind ViewModel.StoppedContainersReclaimableSizeDisplay, Mode=OneWay}" />
                             </TextBlock>
                             <Button x:Uid="Resource_ReclaimSpace_019" i18n:Localization.Uid="Resource_ReclaimSpace_019"
                                 HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                ContentTemplate="{StaticResource WrappedButtonLabel}"
                                 Command="{x:Bind ViewModel.PruneContainersCommand}" />
                         </StackPanel>
                     </Border>
@@ -176,6 +193,8 @@
                             </TextBlock>
                             <Button x:Uid="Resource_ReclaimSpace_024" i18n:Localization.Uid="Resource_ReclaimSpace_024"
                                 HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                ContentTemplate="{StaticResource WrappedButtonLabel}"
                                 Command="{x:Bind ViewModel.PruneVolumesCommand}" />
                         </StackPanel>
                     </Border>
@@ -193,6 +212,7 @@
                                     <Grid Padding="0,6" ColumnSpacing="8">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" MinWidth="160" />
+                                            <ColumnDefinition Width="160" />
                                             <ColumnDefinition Width="120" />
                                             <ColumnDefinition Width="100" />
                                         </Grid.ColumnDefinitions>
@@ -206,12 +226,19 @@
                                         <TextBlock
                                             Grid.Column="1"
                                             VerticalAlignment="Center"
+                                            FontSize="12"
+                                            Text="{x:Bind SessionDisplay, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{x:Bind SessionDisplay, Mode=OneWay}" />
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
                                             FontFamily="Consolas"
                                             FontSize="12"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                             Text="{x:Bind ShortId}" />
                                         <TextBlock
-                                            Grid.Column="2"
+                                            Grid.Column="3"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Center"
                                             FontSize="13"
@@ -241,6 +268,7 @@
                                     <Grid Padding="0,6" ColumnSpacing="8">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" MinWidth="160" />
+                                            <ColumnDefinition Width="160" />
                                             <ColumnDefinition Width="100" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
@@ -258,6 +286,13 @@
                                         </StackPanel>
                                         <TextBlock
                                             Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            FontSize="12"
+                                            Text="{x:Bind SessionDisplay, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{x:Bind SessionDisplay, Mode=OneWay}" />
+                                        <TextBlock
+                                            Grid.Column="2"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Center"
                                             FontSize="13"
@@ -287,6 +322,7 @@
                                     <Grid Padding="0,6" ColumnSpacing="8">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" MinWidth="160" />
+                                            <ColumnDefinition Width="160" />
                                             <ColumnDefinition Width="110" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock
@@ -299,6 +335,13 @@
                                             TextTrimming="CharacterEllipsis" />
                                         <TextBlock
                                             Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            FontSize="12"
+                                            Text="{x:Bind SessionDisplay, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{x:Bind SessionDisplay, Mode=OneWay}" />
+                                        <TextBlock
+                                            Grid.Column="2"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Center"
                                             FontSize="12"
@@ -316,6 +359,7 @@
                             Visibility="{x:Bind ViewModel.UnusedVolumes.Count, Mode=OneWay, Converter={StaticResource EmptyToVis}}" />
                     </StackPanel>
                 </Border>
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
 

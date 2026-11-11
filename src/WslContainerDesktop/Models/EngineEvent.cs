@@ -31,6 +31,9 @@ public sealed class EngineEvent
     /// <summary>Gets or sets the actor id.</summary>
     public string ActorId { get; init; } = string.Empty;
 
+    /// <summary>Engine and session captured when this event was read, if available.</summary>
+    public AutomationSessionOwner? SessionOwner { get; internal set; }
+
     /// <summary>Gets or sets the attributes.</summary>
     public IReadOnlyDictionary<string, string> Attributes { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);

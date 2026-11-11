@@ -25,6 +25,39 @@ namespace WslContainerDesktop.Tests.Services;
 /// <summary>Verifies logout outcomes with synthetic engines, settings, and credential metadata.</summary>
 public sealed class RegistryLogoutServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LogoutUsesChosenClientAndRechecksBeforeEachAlias(bool changed)
+    {
+        var fixture = new Fixture();
+        var calls = new List<string>();
+        var checks = 0;
+        var client = NetworkTestProxy.Create<IWslcService>((method, args) =>
+        {
+            if (method.Name != nameof(IWslcService.LogoutRegistryAsync))
+                throw new InvalidOperationException(method.Name);
+            calls.Add((string)args[0]!);
+            return Task.FromResult(Success());
+        });
+        Task Verify(CancellationToken _)
+        {
+            checks++;
+            return changed && checks == 2
+                ? Task.FromException(new InvalidOperationException("Session changed"))
+                : Task.CompletedTask;
+        }
+
+        if (changed)
+            await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service().LogoutAsync("docker.io",
+                sessionClient: client, verifyTarget: Verify));
+        else
+            Assert.Equal(RegistryLogoutStatus.Completed, (await fixture.Service().LogoutAsync("docker.io",
+                sessionClient: client, verifyTarget: Verify)).Status);
+        Assert.Equal(changed ? ["docker.io"] : ["docker.io", "registry-1.docker.io"], calls);
+        Assert.Empty(fixture.LogoutTargets);
+    }
+
     [Fact]
     public async Task AlreadyAbsentLoginIsCompletedOnlyAfterCheckingAllAliases()
     {

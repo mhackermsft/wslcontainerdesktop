@@ -29,7 +29,9 @@ public sealed class DevContainerSupervisor(
     IDevContainerFeatureResolver features,
     ComposeProjectSupervisor composeSupervisor,
     ProcessRunner runner,
-    ILogger<DevContainerSupervisor> logger) : IDevContainerSupervisor
+    ILogger<DevContainerSupervisor> logger,
+    WslcSessionContext? sessionContext = null,
+    Func<CancellationToken, Task>? scopeVerifier = null) : IDevContainerSupervisor
 {
     private readonly SemaphoreSlim _upGate = new(1, 1);
     private readonly Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> _runHostCommandAsync =
@@ -42,8 +44,9 @@ public sealed class DevContainerSupervisor(
     internal DevContainerSupervisor(
         IWslcService wslc, IDevContainerStore store, IDevContainerFeatureResolver features,
         ComposeProjectSupervisor composeSupervisor, ProcessRunner runner, ILogger<DevContainerSupervisor> logger,
-        Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> runHostCommandAsync)
-        : this(wslc, store, features, composeSupervisor, runner, logger)
+        Func<ProcessStartInfo, CancellationToken, Task<CommandResult>> runHostCommandAsync,
+        WslcSessionContext? sessionContext = null, Func<CancellationToken, Task>? scopeVerifier = null)
+        : this(wslc, store, features, composeSupervisor, runner, logger, sessionContext, scopeVerifier)
     {
         _runHostCommandAsync = runHostCommandAsync;
     }
@@ -57,6 +60,7 @@ public sealed class DevContainerSupervisor(
         Func<DevContainerHostCommandReview, CancellationToken, Task<bool>>? approveHostCommandsAsync = null)
     {
         await _upGate.WaitAsync(ct).ConfigureAwait(false);
+        using var selection = sessionContext?.LockSelection();
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -74,6 +78,7 @@ public sealed class DevContainerSupervisor(
                 if (!isApproved)
                     return new(false, "Windows host initializeCommand execution was not approved. No host commands or container changes were made.");
 
+                if (scopeVerifier is not null) await scopeVerifier(ct).ConfigureAwait(false);
                 await RunHostLifecycleAsync(config, hostCommands, ct).ConfigureAwait(false);
             }
             ct.ThrowIfCancellationRequested();
@@ -112,16 +117,10 @@ public sealed class DevContainerSupervisor(
         options.Image = config.EffectiveImage;
         options.Name = ContainerName(config);
         options.Command = "sleep infinity";
+        foreach (var label in Labels(config)) options.Labels[label.Key] = label.Value;
 
         var run = await wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
         AppendLog(config, "run", run);
-        if (!run.Success && IsNameConflict(run))
-        {
-            await wslc.RemoveContainerAsync(options.Name!, force: true, ct).ConfigureAwait(false);
-            run = await wslc.RunContainerAsync(options, ct).ConfigureAwait(false);
-            AppendLog(config, "run retry", run);
-        }
-
         if (!run.Success)
         {
             store.Save(config);
@@ -156,6 +155,7 @@ public sealed class DevContainerSupervisor(
         config.ComposeLifecycleProgress = store.Get(config.Id)?.ComposeLifecycleProgress ?? config.ComposeLifecycleProgress;
         var project = System.Text.Json.JsonSerializer.Deserialize<ComposeProject>(
             System.Text.Json.JsonSerializer.Serialize(compose.Project))!;
+        project.SessionOwner = config.SessionOwner ?? project.SessionOwner;
         var primary = project.Services.FirstOrDefault(s => string.Equals(s.Name, compose.Service, StringComparison.Ordinal));
         if (primary is null)
         {
@@ -375,25 +375,28 @@ public sealed class DevContainerSupervisor(
     /// <summary>Stops the running dev container for the supplied configuration.</summary>
     public async Task StopAsync(DevContainerConfig config, CancellationToken ct = default)
     {
+        using var selection = sessionContext?.LockSelection();
         if (config.Compose is not null)
         {
-            await composeSupervisor.DownAsync(config.Compose.Project.Name, removeVolumes: false, ct).ConfigureAwait(false);
+            await composeSupervisor.DownRequiredAsync(config.Compose.Project.Name, removeVolumes: false, ct).ConfigureAwait(false);
             return;
         }
 
         var container = await FindContainerAsync(config, ct).ConfigureAwait(false);
         if (container is not null)
         {
-            await wslc.StopContainerAsync(container.Id, ct).ConfigureAwait(false);
+            var result = await wslc.StopContainerAsync(container.Id, ct).ConfigureAwait(false);
+            if (!result.Success) throw new InvalidOperationException(Summarize(result));
         }
     }
 
     /// <summary>Stops and removes the dev container associated with the supplied configuration.</summary>
     public async Task RemoveAsync(DevContainerConfig config, CancellationToken ct = default)
     {
+        using var selection = sessionContext?.LockSelection();
         if (config.Compose is not null)
         {
-            await composeSupervisor.DownAsync(config.Compose.Project.Name, removeVolumes: true, ct).ConfigureAwait(false);
+            await composeSupervisor.DownRequiredAsync(config.Compose.Project.Name, removeVolumes: true, ct).ConfigureAwait(false);
             composeSupervisor.CleanStaging(config.Compose.Project.Name);
         }
         else
@@ -401,15 +404,29 @@ public sealed class DevContainerSupervisor(
             await RemoveExistingAsync(config, ct).ConfigureAwait(false);
         }
 
-        store.Delete(config.Id);
+        if (scopeVerifier is not null)
+        {
+            try { await scopeVerifier(ct).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or
+                System.Text.Json.JsonException or System.ComponentModel.Win32Exception or TimeoutException or OperationCanceledException)
+            {
+                throw new InvalidOperationException(UiText.Get("DevContainer_RemovalOutcomeUnknown",
+                    "Removal may have completed, but the session could not be verified. The saved definition was kept; refresh before retrying."), ex);
+            }
+        }
+        if (!store.TryDelete(config))
+            throw new InvalidOperationException(UiText.Get("DevContainer_DefinitionChanged",
+                "Removal may have completed, but the saved Dev Container definition changed and was kept. Refresh before retrying."));
     }
 
     /// <summary>Opens a Windows terminal session attached to the dev container.</summary>
-    public void OpenTerminal(DevContainerConfig config, string containerId)
+    public async Task OpenTerminalAsync(DevContainerConfig config, string containerId, CancellationToken ct = default)
     {
-        _ = RunPostAttachAsync(config, containerId);
+        using var selection = sessionContext?.LockSelection();
+        if (scopeVerifier is not null) await scopeVerifier(ct).ConfigureAwait(false);
         var command = BuildRemoteCommand(config, "exec ${SHELL:-/bin/sh}", allowFailure: true);
         runner.RunInteractive(["exec", "-it", containerId, "sh", "-lc", command]);
+        await RunPostAttachAsync(config, containerId, ct).ConfigureAwait(false);
     }
 
     private async Task RunHostLifecycleAsync(
@@ -418,6 +435,7 @@ public sealed class DevContainerSupervisor(
         foreach (var command in review.Commands)
         {
             ct.ThrowIfCancellationRequested();
+            if (scopeVerifier is not null) await scopeVerifier(ct).ConfigureAwait(false);
             var psi = new ProcessStartInfo
             {
                 FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe"),
@@ -468,19 +486,23 @@ public sealed class DevContainerSupervisor(
         return new DevContainerOperationResult(true, "Lifecycle complete.");
     }
 
-    private async Task RunPostAttachAsync(DevContainerConfig config, string containerId)
+    private async Task RunPostAttachAsync(DevContainerConfig config, string containerId, CancellationToken ct)
     {
+        using var selection = sessionContext?.LockSelection();
         foreach (var command in config.Lifecycle.PostAttach.Where(c => !string.IsNullOrWhiteSpace(c)))
         {
             try
             {
-                var result = await ExecLifecycleAsync(containerId, config, command, CancellationToken.None).ConfigureAwait(false);
+                var result = await ExecLifecycleAsync(containerId, config, command, ct).ConfigureAwait(false);
                 AppendLog(config, "postAttachCommand", result);
                 store.Save(config);
+                if (!result.Success)
+                    throw new InvalidOperationException($"postAttachCommand failed: {Summarize(result)}");
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogDebug(ex, "postAttachCommand failed for {Name}.", config.Name);
+                throw;
             }
         }
     }
@@ -497,38 +519,53 @@ public sealed class DevContainerSupervisor(
         {
             await wslc.StopContainerAsync(container.Id, ct).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Stopping dev container {Name} failed; removing anyway.", config.Name);
         }
 
-        await wslc.RemoveContainerAsync(container.Id, force: true, ct).ConfigureAwait(false);
+        var removed = await wslc.RemoveContainerAsync(container.Id, force: true, ct).ConfigureAwait(false);
+        if (!removed.Success) throw new InvalidOperationException(Summarize(removed));
     }
 
-    private async Task<ContainerInfo?> FindContainerAsync(DevContainerConfig config, CancellationToken ct)
+    private Task<ContainerInfo?> FindContainerAsync(DevContainerConfig config, CancellationToken ct) =>
+        FindOwnedContainerAsync(wslc, config, ct);
+
+    internal static async Task<ContainerInfo?> FindOwnedContainerAsync(IWslcService client, DevContainerConfig config,
+        CancellationToken ct = default)
     {
-        var containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
-        return containers.FirstOrDefault(c => string.Equals(c.Name.TrimStart('/'), ContainerName(config), StringComparison.Ordinal));
+        var service = config.Compose?.Project.Services.FirstOrDefault(item =>
+            string.Equals(item.Name, config.Compose.Service, StringComparison.Ordinal));
+        if (config.Compose is not null && service is null)
+            throw new InvalidOperationException(UiText.Get("DevContainer_IdentityUnavailable",
+                "The dev container's identity could not be verified. No action was started."));
+        var name = service is null ? ContainerName(config) :
+            string.IsNullOrWhiteSpace(service.Options.Name)
+                ? config.Compose!.Project.ContainerNameFor(service.Name) : service.Options.Name.Trim();
+        var containers = await client.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+        var matches = containers.Where(c => string.Equals(c.Name.TrimStart('/'), name,
+            StringComparison.Ordinal)).ToArray();
+        if (matches.Length == 0) return null;
+        if (matches.Length != 1)
+            throw new InvalidOperationException(UiText.Get("DevContainer_IdentityUnavailable",
+                "The dev container's identity could not be verified. No action was started."));
+        var result = await client.InspectContainerAsync(matches[0].Id, ct).ConfigureAwait(false);
+        if (!result.Success)
+            throw new InvalidOperationException(UiText.Get("DevContainer_IdentityUnavailable",
+                "The dev container's identity could not be verified. No action was started."));
+        var inspected = ContainerNetworkState.Parse(result.StandardOutput);
+        if (ContainerIdentity.ResolveId([inspected.Id], matches[0].Id) is null ||
+            (service is null ? !inspected.HasLabel("com.wslcontainerdesktop.devcontainer.id", config.Id) :
+                !inspected.IsOwnedBy(config.Compose!.Project, service)))
+            throw new InvalidOperationException(UiText.Get("DevContainer_IdentityUnavailable",
+                "The dev container's identity could not be verified. No action was started."));
+        return matches[0];
     }
 
     private async Task<ContainerInfo?> FindComposeServiceContainerAsync(DevContainerConfig config, CancellationToken ct)
     {
-        if (config.Compose is null)
-        {
-            return null;
-        }
-
-        var service = config.Compose.Project.Services.FirstOrDefault(s => string.Equals(s.Name, config.Compose.Service, StringComparison.Ordinal));
-        if (service is null)
-        {
-            return null;
-        }
-
-        var name = string.IsNullOrWhiteSpace(service.Options.Name)
-            ? config.Compose.Project.ContainerNameFor(service.Name)
-            : service.Options.Name!.Trim();
-        var containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
-        return containers.FirstOrDefault(c => string.Equals(c.Name.TrimStart('/'), name, StringComparison.Ordinal));
+        return config.Compose is null ? null : await FindOwnedContainerAsync(wslc, config, ct).ConfigureAwait(false);
     }
 
     private async Task<CommandResult> ExecLifecycleAsync(string containerId, DevContainerConfig config, string command, CancellationToken ct)
@@ -610,12 +647,6 @@ public sealed class DevContainerSupervisor(
 
         return text.Contains("failed to calculate checksum", StringComparison.Ordinal)
             && text.Contains(": not found", StringComparison.Ordinal);
-    }
-
-    private static bool IsNameConflict(CommandResult result)
-    {
-        var text = (result.StandardError + "\n" + result.StandardOutput).ToLowerInvariant();
-        return text.Contains("already exists", StringComparison.Ordinal) || text.Contains("name", StringComparison.Ordinal) && text.Contains("conflict", StringComparison.Ordinal);
     }
 
     private static string ShellQuote(string value) => "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";

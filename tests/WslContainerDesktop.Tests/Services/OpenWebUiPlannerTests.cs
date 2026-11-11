@@ -104,13 +104,38 @@ public class OpenWebUiPlannerTests
         Assert.Equal("222222222222", (await fake.Planner.PlanAsync()).ExistingOllamaId);
     }
 
-    /// <summary>Unreadable inventory must not be read as "a runtime exists".</summary>
     [Fact]
-    public async Task InventoryFailure_DeploysBundledStack()
+    public async Task StoppedRuntimeIsReportedInsteadOfLaunchingAnUnusableWebUi()
+    {
+        var fake = new FakeWslc();
+        fake.Containers.Add(new() { Id = "111111111111", Name = "stopped", Image = "ollama/ollama",
+            StateValue = (int)ContainerState.Stopped });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => fake.Planner.PlanAsync());
+
+        Assert.Contains("stopped", error.Message);
+        Assert.Empty(fake.Connections);
+    }
+
+    /// <summary>Unreadable inventory must not be treated as an empty session.</summary>
+    [Fact]
+    public async Task InventoryFailure_StopsBeforeChoosingAStack()
     {
         var fake = new FakeWslc { FailContainers = true };
 
-        Assert.False((await fake.Planner.PlanAsync()).ReusesExistingRuntime);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fake.Planner.PlanAsync());
+    }
+
+    [Fact]
+    public async Task FollowUpUsesTheDeployedContainerAndNetwork()
+    {
+        var fake = new FakeWslc();
+
+        await fake.Planner.AttachExistingAsync("existing-id", networkName: "openwebui-net-2");
+        await fake.Planner.InstallModelAsync("llama3.2:3b", containerId: "new-runtime-id");
+
+        Assert.Equal("openwebui-net-2", Assert.Single(fake.Connections).Attachment.Network);
+        Assert.Equal("new-runtime-id", Assert.Single(fake.Execs).Container);
     }
 
     [Fact]

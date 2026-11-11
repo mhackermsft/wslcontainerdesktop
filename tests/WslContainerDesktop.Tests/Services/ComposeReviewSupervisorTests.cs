@@ -96,6 +96,74 @@ public sealed class ComposeReviewSupervisorTests
     }
 
     [Fact]
+    public async Task ImportOnlyFlagChangesOnlyAfterReviewedApply()
+    {
+        var fixture = new Fixture();
+        fixture.Project.ImportedOnly = true;
+        var declined = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+        Assert.Equal(ComposeReviewOutcomeKind.Cancelled,
+            (await fixture.Supervisor.ApplyReviewedAsync(declined, false)).Kind);
+        Assert.True(fixture.Project.ImportedOnly);
+        Assert.Empty(fixture.SavedSnapshots);
+
+        var approved = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+        Assert.Equal(ComposeReviewOutcomeKind.Applied,
+            (await fixture.Supervisor.ApplyReviewedAsync(approved, true)).Kind);
+        Assert.True(fixture.Project.ImportedOnly);
+        Assert.False(fixture.SavedProject!.ImportedOnly);
+    }
+
+    [Fact]
+    public async Task UnassignedSavedProjectGetsChosenOwnerOnlyAfterApprovedApply()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wcd-compose-assignment-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance, root);
+            var fixture = new Fixture(storeOverride: store);
+            var saved = ComposeProjectSupervisor.SnapshotProject(fixture.Project);
+            saved.SessionOwner = null;
+            store.Save(saved);
+
+            var declined = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+            Assert.Equal(ComposeReviewOutcomeKind.Cancelled,
+                (await fixture.Supervisor.ApplyReviewedAsync(declined, false)).Kind);
+            Assert.Null(store.Get(saved.Name)!.SessionOwner);
+
+            var approved = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+            Assert.Equal(ComposeReviewOutcomeKind.Applied,
+                (await fixture.Supervisor.ApplyReviewedAsync(approved, true)).Kind);
+            Assert.NotNull(store.Get(saved.Name)!.SessionOwner);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public async Task NewProjectReviewCannotOverwriteANameClaimedDuringConfirmation()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wcd-compose-name-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new ComposeProjectStore(NullLogger<ComposeProjectStore>.Instance, root);
+            var fixture = new Fixture(storeOverride: store);
+            var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project, requireNew: true);
+            var other = new ComposeProject
+            {
+                Name = fixture.Project.Name,
+                SessionOwner = AutomationSessionOwner.Capture("wslc", new("other")),
+            };
+            store.Save(other);
+
+            var outcome = await fixture.Supervisor.ApplyReviewedAsync(review, true);
+
+            Assert.Equal(ComposeReviewOutcomeKind.Stale, outcome.Kind);
+            Assert.Empty(fixture.Engine.Mutations);
+            Assert.Equal("other", store.Get(other.Name)!.SessionOwner!.SessionName);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public async Task MissingPresenterAndDeclinedPresenterFailClosed()
     {
         foreach (var presenter in new[] { false, true })
@@ -123,6 +191,75 @@ public sealed class ComposeReviewSupervisorTests
         Assert.Equal(3, fixture.CapabilityInvalidations);
         Assert.Empty(fixture.Engine.Mutations);
         Assert.Empty(fixture.SavedSnapshots);
+    }
+
+    [Fact]
+    public async Task SessionChangeInvalidatesReviewedComposePlanEvenIfSelectionChangesBack()
+    {
+        var context = new WslcSessionContext();
+        context.Select("first");
+        var fixture = new Fixture(sessionContext: context);
+        var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+        context.Select("second");
+        context.Select("first");
+
+        Assert.Equal(ComposePlanValidation.Stale, await fixture.Supervisor.ValidateReviewAsync(review));
+        Assert.Equal(ComposeReviewOutcomeKind.Stale, (await fixture.Supervisor.ApplyReviewedAsync(review, true)).Kind);
+        Assert.Empty(fixture.Engine.Mutations);
+        Assert.Empty(fixture.SavedSnapshots);
+    }
+
+    [Fact]
+    public async Task ComposeReviewPreventsSessionSwitchWhileReadingEvidence()
+    {
+        var context = new WslcSessionContext();
+        context.Select("first");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fixture = new Fixture(sessionContext: context)
+        {
+            BeforeCapabilities = async () =>
+            {
+                started.TrySetResult();
+                await release.Task;
+            },
+        };
+        var review = fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+        await started.Task;
+        Assert.False(context.TrySelect("second"));
+        release.SetResult();
+        await review;
+        Assert.True(context.TrySelect("second"));
+    }
+
+    [Fact]
+    public async Task RecreatedSessionInvalidatesReviewedComposePlan()
+    {
+        var context = new WslcSessionContext();
+        context.Select("first");
+        var fixture = new Fixture(sessionContext: context);
+        var review = await fixture.Supervisor.PrepareReviewAsync(fixture.Project);
+        fixture.Engine.ActiveSessions = [new WslcSessionInfo { ID = 2, CreatorPid = 100, Name = "first" }];
+
+        Assert.Equal(ComposePlanValidation.Stale, await fixture.Supervisor.ValidateReviewAsync(review));
+        Assert.Equal(ComposeReviewOutcomeKind.Stale, (await fixture.Supervisor.ApplyReviewedAsync(review, true)).Kind);
+        Assert.Empty(fixture.Engine.Mutations);
+    }
+
+    [Fact]
+    public async Task SessionReplacementDuringReviewIsRejected()
+    {
+        var context = new WslcSessionContext();
+        context.Select("first");
+        var fixture = new Fixture(sessionContext: context);
+        fixture.BeforeCapabilities = () =>
+        {
+            fixture.Engine.ActiveSessions = [new WslcSessionInfo { ID = 2, CreatorPid = 100, Name = "first" }];
+            return Task.CompletedTask;
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Supervisor.PrepareReviewAsync(fixture.Project));
+        Assert.Empty(fixture.Engine.Mutations);
     }
 
     [Theory]

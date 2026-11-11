@@ -22,6 +22,7 @@ namespace WslContainerDesktop.Tests.Services;
 /// <summary>
 /// Checks Compose network subnet, gateway and IP-range validation before settings become engine arguments.
 /// </summary>
+[Collection("UiText")]
 public sealed class NetworkAddressingTests
 {
     [Theory]

@@ -34,11 +34,8 @@ public sealed class ActivityLog : IActivityLog
 {
     private const int MaxEvents = 500;
 
-    private static readonly string SettingsDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "WslContainerDesktop");
-
-    private static readonly string ActivityFile = Path.Combine(SettingsDirectory, "activity.json");
+    private readonly string _settingsDirectory;
+    private readonly string _activityFile;
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -49,11 +46,13 @@ public sealed class ActivityLog : IActivityLog
     private readonly StatusMonitor _monitor;
     private readonly IEngineEventStream _events;
     private readonly ILogger<ActivityLog> _logger;
+    private readonly WslcSessionContext _sessionContext;
 
     // Baseline for snapshot diffing: last-seen state per container id, and last engine health.
     private readonly Dictionary<string, ContainerState> _lastContainerStates = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _lastContainerNames = new(StringComparer.Ordinal);
     private EngineHealth? _lastHealth;
+    private AutomationSessionOwner? _lastOwner;
     private bool _attached;
     private bool _seeded;
 
@@ -65,11 +64,22 @@ public sealed class ActivityLog : IActivityLog
     /// <summary>
     /// Initializes a new <c>ActivityLog</c> with the collaborators it needs from dependency injection.
     /// </summary>
-    public ActivityLog(StatusMonitor monitor, IEngineEventStream events, ILogger<ActivityLog> logger)
+    public ActivityLog(StatusMonitor monitor, IEngineEventStream events, ILogger<ActivityLog> logger,
+        WslcSessionContext sessionContext)
+        : this(monitor, events, logger, sessionContext, Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WslContainerDesktop"))
+    {
+    }
+
+    internal ActivityLog(StatusMonitor monitor, IEngineEventStream events, ILogger<ActivityLog> logger,
+        WslcSessionContext sessionContext, string settingsDirectory)
     {
         _monitor = monitor;
         _events = events;
         _logger = logger;
+        _sessionContext = sessionContext;
+        _settingsDirectory = settingsDirectory;
+        _activityFile = Path.Combine(settingsDirectory, "activity.json");
         Load();
     }
 
@@ -86,6 +96,8 @@ public sealed class ActivityLog : IActivityLog
         _attached = true;
         _monitor.StatusChanged += OnStatusChanged;
         _events.EventReceived += OnEngineEventReceived;
+        _sessionContext.SelectionChanged += OnSessionChanged;
+        _sessionContext.EngineSettingChanged += OnSessionChanged;
 
         // Seed the baseline from the latest snapshot (if any) without emitting events, so the
         // first real transition after launch is what surfaces rather than a burst of "started".
@@ -128,29 +140,14 @@ public sealed class ActivityLog : IActivityLog
 
     private void RecordOnDispatcher(ActivityEvent evt)
     {
-        // Keep the list newest-first by event time, not arrival time: the Activity page back-fills
-        // the last hour and the live stream replays after a reconnect, so older events can arrive
-        // after newer ones. Ordinary live events still go to index 0.
-        var index = ActivityEvent.NewestFirstInsertIndex(Events, evt.Timestamp);
-
-        if (index >= MaxEvents)
-        {
-            return; // Older than everything retained in a full log.
-        }
-
-        Events.Insert(index, evt);
-        while (Events.Count > MaxEvents)
-        {
-            Events.RemoveAt(Events.Count - 1);
-        }
-
-        Persist();
+        if (ActivityEventBatch.Insert(Events, evt, MaxEvents))
+            Persist();
     }
 
     /// <summary>
     /// Adds an activity entry for an image pull.
     /// </summary>
-    public void RecordImagePull(string reference, bool success, string? error = null)
+    public void RecordImagePull(string reference, bool success, string? error = null, AutomationSessionOwner? owner = null)
     {
         var name = string.IsNullOrWhiteSpace(reference) ? "image" : reference.Trim();
         Record(new ActivityEvent
@@ -160,13 +157,14 @@ public sealed class ActivityLog : IActivityLog
             Title = success ? $"Pulled {name}" : $"Pull failed: {name}",
             Detail = success ? null : Trim(error),
             IsError = !success,
+            SessionOwner = owner,
         });
     }
 
     /// <summary>
     /// Adds an activity entry for an image build.
     /// </summary>
-    public void RecordImageBuild(string tag, bool success, string? error = null)
+    public void RecordImageBuild(string tag, bool success, string? error = null, AutomationSessionOwner? owner = null)
     {
         var name = string.IsNullOrWhiteSpace(tag) ? "image" : tag.Trim();
         Record(new ActivityEvent
@@ -176,6 +174,7 @@ public sealed class ActivityLog : IActivityLog
             Title = success ? $"Built {name}" : $"Build failed: {name}",
             Detail = success ? null : Trim(error),
             IsError = !success,
+            SessionOwner = owner,
         });
     }
 
@@ -184,23 +183,29 @@ public sealed class ActivityLog : IActivityLog
     /// </summary>
     public void RecordEngineEvent(EngineEvent evt)
     {
-        if (evt is null || Events.Any(e => string.Equals(e.SourceEventKey, evt.StableKey, StringComparison.Ordinal)))
+        if (evt is not null)
+            RecordEngineEvents([evt]);
+    }
+
+    /// <summary>Records multiple session-qualified engine events with one persistence operation.</summary>
+    public void RecordEngineEvents(IReadOnlyList<EngineEvent> events)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+        var dispatcher = _monitor.Dispatcher;
+        if (dispatcher is not null && !dispatcher.HasThreadAccess)
         {
+            var snapshot = events.ToArray();
+            if (!dispatcher.TryEnqueue(() => RecordEngineEventsOnDispatcher(snapshot)))
+                _logger.LogDebug("Activity events dropped: the UI dispatcher is no longer accepting work.");
             return;
         }
+        RecordEngineEventsOnDispatcher(events);
+    }
 
-        // WSL 3.0.2+ reports one user stop as both "die" (with the exit code) and "stop"; keep only the die.
-        if (EngineEventActivity.IsRedundantStop(evt, Events))
-        {
-            return;
-        }
-
-        if (EngineEventActivity.FindSupersededStop(evt, Events) is { } supersededStop)
-        {
-            Events.Remove(supersededStop);
-        }
-
-        Record(EngineEventActivity.ToActivityEvent(evt));
+    private void RecordEngineEventsOnDispatcher(IReadOnlyList<EngineEvent> events)
+    {
+        if (ActivityEventBatch.Apply(Events, events, MaxEvents))
+            Persist();
     }
 
     /// <summary>
@@ -213,6 +218,24 @@ public sealed class ActivityLog : IActivityLog
     }
 
     private void OnEngineEventReceived(object? sender, EngineEvent e) => RecordEngineEvent(e);
+
+    private void OnSessionChanged(object? sender, EventArgs e)
+    {
+        void ClearBaseline()
+        {
+            _seeded = false;
+            _lastHealth = null;
+            _lastOwner = null;
+            _lastContainerStates.Clear();
+            _lastContainerNames.Clear();
+        }
+
+        var dispatcher = _monitor.Dispatcher;
+        if (dispatcher is null || dispatcher.HasThreadAccess)
+            ClearBaseline();
+        else if (!dispatcher.TryEnqueue(ClearBaseline))
+            _logger.LogDebug("Could not clear activity baseline because the UI dispatcher is unavailable.");
+    }
 
     private void OnStatusChanged(object? sender, EngineStatusSnapshot snapshot)
     {
@@ -228,6 +251,9 @@ public sealed class ActivityLog : IActivityLog
             }
 
             var changed = false;
+            var owner = OwnerFor(snapshot);
+            if (owner is not null)
+                _lastOwner = owner;
 
             // Engine up/down transitions. Treat healthy/degraded as "up".
             var isUp = snapshot.Health is EngineHealth.Healthy or EngineHealth.Degraded;
@@ -236,12 +262,13 @@ public sealed class ActivityLog : IActivityLog
                 var wasUp = prevHealth is EngineHealth.Healthy or EngineHealth.Degraded;
                 if (wasUp && snapshot.Health == EngineHealth.Down)
                 {
-                    Events.Insert(0, EngineEvent(ActivityKind.EngineDown, "Engine became unreachable", isError: true));
+                    Events.Insert(0, EngineEvent(ActivityKind.EngineDown,
+                        "Default CLI session became unreachable", _lastOwner, isError: true));
                     changed = true;
                 }
                 else if (prevHealth == EngineHealth.Down && isUp)
                 {
-                    Events.Insert(0, EngineEvent(ActivityKind.EngineUp, "Engine is running"));
+                    Events.Insert(0, EngineEvent(ActivityKind.EngineUp, "Default CLI session is reachable", _lastOwner));
                     changed = true;
                 }
             }
@@ -252,7 +279,7 @@ public sealed class ActivityLog : IActivityLog
             // report every container as removed then re-created.
             if (isUp)
             {
-                changed |= DiffContainers(snapshot.Containers, emitEvents: !_events.IsConnected);
+                changed |= DiffContainers(snapshot.Containers, _lastOwner, emitEvents: !_events.IsConnected);
             }
             // While the engine is down we neither diff nor clear the baseline. Keeping the
             // last-known container states means the first healthy snapshot after recovery is
@@ -275,7 +302,7 @@ public sealed class ActivityLog : IActivityLog
         }
     }
 
-    private bool DiffContainers(IReadOnlyList<ContainerInfo> containers, bool emitEvents)
+    private bool DiffContainers(IReadOnlyList<ContainerInfo> containers, AutomationSessionOwner? owner, bool emitEvents)
     {
         var changed = false;
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -298,7 +325,7 @@ public sealed class ActivityLog : IActivityLog
                 {
                     var kind = c.State == ContainerState.Running ? ActivityKind.ContainerStarted : ActivityKind.ContainerCreated;
                     var verb = kind == ActivityKind.ContainerStarted ? "started" : "created";
-                    Events.Insert(0, ContainerEvent(kind, $"{name} {verb}", c.ShortId));
+                    Events.Insert(0, ContainerEvent(kind, $"{name} {verb}", c.Id, c.ShortId, owner));
                     changed = true;
                 }
             }
@@ -308,7 +335,7 @@ public sealed class ActivityLog : IActivityLog
                 {
                     if (emitEvents)
                     {
-                        Events.Insert(0, ContainerEvent(ActivityKind.ContainerStarted, $"{name} started", c.ShortId));
+                        Events.Insert(0, ContainerEvent(ActivityKind.ContainerStarted, $"{name} started", c.Id, c.ShortId, owner));
                         changed = true;
                     }
                 }
@@ -316,7 +343,7 @@ public sealed class ActivityLog : IActivityLog
                 {
                     if (emitEvents)
                     {
-                        Events.Insert(0, ContainerEvent(ActivityKind.ContainerStopped, $"{name} stopped", c.ShortId));
+                        Events.Insert(0, ContainerEvent(ActivityKind.ContainerStopped, $"{name} stopped", c.Id, c.ShortId, owner));
                         changed = true;
                     }
                 }
@@ -332,7 +359,7 @@ public sealed class ActivityLog : IActivityLog
             var shortId = id.Length > 12 ? id[..12] : id;
             if (emitEvents)
             {
-                Events.Insert(0, ContainerEvent(ActivityKind.ContainerRemoved, $"{name} removed", shortId));
+                Events.Insert(0, ContainerEvent(ActivityKind.ContainerRemoved, $"{name} removed", id, shortId, owner));
                 changed = true;
             }
 
@@ -346,6 +373,7 @@ public sealed class ActivityLog : IActivityLog
     private void SeedBaseline(EngineStatusSnapshot snapshot)
     {
         _lastHealth = snapshot.Health;
+        _lastOwner = OwnerFor(snapshot);
         _lastContainerStates.Clear();
         _lastContainerNames.Clear();
         if (snapshot.Health is EngineHealth.Healthy or EngineHealth.Degraded)
@@ -363,20 +391,33 @@ public sealed class ActivityLog : IActivityLog
         }
     }
 
-    private static ActivityEvent EngineEvent(ActivityKind kind, string title, bool isError = false) => new()
+    private AutomationSessionOwner? OwnerFor(EngineStatusSnapshot snapshot)
+    {
+        if (snapshot.Session is null || string.IsNullOrWhiteSpace(snapshot.ExecutablePath))
+            return null;
+        var target = _sessionContext.Capture();
+        var name = target.Name ?? WslcSessionActionGuard.ResolveDefaultSessionName();
+        return string.Equals(name, snapshot.Session.Name, StringComparison.Ordinal)
+            ? AutomationSessionOwner.Capture(snapshot.ExecutablePath, target) : null;
+    }
+
+    private static ActivityEvent EngineEvent(ActivityKind kind, string title, AutomationSessionOwner? owner, bool isError = false) => new()
     {
         Category = ActivityCategory.Engine,
         Kind = kind,
         Title = title,
+        SessionOwner = owner,
         IsError = isError,
     };
 
-    private static ActivityEvent ContainerEvent(ActivityKind kind, string title, string shortId) => new()
+    private static ActivityEvent ContainerEvent(ActivityKind kind, string title, string id, string shortId, AutomationSessionOwner? owner) => new()
     {
         Category = ActivityCategory.Container,
         Kind = kind,
         Title = title,
         Detail = shortId,
+        ContainerId = id,
+        SessionOwner = owner,
     };
 
     private static string? Trim(string? text)
@@ -394,12 +435,12 @@ public sealed class ActivityLog : IActivityLog
     {
         try
         {
-            if (!File.Exists(ActivityFile))
+            if (!File.Exists(_activityFile))
             {
                 return;
             }
 
-            var json = File.ReadAllText(ActivityFile);
+            var json = File.ReadAllText(_activityFile);
             var loaded = JsonSerializer.Deserialize<List<ActivityEvent>>(json, SerializerOptions);
             if (loaded is null)
             {
@@ -415,7 +456,7 @@ public sealed class ActivityLog : IActivityLog
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load activity log from {Path}; starting empty.", ActivityFile);
+            _logger.LogWarning(ex, "Failed to load activity log from {Path}; starting empty.", _activityFile);
         }
     }
 
@@ -423,13 +464,13 @@ public sealed class ActivityLog : IActivityLog
     {
         try
         {
-            Directory.CreateDirectory(SettingsDirectory);
+            Directory.CreateDirectory(_settingsDirectory);
             var json = JsonSerializer.Serialize(Events.ToList(), SerializerOptions);
-            File.WriteAllText(ActivityFile, json);
+            File.WriteAllText(_activityFile, json);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to save activity log to {Path}.", ActivityFile);
+            _logger.LogWarning(ex, "Failed to save activity log to {Path}.", _activityFile);
         }
     }
 }

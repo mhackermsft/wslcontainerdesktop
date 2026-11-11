@@ -60,21 +60,13 @@ public sealed class DeploymentConflictResolver(IWslcService wslc)
     /// published host ports come straight from the YAML. Both would collide with the first
     /// deployment, so both are adjusted here when the project has to move.
     /// </summary>
-    public async Task<DeploymentAdjustment> ResolveProjectAsync(ComposeProject project, CancellationToken ct = default)
+    public async Task<DeploymentAdjustment> ResolveProjectAsync(ComposeProject project, CancellationToken ct = default,
+        IReadOnlyCollection<string>? reservedNames = null)
     {
         ArgumentNullException.ThrowIfNull(project);
 
-        IReadOnlyList<ContainerInfo> containers;
-        IReadOnlyList<NetworkInfo> networks;
-        try
-        {
-            containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
-            networks = await wslc.ListNetworksAsync(ct).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return new(project.Name, project.Name, []);
-        }
+        var containers = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
+        var networks = await wslc.ListNetworksAsync(ct).ConfigureAwait(false);
 
         var originalName = project.Name;
         var notes = new List<string>();
@@ -88,8 +80,12 @@ public sealed class DeploymentConflictResolver(IWslcService wslc)
         var pinned = new HashSet<string>(
             project.Services.Select(s => (s.Options.Name ?? string.Empty).Trim()).Where(n => n.Length > 0),
             StringComparer.OrdinalIgnoreCase);
+        var savedNames = new HashSet<string>(reservedNames ?? [], StringComparer.OrdinalIgnoreCase);
+        var takenNetworks = new HashSet<string>(
+            networks.Select(n => n.Name).Where(n => !string.IsNullOrWhiteSpace(n)), StringComparer.OrdinalIgnoreCase);
 
         bool ProjectTaken(string candidate) =>
+            savedNames.Contains(candidate) ||
             names.Any(n => n.StartsWith(candidate + "_", StringComparison.OrdinalIgnoreCase));
 
         var suffix = 0;
@@ -100,14 +96,20 @@ public sealed class DeploymentConflictResolver(IWslcService wslc)
         {
             for (var i = 2; i < MaxAttempts; i++)
             {
-                if (!ProjectTaken($"{project.Name}-{i}"))
+                if (!ProjectTaken($"{project.Name}-{i}") &&
+                    pinned.All(name => !names.Contains($"{name}-{i}", StringComparer.OrdinalIgnoreCase)) &&
+                    project.Networks.Where(network => !network.External && !string.IsNullOrWhiteSpace(network.ExplicitName) &&
+                            takenNetworks.Contains(network.ExplicitName!))
+                        .All(network => !takenNetworks.Contains($"{network.ExplicitName}-{i}")))
                 {
                     suffix = i;
                     break;
                 }
             }
 
-            suffix = suffix == 0 ? MaxAttempts : suffix;
+            if (suffix == 0)
+                throw new InvalidOperationException(UiText.Get("Deployment_NoAvailableName",
+                    "No available deployment name could be found. Nothing was started."));
             var renamed = $"{project.Name}-{suffix}";
             notes.Add($"named \"{renamed}\" because \"{project.Name}\" is already deployed");
             project.Name = renamed;
@@ -127,8 +129,6 @@ public sealed class DeploymentConflictResolver(IWslcService wslc)
                 notes.Add($"container \"{renamed}\"");
             }
 
-            var takenNetworks = new HashSet<string>(
-                networks.Select(n => n.Name).Where(n => !string.IsNullOrWhiteSpace(n)), StringComparer.OrdinalIgnoreCase);
             foreach (var network in project.Networks.Where(n => !n.External && !string.IsNullOrWhiteSpace(n.ExplicitName)))
             {
                 if (!takenNetworks.Contains(network.ExplicitName!))
@@ -156,17 +156,7 @@ public sealed class DeploymentConflictResolver(IWslcService wslc)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        IReadOnlyList<ContainerInfo> inventory;
-        try
-        {
-            inventory = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Without inventory we cannot tell what would clash. Deploy exactly as asked and let the
-            // engine reject a genuine conflict, rather than inventing names from a guess.
-            return new(options.Name, options.Name, []);
-        }
+        var inventory = await wslc.ListContainersAsync(all: true, ct).ConfigureAwait(false);
 
         var takenNames = new HashSet<string>(
             inventory.Select(c => Normalize(c.Name)).Where(n => n.Length > 0), StringComparer.OrdinalIgnoreCase);
@@ -252,7 +242,8 @@ public sealed class DeploymentConflictResolver(IWslcService wslc)
                 return i;
         }
 
-        return MaxAttempts;
+        throw new InvalidOperationException(UiText.Get("Deployment_NoAvailableName",
+            "No available deployment name could be found. Nothing was started."));
     }
 
     private static int? NextFreePort(int start, HashSet<int> taken)

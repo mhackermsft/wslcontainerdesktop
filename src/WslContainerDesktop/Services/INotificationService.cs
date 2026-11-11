@@ -30,6 +30,33 @@ public sealed class NotificationActivation
 
     /// <summary>Optional target identifier (e.g. a container id) for the action.</summary>
     public string? TargetId { get; init; }
+
+    /// <summary>Session and engine that produced a container notification, when recorded.</summary>
+    public WslContainerDesktop.Models.AutomationSessionOwner? SessionOwner { get; init; }
+
+    internal static NotificationActivation FromArguments(IDictionary<string, string>? arguments)
+    {
+        string? Get(string key) => arguments is not null && arguments.TryGetValue(key, out var value) ? value : null;
+        return new NotificationActivation
+        {
+            Page = Get("page"),
+            Action = Get("action"),
+            TargetId = Get("id"),
+            SessionOwner = ParseOwner(Get("engine"), Get("session-kind"), Get("session-name")),
+        };
+    }
+
+    internal static WslContainerDesktop.Models.AutomationSessionOwner? ParseOwner(
+        string? executable, string? kind, string? name)
+    {
+        if (string.IsNullOrWhiteSpace(executable))
+            return null;
+        if (kind == "default" && string.IsNullOrEmpty(name))
+            return new() { ExecutablePath = executable };
+        if (kind == "named" && !string.IsNullOrWhiteSpace(name))
+            return new() { ExecutablePath = executable, SessionName = name };
+        return null;
+    }
 }
 
 /// <summary>
@@ -48,6 +75,9 @@ public interface INotificationService
     /// <summary>Raised (on the UI thread) when the user activates a toast.</summary>
     event EventHandler<NotificationActivation>? ActivationRequested;
 
+    /// <summary>Whether app and Windows settings currently allow notifications.</summary>
+    bool CanShowNotifications { get; }
+
     /// <summary>Toast for an image pull that finished or failed.</summary>
     void NotifyImagePull(string reference, bool success, string? error = null);
 
@@ -55,7 +85,8 @@ public interface INotificationService
     void NotifyImageBuild(string tag, bool success, string? error = null);
 
     /// <summary>Toast for a container that exited/crashed unexpectedly.</summary>
-    void NotifyContainerExited(string containerName, string containerId);
+    void NotifyContainerExited(string containerName, string containerId,
+        WslContainerDesktop.Models.AutomationSessionOwner owner);
 
     /// <summary>Toast for the engine becoming unavailable.</summary>
     void NotifyEngineDown();
@@ -68,4 +99,7 @@ public interface INotificationService
     /// <c>update</c>; <paramref name="canInstall"/> false offers the release page instead.
     /// </summary>
     void NotifyUpdateAvailable(string version, bool canInstall);
+
+    /// <summary>Alerts the person that an automatic action needs configuration or attention.</summary>
+    void NotifyAutomationActionRequired();
 }

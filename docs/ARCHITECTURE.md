@@ -551,12 +551,11 @@ The Registries page shows the current allowlist or invalid-policy banner.
 `WslcService.GetSystemInfoAsync` runs `wslc system info --format json` without session scoping and
 deserializes the client and server model (`WslcSystemInfo`): client/version/platform fields,
 `Client.SettingsFile`, server session-manager version and active sessions. The WSL Engine page
-uses those active session names to populate the session selector. `WslcSessionContext` carries
-the user's selected session to `ProcessRunner`, which prepends `--session <name>` to resource
-commands; version, settings and system-info diagnostics remain unscoped. The long-lived
-`EngineEventStream` and native copy commands apply the same selection. The default CLI session
-remains the initial choice. Storage-path changes still target and, when requested, restart the
-default CLI session explicitly, independent of the selected runtime session. `AiDiagnosticsService`
+uses the active sessions to populate its session list and per-action choices. Scoped
+`ProcessRunner` instances prepend `--session <name>` for explicitly captured targets; version,
+settings and system-info diagnostics remain unscoped. The background `EngineEventStream` follows
+the Default CLI session. Storage-path changes explicitly target and, when requested, restart the
+Default CLI session. `AiDiagnosticsService`
 adds the sanitized model to diagnosis evidence,
 and the assistant tool catalog exposes the same read-only data as `engine_system_info`;
 `WslcSystemInfo.Sanitized` replaces the user's profile prefix in `SettingsFile` with
@@ -577,6 +576,358 @@ the copy-on-write behavior needed for safe in-place AppData edits, so direct edi
 there. When direct edit is unavailable, the WSL Engine page falls back to **Edit settings file**
 (`wslc settings`) and displays the reason. Storage size is estimated by scanning `.vhdx`/`.vhd`
 files under the effective storage path; it is presentation data, not prune authorization.
+
+### Combined WSLC session view
+
+The existing resource pages show **active** sessions returned by `system info` together; this is
+not a merged engine namespace. Opening or explicitly refreshing a resource page discovers and loads
+all active sessions.
+`WslcSessionInventoryReader` uses a fixed executable and a named session for every read, limits
+concurrent sessions, applies timeouts, retains per-resource failures, and compares session ID,
+creator PID and name before and after the observation. `WslcCombinedInventory` keeps every resource
+qualified by its owner and marks unknown ports and incomplete totals rather than treating failure
+as an empty list. Viewing a session does not change `WslcSessionContext` or enroll workloads in
+background management. WSLC session names are compared case-sensitively;
+names that differ only by case are not merged or treated as the same management target.
+Changing the configured executable clears the combined discovery and loaded rows. Actions reject
+rows no longer in the displayed snapshot and hold the engine path stable through confirmation,
+execution, and follow-up refresh.
+
+The WSLC [3.0.1 session tasks](https://github.com/microsoft/WSL/blob/3.0.1/src/windows/wslc/tasks/SessionTasks.cpp)
+resolve an explicitly named session with `OpenSessionByName`; only the unscoped default path uses
+open-or-create. The [session manager](https://github.com/microsoft/WSL/blob/3.0.1/src/windows/service/exe/WSLCSessionManager.cpp)
+returns an error when the named session is absent. An active session is not necessarily a running
+VM: the [session runtime](https://github.com/microsoft/WSL/blob/3.0.1/src/windows/wslcsession/WSLCSessionRuntime.cpp)
+can start an idle VM for an inventory lease. Resource-page inventories are loaded on demand, while
+the shared status monitor observes the sessions needed for automatic actions in the background.
+The UI warns that either kind of observation can wake an idle session.
+
+Resource grids keep their authoritative inventories separate from a filtered and sorted
+presentation projection. The projection preserves row instances and batches inventory updates;
+table headings and a filter-and-sort flyout in each action bar share the same sort state. The
+button indicates an active filter, and no-match text remains visible outside the flyout. Container
+sorting applies within each Compose or Standalone group. Selection is restored for still-visible
+rows after reordering, and bulk actions exclude anything hidden by the current filter.
+
+The dashboard refreshes container inventory about every 15 seconds while visible, reusing the last
+complete image/volume/network inventory for up to a minute. A newly discovered generation forces a
+full inventory; incomplete metadata is never reused as a successful empty result. Explicit refresh
+always reads the full inventory. Navigation can reuse a complete full inventory up to 15 seconds old,
+but action-time identity validation is never cached. Partial refreshes retain the metadata's older
+observation timestamp rather than making its age look newer. Engine version is read at most once
+per five minutes during automatic polling, and immediately on executable changes or manual refresh.
+Unchanged image/volume/network projections retain their wrappers and do not notify hidden resource
+pages to rebuild their lists on a container-only update. Session changes and selection changes still
+remove resources whose owners are no longer in scope.
+Session-bound live statistics run between inventory refreshes with a post-batch delay of
+`clamp(reportingSessions, 2, 5)` seconds, or 15 seconds for an empty dashboard.
+Reads use bounded concurrency, verify
+the session generations before and after the statistics calls, and retain separate rows even when
+different sessions report the same container ID. Missing or failed observations remain visible
+as incomplete instead of becoming zero. Identical, fully identified running containers retain their
+last sample and its timestamp across inventory refreshes; changed or unknown generations invalidate
+the sample. The performance table remains available while navigation is expanded, with horizontal
+scrolling if required. Hiding or unloading the dashboard cancels its inventory-refresh consumer.
+The combined refresh cancels discovery and resource reads when its last consumer leaves; a
+refresh still needed by another page continues. These UI-only reads can wake idle
+session VMs. Combined container CPU is a sum of reported percentages, not host utilization.
+Statistics batches, their concurrency queue, GPU probes and the polling delay also cancel on
+visibility loss. The loop waits on the visibility event without a hidden-window polling timer,
+then refreshes inventory before resuming statistics. Cancelled GPU checks remain eligible for retry.
+
+The status monitor separates startup-history-only sessions from sessions with configured supervision
+or an active operation demand. The shell's aggregate status consumes those observations, selected
+session snapshots and completed combined-page inventories. `SessionStatusTracker` retains only
+session generation, counts, classification and timestamp, pruning removed sessions on successful
+discovery and discarding older updates. Observations over 90 seconds old become unknown, never
+healthy or empty. Saved stopped sessions are neutral; restore/cleanup failures need attention.
+Summary/details recompute on existing events and when opened, with no added poller or commands.
+The popup and tooltip share localized text, refreshed in place on language changes.
+
+The status monitor separates startup-history-only sessions from sessions with configured supervision
+or an active operation demand. Startup-only container lists use batches of at most two with before/after
+session-generation validation, publishing each completed batch without waiting for all sessions.
+Their total budget is five seconds after supervised work, with a two-second listing timeout.
+The cursor advances past attempted sessions, including a timed-out batch, so slow sessions cannot
+starve later ones. Each observation is timestamped when its list starts, not when the sweep starts.
+This trades extra generation discoveries (two per pair) for bounded delays and fresher publication.
+Startup history still runs while hidden, but a slow or deferred session can miss short-lived states.
+These sessions retain only lightweight availability timestamps in the coordinator, not health/restart
+workers, container lists or Compose scopes. Workers are disposed when supervision demand disappears.
+Supervised observations retain their existing health enrichment and are always scheduled first.
+
+Containers-page GPU, network, size and navigation reads link to the page and window visibility.
+GPU/network enrichment starts only for rows intersecting the effective list viewport and skips hidden
+windows. A UI-thread pump creates at most four active tasks, with no task or visibility subscription
+per queued row. Scrolling away cancels that row's work; failed checks retry on a subsequent inventory
+or visibility update rather than spinning. In-flight probes are deduplicated per row.
+GPU display results are shared by the singleton
+session-action service, capped at 256 entries and five minutes; keys include executable, session
+generation, container identity and known state-change timestamp. Unknown state-change timestamps
+are not cached. Explicit refresh and lifecycle actions invalidate applicable GPU entries.
+The cache is display-only, never an authorization or mutation shortcut. Size scans run only on explicit
+Refresh; navigation and visibility return retain any previously known size without scanning sessions.
+Dashboard row and sample matching use identity-indexed lookups, retaining duplicate rejection and
+case-sensitive session identities without repeatedly scanning the full inventory per row.
+These reductions avoid repeated process launches and parsing rather than
+adding another background poller.
+
+Live container updates carry the observed executable and full session generation. A different
+generation with the same name invalidates the previously loaded resources instead of relabeling
+the replacement's containers with an old session identity; an explicit refresh loads the new owner.
+
+Container and resource actions capture the session and resource identity and re-read the session
+and resource immediately before acting. Volume removal confirms the currently observed creation timestamp and revalidates it
+after confirmation; the volume may have changed before that observation. Session ID and creator
+PID can be reused after a service restart, and WSLC's CLI opens by name rather than by a generation
+handle, so the final check and mutation cannot be made atomic. Failures or cancelled mutations are
+not retried automatically; refresh before retrying. Run/import, image pull/build/load, resource
+creation and pruning, cleanup, registry actions, local AI setup, and template launches use the sole
+active session automatically and ask when multiple sessions are active. New workloads can start Default CLI when none are active;
+cleanup and sign-out require an active session and do not start one before confirmation. A saved-only
+Compose import does not start a dormant session. Running an image from a resource row instead uses
+that row's owner. These actions capture and revalidate the destination generation; there is no
+user-selected global management session. The background engine monitor and event stream continue
+to follow the Default CLI session, explicitly labeled in the shell and WSL engine page. The
+dashboard counts all observed active sessions. Executable-path changes are blocked while guarded
+operations are in progress. Opening a combined endpoint also rechecks the running container and
+its published port; the check and browser launch cannot be atomic. New stopped-container
+notifications and engine activity events carry their originating engine and session, and navigation
+refreshes and validates that session. Older records without
+ownership route to the list and ask the user to choose instead of guessing which container's logs
+to show. Activity reads up to one hour of events from each active session on page entry and refreshes
+incrementally while visible, with bounded concurrency, session-generation verification and explicit
+partial-failure reporting. Inactive sessions and older gaps may not appear. These UI-only reads can
+wake idle sessions and stop when the page is left or the window is not viewable. Event
+deduplication is scoped to the owner.
+Event batches are applied and persisted together so loading history from several sessions does not
+rewrite the activity file once per event. Image pull and build outcomes retain their chosen session.
+
+The normal `StatusMonitor` remains the single background health poller. Port caches are keyed by
+executable and session, and `EngineEventStream` discards stale events after its scope changes.
+Changing the engine path also invalidates observations without starting an immediate poll on each
+edit. Dev Container and selected-session operations hold a selection lease while their scoped
+clients retain and revalidate their captured session generation. Compose reviews reject execution
+if their captured selection changes before approval.
+Assistant operations choose a destination before preparing approval, use the saved owner for Compose
+lifecycle actions, and revalidate the generation immediately before execution. An inactive session
+must be started separately before the assistant operation is requested again. Dev Container
+definitions store their owner; legacy unassigned definitions select one before use, and existing
+single containers require matching ownership labels.
+Registry definitions load without a session prompt; removing a definition only removes the shared
+list entry and leaves credentials unchanged. Explicit status checks and sign-in/sign-out choose a
+session locally, but their credential backend can be shared across sessions. Compose status reads each project's active owner and does not start the
+Default CLI session merely to display another session's projects.
+Local AI presence is read across active sessions when Settings opens; this can wake idle sessions.
+Removing a runtime preserves the selected provider because its endpoint may belong to another
+session or an external runtime; capability observation is invalidated and refreshed.
+Reclaim Space discovers and scans active session generations with bounded concurrency, labels
+partial results, and shows session-qualified rows. Cleanup scans the chosen active session before
+confirmation and pins subsequent pruning to that generation, refusing cleanup when its scan
+predates a session or engine-path change; afterward the combined view is refreshed. Images,
+Volumes and Networks bind rows to session generations and
+reject stale rows; network and volume usage probes are cancelled on navigation. Container rows
+retain their owning session; selection changes stop their log and stats streams, clear detail state,
+and invalidate staged preview identities. File previews are partitioned by engine, session,
+container, and source path. Image push refuses a destination tag already owned by another local
+image; checks and CLI mutations cannot be atomic if another client changes that tag concurrently.
+
+**App-created sessions.** `ManagedSessionService` owns SDK handles and saves definitions in an
+atomic `ManagedSessionStore` under `LocalCacheFolder`, so WSLC can access their GUID-named storage.
+Definitions restore before automatic-start restoration. Session generations include the SDK
+creator PID and are revalidated before stopping; an external replacement is never adopted.
+Deletion intent is persisted before removing app-owned storage and remains retryable on failure;
+external storage is never deleted. Keeping data forgets the definition but displays the retained
+path. Missing previously initialized storage is reported, not recreated as an empty session.
+The package's local data may be removed on uninstall. WSL does not offer a session rename API.
+
+**Automatic-action ownership.** Health checks, restart rules, Compose projects and automatic-start
+history are qualified by executable and case-sensitive session name. Legacy entries without a
+valid owner remain paused until explicitly assigned on the WSL Engine page. Legacy policy choices
+are persisted against fingerprints in a separate atomic store; changed policies need a new choice.
+`StatusMonitor` supplies bounded, incrementally published per-session container observations to
+`SessionAutomationCoordinator`; it remains the only inventory scheduler. A slow or failed session
+does not discard successful observations from other sessions or hold up the selected-session poll.
+Per-session watchdogs and Compose recovery run for every available owning session. They pause on
+failure or stale observations and revalidate the session generation before mutations. When restart-on-launch is enabled, automatic-start tracking records
+running containers across available sessions. These background reads can wake idle session VMs and
+increase power and resource use. Startup restoration uses scoped
+clients for assigned owners and waits for unavailable named sessions without creating them.
+Status-driven retries do not depend on the selected session being healthy. Manual-stop intent is
+also session-scoped, including actions against the Default CLI session's discovered name. The
+shell displays persistent unresolved-action and persistence warnings, with an actionable Windows
+notification where notifications are enabled. A fresh, successful session observation being
+initialized does not count as unavailable automatic-start tracking; incomplete, failed, stale,
+or removed-session observations still surface their problems. This does not mark the watchdog
+or Compose worker ready before reconciliation completes. Settings are written by atomic replacement and
+failures stay visible until a later successful save. When settings cannot be read, the original
+file is not overwritten; watchdog startup, Compose recovery and automatic-start restoration
+and tracking are paused, and the shell warns that repair and restart are needed.
+
+An explicit session stop fences its automatic actions, disposes its scoped supervision workers,
+and queues its remembered running-container history without extra engine reads. Paused owners
+do not produce availability warnings or restore probes. Starting a saved session releases its stop
+fence, retries that owner's queued automatic-start entries, and requests shared monitor refreshes.
+External named sessions resume on a freshly observed replacement generation, never on a late
+observation of the stopped generation. Actual failures and unassigned legacy settings still require
+attention; normal pauses do not.
+The stop fence retains a lightweight resuming marker after release. Availability warnings wait
+for an observation started after release and any worker reconciliation, not merely for session
+creation. Fresh failed reads end that suppression too; the existing 90-second freshness budget
+bounds it if no read arrives. This uses existing events without another timer or engine command.
+
+An explicit stop of the default CLI session additionally cancels the selected
+event stream, and waits for in-flight automatic-start restoration and the selected-session poll
+to finish before termination. The selected
+status is shown as paused, not as an engine outage; unrelated session observations continue.
+The session list retains a Start/Resume action and the existing automatic-start history. This
+pause is scoped to the current app run and executable: another app can start the session, and
+reopening this app may start it again. Starting it explicitly revalidates the new generation and
+releases the stop fence without accepting observations captured before the release.
+
+**Additional review validation (2026-11-04):** the unshipped Debug x64 build uses manifest version
+`2.4.0.0` and built without warnings. The full non-runtime suite passed 2,660 portable and 3,989
+Windows tests, with 3 and 23 runtime-guarded tests skipped; subsequent focused localization,
+local AI, Compose and disk checks passed 159 portable and 210 Windows tests. An isolated packaged fixture (`2.4.0.1`) checked a
+movable image tag, the local AI hint and provider label in English and Simplified Chinese, and
+confirmed that a non-default provider and its endpoint survive language switches. The fixture
+used fake sessions and credentials. Real engine mutations and screen-reader behavior were not
+exercised; the installed app was not redeployed.
+
+**Review-fix validation (2026-11-04):** the unshipped Debug x64 build, manifest version `2.4.0.0`,
+completed with no warnings. The full non-runtime suite passed 2,658 portable and 3,984 Windows
+tests, with 3 and 23 runtime-guarded tests skipped; the final wording and layout were then checked
+with 52 portable and 121 Windows image, disk, automatic-action and localization tests. An isolated
+packaged fixture (`2.4.0.1`) checked unknown disk
+metadata, registry removal confirmation without active sessions, and in-place English/Simplified
+Chinese switching. It used synthetic sessions and credentials; real engine mutations and
+screen-reader behavior were not exercised. The installed app was not redeployed.
+
+**Combined disk usage and registry validation (2026-11-04):** the unshipped Debug x64 build uses
+manifest version `2.4.0.0` and built without warnings. Focused session, cleanup, registry and
+localization checks passed 78 portable and 115 Windows tests. An isolated packaged fixture
+(`2.4.0.1`) checked opening both pages without a chooser, all-session and partial disk usage,
+unknown container sizes, session-qualified cleanup confirmation, no-active-session behavior,
+explicit registry status selection and language switching in English and Simplified Chinese.
+The fixture used synthetic sessions and credentials; real multi-session engine mutations and
+screen-reader behavior were not exercised. The installed app and real user sessions were not changed.
+
+**Global-session removal validation (2026-11-02):** the unshipped Debug x64 build uses manifest
+version `2.4.0.0` and built without warnings. Focused session, activity, Compose, registry, automatic-action and localization
+checks passed 102 portable and 980 Windows tests. An isolated packaged fixture (`2.4.0.1`) checked
+the removed selector, action-time choices, session-qualified Compose confirmation and registry
+status, multi-session activity, partial failures, hidden-page polling, concurrent live events,
+persistence, and in-place language switching in English and Simplified Chinese. It used synthetic sessions and credentials;
+real multi-session engine mutations, Windows toast rendering and screen-reader behavior were not
+exercised. The installed app and real user sessions were not changed.
+
+**Navigation status validation (2026-10-29):** the unshipped Debug x64 build uses manifest
+version `2.4.0.0` and built without warnings. Focused layout and localization tests passed 44
+portable and 45 Windows tests. An isolated packaged fixture (`2.4.0.1`) checked the narrower
+expanded pane, complete paused-session wording, Kubernetes status, language switching, long
+message tooltips, and collapse/reopen behavior in English and Simplified Chinese. The fixture
+used synthetic status data; screen-reader behavior and real session changes were not exercised.
+
+**Session-destination validation (2026-10-28):** the unshipped Debug x64 build uses manifest
+version `2.4.0.0` and built without warnings. Focused session-choice, assistant, Dev Container,
+local AI, image, registry, cleanup, Compose, resource, and localization checks passed 197 portable
+and 991 Windows tests. An isolated packaged fixture (`2.4.0.1`) checked the session picker,
+destination dialogs, cleanup, registry guidance, Dev Container ownership, and local AI status in
+English and Simplified Chinese, including in-place language changes and retained input. Its
+sessions, credentials, and stores were synthetic; real multi-session engine mutations were not
+exercised. The installed app and real user sessions were not changed.
+
+**Default-session stop validation (2026-10-28):** the unshipped Debug x64 build uses manifest
+version `2.4.0.0` and built without warnings. Focused session, process, automation, and
+localization checks passed 124 portable and 236 Windows tests. An isolated packaged fixture
+(`2.4.0.1`) checked stop progress, disabled conflicting actions, Start/Resume, failure guidance,
+language switching, preserved tracking, and unrelated and genuine engine warnings. Its sessions
+and engine were synthetic; real WSLC stop behavior and the tray tooltip were not visually tested.
+The installed app and real user sessions were not changed.
+
+**Dashboard responsiveness validation (2026-10-28):** the unshipped Debug x64 build uses manifest
+version `2.4.0.0` and built without warnings. Focused dashboard identity, session, and localization
+checks passed 68 portable and 85 Windows tests. An isolated packaged fixture (`2.4.0.1`) checked
+the aligned table near the expanded-navigation boundary, horizontal overflow, compact cards, and
+language switching in English and Simplified Chinese. It verified that unchanged inventory
+refreshes retain readings and timestamps, while incomplete inventories and replaced sessions
+clear stale samples.
+The fixture used synthetic sessions; real WSLC performance and power use were not measured.
+
+**All-session dashboard validation (2026-10-28):** the unshipped Debug x64 build uses manifest
+version `2.4.0.0` and built without warnings. Focused dashboard, session identity, service, and
+localization checks passed 90 portable and 160 Windows tests. An isolated packaged fixture
+(`2.4.0.1`) checked aggregate totals, session-qualified rows with matching container IDs, partial
+failures, unavailable totals, language switching, and wide and compact layouts in English and
+Simplified Chinese. It also checked that polling pauses when the display is unavailable or the
+page is left, resumes afterward, and rejects navigation to a replaced session. The fixture used
+synthetic sessions; it did not validate real WSLC behavior or actual Windows power transitions.
+The installed app and real user sessions were not changed.
+
+**Automatic-start warning validation (2026-10-28):** the unshipped Debug x64 build uses manifest
+version `2.4.0.0` and built without warnings. The focused automation, session lifecycle, and
+localization checks passed 97 Windows tests. An isolated packaged fixture (`2.4.0.1`) used synthetic
+sessions and a notification counter to check that initialization produces no warning, while an
+unrelated unavailable session and a later observation failure still notify. Its warning UI was
+checked in English and Simplified Chinese. No real sessions or installed app data were changed.
+
+**Compact-controls validation (2026-10-28):** the unshipped Debug x64 build uses manifest version
+`2.4.0.0` and built without warnings. Focused presentation, projection, and localization checks
+passed 48 portable and 49 Windows tests. An isolated packaged fixture (`2.4.0.1`) exercised all five
+resource pages in English and Simplified Chinese, in wide and 650-DIP layouts: the action-bar
+button and flyout, sortable headings, filter and no-match indications, clearing, selection, and
+language switching with the flyout open. The fixture used synthetic resources; the installed app
+and real user sessions were not changed.
+
+**Grid and session-choice validation (2026-10-28):** the unshipped Debug x64 build uses manifest
+version `2.4.0.0` and built without warnings. The full suite passed 2,624 portable and 3,812 Windows
+tests before the final compact-layout changes, with 3 and 23 runtime-guarded tests skipped. Final
+focused session, grid, and localization checks passed 52 portable and 66 Windows tests. An isolated
+packaged fixture (`2.4.0.1`) checked the sole-session choice, sortable headings, filter and no-match
+states, selection retention, and wide and compact views in English and Simplified Chinese across
+all five resource pages. It used synthetic sessions and did not verify real WSLC startup or change
+the installed app or user data.
+
+**Validation record (2026-10-27):** the unshipped Debug x64 build uses manifest version
+`2.4.0.0` and builds with zero warnings. The full sequential suite passed 2,581 portable and
+3,729 Windows-target tests; 3 and 20 runtime-guarded tests respectively were skipped. Isolated
+WSLC `3.0.4` runtime tests created uniquely named SDK sessions with separate temporary storage and an
+offline-generated image. They verified same-named containers, images, networks and volumes,
+session-specific lifecycle, logs, file copy and deletion, then terminated the sessions and removed
+their storage. A separately registered synthetic package,
+using fake engine and isolated stores, displayed session-qualified rows on all five resource pages
+in English and Simplified Chinese. Container rows were checked in narrow and wide layouts;
+selected rows, the automatic-action session choice, and a detail-page search survived in-place
+language switches. A session-qualified activity event opened the correct same-named container,
+and an older event prompted for manual selection. The automatic-action warning opened its review
+page. The synthetic build did not verify clicking a Windows notification or switching language
+during an in-flight operation. Windows notification history contained the automatic-action reminder
+with its review-page argument and a stopped-container notification with its session arguments. The
+installed app's package identity was not redeployed. Developer Mode was observed enabled after
+originally being disabled; this work did not change it.
+
+**Session-management follow-up (2026-10-27):** an isolated Debug x64 synthetic package, version
+`2.4.0.1`, displayed the combined container table and session chooser in English and Simplified
+Chinese. A Docker-run import retained its image and name; synthetic runs in two different sessions
+left the management selection unchanged. The session-management page, keep/delete/cancel removal
+choices and external-session stop warning were inspected, and both launch and configure for a
+Compose template opened the session chooser. The synthetic monitor and coordinator were disabled,
+so those UI checks did not exercise real background automation. An isolated WSLC runtime test
+deployed and removed a Compose project in a second session without changing the management
+selection. With test-supplied observations, the session coordinator restarted a container in its
+owning WSLC session while a same-named container in the selected session remained stopped.
+Language switching during an in-flight operation and Windows notification click-through
+were not manually verified. The user's installed app was not redeployed for this follow-up.
+
+**Session-removal follow-up (2026-10-28):** the Debug x64 build and source-linked removal,
+automatic-start, resource-parity and language-switch tests were exercised with fake sessions and
+disposable directories. A separately registered synthetic package (`2.4.0.1`) rendered removal
+progress, success, failure and the targeted tracking action in English and Simplified Chinese.
+Its in-app test kept a fake removal active across a language switch, simulated two container
+records and an expected failed observation, and verified that no new attention banner appeared;
+an unrelated warning remained visible. No real user session or storage was deleted. The
+computer-use inspection tools were unavailable, so these checks used the isolated app's own
+rendered test output rather than external UI interaction.
 
 ### Run profiles (`RunProfileStore`, `ComposeImporter`)
 
@@ -688,9 +1039,11 @@ Native transfer does not require an in-container shell, but still uses host `tar
 Uploads use streamed, disk-backed PAX archives under the concrete MSIX `LocalCacheFolder` path.
 `WslcCopyInput` is a narrow exception to ordinary `ArgumentList` execution: a fixed
 `cmd /d /v:off /s /c` template redirects an archive file to seekable stdin, needed by WSLC's
-archive Content-Length handling. Executable/target/archive values use quoted, single-expansion,
-child-only environment entries; quote/newline/NUL delimiters and oversized strings are rejected.
-No dynamic command fragments, `CALL`, AutoRun or delayed expansion are allowed.
+archive Content-Length handling. Its optional named-session form is also a fixed template.
+Executable/session/target/archive values use quoted, single-expansion, child-only environment
+entries; quote/newline/NUL delimiters and oversized strings are rejected. The session and
+executable are captured when a transfer begins, before an upload archive is prepared. No dynamic
+command fragments, `CALL`, AutoRun or delayed expansion are allowed.
 
 Source links are archived without enumerating directory-link targets; native extraction may follow
 existing container destination-directory links. Overwriting a host symbolic link is rejected.

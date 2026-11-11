@@ -87,12 +87,12 @@
                 <VisualStateGroup>
                     <VisualState x:Name="HeaderWide">
                         <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MinWidth="720" TargetElement="{Binding ElementName=Root}" />
+                            <converters:ControlSizeTrigger MinWidth="900" TargetElement="{Binding ElementName=Root}" />
                         </VisualState.StateTriggers>
                     </VisualState>
                     <VisualState x:Name="HeaderNarrow">
                         <VisualState.StateTriggers>
-                            <converters:ControlSizeTrigger MaxWidth="720" TargetElement="{Binding ElementName=Root}" />
+                            <converters:ControlSizeTrigger MaxWidth="900" TargetElement="{Binding ElementName=Root}" />
                         </VisualState.StateTriggers>
                         <VisualState.Setters>
                             <Setter Target="HeaderBorder.Visibility" Value="Collapsed" />
@@ -111,16 +111,18 @@
                     CornerRadius="6,6,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MinWidth="160" />
-                    <ColumnDefinition Width="2*" MinWidth="180" />
-                    <ColumnDefinition Width="210" />
+                    <ColumnDefinition Width="*" MinWidth="120" />
+                    <ColumnDefinition Width="*" MinWidth="110" />
+                    <ColumnDefinition Width="2*" MinWidth="160" />
+                    <ColumnDefinition Width="170" />
                     <ColumnDefinition Width="190" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Uid="Workload_ComposePage_006" i18n:Localization.Uid="Workload_ComposePage_006" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}"  />
-                <TextBlock x:Uid="Workload_ComposePage_007" i18n:Localization.Uid="Workload_ComposePage_007" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}"  />
-                <TextBlock x:Uid="Workload_ComposePage_008" i18n:Localization.Uid="Workload_ComposePage_008" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}"  />
+                <TextBlock x:Uid="Compose_SessionHeader" i18n:Localization.Uid="Compose_SessionHeader" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" />
+                <TextBlock x:Uid="Workload_ComposePage_007" i18n:Localization.Uid="Workload_ComposePage_007" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}"  />
+                <TextBlock x:Uid="Workload_ComposePage_008" i18n:Localization.Uid="Workload_ComposePage_008" Grid.Column="3" Style="{ThemeResource CaptionTextBlockStyle}"  />
                 <TextBlock x:Uid="Workload_ComposePage_009" i18n:Localization.Uid="Workload_ComposePage_009"
-                    Grid.Column="3"
+                    Grid.Column="4"
                     HorizontalAlignment="Right"
                     Style="{ThemeResource CaptionTextBlockStyle}"
                      />
@@ -154,12 +156,12 @@
                                     <VisualStateGroup>
                                         <VisualState x:Name="RowWide">
                                             <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MinWidth="680" TargetElement="{Binding ElementName=RowRoot}" />
+                                                <converters:ControlSizeTrigger MinWidth="860" TargetElement="{Binding ElementName=RowRoot}" />
                                             </VisualState.StateTriggers>
                                         </VisualState>
                                         <VisualState x:Name="RowNarrow">
                                             <VisualState.StateTriggers>
-                                                <converters:ControlSizeTrigger MaxWidth="680" TargetElement="{Binding ElementName=RowRoot}" />
+                                                <converters:ControlSizeTrigger MaxWidth="860" TargetElement="{Binding ElementName=RowRoot}" />
                                             </VisualState.StateTriggers>
                                             <VisualState.Setters>
                                                 <Setter Target="WideGrid.Visibility" Value="Collapsed" />
@@ -171,9 +173,10 @@
 
                                 <Grid x:Name="WideGrid">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" MinWidth="160" />
-                                    <ColumnDefinition Width="2*" MinWidth="180" />
-                                    <ColumnDefinition Width="210" />
+                                    <ColumnDefinition Width="*" MinWidth="120" />
+                                    <ColumnDefinition Width="*" MinWidth="110" />
+                                    <ColumnDefinition Width="2*" MinWidth="160" />
+                                    <ColumnDefinition Width="170" />
                                     <ColumnDefinition Width="190" />
                                 </Grid.ColumnDefinitions>
 
@@ -194,8 +197,12 @@
                                         TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
 
+                                <TextBlock Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center"
+                                    FontSize="13" Text="{x:Bind SessionDisplay, Mode=OneWay}"
+                                    ToolTipService.ToolTip="{x:Bind SessionDisplay, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+
                                 <TextBlock
-                                    Grid.Column="1"
+                                    Grid.Column="2"
                                     Margin="0,0,8,0"
                                     VerticalAlignment="Center"
                                     FontSize="13"
@@ -205,7 +212,7 @@
                                     TextTrimming="CharacterEllipsis" />
 
                                 <Border
-                                    Grid.Column="2"
+                                    Grid.Column="3"
                                     Padding="8,2"
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center"
@@ -220,7 +227,7 @@
                                 </Border>
 
                                 <StackPanel
-                                    Grid.Column="3"
+                                    Grid.Column="4"
                                     HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Spacing="4">
@@ -278,6 +285,7 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <TextBlock x:Uid="Workload_ComposePage_015" i18n:Localization.Uid="Workload_ComposePage_015" Grid.Row="0" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}"  />
                                         <TextBlock Grid.Row="0" Grid.Column="1" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ServicesSummary, Converter={StaticResource UiTextConverter}}" ToolTipService.ToolTip="{x:Bind ServicesSummary}" TextTrimming="CharacterEllipsis" />
@@ -285,6 +293,10 @@
                                         <Border Grid.Row="1" Grid.Column="1" Padding="8,2" HorizontalAlignment="Left" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="10">
                                             <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind StatusText, Mode=OneWay, Converter={StaticResource UiTextConverter}}" />
                                         </Border>
+                                        <TextBlock x:Uid="Compose_SessionHeader" i18n:Localization.Uid="Compose_SessionHeader"
+                                            Grid.Row="2" Grid.Column="0" Style="{ThemeResource CaptionTextBlockStyle}" />
+                                        <TextBlock Grid.Row="2" Grid.Column="1" FontSize="13"
+                                            Text="{x:Bind SessionDisplay, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
 
                                     <Button x:Uid="Workload_ComposePage_017" i18n:Localization.Uid="Workload_ComposePage_017"

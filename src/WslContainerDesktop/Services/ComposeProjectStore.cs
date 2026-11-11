@@ -37,6 +37,9 @@ public sealed class ComposeProjectStore : IComposeProjectStore
     private readonly List<ComposeProject> _projects = new();
     private readonly object _gate = new();
 
+    /// <summary>Raised after a saved project change is committed.</summary>
+    public event EventHandler? Changed;
+
     /// <summary>Creates the file-backed store using the app's standard local settings directory.</summary>
     public ComposeProjectStore(ILogger<ComposeProjectStore> logger)
         : this(logger, Path.Combine(
@@ -88,19 +91,83 @@ public sealed class ComposeProjectStore : IComposeProjectStore
         {
             project.Name = project.Name.Trim();
             var previous = _projects.FirstOrDefault(p => string.Equals(p.Name, project.Name, StringComparison.OrdinalIgnoreCase));
-            if (previous is not null && !ReferenceEquals(previous, project) && !project.AppliedStateKnown)
-            {
-                foreach (var applied in previous.AppliedServices)
-                    project.AppliedServices.TryAdd(applied.Key, applied.Value);
-                foreach (var replicaOverride in previous.ReplicaOverrides.Where(entry =>
-                    project.Services.Any(service => service.Name == entry.Key)))
-                    project.ReplicaOverrides.TryAdd(replicaOverride.Key, replicaOverride.Value);
-            }
-            project.AppliedStateKnown = true;
-            _projects.RemoveAll(p => string.Equals(p.Name, project.Name, StringComparison.OrdinalIgnoreCase));
-            _projects.Add(project);
-            Persist();
+            SaveCore(project, previous);
         }
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <inheritdoc/>
+    public bool TryReplace(ComposeProject expected, ComposeProject replacement)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(replacement);
+        ArgumentException.ThrowIfNullOrWhiteSpace(replacement.Name);
+        lock (_gate)
+        {
+            replacement.Name = replacement.Name.Trim();
+            if (!string.Equals(expected.Name, replacement.Name, StringComparison.OrdinalIgnoreCase) ||
+                !_projects.Any(existing => ReferenceEquals(existing, expected)))
+                return false;
+            SaveCore(replacement, expected);
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    private void SaveCore(ComposeProject project, ComposeProject? previous)
+    {
+        if (previous is not null && !ReferenceEquals(previous, project) && !project.AppliedStateKnown)
+        {
+            foreach (var applied in previous.AppliedServices)
+                project.AppliedServices.TryAdd(applied.Key, applied.Value);
+            foreach (var replicaOverride in previous.ReplicaOverrides.Where(entry =>
+                project.Services.Any(service => service.Name == entry.Key)))
+                project.ReplicaOverrides.TryAdd(replicaOverride.Key, replicaOverride.Value);
+        }
+        if (previous is not null && project.SessionOwner is null)
+            project.SessionOwner = previous.SessionOwner;
+        project.AppliedStateKnown = true;
+        var next = _projects.Where(p => !string.Equals(p.Name, project.Name, StringComparison.OrdinalIgnoreCase))
+            .Append(project).ToList();
+        Persist(next);
+        _projects.Clear();
+        _projects.AddRange(next);
+    }
+
+    /// <inheritdoc/>
+    public bool TryAddNew(ComposeProject project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentException.ThrowIfNullOrWhiteSpace(project.Name);
+        lock (_gate)
+        {
+            project.Name = project.Name.Trim();
+            if (_projects.Any(existing => string.Equals(existing.Name, project.Name, StringComparison.OrdinalIgnoreCase)))
+                return false;
+            project.AppliedStateKnown = true;
+            var next = _projects.Append(project).ToList();
+            Persist(next);
+            _projects.Add(project);
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public bool TryDelete(ComposeProject project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        lock (_gate)
+        {
+            if (!_projects.Any(existing => ReferenceEquals(existing, project)))
+                return false;
+            var next = _projects.Where(existing => !ReferenceEquals(existing, project)).ToList();
+            Persist(next);
+            _projects.Clear();
+            _projects.AddRange(next);
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     /// <inheritdoc/>
@@ -111,14 +178,20 @@ public sealed class ComposeProjectStore : IComposeProjectStore
             return;
         }
 
+        var changed = false;
         lock (_gate)
         {
-            var removed = _projects.RemoveAll(p => string.Equals(p.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (removed > 0)
+            var next = _projects.Where(p => !string.Equals(p.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            if (next.Count != _projects.Count)
             {
-                Persist();
+                Persist(next);
+                _projects.Clear();
+                _projects.AddRange(next);
+                changed = true;
             }
         }
+        if (changed)
+            Changed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Loads saved projects from disk, tolerating corrupt or missing state.</summary>
@@ -162,14 +235,14 @@ public sealed class ComposeProjectStore : IComposeProjectStore
     }
 
     /// <summary>Writes the project list through a temporary file so partial saves do not replace the previous copy.</summary>
-    private void Persist()
+    private void Persist(IReadOnlyList<ComposeProject> projects)
     {
         var temporary = _projectsFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             Directory.CreateDirectory(_settingsDirectory);
             var json = JsonSerializer.Serialize(
-                _projects.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList(),
+                projects.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList(),
                 SerializerOptions);
             File.WriteAllText(temporary, json);
             File.Move(temporary, _projectsFile, overwrite: true);

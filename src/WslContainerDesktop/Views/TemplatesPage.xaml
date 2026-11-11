@@ -13,6 +13,7 @@
 
     <Page.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <converters:EmptyToVisibilityConverter x:Key="EmptyToVis" />
         <converters:InverseBoolConverter x:Key="InverseBool" />
     </Page.Resources>
 
@@ -72,6 +73,13 @@
                          />
                 </StackPanel>
             </Grid>
+            <TextBlock x:Uid="Template_SessionScope" i18n:Localization.Uid="Template_SessionScope"
+                TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBlock Text="{x:Bind ViewModel.Combined.StatusText, Mode=OneWay}" TextWrapping="Wrap"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBlock Text="{x:Bind ViewModel.Combined.WarningText, Mode=OneWay}" TextWrapping="Wrap"
+                Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                Visibility="{x:Bind ViewModel.Combined.WarningText, Mode=OneWay, Converter={StaticResource EmptyToVis}, ConverterParameter=invert}" />
 
             <!--  Launch progress + status feedback  -->
             <Border

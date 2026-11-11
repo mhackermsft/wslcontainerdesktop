@@ -104,6 +104,53 @@ public sealed class ContainerPortResolverTests
     }
 
     [Fact]
+    public async Task Cache_IsolatedBySessionAndExecutable()
+    {
+        var resolver = new ContainerPortResolver();
+        var first = new ContainerPortResolver.Scope(new WslcSessionTarget("first"), "engine-a");
+        var second = new ContainerPortResolver.Scope(new WslcSessionTarget("second"), "engine-a");
+        var otherEngine = new ContainerPortResolver.Scope(new WslcSessionTarget("first"), "engine-b");
+        var calls = 0;
+        Task<CommandResult> Read(string id, CancellationToken ct)
+        {
+            calls++;
+            return Task.FromResult(new CommandResult { StandardOutput = Inspect });
+        }
+
+        await resolver.ResolveAsync([Row()], true, Read, (_, message) => Assert.Fail(message), default, scope: first);
+        await resolver.ResolveAsync([Row()], true, Read, (_, message) => Assert.Fail(message), default, scope: second);
+        await resolver.ResolveAsync([Row()], true, Read, (_, message) => Assert.Fail(message), default, scope: otherEngine);
+        await resolver.ResolveAsync([], true, Read, (_, message) => Assert.Fail(message), default, scope: first);
+        await resolver.ResolveAsync([Row()], true, Read, (_, message) => Assert.Fail(message), default, scope: second);
+        await resolver.ResolveAsync([Row()], true, Read, (_, message) => Assert.Fail(message), default, scope: otherEngine);
+
+        Assert.Equal(3, calls);
+    }
+
+    [Fact]
+    public async Task Cache_EvictsTheLeastRecentlyUsedSessionScope()
+    {
+        var resolver = new ContainerPortResolver();
+        var calls = 0;
+        Task<CommandResult> Read(string id, CancellationToken ct)
+        {
+            calls++;
+            return Task.FromResult(new CommandResult { StandardOutput = Inspect });
+        }
+        Task Resolve(int index) => resolver.ResolveAsync([Row()], true, Read, (_, message) => Assert.Fail(message),
+            default, scope: new ContainerPortResolver.Scope(new WslcSessionTarget($"session-{index}"), "engine"));
+
+        for (var index = 0; index < 16; index++)
+            await Resolve(index);
+        await Resolve(0);
+        await Resolve(16);
+        await Resolve(0);
+        await Resolve(1);
+
+        Assert.Equal(18, calls);
+    }
+
+    [Fact]
     public async Task Budget_IsBoundedAndMakesProgressAcrossPolls()
     {
         var resolver = new ContainerPortResolver();

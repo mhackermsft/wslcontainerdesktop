@@ -39,13 +39,22 @@ public sealed class RestartPolicyWatchdog : IDisposable
     private readonly ISettingsService _settings;
     private readonly ILogger<RestartPolicyWatchdog> _logger;
     private readonly DispatcherQueue _dispatcher;
+    private readonly WslcSessionContext _sessionContext;
+    private readonly LegacyPolicyOwnershipStore _legacyOwners;
+    private readonly WslcSessionInfo? _scopedGeneration;
+    private readonly string? _scopedExecutable;
+    private readonly IWslcService? _discovery;
+    private readonly TimeProvider _clock;
+    private volatile bool _scopeAvailable;
 
-    private readonly ConcurrentDictionary<string, Runtime> _runtime = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<(long Revision, string Name), Runtime> _runtime = new();
 
     /// <summary>Container names the user intentionally stopped; suppresses restart except for <c>always</c>.</summary>
     private readonly RestartSuppressionState _suppression;
 
-    private volatile IReadOnlyList<ContainerInfo> _containers = Array.Empty<ContainerInfo>();
+    private sealed record Observation(WslcSessionContext.SelectionSnapshot Selection, IReadOnlyList<ContainerInfo> Containers,
+        DateTimeOffset ObservedAt);
+    private volatile Observation? _observation;
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private bool _started;
@@ -59,10 +68,15 @@ public sealed class RestartPolicyWatchdog : IDisposable
 
     /// <summary>Raised (on the UI thread) when a restart or give-up event should surface a toast.</summary>
     public event Action<string, string>? NotificationRequested;
+#if WSLCD_TEST_NO_DISPATCHER
+    internal event Action? EvaluationCompleted;
+#endif
 
     /// <summary>Creates the watchdog and connects it to the shared status monitor and settings.</summary>
     public RestartPolicyWatchdog(IWslcService wslc, StatusMonitor monitor, ISettingsService settings, ILogger<RestartPolicyWatchdog> logger,
-        RestartSuppressionState suppression)
+        RestartSuppressionState suppression, WslcSessionContext sessionContext, LegacyPolicyOwnershipStore legacyOwners,
+        WslcSessionInfo? scopedGeneration = null, string? scopedExecutable = null, IWslcService? discovery = null,
+        TimeProvider? clock = null)
     {
         _wslc = wslc;
         _monitor = monitor;
@@ -70,6 +84,12 @@ public sealed class RestartPolicyWatchdog : IDisposable
         _logger = logger;
         _suppression = suppression;
         _dispatcher = monitor.Dispatcher;
+        _sessionContext = sessionContext;
+        _legacyOwners = legacyOwners;
+        _scopedGeneration = scopedGeneration;
+        _scopedExecutable = scopedExecutable;
+        _discovery = discovery;
+        _clock = clock ?? TimeProvider.System;
     }
 
     /// <summary>Begins listening to status snapshots and running the restart loop.</summary>
@@ -81,14 +101,46 @@ public sealed class RestartPolicyWatchdog : IDisposable
         }
 
         _started = true;
-        _monitor.StatusChanged += OnStatusChanged;
-        if (_monitor.Latest is not null)
+        if (_scopedGeneration is null)
         {
-            _containers = _monitor.Latest.Containers;
+            _monitor.StatusChanged += OnStatusChanged;
+            if (_monitor.Latest is not null)
+                _observation = new(_sessionContext.CaptureSnapshot(), _monitor.Latest.Containers, DateTimeOffset.UtcNow);
         }
 
         _cts = new CancellationTokenSource();
         _loop = Task.Run(() => LoopAsync(_cts.Token));
+    }
+
+    internal void UpdateScopedObservation(IReadOnlyList<ContainerInfo> containers, DateTimeOffset? observedAt = null)
+    {
+        if (_scopedGeneration is null)
+            throw new InvalidOperationException("A scoped observation requires a session generation.");
+        _observation = new(_sessionContext.CaptureSnapshot(), containers, observedAt ?? DateTimeOffset.UtcNow);
+        _scopeAvailable = true;
+    }
+
+    internal void PauseScopedObservation()
+    {
+        _scopeAvailable = false;
+        _observation = null;
+    }
+
+    private async Task VerifyScopeAsync(CancellationToken ct)
+    {
+        if (_scopedGeneration is null)
+            return;
+        if (!_scopeAvailable || _observation is not { } observation || DateTimeOffset.UtcNow - observation.ObservedAt >
+            AutomationSessionScopePlanner.ObservationMaxAge)
+            throw new InvalidOperationException(UiText.Get("Automation_ObservationStale",
+                "The session's automatic-action observation is stale. No action was started."));
+        if (_discovery is null || string.IsNullOrWhiteSpace(_scopedExecutable))
+            throw new InvalidOperationException("The session scope is incomplete.");
+        await WslcSessionActionGuard.VerifyAsync(_discovery, () => _settings.WslcPath,
+            _scopedGeneration, _scopedExecutable, ct).ConfigureAwait(false);
+        if (!_scopeAvailable)
+            throw new InvalidOperationException(UiText.Get("Automation_ObservationStale",
+                "The session's automatic-action observation is stale. No action was started."));
     }
 
     /// <summary>
@@ -99,12 +151,18 @@ public sealed class RestartPolicyWatchdog : IDisposable
     {
         if (!string.IsNullOrWhiteSpace(containerName))
         {
-            _suppression.Suppress(containerName);
+            _suppression.Suppress(containerName, CurrentOwner());
         }
     }
 
     /// <summary>Stores the latest monitor snapshot for the background restart loop.</summary>
-    private void OnStatusChanged(object? sender, EngineStatusSnapshot e) => _containers = e.Containers;
+    internal void OnStatusChanged(object? sender, EngineStatusSnapshot e)
+    {
+        var selection = _sessionContext.CaptureSnapshot();
+        if (_observation is { } previous && previous.Selection != selection)
+            _runtime.Clear();
+        _observation = new(selection, e.Containers, DateTimeOffset.UtcNow);
+    }
 
     /// <summary>Periodic loop that evaluates restart policies from the most recent status snapshot.</summary>
     private async Task LoopAsync(CancellationToken ct)
@@ -132,29 +190,36 @@ public sealed class RestartPolicyWatchdog : IDisposable
     }
 
     /// <summary>Evaluates all active policies once and schedules restart attempts when needed.</summary>
-    private void Tick(CancellationToken ct)
+    internal void Tick(CancellationToken ct)
     {
+        var observation = _observation;
+        if (observation is null || observation.Selection != _sessionContext.CaptureSnapshot() ||
+            _scopedGeneration is not null && DateTimeOffset.UtcNow - observation.ObservedAt >
+                AutomationSessionScopePlanner.ObservationMaxAge)
+            return;
         var policies = _settings.RestartPolicies
-            .Where(p => p.Enabled && p.IsValid)
+            .Where(p => p.Enabled && p.IsValid &&
+                _legacyOwners.OwnerFor(p)?.Matches(_settings.WslcPath, observation.Selection.Target) == true)
             .ToList();
 
         // Containers that also have a health check are owned by the HealthWatchdog; don't fight it.
         var healthWatched = new HashSet<string>(
             _settings.HealthChecks.Where(h => h.Enabled && h.IsValid && h.MaxRestarts > 0 &&
-                h.DesiredHealth?.IsDisabled != true).Select(h => h.ContainerName),
+                h.DesiredHealth?.IsDisabled != true &&
+                _legacyOwners.OwnerFor(h)?.Matches(_settings.WslcPath, observation.Selection.Target) == true).Select(h => h.ContainerName),
             StringComparer.Ordinal);
 
         var active = new HashSet<string>(policies.Select(p => p.ContainerName), StringComparer.Ordinal);
-        foreach (var name in _runtime.Keys.ToList())
+        foreach (var key in _runtime.Keys.ToList())
         {
-            if (!active.Contains(name))
+            if (key.Revision != observation.Selection.Revision || !active.Contains(key.Name))
             {
-                _runtime.TryRemove(name, out _);
+                _runtime.TryRemove(key, out _);
             }
         }
 
-        var containers = _containers;
-        var now = DateTimeOffset.UtcNow;
+        var containers = observation.Containers;
+        var now = _clock.GetUtcNow();
 
         foreach (var policy in policies)
         {
@@ -163,7 +228,7 @@ public sealed class RestartPolicyWatchdog : IDisposable
                 continue;
             }
 
-            var rt = _runtime.GetOrAdd(policy.ContainerName, _ => new Runtime());
+            var rt = _runtime.GetOrAdd((observation.Selection.Revision, policy.ContainerName), _ => new Runtime());
             if (rt.InProgress)
             {
                 continue;
@@ -208,7 +273,8 @@ public sealed class RestartPolicyWatchdog : IDisposable
                 continue;
             }
 
-            var suppressed = _suppression.IsSuppressed(policy.ContainerName);
+            var suppressed = _suppression.IsSuppressed(policy.ContainerName,
+                AutomationSessionOwner.Capture(_settings.WslcPath, observation.Selection.Target));
             if (suppressed && policy.Policy != RestartPolicyKind.Always)
             {
                 continue;
@@ -222,28 +288,33 @@ public sealed class RestartPolicyWatchdog : IDisposable
             if (policy.MaxRestarts <= 0 || rt.RestartCount >= policy.MaxRestarts)
             {
                 rt.Exhausted = true;
-                Notify($"{policy.ContainerName} not restarted",
-                    $"Container is not running after {rt.RestartCount} restart attempt(s); giving up.");
+                Notify(UiText.Get("Automation_RestartExhaustedTitle", "{0} not restarted", policy.ContainerName),
+                    UiText.Get("Automation_RestartExhausted", "Container is not running after {0} restart attempt(s); giving up.", rt.RestartCount), observation.Selection);
                 continue;
             }
 
             rt.InProgress = true;
-            _ = RestartAsync(policy, container, rt, ct);
+            _ = RestartAsync(policy, container, rt, observation.Selection, ct);
         }
     }
 
     /// <summary>Starts one stopped container if its policy still applies and its restart budget allows it.</summary>
-    private async Task RestartAsync(RestartPolicyConfig policy, ContainerInfo container, Runtime rt, CancellationToken ct)
+    private async Task RestartAsync(RestartPolicyConfig policy, ContainerInfo container, Runtime rt,
+        WslcSessionContext.SelectionSnapshot snapshot, CancellationToken ct)
     {
         try
         {
+            using var selection = _sessionContext.TryLockSelection(snapshot);
+            if (selection is null)
+                return;
             // The policy may have been removed (e.g. project teardown) after this cycle's snapshot
             // was taken. Don't restart or notify for a container we're no longer supervising.
-            if (!IsStillActive(policy))
+            if (!IsStillActive(policy, snapshot))
             {
                 return;
             }
 
+            await VerifyScopeAsync(ct).ConfigureAwait(false);
             // on-failure only restarts after a non-zero exit. Other policies restart unconditionally.
             if (policy.Policy == RestartPolicyKind.OnFailure && await ExitedCleanlyAsync(container.Id, ct).ConfigureAwait(false))
             {
@@ -251,12 +322,21 @@ public sealed class RestartPolicyWatchdog : IDisposable
                 return;
             }
 
-            rt.LastAttempt = DateTimeOffset.UtcNow;
+            rt.LastAttempt = _clock.GetUtcNow();
             rt.RestartCount++;
 
-            Notify($"Restarting {policy.ContainerName}",
-                $"Container exited; restarting (attempt {rt.RestartCount} of {policy.MaxRestarts}).");
+            Notify(UiText.Get("Automation_RestartingTitle", "Restarting {0}", policy.ContainerName),
+                UiText.Get("Automation_Restarting", "Container exited; restarting (attempt {0} of {1}).",
+                    rt.RestartCount, policy.MaxRestarts), snapshot);
 
+            await VerifyScopeAsync(ct).ConfigureAwait(false);
+            var latest = _observation;
+            if (latest is null || latest.Selection != snapshot ||
+                !latest.Containers.Any(item => item.Id == container.Id &&
+                    item.StateChangedAt == container.StateChangedAt &&
+                    item.State is ContainerState.Created or ContainerState.Stopped) ||
+                !IsStillActive(policy, snapshot))
+                return;
             var start = await _wslc.StartContainerAsync(container.Id, ct, explicitStart: false).ConfigureAwait(false);
             if (!start.Success)
             {
@@ -275,6 +355,9 @@ public sealed class RestartPolicyWatchdog : IDisposable
         finally
         {
             rt.InProgress = false;
+#if WSLCD_TEST_NO_DISPATCHER
+            EvaluationCompleted?.Invoke();
+#endif
         }
     }
 
@@ -303,17 +386,25 @@ public sealed class RestartPolicyWatchdog : IDisposable
     }
 
     /// <summary>True when an enabled, valid restart policy for this container still exists in settings.</summary>
-    private bool IsStillActive(RestartPolicyConfig policy) =>
+    private bool IsStillActive(RestartPolicyConfig policy, WslcSessionContext.SelectionSnapshot snapshot) =>
         _settings.RestartPolicies.Any(p =>
             p.Enabled && p.IsValid &&
+            _legacyOwners.OwnerFor(p)?.Matches(_settings.WslcPath, snapshot.Target) == true &&
             string.Equals(p.ContainerName, policy.ContainerName, StringComparison.Ordinal));
 
     /// <summary>Returns whether user stop intent currently suppresses restarts for this container.</summary>
-    public bool IsRestartSuppressed(string containerName) => _suppression.IsSuppressed(containerName);
+    public bool IsRestartSuppressed(string containerName) => _suppression.IsSuppressed(containerName, CurrentOwner());
+
+    private AutomationSessionOwner CurrentOwner() =>
+        AutomationSessionOwner.Capture(_settings.WslcPath, _sessionContext.Capture());
 
     /// <summary>Raises notification requests on the UI dispatcher.</summary>
-    private void Notify(string title, string message) =>
-        _dispatcher.TryEnqueue(() => NotificationRequested?.Invoke(title, message));
+    private void Notify(string title, string message, WslcSessionContext.SelectionSnapshot snapshot) =>
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (!_disposed)
+                _sessionContext.TryApply(snapshot, () => NotificationRequested?.Invoke(title, message));
+        });
 
     /// <summary>Stops the loop and detaches from the status monitor.</summary>
     public void Dispose()

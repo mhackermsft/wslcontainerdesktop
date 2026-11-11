@@ -54,13 +54,14 @@ public class ImageUsageResolverTests
     }
 
     [Fact]
-    public void AContainerReferencingAnImageByNameMarksIt()
+    public void AContainerReferencingATagDoesNotProveWhichImageItUses()
     {
         var mysql = Image("7c07d11b694d", "mysql", "8");
 
         ImageUsageResolver.Apply([mysql], [Container("db", "mysql:8")]);
 
-        Assert.Equal("db", mysql.UsedBy);
+        Assert.False(mysql.IsInUse);
+        Assert.True(mysql.UsageUnknown);
     }
 
     /// <summary>A stopped container still pins its image, so it counts exactly like a running one.</summary>
@@ -69,19 +70,30 @@ public class ImageUsageResolverTests
     {
         var image = Image("abcdef012345", "nginx", "alpine");
 
-        ImageUsageResolver.Apply([image], [Container("web", "nginx:alpine"), Container("web-2", "nginx:alpine")]);
+        ImageUsageResolver.Apply([image], [Container("web", "abcdef012345"), Container("web-2", "abcdef012345")]);
 
         Assert.Equal("web, web-2", image.UsedBy);
     }
 
     [Fact]
-    public void AnImageNothingReferencesIsFree()
+    public void ATagReferenceLeavesAnUnmatchedImageUnknown()
     {
         var orphan = Image("ffffffffffff");
 
         ImageUsageResolver.Apply([orphan], [Container("db", "mysql:8")]);
 
         Assert.False(orphan.IsInUse);
+        Assert.True(orphan.UsageUnknown);
+    }
+
+    [Fact]
+    public void AContainerWithAnotherKnownImageIdDoesNotUseAnOrphan()
+    {
+        var orphan = Image("ffffffffffff");
+        ImageUsageResolver.Apply([orphan], [Container("db", "abcdef012345")]);
+
+        Assert.False(orphan.IsInUse);
+        Assert.False(orphan.UsageUnknown);
         Assert.Equal("", orphan.UsedByCaption);
     }
 
@@ -90,11 +102,41 @@ public class ImageUsageResolverTests
     public void UsageIsRecomputedRatherThanAccumulated()
     {
         var image = Image("abcdef012345", "nginx", "alpine");
-        ImageUsageResolver.Apply([image], [Container("web", "nginx:alpine")]);
+        ImageUsageResolver.Apply([image], [Container("web", "abcdef012345")]);
         Assert.True(image.IsInUse);
 
         ImageUsageResolver.Apply([image], []);
 
         Assert.False(image.IsInUse);
+    }
+
+    [Fact]
+    public void MissingContainerImageMakesUnmatchedUsageUnknownUntilMetadataReturns()
+    {
+        var unknown = Image("abcdef012345");
+        var used = Image("012345abcdef", "nginx", "latest");
+        ImageUsageResolver.Apply([unknown, used], [Container("missing", ""), Container("web", "012345abcdef")]);
+
+        Assert.True(unknown.UsageUnknown);
+        Assert.False(unknown.IsInUse);
+        Assert.True(used.IsInUse);
+        Assert.False(used.UsageUnknown);
+
+        ImageUsageResolver.Apply([unknown, used], []);
+        Assert.False(unknown.UsageUnknown);
+    }
+
+    [Fact]
+    public void MovedTagDoesNotMarkTheOldDanglingImageAsReclaimable()
+    {
+        var old = Image("abcdef012345");
+        var current = Image("012345abcdef", "nginx", "latest");
+
+        ImageUsageResolver.Apply([old, current], [Container("web", "nginx:latest")]);
+
+        Assert.True(old.UsageUnknown);
+        Assert.True(current.UsageUnknown);
+        Assert.False(old.IsInUse);
+        Assert.False(current.IsInUse);
     }
 }

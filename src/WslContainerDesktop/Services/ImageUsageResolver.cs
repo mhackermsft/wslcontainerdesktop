@@ -31,15 +31,15 @@ public static class ImageUsageResolver
 {
     /// <summary>
     /// Stamps <see cref="ImageInfo.UsedBy"/> on every image a container references, and clears it on
-    /// the rest. Containers report the image as an ID (short or full) or as a reference, so both are
-    /// matched. Ambiguity resolves toward "in use", because wrongly offering to reclaim occupied
-    /// space is the failure worth avoiding; wrongly withholding it only under-reports.
+    /// the rest. Only immutable image IDs establish usage: a tag or repository can move after a
+    /// container was created and cannot prove which image that container holds.
     /// </summary>
     public static void Apply(IReadOnlyList<ImageInfo> images, IReadOnlyList<ContainerInfo> containers)
     {
         ArgumentNullException.ThrowIfNull(images);
         ArgumentNullException.ThrowIfNull(containers);
 
+        var incomplete = containers.Any(container => !IsImageId(container.Image));
         foreach (var image in images)
         {
             var holders = containers
@@ -49,24 +49,24 @@ public static class ImageUsageResolver
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
             image.UsedBy = string.Join(", ", holders);
+            image.UsageUnknown = incomplete && !image.IsInUse;
         }
     }
 
     private static bool Uses(ContainerInfo container, ImageInfo image)
     {
         var used = (container.Image ?? string.Empty).Trim();
-        if (used.Length == 0)
+        if (!IsImageId(used))
             return false;
-
-        // A reference the user would recognize: "mysql:8", or a bare repository for a sole tag.
-        if (string.Equals(used, image.Reference, StringComparison.Ordinal) ||
-            string.Equals(used, image.Repository, StringComparison.Ordinal))
-        {
-            return true;
-        }
 
         // Otherwise an ID, which the two commands report at different widths.
         return ContainerIdentity.ResolveId([Normalize(image.Id)], Normalize(used)) is not null;
+    }
+
+    private static bool IsImageId(string? value)
+    {
+        var id = Normalize((value ?? string.Empty).Trim());
+        return id.Length >= 12 && id.All(char.IsAsciiHexDigit);
     }
 
     private static string Normalize(string id) =>

@@ -16,6 +16,26 @@
 
 using WslContainerDesktop.Models;
 
+namespace Microsoft.UI.Dispatching
+{
+    public sealed class DispatcherQueue
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _pending = new();
+        public bool HasThreadAccess => true;
+        public bool TryEnqueue(Action callback)
+        {
+            _pending.Enqueue(callback);
+            return true;
+        }
+
+        public void Drain()
+        {
+            while (_pending.TryDequeue(out var callback))
+                callback();
+        }
+    }
+}
+
 // Only the dialog boundary is replaced: the source-linked VM and generated commands are real.
 namespace Microsoft.UI.Xaml
 {
@@ -67,6 +87,85 @@ namespace WslContainerDesktop.Dialogs
     {
         public SimpleInputDialog(string title, string label, string value) => Value = value;
         public string Value { get; set; }
+        public void SetSession(WslContainerDesktop.Services.WslcSessionSelection selection,
+            string titleKey, string titleFallback, string labelKey, string labelFallback,
+            string placeholderKey, string placeholderFallback) { }
+    }
+
+    public sealed class CreateNetworkDialog
+    {
+        public object Title { get; set; } = string.Empty;
+        public string NetworkName { get; set; } = "";
+        public string? Driver => null;
+        public IReadOnlyList<string> DriverOptions => [];
+        public Dictionary<string, string> Labels => [];
+        public string? Subnet => null;
+        public string? Gateway => null;
+        public string? IpRange => null;
+        public bool InternalNetwork => false;
+        public void SetSession(WslContainerDesktop.Services.WslcSessionSelection selection) => Title = $"Create network in {selection.DisplayName}";
+    }
+
+    public sealed class PullImageDialog
+    {
+        public object Title { get; set; } = string.Empty;
+        public PullImageDialog(object registries, WslContainerDesktop.Services.IRegistryCatalogService catalog) { }
+        public string Reference { get; set; } = "";
+        public bool AllTags { get; set; }
+        public void SetSession(WslContainerDesktop.Services.WslcSessionSelection selection) => Title = $"Pull image into {selection.DisplayName}";
+    }
+
+    public sealed class PushImageDialog
+    {
+        public object Title { get; set; } = string.Empty;
+        public PushImageDialog(object registries, string reference,
+            Func<RegistryEntry, Task<(RegistryLoginState State, string? User)>> checkSignIn) => Reference = reference;
+        public bool OpenRegistriesRequested { get; set; }
+        public string Reference { get; set; }
+        public bool AllTags { get; set; }
+    }
+
+    public sealed class RunContainerDialog
+    {
+        public object Title { get; set; } = string.Empty;
+        public RunContainerDialog(WslContainerDesktop.Services.IWslcService engine, object registries,
+            WslContainerDesktop.Services.IRunProfileStore profiles, string image) { }
+        public RunContainerOptions? Options => null;
+    }
+
+    public sealed class BuildImageDialog
+    {
+        public object Title { get; set; } = string.Empty;
+        public BuildImageDialog(object registries) { }
+        public string ContextPath { get; set; } = "";
+        public string ImageTag { get; set; } = "";
+        public string? Dockerfile { get; set; }
+        public void SetSession(WslContainerDesktop.Services.WslcSessionSelection selection) => Title = $"Build image in {selection.DisplayName}";
+    }
+
+    public sealed class RegistryLoginDialog
+    {
+        private readonly string _name;
+        public RegistryLoginDialog(string name, string? username, bool dockerHub) { _name = name; Username = username ?? ""; }
+        public object Title { get; set; } = "";
+        public string Username { get; set; }
+        public string Password { get; set; } = "";
+        public void SetSession(WslContainerDesktop.Services.WslcSessionSelection selection) => Title = $"Sign in to {_name} using session {selection.DisplayName}";
+    }
+
+    public sealed class AddRegistryDialog
+    {
+        public RegistryEntry? Registry { get; set; }
+        public bool LoginNow { get; set; }
+        public string Password { get; set; } = "";
+    }
+
+    public sealed class AddAcrDialog
+    {
+        public AddAcrDialog(WslContainerDesktop.Services.IAzureCliService azure) { }
+        public RegistryEntry? Registry { get; set; }
+        public string? Token { get; set; }
+        public string TokenUsername { get; set; } = "";
     }
 
     /// <summary>Holds a compose operation request that tests can inspect instead of showing the real services dialog.</summary>
@@ -84,20 +183,42 @@ namespace WslContainerDesktop.Services
     /// <summary>Test dialog service that returns controlled results and exposes message-display synchronization points.</summary>
     public sealed class DialogService
     {
+        public Microsoft.UI.Dispatching.DispatcherQueue? Dispatcher { get; set; }
         public TaskCompletionSource MessageShown { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource DismissMessage { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Func<object, Microsoft.UI.Xaml.Controls.ContentDialogResult>? OnShowDialog { get; set; }
+        public int ConfirmCount { get; private set; }
+        public bool ConfirmResult { get; set; } = true;
+        public string? LastMessage { get; private set; }
+        public string? LastConfirmation { get; private set; }
+        public Action? OnConfirm { get; set; }
+        public Func<Task<bool>>? ConfirmOverride { get; set; }
 
         public Task<Microsoft.UI.Xaml.Controls.ContentDialogResult> ShowDialogAsync(object dialog) =>
             Task.FromResult(OnShowDialog?.Invoke(dialog) ?? throw new NotSupportedException());
 
-        public Task<bool> ShowConfirmAsync(string title, string message, string primaryText) =>
-            Task.FromResult(true);
+        public Task<bool> ShowConfirmAsync(string title, string message, string primaryText)
+        {
+            ConfirmCount++;
+            LastConfirmation = message;
+            OnConfirm?.Invoke();
+            return ConfirmOverride?.Invoke() ?? Task.FromResult(ConfirmResult);
+        }
 
         public Task ShowMessageAsync(string title, string message)
         {
+            LastMessage = message;
             MessageShown.TrySetResult();
             return DismissMessage.Task;
+        }
+
+        public Task ShowLocalizedMessageAsync(string title, string message) => ShowMessageAsync(title, message);
+        public Task<bool> ShowLocalizedConfirmAsync(string title, string message, string primaryText, string closeText) =>
+            ShowConfirmAsync(title, message, primaryText);
+        public Task<bool> ShowLocalizedConfirmAsync(Func<(string Title, string Message, string Primary, string Close)> text)
+        {
+            var value = text();
+            return ShowConfirmAsync(value.Title, value.Message, value.Primary);
         }
     }
 }
