@@ -12,6 +12,24 @@ where the signed MSIX and installation steps live.
 
 ## [Unreleased]
 
+### Added
+
+- **Choose which Copilot CLI the GitHub Copilot provider uses.** Settings lists every Copilot CLI
+  found (`COPILOT_CLI_PATH`, WinGet, npm, `PATH`, or one you browse to) with the version the app will
+  actually run, instead of always taking the first match on `PATH`. **Automatic** keeps the old behavior.
+- **Install compatible Copilot CLI** downloads the exact CLI version the app's Copilot SDK expects,
+  verifies it against the release checksums, and keeps it in the app's own storage, where the CLI's
+  self-update cannot replace it. **Remove app-installed Copilot CLI** deletes it again.
+
+### Fixed
+
+- **GitHub Copilot works with Copilot CLI 1.0.113 and later.** These CLIs speak a newer SDK protocol,
+  so the provider failed with "SDK protocol version mismatch: SDK supports versions 3-3, but server
+  reports version 4." The app now uses Copilot SDK v2, which **requires Copilot CLI 1.0.113 or later**;
+  an older CLI now shows "Copilot CLI not compatible" with a way to fix it.
+- **The `auto` Copilot model is no longer reported as unavailable** when the Copilot CLI returns an
+  empty model list, which also stopped assistant chats from starting.
+
 ## [2.4.0] — 2026-10-22
 
 ### Added

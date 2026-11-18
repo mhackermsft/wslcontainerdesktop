@@ -681,6 +681,7 @@ protected override void OnLaunched(LaunchActivatedEventArgs args)
         services.AddSingleton<WslEngineViewModel>();
         services.AddSingleton<NetworksViewModel>();
         services.AddSingleton<RegistriesViewModel>();
+        services.AddSingleton<CopilotCliInstaller>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<AssistantViewModel>();
         services.AddSingleton<RequirementGateViewModel>();

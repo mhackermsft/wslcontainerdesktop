@@ -15,8 +15,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Microsoft.Extensions.AI;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -24,11 +24,11 @@ using Xunit;
 
 namespace WslContainerDesktop.Tests.Services;
 
-#pragma warning disable GHCP001
+#pragma warning disable MCPSDK001
 /// <summary>Covers binding to the Copilot SDK so exported functions, failures, permissions, and redacted prompt serialization keep their expected contract.</summary>
 public sealed class CopilotSdkBindingTests
 {
-    // SDK 1.0.7's pinned Session.ExecuteToolAndRespondAsync and CopilotTool binding use
+    // The SDK's Session.ExecuteToolAndRespondAsync and CopilotTool binding use
     // AIFunctionArguments.Context[typeof(ToolInvocation)]. Exercise that real binder, not
     // a fabricated AiToolCall callback or an invented SDK key; no session/client is started.
     internal static AIFunctionArguments Bind(AiToolCall call) => new()
@@ -128,22 +128,22 @@ public sealed class CopilotSdkBindingTests
         Assert.Equal("captured-model", config.Model);
         Assert.Equal("trusted-system", config.SystemMessage!.Content);
         Assert.Equal(SystemMessageMode.Replace, config.SystemMessage.Mode);
-        Assert.True(config.Streaming);
-        Assert.False(config.InfiniteSessions!.Enabled);
-        Assert.False(config.EnableSkills);
+        Assert.True(config.Events.Streaming);
+        Assert.False(config.State.InfiniteSessions!.Enabled);
+        Assert.False(config.Skills.Enabled);
         Assert.False(config.EnableConfigDiscovery);
-        Assert.True(config.SkipCustomInstructions);
-        Assert.False(config.EnableHostGitOperations);
-        Assert.False(config.EnableSessionStore);
+        Assert.True(config.Instructions.SkipCustomInstructions);
+        Assert.False(config.Git.EnableHostGitOperations);
+        Assert.False(config.State.EnableCrossSessionStore);
         Assert.Equal("synthetic-directory", config.WorkingDirectory);
-        Assert.Equal(definitions.Select(d => d.Name), config.AvailableTools);
+        Assert.Equal(definitions.Select(d => d.Name), config.Tools.AvailableTools);
         foreach (var name in AssistantCatalogAdapterTests.NewTools)
         {
-            var decision = await config.OnPermissionRequest!(new PermissionRequestCustomTool { ToolName = name, ToolDescription = "fixture" }, new());
+            var decision = await config.Permissions.OnRequest!(new PermissionRequestCustomTool { ToolName = name, ToolDescription = "fixture" }, new());
             Assert.IsType<PermissionDecisionApproveOnce>(decision);
         }
         foreach (var name in new[] { "host_shell", "STOP_COMPOSE_PROJECT", "", "stop_compose_project " })
-            Assert.IsType<PermissionDecisionReject>(await config.OnPermissionRequest!(
+            Assert.IsType<PermissionDecisionReject>(await config.Permissions.OnRequest!(
                 new PermissionRequestCustomTool { ToolName = name, ToolDescription = "fixture" }, new()));
         Assert.IsType<PermissionDecisionReject>(GitHubCopilotProvider.HandleToolPermissionRequest(
             new PermissionRequestShell { FullCommandText = "whoami", Intention = "fixture",
@@ -173,4 +173,4 @@ public sealed class CopilotSdkBindingTests
         Assert.Contains("failed", prompt);
     }
 }
-#pragma warning restore GHCP001
+#pragma warning restore MCPSDK001

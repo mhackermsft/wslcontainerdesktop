@@ -21,7 +21,6 @@ using System.Reflection;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
 using Microsoft.Extensions.Logging;
 using Windows.ApplicationModel.DataTransfer;
 using WslContainerDesktop.Models;
@@ -45,6 +44,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IAiAvailabilityService _aiAvailability;
     private readonly ILogger<SettingsViewModel> _logger;
     private readonly HttpClient _http;
+    private readonly CopilotCliInstaller _copilotCliInstaller;
 
     private bool _suppressStartupWrite;
     private bool _suppressProviderModelRefresh;
@@ -574,7 +574,7 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Creates the Settings view model and stores its injected services.</summary>
-    public SettingsViewModel(ISettingsService settings, ITextLocalizer localizer, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger, FoundryLocalSettingsViewModel foundryLocal)
+    public SettingsViewModel(ISettingsService settings, ITextLocalizer localizer, IWslcService wslc, DialogService dialogs, StartupService startup, FileLoggerProvider fileLogger, IAiDiagnosticsService aiDiagnostics, IAiCredentialStore aiCredentials, ILocalAiSetupService localAi, IAiAvailabilityService aiAvailability, IAiCapabilityService aiCapabilities, HttpClient http, ILogger<SettingsViewModel> logger, FoundryLocalSettingsViewModel foundryLocal, CopilotCliInstaller copilotCliInstaller)
     {
         FoundryLocal = foundryLocal;
         _settings = settings;
@@ -595,6 +595,7 @@ public partial class SettingsViewModel : ObservableObject
         };
         _http = http;
         _logger = logger;
+        _copilotCliInstaller = copilotCliInstaller;
         UiText.LanguageChanged += (_, _) => RefreshCommonLocalizedText();
 
         _wslcPath = settings.WslcPath;
@@ -622,6 +623,7 @@ public partial class SettingsViewModel : ObservableObject
         _aiOpenAiEndpoint = settings.AiOpenAiEndpoint;
         _aiOpenAiModel = settings.AiOpenAiModel;
         _aiGitHubCopilotModel = settings.AiGitHubCopilotModel;
+        _aiGitHubCopilotCliPath = settings.AiGitHubCopilotCliPath;
         AssistantToolPermissions = BuildAssistantToolPermissions();
         EnsureGitHubCopilotModelOption(_aiGitHubCopilotModel);
         _selectedThemeIndex = settings.Theme switch
@@ -741,6 +743,7 @@ public partial class SettingsViewModel : ObservableObject
         _settings.Save();
         if (_settings.AiProvider == AiProviderKind.GitHubCopilot)
         {
+            _ = RefreshGitHubCopilotCliCandidatesAsync();
             _ = LoadGitHubCopilotModelsAsync();
         }
         else if (_settings.AiProvider == AiProviderKind.Ollama && !_suppressProviderModelRefresh)
@@ -1158,12 +1161,12 @@ public partial class SettingsViewModel : ObservableObject
         {
             IsBusy = true;
             ProviderFeedback = AiFeedback.Informational(UiText.Get("Common_Text0070", "Loading models"), UiText.Get("Common_Text0071", "Loading GitHub Copilot models…"));
-            await using var client = GitHubCopilotProvider.CreateClient(_logger);
+            await using var client = GitHubCopilotProvider.CreateClient(_logger, _settings.AiGitHubCopilotCliPath);
             await client.StartAsync();
             var models = await client.ListModelsAsync();
 
             var modelList = models.ToList();
-            var configuredAvailable = modelList.Any(m => string.Equals(m.Id, persisted, StringComparison.OrdinalIgnoreCase));
+            var modelState = GitHubCopilotProvider.ClassifyModel(modelList.Select(m => m.Id), persisted);
             var options = modelList
                 .OrderBy(m => string.Equals(m.Id, "auto", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
@@ -1180,16 +1183,26 @@ public partial class SettingsViewModel : ObservableObject
             ReplaceGitHubCopilotModels(options);
             ReapplyGitHubCopilotModel(persisted);
 
-            ProviderFeedback = !configuredAvailable
-                ? AiFeedback.Warning(UiText.Get("Common_Text0074", "Configured model unavailable"), UiText.Get("Common_Text0075", "Configured model '{0}' is not available. Choose a model from the list.", persisted))
-                : AiFeedback.Success(UiText.Get("Common_Text0076", "Models loaded"), UiText.Get("Common_Text0077", "Loaded {0} GitHub Copilot model(s).", GitHubCopilotModels.Count));
+            ProviderFeedback = modelState switch
+            {
+                AiModelState.Missing => AiFeedback.Warning(UiText.Get("Common_Text0074", "Configured model unavailable"), UiText.Get("Common_Text0075", "Configured model '{0}' is not available. Choose a model from the list.", persisted)),
+                _ when modelList.Count == 0 => AiFeedback.Informational(
+                    UiText.Get("Settings_Ai_Copilot_NoModelListTitle", "Connected to GitHub Copilot"),
+                    UiText.Get("Settings_Ai_Copilot_NoModelListMessage", "The Copilot CLI did not return a model list, so only 'auto' is offered. With 'auto', Copilot chooses the model for each request.")),
+                _ => AiFeedback.Success(UiText.Get("Common_Text0076", "Models loaded"), UiText.Get("Common_Text0077", "Loaded {0} GitHub Copilot model(s).", GitHubCopilotModels.Count)),
+            };
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to load GitHub Copilot models.");
             SeedGitHubCopilotModels(persisted);
             ReapplyGitHubCopilotModel(persisted);
-            ProviderFeedback = AiErrorClassifier.Classify(ex, ProviderContext(UiText.Get("Common_Text0078", "Refresh GitHub Copilot models")));
+            ProviderFeedback = GitHubCopilotProvider.IsProtocolMismatch(ex)
+                ? AiFeedback.Error(
+                    UiText.Get("Settings_Ai_CopilotCli_MismatchTitle", "Copilot CLI not compatible"),
+                    UiText.Get("Settings_Ai_CopilotCli_MismatchMessage", "The selected Copilot CLI uses a different protocol version than this app. Choose another Copilot CLI or install the compatible version."),
+                    ex.Message)
+                : AiErrorClassifier.Classify(ex, ProviderContext(UiText.Get("Common_Text0078", "Refresh GitHub Copilot models")));
         }
         finally
         {
@@ -1943,6 +1956,9 @@ public partial class SettingsViewModel : ObservableObject
         EngineVersion = UiText.Translate(EngineVersion);
         foreach (var model in GitHubCopilotModels.Concat(OllamaModels))
             model.RefreshLanguage();
+        RebuildGitHubCopilotCliOptions();
+        OnPropertyChanged(nameof(InstallGitHubCopilotCliLabel));
+        OnPropertyChanged(nameof(GitHubCopilotCliHelp));
         ProviderFeedback = LocalizedFeedback(ProviderFeedback);
         LocalAiFeedback = LocalizedFeedback(LocalAiFeedback);
         foreach (var group in AssistantToolPermissions)

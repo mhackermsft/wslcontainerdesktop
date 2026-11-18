@@ -25,8 +25,8 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" Condition="'$(TargetFramework)' != 'net10.0-windows10.0.26100.0'" />
     <!-- Match the already-audited app SDK graph for deterministic app-owned Copilot binding tests. -->
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
-    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.7" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
+    <PackageReference Include="Microsoft.Copilot.SDK" Version="2.0.1" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <!-- Exercise sessions created through the same SDK that exposed the session-selection issue. -->
     <PackageReference Include="Microsoft.WSL.Containers" Version="3.0.1" Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'" />
     <PackageReference Include="xunit" Version="2.9.3" />
@@ -243,6 +243,10 @@
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolset.Compose.cs" Link="Services\AssistantToolset.Compose.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\AssistantToolset.Observations.cs" Link="Services\AssistantToolset.Observations.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\GitHubCopilotProvider.cs" Link="Services\GitHubCopilotProvider.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\CopilotCliLocator.cs" Link="Services\CopilotCliLocator.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\CopilotCliInstaller.cs" Link="Services\CopilotCliInstaller.cs" />
+    <Compile Include="..\..\src\WslContainerDesktop\Services\AppStoragePaths.cs" Link="Services\AppStoragePaths.cs" />
+    <AssemblyMetadata Include="CopilotCliVersion" Value="$(CopilotCliVersion)" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IKubernetesService.cs" Link="Services\IKubernetesService.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\TemplateCatalog.cs" Link="Services\TemplateCatalog.cs" />
     <Compile Include="..\..\src\WslContainerDesktop\Services\IUserTemplateStore.cs" Link="Services\IUserTemplateStore.cs" />
@@ -266,6 +270,7 @@
     <Compile Remove="Services\AssistantCatalogAdapterTests.cs" />
     <Compile Remove="Services\AssistantToolExposureTests.cs" />
     <Compile Remove="Services\CopilotSdkBindingTests.cs" />
+    <Compile Remove="Services\CopilotCliTests.cs" />
     <Compile Remove="Services\ComposeNetworkSupervisorTests.cs" />
     <Compile Remove="Services\ComposeReconciliationSupervisorTests.cs" />
     <Compile Remove="Services\DevContainerLifecycleTests.cs" />

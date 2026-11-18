@@ -16,16 +16,15 @@
 
 using System.Text;
 using System.Text.Json;
-using GitHub.Copilot;
-using GitHub.Copilot.Rpc;
+using Microsoft.Copilot;
+using Microsoft.Copilot.Rpc;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
-using Windows.Storage;
 using WslContainerDesktop.Models;
 
 namespace WslContainerDesktop.Services;
 
-#pragma warning disable GHCP001 // Required SDK permission hook so Copilot surfaces our declared tool calls to the app gate.
+#pragma warning disable MCPSDK001 // Required SDK permission hook so Copilot surfaces our declared tool calls to the app gate.
 /// <summary>
 /// AI provider implementation that uses the installed GitHub Copilot CLI and Copilot Chat SDK to answer assistant turns.
 /// </summary>
@@ -35,6 +34,10 @@ public sealed class GitHubCopilotProvider(
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(3);
     private const string DefaultModel = "auto";
+
+    /// <summary>Message shown when the selected Copilot CLI speaks a different SDK protocol version.</summary>
+    internal const string ProtocolMismatchMessage =
+        "The selected Copilot CLI is not compatible with this version of WSL Container Desktop. In Settings, choose a different Copilot CLI or install the compatible version.";
 
     /// <inheritdoc/>
     public AiProviderKind Kind => AiProviderKind.GitHubCopilot;
@@ -47,11 +50,11 @@ public sealed class GitHubCopilotProvider(
     {
         ct.ThrowIfCancellationRequested();
         var state = new AiCapabilitySnapshot(configuration);
-        if (FindCopilotCliPath() is not { } path)
+        if (FindCopilotCliPath(settings.AiGitHubCopilotCliPath) is not { } path)
             return state with { Runtime = AiRuntimeState.Unavailable };
         try
         {
-            await using var client = CreateClient();
+            await using var client = CreateClient(logger, path);
             await client.StartAsync(ct).ConfigureAwait(false);
             var models = await client.ListModelsAsync(ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -59,8 +62,7 @@ public sealed class GitHubCopilotProvider(
             return state with
             {
                 Endpoint = AiEndpointState.Reachable, Runtime = AiRuntimeState.Ready,
-                Model = models.Any(m => string.Equals(m.Id, configuration.Model, StringComparison.OrdinalIgnoreCase))
-                    ? AiModelState.Available : AiModelState.Missing,
+                Model = ClassifyModel(models.Select(m => m.Id), configuration.Model),
                 RuntimeIdentity = AiCapabilityService.HashIdentity($"{file.Length}:{file.LastWriteTimeUtc.Ticks}"),
                 // SDK inventory does not establish tool/JSON support for a selected model.
             };
@@ -117,7 +119,7 @@ public sealed class GitHubCopilotProvider(
             await client.StartAsync(timeout.Token).ConfigureAwait(false);
             var model = await ResolveModelAsync(client, timeout.Token).ConfigureAwait(false);
 
-            await using var session = await client.CreateSessionAsync(new SessionConfig
+            await using var session = await client.CreateSessionAsync(new CreateSessionOptions
             {
                 Model = model,
                 SystemMessage = new SystemMessageConfig
@@ -125,13 +127,16 @@ public sealed class GitHubCopilotProvider(
                     Mode = SystemMessageMode.Replace,
                     Content = request.SystemPrompt,
                 },
-                AvailableTools = new List<string>(),
-                InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
-                EnableSkills = false,
+                Tools = new SessionToolOptions { AvailableTools = new List<string>() },
+                State = new SessionStateOptions
+                {
+                    InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
+                    EnableCrossSessionStore = false,
+                },
+                Skills = new SessionSkillOptions { Enabled = false },
                 EnableConfigDiscovery = false,
-                SkipCustomInstructions = true,
-                EnableHostGitOperations = false,
-                EnableSessionStore = false,
+                Instructions = new CreateSessionInstructionOptions { SkipCustomInstructions = true },
+                Git = new SessionGitOptions { EnableHostGitOperations = false },
                 WorkingDirectory = SafeWorkingDirectory(),
             }, timeout.Token).ConfigureAwait(false);
 
@@ -174,6 +179,10 @@ public sealed class GitHubCopilotProvider(
             // Already classified (e.g. ResolveModelAsync's "model not available") — don't flatten
             // it into the generic "not ready" fallback below.
             throw;
+        }
+        catch (Exception ex) when (IsProtocolMismatch(ex))
+        {
+            throw ProtocolMismatch(operation, ex);
         }
         catch (Exception ex)
         {
@@ -309,6 +318,10 @@ public sealed class GitHubCopilotProvider(
         {
             throw;
         }
+        catch (Exception ex) when (IsProtocolMismatch(ex))
+        {
+            throw ProtocolMismatch("Assistant chat", ex);
+        }
         catch (Exception ex)
         {
             logger.LogDebug("GitHub Copilot assistant chat failed: {Detail}", AiTextSanitizer.Sanitize(ex.Message));
@@ -323,7 +336,7 @@ public sealed class GitHubCopilotProvider(
     }
 
     /// <summary>Builds the Copilot SDK session configuration from the app request and selected model.</summary>
-    internal static SessionConfig BuildChatSessionConfig(
+    internal static CreateSessionOptions BuildChatSessionConfig(
         string model,
         IReadOnlyList<AiChatMessage> history,
         IReadOnlyList<AiToolDefinition> tools,
@@ -332,7 +345,7 @@ public sealed class GitHubCopilotProvider(
         string workingDirectory)
     {
         var allowlistedToolNames = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
-        return new SessionConfig
+        return new CreateSessionOptions
         {
             Model = model,
             SystemMessage = new SystemMessageConfig
@@ -340,17 +353,26 @@ public sealed class GitHubCopilotProvider(
                 Mode = SystemMessageMode.Replace,
                 Content = string.Join("\n\n", history.Where(m => m.Role == "system").Select(m => m.Content)),
             },
-            Streaming = true,
-            Tools = BuildCopilotTools(tools, invokeToolAsync, failBridge),
-            AvailableTools = tools.Select(t => t.Name).ToList(),
-            InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
-            EnableSkills = false,
+            Events = new SessionEventOptions { Streaming = true },
+            Tools = new SessionToolOptions
+            {
+                Definitions = BuildCopilotTools(tools, invokeToolAsync, failBridge),
+                AvailableTools = tools.Select(t => t.Name).ToList(),
+            },
+            State = new SessionStateOptions
+            {
+                InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
+                EnableCrossSessionStore = false,
+            },
+            Skills = new SessionSkillOptions { Enabled = false },
             EnableConfigDiscovery = false,
-            SkipCustomInstructions = true,
-            EnableHostGitOperations = false,
-            EnableSessionStore = false,
+            Instructions = new CreateSessionInstructionOptions { SkipCustomInstructions = true },
+            Git = new SessionGitOptions { EnableHostGitOperations = false },
             WorkingDirectory = workingDirectory,
-            OnPermissionRequest = (request, _) => Task.FromResult(HandleToolPermissionRequest(request, allowlistedToolNames)),
+            Permissions = new SessionPermissionOptions
+            {
+                OnRequest = (request, _) => Task.FromResult(HandleToolPermissionRequest(request, allowlistedToolNames)),
+            },
         };
     }
 
@@ -461,21 +483,84 @@ public sealed class GitHubCopilotProvider(
 
     private CopilotClient CreateClient()
     {
-        return CreateClient(logger);
+        return CreateClient(logger, settings.AiGitHubCopilotCliPath);
     }
 
-    /// <summary>Creates the Copilot SDK client and translates startup failures into actionable diagnostics.</summary>
-    internal static CopilotClient CreateClient(ILogger logger)
+    /// <summary>
+    /// Creates the Copilot SDK client for the Copilot CLI selected in settings (an empty selection means automatic
+    /// discovery). The CLI runs as a child process over stdio, as it did before SDK v2 made in-process hosting the
+    /// default, because the app does not ship the SDK's bundled runtime.
+    /// </summary>
+    internal static CopilotClient CreateClient(ILogger logger, string? configuredCliPath)
     {
+        var cliPath = FindCopilotCliPath(configuredCliPath) ?? throw CliNotFound(configuredCliPath);
+        var runtime = RuntimeConnection.ForSpawnedStdio(
+            path: cliPath,
+            workingDirectory: SafeWorkingDirectory(),
+            baseDirectory: SafeBaseDirectory());
         return new CopilotClient(new CopilotClientOptions
         {
-            Connection = RuntimeConnection.ForStdio(FindCopilotCliPath()),
-            UseLoggedInUser = true,
-            BaseDirectory = SafeBaseDirectory(),
-            WorkingDirectory = SafeWorkingDirectory(),
-            Logger = AiTextSanitizer.WrapLogger(logger),
+            // CodingAgent keeps the SDK v1 defaults; sessions still restrict tools to the app's allowlist.
+            Mode = CopilotClientMode.CodingAgent,
+            Runtime = runtime,
+            GitHub = new ClientGitHubOptions { UseLoggedInUser = true },
+            Observability = new ClientObservabilityOptions { Logger = AiTextSanitizer.WrapLogger(logger) },
         });
     }
+
+    /// <summary>
+    /// Finds the Copilot CLI to start: the configured path when one is set, otherwise the first automatic candidate
+    /// (<c>COPILOT_CLI_PATH</c>, an app-installed CLI, WinGet, npm, then <c>PATH</c>).
+    /// </summary>
+    internal static string? FindCopilotCliPath(string? configuredCliPath = null) => CopilotCliLocator.Resolve(configuredCliPath);
+
+    /// <summary>
+    /// Classifies a configured model against the runtime's model list. <c>auto</c> lets Copilot choose and is never
+    /// listed, so it is always available. Some runtimes return an empty list even when signed in and able to chat;
+    /// an empty list cannot prove a model missing, so it is reported as unknown rather than rejected.
+    /// </summary>
+    internal static AiModelState ClassifyModel(IEnumerable<string> listedModelIds, string? configuredModel)
+    {
+        var requested = string.IsNullOrWhiteSpace(configuredModel) ? DefaultModel : configuredModel.Trim();
+        if (string.Equals(requested, DefaultModel, StringComparison.OrdinalIgnoreCase))
+            return AiModelState.Available;
+
+        var listed = listedModelIds.ToList();
+        if (listed.Count == 0)
+            return AiModelState.Unknown;
+
+        return listed.Any(id => string.Equals(id, requested, StringComparison.OrdinalIgnoreCase))
+            ? AiModelState.Available
+            : AiModelState.Missing;
+    }
+
+    /// <summary>Whether an exception (or one it wraps) is the SDK's protocol version negotiation failure.</summary>
+    internal static bool IsProtocolMismatch(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains("protocol version mismatch", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static AiProviderException ProtocolMismatch(string operation, Exception ex) => new(
+        AiProviderKind.GitHubCopilot,
+        operation,
+        ProtocolMismatchMessage,
+        AiFailureKind.Configuration,
+        responseDetail: ex.Message,
+        inner: ex);
+
+    private static AiProviderException CliNotFound(string? configuredCliPath) => new(
+        AiProviderKind.GitHubCopilot,
+        "Start Copilot CLI",
+        string.IsNullOrWhiteSpace(configuredCliPath)
+            ? "No GitHub Copilot CLI was found. In Settings, install the compatible Copilot CLI or choose one."
+            : $"The selected Copilot CLI no longer exists: {configuredCliPath}. In Settings, choose another Copilot CLI.",
+        AiFailureKind.Configuration);
 
     private async Task<string> ResolveModelAsync(CopilotClient client, CancellationToken ct, string? configuredModel = null)
     {
@@ -487,7 +572,7 @@ public sealed class GitHubCopilotProvider(
         try
         {
             var models = await client.ListModelsAsync(ct).ConfigureAwait(false);
-            if (models.Any(m => string.Equals(m.Id, requested, StringComparison.OrdinalIgnoreCase)))
+            if (ClassifyModel(models.Select(m => m.Id), requested) != AiModelState.Missing)
             {
                 return requested;
             }
@@ -507,47 +592,11 @@ public sealed class GitHubCopilotProvider(
         }
     }
 
-    /// <summary>Finds the GitHub Copilot CLI executable on common Windows PATH locations.</summary>
-    internal static string? FindCopilotCliPath()
-    {
-        var candidates = new List<string?>();
-        candidates.Add(Environment.GetEnvironmentVariable("COPILOT_CLI_PATH"));
+    private static string SafeBaseDirectory() => Path.Combine(AppStoragePaths.LocalCache(), "copilot-sdk");
 
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        candidates.Add(Path.Combine(localAppData, "Microsoft", "WinGet", "Links", "copilot.exe"));
-        candidates.Add(Path.Combine(appData, "npm", "copilot.cmd"));
-
-        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            candidates.Add(Path.Combine(directory, "copilot.exe"));
-            candidates.Add(Path.Combine(directory, "copilot.cmd"));
-        }
-
-        return candidates
-            .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Select(p => p!)
-            .FirstOrDefault(File.Exists);
-    }
-
-    private static string SafeBaseDirectory() => Path.Combine(SafeLocalCache(), "copilot-sdk");
-
-    private static string SafeWorkingDirectory() => SafeLocalCache();
-
-    private static string SafeLocalCache()
-    {
-        try
-        {
-            return ApplicationData.Current.LocalCacheFolder.Path;
-        }
-        catch
-        {
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WslContainerDesktop");
-        }
-    }
+    private static string SafeWorkingDirectory() => AppStoragePaths.LocalCache();
 
     /// <summary>Result from the CLI-based Copilot path, including requested and actual model names.</summary>
     private sealed record CopilotRunResult(string Content, string RequestedModel, string ActualModel);
 }
-#pragma warning restore GHCP001
+#pragma warning restore MCPSDK001

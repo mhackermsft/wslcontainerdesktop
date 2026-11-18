@@ -101,6 +101,12 @@ public interface ISettingsService
     /// <summary>GitHub Copilot model identifier selected for assistant chat.</summary>
     string AiGitHubCopilotModel { get; set; }
 
+    /// <summary>
+    /// Copilot CLI executable selected in settings. Empty selects automatically from <c>COPILOT_CLI_PATH</c>, an
+    /// app-installed CLI, WinGet, npm and <c>PATH</c>.
+    /// </summary>
+    string AiGitHubCopilotCliPath { get; set; }
+
     /// <summary>Whether the assistant may create and run containers after approval.</summary>
     bool AiAssistantAutoCreateRun { get; set; }
 

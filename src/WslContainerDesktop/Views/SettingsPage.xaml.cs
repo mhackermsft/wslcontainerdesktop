@@ -53,6 +53,8 @@ public sealed partial class SettingsPage : Page
             await ViewModel.LoadStartupStateAsync();
             await ViewModel.RefreshLocalRuntimePresenceAsync();
             ViewModel.LoadAiSecretState();
+            if (ViewModel.ShowGitHubCopilotSettings)
+                await ViewModel.RefreshGitHubCopilotCliCandidatesAsync();
             await ViewModel.LoadGitHubCopilotModelsAsync();
             await ViewModel.LoadOllamaModelsAsync();
         });
@@ -97,6 +99,44 @@ public sealed partial class SettingsPage : Page
             };
             return await dialog.ShowAsync() == ContentDialogResult.Primary;
         }));
+
+    /// <summary>Lets the user pick any Copilot CLI executable or command script.</summary>
+    private void BrowseCopilotCli_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(async () =>
+        {
+            var picker = new Windows.Storage.Pickers.FileOpenPicker
+            {
+                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder,
+            };
+            picker.FileTypeFilter.Add(".exe");
+            picker.FileTypeFilter.Add(".cmd");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker,
+                Microsoft.UI.Win32Interop.GetWindowFromWindowId(App.Current.MainWindow!.AppWindow.Id));
+            var file = await picker.PickSingleFileAsync();
+            await ViewModel.SelectCustomGitHubCopilotCliAsync(file?.Path);
+        });
+
+    /// <summary>Confirms, then removes the Copilot CLI this app installed.</summary>
+    private void RemoveCopilotCli_Click(object sender, RoutedEventArgs e) =>
+        UiSafe.Run(async () =>
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = UiText.Get("Settings_Ai_CopilotCli_RemoveTitle", "Remove app-installed Copilot CLI"),
+                Content = new TextBlock
+                {
+                    Text = UiText.Get("Settings_Ai_CopilotCli_RemoveConfirm", "This deletes the Copilot CLI that WSL Container Desktop downloaded for itself.\n\n• Copilot CLIs installed with WinGet, npm or VS Code are not affected\n• Your Copilot sign-in is kept\n• If it was selected, the app switches back to Automatic\n\nYou can install it again from this page."),
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                PrimaryButtonText = UiText.Get("Common_Remove", "Remove"),
+                CloseButtonText = UiText.Get("Common_Text0094", "Cancel"),
+                DefaultButton = ContentDialogButton.Close,
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                return;
+            await ViewModel.RemoveAppInstalledGitHubCopilotCliAsync();
+        });
 
     private void InstallFoundryRuntime_Click(object sender, RoutedEventArgs e) =>
         UiSafe.Run(() => ViewModel.FoundryLocal.InstallRuntimeAsync((message, ct) =>

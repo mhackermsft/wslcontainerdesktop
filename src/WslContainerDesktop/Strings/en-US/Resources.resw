@@ -10840,4 +10840,136 @@ Setup needs the network. Cancelling partway does not undo what already completed
   <data name="Root_Static_Settings_RefreshOpenAiModels.Content" xml:space="preserve">
     <value>Refresh</value>
   </data>
+  <data name="Settings_Ai_CopilotCli_Picker.Header" xml:space="preserve">
+    <value>Copilot CLI</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Browse.Content" xml:space="preserve">
+    <value>Browse…</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Refresh.Content" xml:space="preserve">
+    <value>Refresh list</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_UseInstalled" xml:space="preserve">
+    <value>Use installed compatible Copilot CLI ({0})</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Install" xml:space="preserve">
+    <value>Install compatible Copilot CLI ({0})</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_HelpUnknown" xml:space="preserve">
+    <value>Choose which Copilot CLI WSL Container Desktop starts. Automatic uses the first one found.</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Help" xml:space="preserve">
+    <value>Choose which Copilot CLI WSL Container Desktop starts. Automatic uses the first one found. This version of the app needs Copilot CLI {0}, or another version that uses the same protocol. Install downloads that exact version for this app only, so the CLI's self-updates cannot replace it.</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_InstalledTitle" xml:space="preserve">
+    <value>Copilot CLI installed</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_InstalledMessage" xml:space="preserve">
+    <value>Copilot CLI {0} is installed and selected.</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_InstallFailedTitle" xml:space="preserve">
+    <value>Copilot CLI install failed</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_InstallFailedMessage" xml:space="preserve">
+    <value>Could not install Copilot CLI {0}. Check your internet connection and try again.</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_AutomaticNone" xml:space="preserve">
+    <value>Automatic (no Copilot CLI found)</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Automatic" xml:space="preserve">
+    <value>Automatic: {0}</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Missing" xml:space="preserve">
+    <value>Not found: {0}</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceEnvironment" xml:space="preserve">
+    <value>COPILOT_CLI_PATH</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceApp" xml:space="preserve">
+    <value>Installed by this app</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceWinGet" xml:space="preserve">
+    <value>WinGet</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceNpm" xml:space="preserve">
+    <value>npm</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourcePath" xml:space="preserve">
+    <value>PATH</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceCustom" xml:space="preserve">
+    <value>Selected file</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_VersionUnknown" xml:space="preserve">
+    <value>no version reported</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_VersionCompatible" xml:space="preserve">
+    <value>{0} (compatible)</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Downloading" xml:space="preserve">
+    <value>Downloading Copilot CLI {0}…</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_DownloadingProgress" xml:space="preserve">
+    <value>Downloading Copilot CLI {0}… {1} of {2} MB</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_DownloadingBytes" xml:space="preserve">
+    <value>Downloading Copilot CLI {0}… {1} MB</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Verifying" xml:space="preserve">
+    <value>Verifying the download…</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Extracting" xml:space="preserve">
+    <value>Extracting Copilot CLI…</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_MismatchTitle" xml:space="preserve">
+    <value>Copilot CLI not compatible</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_MismatchMessage" xml:space="preserve">
+    <value>The selected Copilot CLI uses a different protocol version than this app. Choose another Copilot CLI or install the compatible version.</value>
+  </data>
+  <data name="Copilot_Provider_ProtocolMismatch" xml:space="preserve">
+    <value>The selected Copilot CLI is not compatible with this version of WSL Container Desktop. In Settings, choose a different Copilot CLI or install the compatible version.</value>
+  </data>
+  <data name="Copilot_Provider_CliNotFound" xml:space="preserve">
+    <value>No GitHub Copilot CLI was found. In Settings, install the compatible Copilot CLI or choose one.</value>
+  </data>
+  <data name="Copilot_Provider_CliMissing" xml:space="preserve">
+    <value>The selected Copilot CLI no longer exists: {0}. In Settings, choose another Copilot CLI.</value>
+  </data>
+  <data name="Settings_Ai_Copilot_NoModelListTitle" xml:space="preserve">
+    <value>Connected to GitHub Copilot</value>
+  </data>
+  <data name="Settings_Ai_Copilot_NoModelListMessage" xml:space="preserve">
+    <value>The Copilot CLI did not return a model list, so only 'auto' is offered. With 'auto', Copilot chooses the model for each request.</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Remove.Content" xml:space="preserve">
+    <value>Remove app-installed Copilot CLI</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemoveTitle" xml:space="preserve">
+    <value>Remove app-installed Copilot CLI</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemoveConfirm" xml:space="preserve">
+    <value>This deletes the Copilot CLI that WSL Container Desktop downloaded for itself.
+
+• Copilot CLIs installed with WinGet, npm or VS Code are not affected
+• Your Copilot sign-in is kept
+• If it was selected, the app switches back to Automatic
+
+You can install it again from this page.</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemovedTitle" xml:space="preserve">
+    <value>Copilot CLI removed</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemovedMessage" xml:space="preserve">
+    <value>The Copilot CLI installed by this app was removed.</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemovedSelectedMessage" xml:space="preserve">
+    <value>The Copilot CLI installed by this app was removed. Copilot CLI selection is back to Automatic.</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemoveFailedTitle" xml:space="preserve">
+    <value>Copilot CLI not removed</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemoveFailedMessage" xml:space="preserve">
+    <value>Some files are still in use. Wait for any Copilot request to finish, then try again.</value>
+  </data>
 </root>

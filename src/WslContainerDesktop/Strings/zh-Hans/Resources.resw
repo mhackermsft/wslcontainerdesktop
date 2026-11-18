@@ -10840,4 +10840,136 @@ License: {2} — {3}
   <data name="Root_Static_Settings_RefreshOpenAiModels.Content" xml:space="preserve">
     <value>刷新</value>
   </data>
+  <data name="Settings_Ai_CopilotCli_Picker.Header" xml:space="preserve">
+    <value>Copilot CLI</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Browse.Content" xml:space="preserve">
+    <value>浏览…</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Refresh.Content" xml:space="preserve">
+    <value>刷新列表</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_UseInstalled" xml:space="preserve">
+    <value>使用已安装的兼容 Copilot CLI ({0})</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Install" xml:space="preserve">
+    <value>安装兼容的 Copilot CLI ({0})</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_HelpUnknown" xml:space="preserve">
+    <value>选择 WSL Container Desktop 启动哪个 Copilot CLI。“自动”使用找到的第一个。</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Help" xml:space="preserve">
+    <value>选择 WSL Container Desktop 启动哪个 Copilot CLI。“自动”使用找到的第一个。此版本的应用需要 Copilot CLI {0}，或使用相同协议的其他版本。“安装”仅为此应用下载该确切版本，因此 CLI 的自动更新不会替换它。</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_InstalledTitle" xml:space="preserve">
+    <value>Copilot CLI 已安装</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_InstalledMessage" xml:space="preserve">
+    <value>已安装并选择 Copilot CLI {0}。</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_InstallFailedTitle" xml:space="preserve">
+    <value>Copilot CLI 安装失败</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_InstallFailedMessage" xml:space="preserve">
+    <value>无法安装 Copilot CLI {0}。请检查网络连接后重试。</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_AutomaticNone" xml:space="preserve">
+    <value>自动（未找到 Copilot CLI）</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Automatic" xml:space="preserve">
+    <value>自动：{0}</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Missing" xml:space="preserve">
+    <value>未找到：{0}</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceEnvironment" xml:space="preserve">
+    <value>COPILOT_CLI_PATH</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceApp" xml:space="preserve">
+    <value>由此应用安装</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceWinGet" xml:space="preserve">
+    <value>WinGet</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceNpm" xml:space="preserve">
+    <value>npm</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourcePath" xml:space="preserve">
+    <value>PATH</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_SourceCustom" xml:space="preserve">
+    <value>所选文件</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_VersionUnknown" xml:space="preserve">
+    <value>未报告版本</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_VersionCompatible" xml:space="preserve">
+    <value>{0}（兼容）</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Downloading" xml:space="preserve">
+    <value>正在下载 Copilot CLI {0}…</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_DownloadingProgress" xml:space="preserve">
+    <value>正在下载 Copilot CLI {0}… {1} / {2} MB</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_DownloadingBytes" xml:space="preserve">
+    <value>正在下载 Copilot CLI {0}… {1} MB</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Verifying" xml:space="preserve">
+    <value>正在验证下载…</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Extracting" xml:space="preserve">
+    <value>正在解压 Copilot CLI…</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_MismatchTitle" xml:space="preserve">
+    <value>Copilot CLI 不兼容</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_MismatchMessage" xml:space="preserve">
+    <value>所选 Copilot CLI 使用的协议版本与此应用不同。请选择其他 Copilot CLI 或安装兼容版本。</value>
+  </data>
+  <data name="Copilot_Provider_ProtocolMismatch" xml:space="preserve">
+    <value>所选 Copilot CLI 与此版本的 WSL Container Desktop 不兼容。请在“设置”中选择其他 Copilot CLI 或安装兼容版本。</value>
+  </data>
+  <data name="Copilot_Provider_CliNotFound" xml:space="preserve">
+    <value>未找到 GitHub Copilot CLI。请在“设置”中安装兼容的 Copilot CLI 或选择一个。</value>
+  </data>
+  <data name="Copilot_Provider_CliMissing" xml:space="preserve">
+    <value>所选 Copilot CLI 已不存在：{0}。请在“设置”中选择其他 Copilot CLI。</value>
+  </data>
+  <data name="Settings_Ai_Copilot_NoModelListTitle" xml:space="preserve">
+    <value>已连接到 GitHub Copilot</value>
+  </data>
+  <data name="Settings_Ai_Copilot_NoModelListMessage" xml:space="preserve">
+    <value>Copilot CLI 未返回模型列表，因此仅提供“auto”。使用“auto”时，Copilot 会为每个请求选择模型。</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_Remove.Content" xml:space="preserve">
+    <value>移除此应用安装的 Copilot CLI</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemoveTitle" xml:space="preserve">
+    <value>移除此应用安装的 Copilot CLI</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemoveConfirm" xml:space="preserve">
+    <value>这将删除 WSL Container Desktop 为自身下载的 Copilot CLI。
+
+• 通过 WinGet、npm 或 VS Code 安装的 Copilot CLI 不受影响
+• 你的 Copilot 登录会保留
+• 如果它当前被选中，应用将切换回“自动”
+
+你可以在此页面重新安装。</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemovedTitle" xml:space="preserve">
+    <value>已移除 Copilot CLI</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemovedMessage" xml:space="preserve">
+    <value>已移除此应用安装的 Copilot CLI。</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemovedSelectedMessage" xml:space="preserve">
+    <value>已移除此应用安装的 Copilot CLI。Copilot CLI 选择已恢复为“自动”。</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemoveFailedTitle" xml:space="preserve">
+    <value>未能移除 Copilot CLI</value>
+  </data>
+  <data name="Settings_Ai_CopilotCli_RemoveFailedMessage" xml:space="preserve">
+    <value>部分文件仍在使用中。请等待 Copilot 请求完成后重试。</value>
+  </data>
 </root>
