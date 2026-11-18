@@ -954,6 +954,7 @@ public sealed class Wslc301RuntimeTests
         public string AiFoundryLocalEndpoint { get; set; } = string.Empty;
         public string AiFoundryLocalModel { get; set; } = string.Empty;
         public string AiGitHubCopilotModel { get; set; } = string.Empty;
+        public string AiGitHubCopilotCliPath { get; set; } = string.Empty;
         public bool AiAssistantAutoCreateRun { get; set; }
         public bool AiAssistantAutoLifecycle { get; set; }
         public bool AiAssistantAutoComposeTemplate { get; set; }

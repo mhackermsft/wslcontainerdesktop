@@ -545,6 +545,59 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        AutomationProperties.AutomationId="AiCopilotCliComboBox"
+                                        Grid.Column="0"
+                                        HorizontalAlignment="Stretch"
+                                        DisplayMemberPath="LocalizedDisplayName"
+                                        x:Uid="Settings_Ai_CopilotCli_Picker" i18n:Localization.Uid="Settings_Ai_CopilotCli_Picker"
+                                        ItemsSource="{x:Bind ViewModel.GitHubCopilotCliOptions, Mode=OneWay}"
+                                        SelectedValue="{x:Bind ViewModel.AiGitHubCopilotCliPath, Mode=TwoWay}"
+                                        SelectedValuePath="Id" />
+                                    <Button
+                                        AutomationProperties.AutomationId="BrowseCopilotCliButton"
+                                        Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Click="BrowseCopilotCli_Click"
+                                        x:Uid="Settings_Ai_CopilotCli_Browse" i18n:Localization.Uid="Settings_Ai_CopilotCli_Browse" />
+                                    <Button
+                                        AutomationProperties.AutomationId="RefreshCopilotCliButton"
+                                        Grid.Column="2"
+                                        VerticalAlignment="Bottom"
+                                        Command="{x:Bind ViewModel.RefreshGitHubCopilotCliCommand}"
+                                        x:Uid="Settings_Ai_CopilotCli_Refresh" i18n:Localization.Uid="Settings_Ai_CopilotCli_Refresh" />
+                                </Grid>
+                                <TextBlock
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind ViewModel.GitHubCopilotCliHelp, Mode=OneWay}"
+                                    TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        AutomationProperties.AutomationId="InstallCopilotCliButton"
+                                        Command="{x:Bind ViewModel.InstallGitHubCopilotCliCommand}"
+                                        Content="{x:Bind ViewModel.InstallGitHubCopilotCliLabel, Mode=OneWay}" />
+                                    <Button
+                                        AutomationProperties.AutomationId="RemoveCopilotCliButton"
+                                        Click="RemoveCopilotCli_Click"
+                                        Visibility="{x:Bind ViewModel.HasAppInstalledGitHubCopilotCli, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                        x:Uid="Settings_Ai_CopilotCli_Remove" i18n:Localization.Uid="Settings_Ai_CopilotCli_Remove" />
+                                    <ProgressRing
+                                        Width="20"
+                                        Height="20"
+                                        IsActive="{x:Bind ViewModel.IsInstallingGitHubCopilotCli, Mode=OneWay}"
+                                        Visibility="{x:Bind ViewModel.IsInstallingGitHubCopilotCli, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind ViewModel.GitHubCopilotCliInstallStatus, Mode=OneWay}"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <ComboBox
                                         Grid.Column="0"

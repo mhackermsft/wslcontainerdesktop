@@ -15,7 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 using System.Text.Json;
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Microsoft.Extensions.AI;
 using WslContainerDesktop.Models;
 using WslContainerDesktop.Services;
@@ -102,17 +102,17 @@ public sealed class AssistantCatalogAdapterTests(ITestOutputHelper output)
                         invoke, error => throw new InvalidOperationException("SDK binding failed", error), "synthetic-workdir");
                     var mappedBytes = JsonSerializer.SerializeToUtf8Bytes(new
                     {
-                        config.Model, config.SystemMessage, config.AvailableTools,
+                        config.Model, config.SystemMessage, config.Tools.AvailableTools,
                         prompt = sdkPrompts[^1],
-                        tools = config.Tools!.Select(t => new { t.Name, t.Description, parameters = t.JsonSchema }),
+                        tools = config.Tools.Definitions!.Select(t => new { t.Name, t.Description, parameters = t.JsonSchema }),
                     }).Length;
                     var accounted = AiConversationContext.Measure(history, definitions);
                     output.WriteLine($"SDK app-owned prompt/tool mapping: {mappedBytes} bytes; accounted: {accounted}");
                     Assert.True(mappedBytes <= accounted);
-                    Assert.Equal(definitions.Select(d => d.Name), config.AvailableTools);
+                    Assert.Equal(definitions.Select(d => d.Name), config.Tools.AvailableTools);
                     if (++sdkTurns == 1)
                     {
-                        var function = Assert.IsAssignableFrom<AIFunction>(config.Tools!.Single(t => t.Name == call.Name));
+                        var function = Assert.IsAssignableFrom<AIFunction>(config.Tools.Definitions!.Single(t => t.Name == call.Name));
                         await function.InvokeAsync(CopilotSdkBindingTests.Bind(call), ct);
                     }
                     return sdkTurns == 1 ? "Completed fixture turn" : "Follow-up fixture turn";

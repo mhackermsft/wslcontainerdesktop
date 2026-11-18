@@ -55,6 +55,14 @@
   </ItemGroup>
 
   <!--
+    Record the Copilot CLI version the Copilot SDK was built against (CopilotCliVersion comes from
+    the SDK package's props). Settings uses it to download a CLI that speaks the same protocol.
+  -->
+  <ItemGroup>
+    <AssemblyMetadata Include="CopilotCliVersion" Value="$(CopilotCliVersion)" />
+  </ItemGroup>
+
+  <!--
     Microsoft.Windows.SDK.BuildTools.WinApp adds first-class support for
     `dotnet run` on packaged WinUI apps: it hooks the .NET CLI Run target to
     register a debug identity via the winapp CLI and launch the app with
@@ -63,7 +71,7 @@
     <PropertyGroup> above to opt out.
   -->
   <ItemGroup>
-    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.7" />
+    <PackageReference Include="Microsoft.Copilot.SDK" Version="2.0.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.4.0" />

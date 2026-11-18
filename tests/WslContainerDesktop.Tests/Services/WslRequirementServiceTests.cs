@@ -299,6 +299,7 @@ public sealed class WslRequirementServiceTests
             public string AiFoundryLocalEndpoint { get; set; } = "";
             public string AiFoundryLocalModel { get; set; } = "";
             public string AiGitHubCopilotModel { get; set; } = "";
+            public string AiGitHubCopilotCliPath { get; set; } = "";
             public bool AiAssistantAutoCreateRun { get; set; }
             public bool AiAssistantAutoLifecycle { get; set; }
             public bool AiAssistantAutoComposeTemplate { get; set; }

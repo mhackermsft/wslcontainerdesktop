@@ -95,6 +95,8 @@ public sealed class SettingsService : ISettingsService
     /// <inheritdoc/>
     public string AiGitHubCopilotModel { get; set; } = "auto";
     /// <inheritdoc/>
+    public string AiGitHubCopilotCliPath { get; set; } = string.Empty;
+    /// <inheritdoc/>
     public bool AiAssistantAutoCreateRun { get; set; }
     /// <inheritdoc/>
     public bool AiAssistantAutoLifecycle { get; set; }
@@ -200,6 +202,7 @@ public sealed class SettingsService : ISettingsService
             AiFoundryLocalEndpoint = dto.AiFoundryLocalEndpoint ?? string.Empty;
             AiFoundryLocalModel = dto.AiFoundryLocalModel ?? string.Empty;
             AiGitHubCopilotModel = string.IsNullOrWhiteSpace(dto.AiGitHubCopilotModel) ? "auto" : dto.AiGitHubCopilotModel;
+            AiGitHubCopilotCliPath = dto.AiGitHubCopilotCliPath?.Trim() ?? string.Empty;
             AiAssistantAutoCreateRun = dto.AiAssistantAutoCreateRun;
             AiAssistantAutoLifecycle = dto.AiAssistantAutoLifecycle;
             AiAssistantAutoComposeTemplate = dto.AiAssistantAutoComposeTemplate;
@@ -346,6 +349,7 @@ public sealed class SettingsService : ISettingsService
                 AiFoundryLocalEndpoint = AiFoundryLocalEndpoint,
                 AiFoundryLocalModel = AiFoundryLocalModel,
                 AiGitHubCopilotModel = AiGitHubCopilotModel,
+                AiGitHubCopilotCliPath = AiGitHubCopilotCliPath,
                 AiAssistantAutoCreateRun = AiAssistantAutoCreateRun,
                 AiAssistantAutoLifecycle = AiAssistantAutoLifecycle,
                 AiAssistantAutoComposeTemplate = AiAssistantAutoComposeTemplate,
@@ -475,6 +479,7 @@ public sealed class SettingsService : ISettingsService
         public string? AiFoundryLocalEndpoint { get; set; }
         public string? AiFoundryLocalModel { get; set; }
         public string? AiGitHubCopilotModel { get; set; }
+        public string? AiGitHubCopilotCliPath { get; set; }
         public bool AiAssistantAutoCreateRun { get; set; }
         public bool AiAssistantAutoLifecycle { get; set; }
         public bool AiAssistantAutoComposeTemplate { get; set; }
